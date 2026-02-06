@@ -1,4 +1,4 @@
-use regex::Regex;
+use regex::{Regex, RegexSet};
 
 use crate::detector::Detector;
 use crate::{PiiKind, PiiMatch};
@@ -9,6 +9,7 @@ struct Pattern {
 }
 
 pub struct RegexDetector {
+    set: RegexSet,
     patterns: Vec<Pattern>,
 }
 
@@ -20,58 +21,59 @@ impl Default for RegexDetector {
 
 impl RegexDetector {
     pub fn new() -> Self {
-        let patterns = vec![
-            Pattern {
-                kind: PiiKind::Email,
-                regex: Regex::new(r"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::PhoneNumber,
-                regex: Regex::new(r"(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}")
-                    .unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::CreditCard,
-                regex: Regex::new(r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{1,4}\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::Ssn,
-                regex: Regex::new(r"\b(\d{3})-(\d{2})-(\d{4})\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::Nino,
-                regex: Regex::new(r"\b[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::Iban,
-                regex: Regex::new(r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}(?:\s?[A-Z0-9]{4}){1,7}(?:\s?[A-Z0-9]{1,4})?\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::PassportNumber,
-                regex: Regex::new(r"\b\d{9}\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::IpAddress,
-                regex: Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b").unwrap(),
-            },
-            Pattern {
-                kind: PiiKind::IpAddress,
-                regex: Regex::new(r"(?i)(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}|::)").unwrap(),
-            },
+        let raw_patterns: Vec<(PiiKind, &str)> = vec![
+            (
+                PiiKind::Email,
+                r"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}",
+            ),
+            (
+                PiiKind::PhoneNumber,
+                r"(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}",
+            ),
+            (PiiKind::CreditCard, r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{1,4}\b"),
+            (PiiKind::Ssn, r"\b(\d{3})-(\d{2})-(\d{4})\b"),
+            (
+                PiiKind::Nino,
+                r"\b[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]\b",
+            ),
+            (
+                PiiKind::Iban,
+                r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}(?:\s?[A-Z0-9]{4}){1,7}(?:\s?[A-Z0-9]{1,4})?\b",
+            ),
+            (PiiKind::PassportNumber, r"\b\d{9}\b"),
+            (
+                PiiKind::IpAddress,
+                r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+            ),
+            (
+                PiiKind::IpAddress,
+                r"(?i)(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}|::)",
+            ),
         ];
 
-        Self { patterns }
+        let set = RegexSet::new(raw_patterns.iter().map(|(_, pat)| pat)).unwrap();
+        let patterns = raw_patterns
+            .into_iter()
+            .map(|(kind, pat)| Pattern {
+                kind,
+                regex: Regex::new(pat).unwrap(),
+            })
+            .collect();
+
+        Self { set, patterns }
     }
 }
 
 impl Detector for RegexDetector {
     fn has_piis(&self, input: &str) -> bool {
-        self.patterns.iter().any(|p| p.regex.is_match(input))
+        self.set.is_match(input)
     }
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
         let mut matches = Vec::new();
-        for pattern in &self.patterns {
+        let matched_indices: Vec<usize> = self.set.matches(input).into_iter().collect();
+        for &idx in &matched_indices {
+            let pattern = &self.patterns[idx];
             for m in pattern.regex.find_iter(input) {
                 let candidate = m.as_str();
                 if pattern.kind == PiiKind::CreditCard && !luhn_check(candidate) {
