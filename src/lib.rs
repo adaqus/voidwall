@@ -9,6 +9,11 @@ pub enum PiiKind {
     Email,
     PhoneNumber,
     CreditCard,
+    Ssn,
+    Nino,
+    Iban,
+    PassportNumber,
+    IpAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

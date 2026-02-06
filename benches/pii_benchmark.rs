@@ -39,6 +39,56 @@ Billing amount: $249.99\n\n\
 A second payment of $50.00 was charged to card 5500 0000 0000 0004.\n\
 Please retain this confirmation for your records.";
 
+const SSN_TEXT: &str = "\
+Employee Records Update — Q1 2025\n\n\
+Please verify the following SSNs for payroll processing:\n\
+- John Smith: 123-45-6789\n\
+- Maria Garcia: 234-56-7890\n\
+- Robert Johnson: 345-67-8901\n\
+All employees must confirm their records by end of month.\n\
+Contact HR at extension 4200 for corrections.";
+
+const NINO_TEXT: &str = "\
+UK Employee Onboarding — National Insurance Numbers\n\n\
+New starters this quarter:\n\
+- Emma Thompson: AB 12 34 56 C\n\
+- James Wilson: CE345678A\n\
+- Sarah Davies: HJ 78 90 12 B\n\
+Please ensure all NINOs are registered with HMRC before the first payroll run.\n\
+Contact the payroll team for any discrepancies.";
+
+const IBAN_TEXT: &str = "\
+International Wire Transfer Instructions\n\n\
+Beneficiary: Acme GmbH\n\
+IBAN: DE89 3704 0044 0532 0130 00\n\
+BIC: COBADEFFXXX\n\n\
+Secondary account:\n\
+IBAN: GB29 NWBK 6016 1331 9268 19\n\
+Please reference invoice #INV-2025-0042 in the payment description.\n\
+Processing time is typically 1-3 business days for SEPA transfers.";
+
+const PASSPORT_TEXT: &str = "\
+Travel Authorization Request\n\n\
+Passenger: Jane Doe\n\
+Passport Number: 123456789\n\
+Nationality: US\n\
+Expiry: 2028-06-15\n\n\
+Co-traveler: John Doe\n\
+Passport Number: 987654321\n\
+Nationality: US\n\
+Expiry: 2029-03-20\n\
+Please submit copies of all passport bio pages to the travel desk.";
+
+const IP_TEXT: &str = "\
+Server Incident Report — 2025-01-15\n\n\
+Affected systems:\n\
+- Web server: 192.168.1.100\n\
+- Database: 10.0.0.42\n\
+- Load balancer: 172.16.0.1\n\
+- IPv6 gateway: 2001:0db8:85a3:0000:0000:8a2e:0370:7334\n\n\
+Unauthorized access detected from 203.0.113.55 at 14:23 UTC.\n\
+All traffic from the source IP has been blocked at the firewall.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -59,9 +109,14 @@ Initiated chargeback process. Customer provided backup card \
 sup.martinez@internal.example.net. Customer will receive status update \
 at jane.doe@personalmail.com within 48 hours.\n\n\
 Escalation Contact: +1 (800) 555-0147\n\n\
+Customer Identity Verification:\n\
+  SSN on file: 123-45-6789\n\
+  UK NINO (dual citizen): AB 12 34 56 C\n\
+  Passport Number: 123456789\n\
+  Bank IBAN: GB29 NWBK 6016 1331 9268 19\n\n\
 Resolution Timeline:\n\
 The investigation team has been briefed. Preliminary review indicates the \
-transaction originated from an overseas IP address. The security team has \
+transaction originated from overseas IP address 203.0.113.55. The security team has \
 flagged the merchant account for further analysis. All relevant transaction \
 logs have been preserved for the investigation. The customer's account has \
 been temporarily secured with enhanced monitoring. A follow-up call is \
@@ -135,6 +190,26 @@ fn per_detector(c: &mut Criterion) {
 
     group.bench_function("credit_card", |b| {
         b.iter(|| scanner.mark_piis(CREDIT_CARD_TEXT));
+    });
+
+    group.bench_function("ssn", |b| {
+        b.iter(|| scanner.mark_piis(SSN_TEXT));
+    });
+
+    group.bench_function("nino", |b| {
+        b.iter(|| scanner.mark_piis(NINO_TEXT));
+    });
+
+    group.bench_function("iban", |b| {
+        b.iter(|| scanner.mark_piis(IBAN_TEXT));
+    });
+
+    group.bench_function("passport", |b| {
+        b.iter(|| scanner.mark_piis(PASSPORT_TEXT));
+    });
+
+    group.bench_function("ip_address", |b| {
+        b.iter(|| scanner.mark_piis(IP_TEXT));
     });
 
     group.finish();

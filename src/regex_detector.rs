@@ -34,6 +34,30 @@ impl RegexDetector {
                 kind: PiiKind::CreditCard,
                 regex: Regex::new(r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{1,4}\b").unwrap(),
             },
+            Pattern {
+                kind: PiiKind::Ssn,
+                regex: Regex::new(r"\b(\d{3})-(\d{2})-(\d{4})\b").unwrap(),
+            },
+            Pattern {
+                kind: PiiKind::Nino,
+                regex: Regex::new(r"\b[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]\b").unwrap(),
+            },
+            Pattern {
+                kind: PiiKind::Iban,
+                regex: Regex::new(r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}(?:\s?[A-Z0-9]{4}){1,7}(?:\s?[A-Z0-9]{1,4})?\b").unwrap(),
+            },
+            Pattern {
+                kind: PiiKind::PassportNumber,
+                regex: Regex::new(r"\b\d{9}\b").unwrap(),
+            },
+            Pattern {
+                kind: PiiKind::IpAddress,
+                regex: Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b").unwrap(),
+            },
+            Pattern {
+                kind: PiiKind::IpAddress,
+                regex: Regex::new(r"(?i)(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}|::)").unwrap(),
+            },
         ];
 
         Self { patterns }
@@ -51,6 +75,18 @@ impl Detector for RegexDetector {
             for m in pattern.regex.find_iter(input) {
                 let candidate = m.as_str();
                 if pattern.kind == PiiKind::CreditCard && !luhn_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Ssn && !ssn_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Nino && !nino_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Iban && !iban_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::IpAddress && !ip_check(candidate) {
                     continue;
                 }
                 matches.push(PiiMatch {
@@ -87,6 +123,99 @@ fn luhn_check(s: &str) -> bool {
         })
         .sum();
     checksum % 10 == 0
+}
+
+fn ssn_check(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let area: u32 = parts[0].parse().unwrap_or(0);
+    let group: u32 = parts[1].parse().unwrap_or(0);
+    let serial: u32 = parts[2].parse().unwrap_or(0);
+    if area == 0 || area == 666 || (900..=999).contains(&area) {
+        return false;
+    }
+    if group == 0 {
+        return false;
+    }
+    if serial == 0 {
+        return false;
+    }
+    true
+}
+
+fn nino_check(s: &str) -> bool {
+    let upper: String = s
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_uppercase();
+    if upper.len() != 9 {
+        return false;
+    }
+    let bytes = upper.as_bytes();
+    let first = bytes[0] as char;
+    let second = bytes[1] as char;
+    // First letter must not be D, F, I, Q, U, V
+    if matches!(first, 'D' | 'F' | 'I' | 'Q' | 'U' | 'V') {
+        return false;
+    }
+    // Second letter must not be D, F, I, O, Q, U, V
+    if matches!(second, 'D' | 'F' | 'I' | 'O' | 'Q' | 'U' | 'V') {
+        return false;
+    }
+    // Prefix must not be BG, GB, NK, KN, TN, NT, ZZ
+    let prefix = &upper[..2];
+    if matches!(prefix, "BG" | "GB" | "NK" | "KN" | "TN" | "NT" | "ZZ") {
+        return false;
+    }
+    true
+}
+
+fn iban_check(s: &str) -> bool {
+    let compact: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if compact.len() < 15 || compact.len() > 34 {
+        return false;
+    }
+    // Rearrange: move first 4 chars to end
+    let rearranged = format!("{}{}", &compact[4..], &compact[..4]);
+    // Convert letters to numbers (A=10, B=11, ..., Z=35)
+    let mut numeric = String::new();
+    for c in rearranged.chars() {
+        if c.is_ascii_digit() {
+            numeric.push(c);
+        } else if c.is_ascii_uppercase() {
+            let val = (c as u32) - ('A' as u32) + 10;
+            numeric.push_str(&val.to_string());
+        } else {
+            return false;
+        }
+    }
+    // Mod 97 using iterative approach (avoid big integer)
+    let mut remainder: u64 = 0;
+    for chunk in numeric.as_bytes().chunks(9) {
+        let s = std::str::from_utf8(chunk).unwrap();
+        let combined = format!("{remainder}{s}");
+        remainder = combined.parse::<u64>().unwrap_or(0) % 97;
+    }
+    remainder == 1
+}
+
+fn ip_check(s: &str) -> bool {
+    // Only validate IPv4 (contains dots); IPv6 passes through
+    if s.contains('.') {
+        for octet_str in s.split('.') {
+            let octet: u32 = match octet_str.parse() {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+            if octet > 255 {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -502,5 +631,240 @@ mod tests {
             phone_matches.len() <= 1,
             "long digit string should match at most one phone pattern"
         );
+    }
+
+    // --- SSN tests ---
+
+    #[test]
+    fn detects_ssn() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 123-45-6789");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Ssn);
+    }
+
+    #[test]
+    fn detects_ssn_span() {
+        let detector = RegexDetector::new();
+        let input = "my ssn is 078-05-1120 ok";
+        let matches = detector.mark_piis(input);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "078-05-1120");
+    }
+
+    #[test]
+    fn rejects_ssn_area_000() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 000-45-6789");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+    }
+
+    #[test]
+    fn rejects_ssn_area_666() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 666-45-6789");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+    }
+
+    #[test]
+    fn rejects_ssn_area_900_range() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 900-45-6789");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+    }
+
+    #[test]
+    fn rejects_ssn_group_00() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 123-00-6789");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+    }
+
+    #[test]
+    fn rejects_ssn_serial_0000() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SSN: 123-45-0000");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+    }
+
+    // --- NINO tests ---
+
+    #[test]
+    fn detects_nino() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: AB 12 34 56 C");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Nino);
+    }
+
+    #[test]
+    fn detects_nino_no_spaces() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: AB123456C");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Nino);
+    }
+
+    #[test]
+    fn detects_nino_lowercase() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("nino: ab 12 34 56 c");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Nino);
+    }
+
+    #[test]
+    fn rejects_nino_invalid_first_letter_d() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: DA123456C");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Nino));
+    }
+
+    #[test]
+    fn rejects_nino_invalid_second_letter_o() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: AO123456C");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Nino));
+    }
+
+    #[test]
+    fn rejects_nino_invalid_prefix_bg() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: BG123456C");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Nino));
+    }
+
+    #[test]
+    fn rejects_nino_invalid_prefix_zz() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("NINO: ZZ123456C");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Nino));
+    }
+
+    // --- IBAN tests ---
+
+    #[test]
+    fn detects_iban_gb() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("IBAN: GB29 NWBK 6016 1331 9268 19");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Iban);
+    }
+
+    #[test]
+    fn detects_iban_de() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("IBAN: DE89 3704 0044 0532 0130 00");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::Iban);
+    }
+
+    #[test]
+    fn detects_iban_no_spaces() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("IBAN: GB29NWBK60161331926819");
+        let iban_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Iban).collect();
+        assert_eq!(iban_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_iban_invalid_checksum() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("IBAN: GB00 NWBK 6016 1331 9268 19");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Iban));
+    }
+
+    // --- Passport Number tests ---
+
+    #[test]
+    fn detects_passport_number() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("Passport: 123456789");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::PassportNumber);
+    }
+
+    #[test]
+    fn does_not_detect_8_digits_as_passport() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("code: 12345678");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::PassportNumber));
+    }
+
+    #[test]
+    fn does_not_detect_10_digits_as_passport() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("code: 1234567890");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::PassportNumber));
+    }
+
+    // --- IP Address tests ---
+
+    #[test]
+    fn detects_ipv4() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("server at 192.168.1.1 is down");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::IpAddress);
+    }
+
+    #[test]
+    fn detects_ipv4_span() {
+        let detector = RegexDetector::new();
+        let input = "IP: 10.0.0.255 ok";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "10.0.0.255");
+    }
+
+    #[test]
+    fn rejects_ipv4_octet_out_of_range() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("addr: 999.999.999.999");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::IpAddress));
+    }
+
+    #[test]
+    fn rejects_ipv4_single_octet_over_255() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("addr: 192.168.1.256");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::IpAddress));
+    }
+
+    #[test]
+    fn detects_ipv6_full() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("host: 2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        let ip_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(ip_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_ipv6_compressed() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("host: ::1");
+        let ip_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(ip_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_ipv6_with_collapse() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("host: fe80::1");
+        let ip_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(ip_matches.len(), 1);
     }
 }
