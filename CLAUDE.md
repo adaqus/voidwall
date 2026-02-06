@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Check (fast compile check):** `cargo check`
 - **Lint:** `cargo clippy`
 - **Format:** `cargo fmt`
+- **Benchmarks:** `cargo bench --bench pii_benchmark`
 
 ## Architecture
 
@@ -32,3 +33,15 @@ Library crate (no `main.rs`). Two detection modes:
 ### Detector Chain
 
 Detectors are stored as `Vec<Box<dyn Detector>>` in `Scanner`. In `has_piis` mode, iteration short-circuits on the first detector that returns `true`. In `mark_piis` mode, all detectors run and results are concatenated. New detector types (e.g., unstructured/NLP-based) plug in by implementing the `Detector` trait.
+
+### Adding a New Detector — Checklist
+
+When adding a new detector or PII type, update **all** of the following:
+
+1. Implement the `Detector` trait and register it in `Scanner::new()`
+2. Add the new variant to `PiiKind`
+3. Add unit tests
+4. **Update benchmarks** (`benches/pii_benchmark.rs`):
+   - Add a corpus constant (e.g., `SSN_TEXT`) with realistic embedded PII
+   - Add an entry in the `per_detector` benchmark group
+   - Add the new PII type into `MIXED_PII_TEXT` so throughput and comparison benchmarks cover it

@@ -6,3 +6,10 @@ edition = "2024"
 
 [dependencies]
 regex = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "pii_benchmark"
+harness = false
