@@ -1,0 +1,8 @@
+[package]
+name = "pii"
+description = "Library detecting various Personally Identifiable Information"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+regex = "1"
