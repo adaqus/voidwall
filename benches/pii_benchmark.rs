@@ -149,6 +149,70 @@ The following VINs require verification:\n\
 - Ford F-150: 1FTFW1ET0DFC10312\n\
 All VINs must be cross-referenced with manufacturer records.";
 
+const TFN_TEXT: &str = "\
+Australian Taxation Office — TFN Verification\n\n\
+The following tax file numbers require validation:\n\
+- Employee A: TFN: 123 456 782\n\
+- Employee B: Tax file number: 876 543 210\n\
+Please ensure all TFNs are registered before payroll processing.\n\
+Contact the ATO helpline for discrepancies.";
+
+const NZ_IRD_TEXT: &str = "\
+Inland Revenue Department — IRD Number Verification\n\n\
+The following IRD numbers need validation:\n\
+- Taxpayer A: IRD number: 49-091-857\n\
+- Taxpayer B: IRD: 136-410-133\n\
+All IRD numbers must be verified before tax returns are processed.\n\
+Contact the IRD helpline for any corrections.";
+
+const NHS_TEXT: &str = "\
+National Health Service — Patient Records\n\n\
+Patient NHS numbers for verification:\n\
+- Patient A: NHS number: 943 476 5919\n\
+- Patient B: NHS: 401 023 2137\n\
+Please verify all NHS numbers against the spine database.\n\
+Contact the NHS helpdesk for discrepancies.";
+
+const MEDICARE_TEXT: &str = "\
+Medicare Australia — Card Verification\n\n\
+Medicare numbers for processing:\n\
+- Member A: Medicare number: 2123 45670 1\n\
+- Member B: Medicare card: 3987 65432 1\n\
+All Medicare numbers must be verified before claims are processed.\n\
+Contact Medicare for any issues.";
+
+const US_PASSPORT_NEW_TEXT: &str = "\
+US Department of State — Passport Records\n\n\
+New format passport numbers for verification:\n\
+- Applicant A: Passport number: A12345678\n\
+- Applicant B: US passport: X98765432\n\
+All passport numbers must be verified against State Department records.\n\
+Contact the passport agency for corrections.";
+
+const SWIFT_BIC_TEXT: &str = "\
+International Banking — SWIFT Code Directory\n\n\
+Bank routing codes for wire transfers:\n\
+- Deutsche Bank: SWIFT code: DEUTDEFF\n\
+- HSBC London: BIC: HSBCGB2LXXX\n\
+All SWIFT/BIC codes must be verified before transfers are initiated.\n\
+Contact the correspondent banking team for queries.";
+
+const EIN_TEXT: &str = "\
+IRS — Employer Identification Number Records\n\n\
+Business EINs for tax filing:\n\
+- Acme Corp: EIN: 12-3456789\n\
+- Widget Inc: Employer identification number: 20-1234567\n\
+All EINs must be verified before quarterly filings are submitted.\n\
+Contact the IRS business helpline for corrections.";
+
+const IMEI_TEXT: &str = "\
+Mobile Device Management — IMEI Registry\n\n\
+Device IMEI numbers for inventory:\n\
+- iPhone 15: IMEI: 490154203237518\n\
+- Samsung S24: IMEI number: 35-209900-176148-1\n\
+All IMEI numbers must be registered in the device management system.\n\
+Contact IT support for any discrepancies.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -195,6 +259,15 @@ Extended Verification Records:\n\
   Device MAC address: 00:1A:2B:3C:4D:5E\n\
   UK Driving Licence: JONES901157A99Y1\n\
   Vehicle VIN: 1HGBH41JXMN109186\n\n\
+Tier 2 Verification Records:\n\
+  TFN: 123 456 782\n\
+  IRD number: 49-091-857\n\
+  NHS number: 943 476 5919\n\
+  Medicare number: 2123 45670 1\n\
+  Passport number: A12345678\n\
+  SWIFT code: DEUTDEFF\n\
+  EIN: 12-3456789\n\
+  IMEI: 490154203237518\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -333,6 +406,38 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("vin", |b| {
         b.iter(|| scanner.mark_piis(VIN_TEXT));
+    });
+
+    group.bench_function("australia_tfn", |b| {
+        b.iter(|| scanner.mark_piis(TFN_TEXT));
+    });
+
+    group.bench_function("nz_ird", |b| {
+        b.iter(|| scanner.mark_piis(NZ_IRD_TEXT));
+    });
+
+    group.bench_function("nhs_number", |b| {
+        b.iter(|| scanner.mark_piis(NHS_TEXT));
+    });
+
+    group.bench_function("au_medicare", |b| {
+        b.iter(|| scanner.mark_piis(MEDICARE_TEXT));
+    });
+
+    group.bench_function("us_passport_new", |b| {
+        b.iter(|| scanner.mark_piis(US_PASSPORT_NEW_TEXT));
+    });
+
+    group.bench_function("swift_bic", |b| {
+        b.iter(|| scanner.mark_piis(SWIFT_BIC_TEXT));
+    });
+
+    group.bench_function("ein", |b| {
+        b.iter(|| scanner.mark_piis(EIN_TEXT));
+    });
+
+    group.bench_function("imei", |b| {
+        b.iter(|| scanner.mark_piis(IMEI_TEXT));
     });
 
     group.finish();

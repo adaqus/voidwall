@@ -1,5 +1,6 @@
 use crate::PiiMatch;
 use crate::detector::Detector;
+use crate::keyword_context_detector::KeywordContextDetector;
 use crate::regex_detector::RegexDetector;
 
 pub struct Scanner {
@@ -15,7 +16,10 @@ impl Default for Scanner {
 impl Scanner {
     pub fn new() -> Self {
         Self {
-            detectors: vec![Box::new(RegexDetector::new())],
+            detectors: vec![
+                Box::new(RegexDetector::new()),
+                Box::new(KeywordContextDetector::new()),
+            ],
         }
     }
 

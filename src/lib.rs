@@ -1,4 +1,5 @@
 pub mod detector;
+pub mod keyword_context_detector;
 pub mod regex_detector;
 pub mod scanner;
 
@@ -21,6 +22,14 @@ pub enum PiiKind {
     MacAddress,
     UkDrivingLicence,
     Vin,
+    AustraliaTfn,
+    NzIrdNumber,
+    NhsNumber,
+    AuMedicare,
+    UsPassportNew,
+    SwiftBic,
+    Ein,
+    Imei,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
