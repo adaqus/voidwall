@@ -200,11 +200,11 @@ fn has_piis_vs_mark_piis(c: &mut Criterion) {
 }
 
 // Isolates each PII type by running mark_piis on text containing only that
-// type. Shows the relative cost of each detector's regex + validation.
-fn per_detector(c: &mut Criterion) {
+// type. Shows the relative cost of each PII kind's regex + validation.
+fn per_pii_kind(c: &mut Criterion) {
     let scanner = Scanner::new();
 
-    let mut group = c.benchmark_group("per_detector");
+    let mut group = c.benchmark_group("per_pii_kind");
 
     group.bench_function("email", |b| {
         b.iter(|| scanner.mark_piis(EMAIL_TEXT));
@@ -264,7 +264,7 @@ criterion_group!(
     throughput_mark_piis,
     throughput_has_piis,
     has_piis_vs_mark_piis,
-    per_detector,
+    per_pii_kind,
     clean_text_overhead
 );
 criterion_main!(benches);
