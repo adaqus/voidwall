@@ -1119,4 +1119,83 @@ mod tests {
         assert!(detector.has_piis("Sort code:20-00-00"));
         assert!(detector.has_piis("Sort code#20-00-00"));
     }
+
+    // ===== Newline separator between keyword and value =====
+
+    #[test]
+    fn tfn_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("TFN:\n123 456 782"));
+        assert!(detector.has_piis("Tax file number\n123 456 782"));
+    }
+
+    #[test]
+    fn ird_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IRD:\n49-091-857"));
+        assert!(detector.has_piis("IRD number\n49-091-857"));
+    }
+
+    #[test]
+    fn nhs_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("NHS:\n943 476 5919"));
+        assert!(detector.has_piis("NHS number\n943 476 5919"));
+    }
+
+    #[test]
+    fn medicare_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Medicare:\n2123 45670 1"));
+        assert!(detector.has_piis("Medicare number\n2123 45670 1"));
+    }
+
+    #[test]
+    fn us_passport_new_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Passport:\nA12345678"));
+        assert!(detector.has_piis("Passport number\nA12345678"));
+    }
+
+    #[test]
+    fn swift_bic_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("SWIFT:\nDEUTDEFF"));
+        assert!(detector.has_piis("SWIFT code\nDEUTDEFF"));
+    }
+
+    #[test]
+    fn ein_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("EIN:\n12-3456789"));
+        assert!(detector.has_piis("EIN number\n12-3456789"));
+    }
+
+    #[test]
+    fn imei_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IMEI:\n490154203237518"));
+        assert!(detector.has_piis("IMEI number\n490154203237518"));
+    }
+
+    #[test]
+    fn utr_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("UTR:\n5555555555"));
+        assert!(detector.has_piis("UTR number\n5555555555"));
+    }
+
+    #[test]
+    fn aba_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Routing number:\n021000021"));
+        assert!(detector.has_piis("ABA routing\n021000021"));
+    }
+
+    #[test]
+    fn sort_code_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Sort code:\n20-00-00"));
+        assert!(detector.has_piis("Bank sort code\n20-00-00"));
+    }
 }
