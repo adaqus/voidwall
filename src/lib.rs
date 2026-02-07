@@ -14,6 +14,13 @@ pub enum PiiKind {
     Iban,
     PassportNumber,
     IpAddress,
+    Itin,
+    Sin,
+    Ppsn,
+    SouthAfricaId,
+    MacAddress,
+    UkDrivingLicence,
+    Vin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

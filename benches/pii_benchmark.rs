@@ -89,6 +89,66 @@ Affected systems:\n\
 Unauthorized access detected from 203.0.113.55 at 14:23 UTC.\n\
 All traffic from the source IP has been blocked at the firewall.";
 
+const ITIN_TEXT: &str = "\
+IRS Individual Taxpayer Identification Numbers — Batch Verification\n\n\
+The following ITINs require validation before processing:\n\
+- Applicant A: 912-70-1234\n\
+- Applicant B: 900-94-5678\n\
+- Applicant C: 923-86-4321\n\
+Please verify all ITINs against the IRS database before issuing refunds.\n\
+Contact the ITIN unit at extension 7200 for discrepancies.";
+
+const SIN_TEXT: &str = "\
+Canada Revenue Agency — SIN Verification Report\n\n\
+Employee social insurance numbers for payroll registration:\n\
+- Marie Tremblay: 130-692-544\n\
+- James Chen: 130 692 544\n\
+- Sophie Martin: 468-277-138\n\
+All SINs must be validated before the first pay period.\n\
+Contact HR for any corrections needed.";
+
+const PPSN_TEXT: &str = "\
+Revenue Commissioners — PPSN Records\n\n\
+New registrations this quarter:\n\
+- Sean Murphy: 1234567T\n\
+- Aoife Kelly: 1234567TW\n\
+- Padraig O'Brien: 7654321M\n\
+All PPSNs must be verified before tax credits are applied.\n\
+Contact the local Revenue office for queries.";
+
+const SA_ID_TEXT: &str = "\
+Department of Home Affairs — Identity Verification\n\n\
+The following South African ID numbers need validation:\n\
+- Thabo Mbeki: 8001015009087\n\
+- Naledi Zulu: 9506150089080\n\
+Please ensure all ID numbers are registered in the population register.\n\
+Contact the nearest Home Affairs office for amendments.";
+
+const MAC_TEXT: &str = "\
+Network Device Inventory — Building A, Floor 3\n\n\
+Registered MAC addresses:\n\
+- Workstation 1: 00:1A:2B:3C:4D:5E\n\
+- Workstation 2: AA-BB-CC-DD-EE-FF\n\
+- Cisco Switch: 001A.2B3C.4D5E\n\
+- Access Point: ff:ee:dd:cc:bb:aa\n\
+All devices must be registered in the asset management system.";
+
+const UK_DL_TEXT: &str = "\
+DVLA — Driving Licence Verification\n\n\
+Licence numbers for identity check:\n\
+- Mr Jones: JONES901157A99Y1\n\
+- Ms Smith: SMITH856107B92X3\n\
+Please verify all licence numbers against DVLA records.\n\
+Contact the DVLA helpline for any discrepancies.";
+
+const VIN_TEXT: &str = "\
+Vehicle Registration Database — Monthly Audit\n\n\
+The following VINs require verification:\n\
+- Honda Civic: 1HGBH41JXMN109186\n\
+- Toyota Camry: 4T1BF1FK5CU638859\n\
+- Ford F-150: 1FTFW1ET0DFC10312\n\
+All VINs must be cross-referenced with manufacturer records.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -126,7 +186,16 @@ Additional documentation has been requested from the merchant's acquiring \
 bank. Internal case reference: FRD-2025-00342. The customer expressed \
 satisfaction with the initial response time and the steps taken to secure \
 their account. No further action required at this time pending investigation \
-results. End of ticket notes.\n";
+results.\n\n\
+Extended Verification Records:\n\
+  ITIN (US tax filing): 912-70-1234\n\
+  Canada SIN: 130-692-544\n\
+  Ireland PPSN: 1234567T\n\
+  South Africa ID: 8001015009087\n\
+  Device MAC address: 00:1A:2B:3C:4D:5E\n\
+  UK Driving Licence: JONES901157A99Y1\n\
+  Vehicle VIN: 1HGBH41JXMN109186\n\n\
+End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
@@ -236,6 +305,34 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("ip_address", |b| {
         b.iter(|| scanner.mark_piis(IP_TEXT));
+    });
+
+    group.bench_function("itin", |b| {
+        b.iter(|| scanner.mark_piis(ITIN_TEXT));
+    });
+
+    group.bench_function("sin", |b| {
+        b.iter(|| scanner.mark_piis(SIN_TEXT));
+    });
+
+    group.bench_function("ppsn", |b| {
+        b.iter(|| scanner.mark_piis(PPSN_TEXT));
+    });
+
+    group.bench_function("sa_id", |b| {
+        b.iter(|| scanner.mark_piis(SA_ID_TEXT));
+    });
+
+    group.bench_function("mac_address", |b| {
+        b.iter(|| scanner.mark_piis(MAC_TEXT));
+    });
+
+    group.bench_function("uk_driving_licence", |b| {
+        b.iter(|| scanner.mark_piis(UK_DL_TEXT));
+    });
+
+    group.bench_function("vin", |b| {
+        b.iter(|| scanner.mark_piis(VIN_TEXT));
     });
 
     group.finish();

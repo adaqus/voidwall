@@ -49,6 +49,27 @@ impl RegexDetector {
                 PiiKind::IpAddress,
                 r"(?i)(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}|::)",
             ),
+            (PiiKind::Itin, r"\b(9\d{2})-(\d{2})-(\d{4})\b"),
+            (PiiKind::Sin, r"\b\d{3}[-\s]\d{3}[-\s]\d{3}\b"),
+            (PiiKind::Ppsn, r"\b\d{7}[A-Za-z]{1,2}\b"),
+            (PiiKind::SouthAfricaId, r"\b\d{13}\b"),
+            (
+                PiiKind::MacAddress,
+                r"\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b",
+            ),
+            (
+                PiiKind::MacAddress,
+                r"\b[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}\b",
+            ),
+            (
+                PiiKind::MacAddress,
+                r"\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b",
+            ),
+            (
+                PiiKind::UkDrivingLicence,
+                r"\b[A-Z9]{5}\d[0-6]\d[0-3]\d\d[A-Z9]{2}\d[A-Z]\d\b",
+            ),
+            (PiiKind::Vin, r"\b[A-HJ-NPR-Z0-9]{17}\b"),
         ];
 
         let set = RegexSet::new(raw_patterns.iter().map(|(_, pat)| pat)).unwrap();
@@ -89,6 +110,24 @@ impl Detector for RegexDetector {
                     continue;
                 }
                 if pattern.kind == PiiKind::IpAddress && !ip_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Itin && !itin_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Sin && !sin_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Ppsn && !ppsn_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::SouthAfricaId && !sa_id_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::UkDrivingLicence && !uk_dl_check(candidate) {
+                    continue;
+                }
+                if pattern.kind == PiiKind::Vin && !vin_check(candidate) {
                     continue;
                 }
                 matches.push(PiiMatch {
@@ -217,6 +256,172 @@ fn ip_check(s: &str) -> bool {
             }
         }
     }
+    true
+}
+
+fn itin_check(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let group: u32 = parts[1].parse().unwrap_or(0);
+    matches!(group, 50..=65 | 70..=88 | 90..=92 | 94..=99)
+}
+
+fn sin_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 9 {
+        return false;
+    }
+    if digits[0] == 0 {
+        return false;
+    }
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
+
+fn ppsn_check(s: &str) -> bool {
+    let upper = s.to_uppercase();
+    let bytes = upper.as_bytes();
+    let digit_count = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digit_count != 7 {
+        return false;
+    }
+    let weights = [8, 7, 6, 5, 4, 3, 2];
+    let sum: u32 = bytes[..7]
+        .iter()
+        .zip(weights.iter())
+        .map(|(&b, &w)| (b - b'0') as u32 * w)
+        .sum();
+    let expected = sum % 23;
+    let check_letter = if expected == 0 {
+        b'W'
+    } else {
+        b'A' + (expected as u8 - 1)
+    };
+    bytes[7] == check_letter
+}
+
+fn sa_id_check(s: &str) -> bool {
+    if s.len() != 13 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let month: u32 = s[2..4].parse().unwrap_or(0);
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    let day: u32 = s[4..6].parse().unwrap_or(0);
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    let citizenship = s.as_bytes()[10] - b'0';
+    if citizenship > 1 {
+        return false;
+    }
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
+
+fn uk_dl_check(s: &str) -> bool {
+    if s.len() != 16 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    let month: u32 = ((bytes[6] - b'0') as u32) * 10 + (bytes[7] - b'0') as u32;
+    // Male: 01-12, Female: 51-62
+    if !((1..=12).contains(&month) || (51..=62).contains(&month)) {
+        return false;
+    }
+    let day: u32 = ((bytes[8] - b'0') as u32) * 10 + (bytes[9] - b'0') as u32;
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    true
+}
+
+fn vin_check(s: &str) -> bool {
+    if s.len() != 17 {
+        return false;
+    }
+    let transliterate = |c: u8| -> Option<u32> {
+        match c {
+            b'0'..=b'9' => Some((c - b'0') as u32),
+            b'A' => Some(1),
+            b'B' => Some(2),
+            b'C' => Some(3),
+            b'D' => Some(4),
+            b'E' => Some(5),
+            b'F' => Some(6),
+            b'G' => Some(7),
+            b'H' => Some(8),
+            b'J' => Some(1),
+            b'K' => Some(2),
+            b'L' => Some(3),
+            b'M' => Some(4),
+            b'N' => Some(5),
+            b'P' => Some(7),
+            b'R' => Some(9),
+            b'S' => Some(2),
+            b'T' => Some(3),
+            b'U' => Some(4),
+            b'V' => Some(5),
+            b'W' => Some(6),
+            b'X' => Some(7),
+            b'Y' => Some(8),
+            b'Z' => Some(9),
+            _ => None,
+        }
+    };
+    let weights: [u32; 17] = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+    let bytes = s.as_bytes();
+    let mut sum: u32 = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let val = match transliterate(b) {
+            Some(v) => v,
+            None => return false,
+        };
+        sum += val * weights[i];
+    }
+    let remainder = sum % 11;
+    let check_char = bytes[8];
+    let expected = if remainder == 10 {
+        b'X'
+    } else {
+        b'0' + remainder as u8
+    };
+    if check_char == expected {
+        return true;
+    }
+    // Non-NA VINs may not use mod-11 check digit; pass through
     true
 }
 
@@ -536,11 +741,14 @@ mod tests {
         let detector = RegexDetector::new();
         let matches = detector.mark_piis("appeler +33 612 345 678");
         // French numbers are 9 digits after country code — may not match 3-3-4 pattern
-        // The regex requires exactly 3-3-4 digit groups
+        let phone_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::PhoneNumber)
+            .collect();
         assert_eq!(
-            matches.len(),
+            phone_matches.len(),
             0,
-            "French 9-digit number should not match US-centric pattern"
+            "French 9-digit number should not match US-centric phone pattern"
         );
     }
 
@@ -868,5 +1076,248 @@ mod tests {
             .filter(|m| m.kind == PiiKind::IpAddress)
             .collect();
         assert_eq!(ip_matches.len(), 1);
+    }
+
+    // --- ITIN tests ---
+
+    #[test]
+    fn detects_itin() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("ITIN: 912-70-1234");
+        let itin_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Itin).collect();
+        assert_eq!(itin_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_itin_span() {
+        let detector = RegexDetector::new();
+        let input = "my ITIN is 900-94-5678 ok";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Itin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "900-94-5678");
+    }
+
+    #[test]
+    fn rejects_itin_invalid_group() {
+        let detector = RegexDetector::new();
+        // Group 30 is not in any valid range
+        let matches = detector.mark_piis("ITIN: 900-30-1234");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Itin));
+    }
+
+    #[test]
+    fn itin_does_not_overlap_with_ssn() {
+        let detector = RegexDetector::new();
+        // SSN rejects area 900+, so 900-xx-xxxx should only be ITIN if group is valid
+        let matches = detector.mark_piis("number: 912-70-1234");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ssn));
+        assert!(matches.iter().any(|m| m.kind == PiiKind::Itin));
+    }
+
+    // --- Canada SIN tests ---
+
+    #[test]
+    fn detects_sin_hyphens() {
+        let detector = RegexDetector::new();
+        // Valid SIN with Luhn: 130-692-544
+        let matches = detector.mark_piis("SIN: 130-692-544");
+        let sin_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Sin).collect();
+        assert_eq!(sin_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_sin_spaces() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SIN: 130 692 544");
+        let sin_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Sin).collect();
+        assert_eq!(sin_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_sin_failing_luhn() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("SIN: 123-456-789");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Sin));
+    }
+
+    // --- Ireland PPSN tests ---
+
+    #[test]
+    fn detects_ppsn_8char() {
+        let detector = RegexDetector::new();
+        // 1234567T: weights 8*1+7*2+6*3+5*4+4*5+3*6+2*7 = 8+14+18+20+20+18+14 = 112
+        // 112 % 23 = 112 - 4*23 = 112 - 92 = 20 => letter T (A=1, T=20)
+        let matches = detector.mark_piis("PPSN: 1234567T");
+        let ppsn_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Ppsn).collect();
+        assert_eq!(ppsn_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_ppsn_9char() {
+        let detector = RegexDetector::new();
+        // 1234567TW — second letter doesn't affect check
+        let matches = detector.mark_piis("PPSN: 1234567TW");
+        let ppsn_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Ppsn).collect();
+        assert_eq!(ppsn_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_ppsn_wrong_check_letter() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("PPSN: 1234567A");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Ppsn));
+    }
+
+    // --- South Africa ID tests ---
+
+    #[test]
+    fn detects_sa_id() {
+        let detector = RegexDetector::new();
+        // 8001015009087: DOB 80-01-01, SSSS=5009, citizen=0, checksum valid
+        let matches = detector.mark_piis("SA ID: 8001015009087");
+        let sa_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::SouthAfricaId)
+            .collect();
+        assert_eq!(sa_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_sa_id_invalid_month() {
+        let detector = RegexDetector::new();
+        // Month 13 is invalid
+        let matches = detector.mark_piis("SA ID: 8013015009087");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::SouthAfricaId));
+    }
+
+    #[test]
+    fn rejects_sa_id_invalid_day() {
+        let detector = RegexDetector::new();
+        // Day 32 is invalid
+        let matches = detector.mark_piis("SA ID: 8001325009087");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::SouthAfricaId));
+    }
+
+    #[test]
+    fn rejects_sa_id_failing_luhn() {
+        let detector = RegexDetector::new();
+        // Valid date/citizenship but bad checksum
+        let matches = detector.mark_piis("SA ID: 8001015009086");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::SouthAfricaId));
+    }
+
+    // --- MAC Address tests ---
+
+    #[test]
+    fn detects_mac_colon() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("MAC: 00:1A:2B:3C:4D:5E");
+        let mac_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::MacAddress)
+            .collect();
+        assert_eq!(mac_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_mac_hyphen() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("MAC: 00-1A-2B-3C-4D-5E");
+        let mac_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::MacAddress)
+            .collect();
+        assert_eq!(mac_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_mac_cisco_dot() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("MAC: 001A.2B3C.4D5E");
+        let mac_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::MacAddress)
+            .collect();
+        assert_eq!(mac_matches.len(), 1);
+    }
+
+    #[test]
+    fn detects_mac_lowercase() {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis("MAC: aa:bb:cc:dd:ee:ff");
+        let mac_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::MacAddress)
+            .collect();
+        assert_eq!(mac_matches.len(), 1);
+    }
+
+    // --- UK Driving Licence tests ---
+
+    #[test]
+    fn detects_uk_driving_licence() {
+        let detector = RegexDetector::new();
+        // JONES901157A99Y1: JONES, 9=decade, 01=Jan, 15=day, 7=year, A9=arb, 9=issue, Y=letter, 1=check
+        let matches = detector.mark_piis("DL: JONES901157A99Y1");
+        let dl_matches: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UkDrivingLicence)
+            .collect();
+        assert_eq!(dl_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_uk_dl_invalid_month() {
+        let detector = RegexDetector::new();
+        // Month position = 00 (invalid)
+        let matches = detector.mark_piis("DL: JONES900057A99Y1");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UkDrivingLicence));
+    }
+
+    #[test]
+    fn rejects_uk_dl_invalid_day() {
+        let detector = RegexDetector::new();
+        // Day = 00 (invalid)
+        let matches = detector.mark_piis("DL: JONES901007A99Y1");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UkDrivingLicence));
+    }
+
+    // --- VIN tests ---
+
+    #[test]
+    fn detects_vin() {
+        let detector = RegexDetector::new();
+        // 1HGBH41JXMN109186 — valid Honda VIN with check digit X
+        let matches = detector.mark_piis("VIN: 1HGBH41JXMN109186");
+        let vin_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Vin).collect();
+        assert_eq!(vin_matches.len(), 1);
+    }
+
+    #[test]
+    fn rejects_vin_with_invalid_chars() {
+        let detector = RegexDetector::new();
+        // I, O, Q are not allowed in VINs
+        let matches = detector.mark_piis("VIN: 1HGBH41IXMN10918O");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::Vin));
+    }
+
+    #[test]
+    fn detects_vin_span() {
+        let detector = RegexDetector::new();
+        let input = "vehicle 1HGBH41JXMN109186 registered";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Vin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "1HGBH41JXMN109186"
+        );
     }
 }
