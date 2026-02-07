@@ -132,13 +132,19 @@ fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
 }
 
-fn throughput(c: &mut Criterion) {
+// Measures bytes/second throughput of mark_piis across different input sizes
+// and content types: PII-free text (~500B), mixed PII (~2KB), and long clean text (~10KB).
+fn throughput_mark_piis(c: &mut Criterion) {
     let scanner = Scanner::new();
     let long_clean = make_long_clean_text();
 
     let mut group = c.benchmark_group("throughput");
 
-    let inputs: &[(&str, &str)] = &[("clean_500b", CLEAN_TEXT), ("mixed_2kb", MIXED_PII_TEXT)];
+    let inputs: &[(&str, &str)] = &[
+        ("clean_500b", CLEAN_TEXT),
+        ("mixed_2kb", MIXED_PII_TEXT),
+        ("clean_10kb", &long_clean),
+    ];
 
     for (name, text) in inputs {
         group.throughput(Throughput::Bytes(text.len() as u64));
@@ -147,18 +153,36 @@ fn throughput(c: &mut Criterion) {
         });
     }
 
-    group.throughput(Throughput::Bytes(long_clean.len() as u64));
-    group.bench_with_input(
-        BenchmarkId::new("mark_piis", "clean_10kb"),
-        &long_clean.as_str(),
-        |b, input| {
-            b.iter(|| scanner.mark_piis(input));
-        },
-    );
+    group.finish();
+}
+
+// Measures bytes/second throughput of has_piis across the same input sizes.
+// Shows the speed of short-circuit detection (stops at first match) at scale.
+fn throughput_has_piis(c: &mut Criterion) {
+    let scanner = Scanner::new();
+    let long_clean = make_long_clean_text();
+
+    let mut group = c.benchmark_group("throughput_has_piis");
+
+    let inputs: &[(&str, &str)] = &[
+        ("clean_500b", CLEAN_TEXT),
+        ("mixed_2kb", MIXED_PII_TEXT),
+        ("clean_10kb", &long_clean),
+    ];
+
+    for (name, text) in inputs {
+        group.throughput(Throughput::Bytes(text.len() as u64));
+        group.bench_with_input(BenchmarkId::new("has_piis", name), text, |b, input| {
+            b.iter(|| scanner.has_piis(input));
+        });
+    }
 
     group.finish();
 }
 
+// Compares short-circuit has_piis (stops at first match) vs full mark_piis
+// (extracts all matches) on the same mixed-PII input to quantify the
+// early-exit advantage.
 fn has_piis_vs_mark_piis(c: &mut Criterion) {
     let scanner = Scanner::new();
 
@@ -175,6 +199,8 @@ fn has_piis_vs_mark_piis(c: &mut Criterion) {
     group.finish();
 }
 
+// Isolates each PII type by running mark_piis on text containing only that
+// type. Shows the relative cost of each detector's regex + validation.
 fn per_detector(c: &mut Criterion) {
     let scanner = Scanner::new();
 
@@ -215,6 +241,8 @@ fn per_detector(c: &mut Criterion) {
     group.finish();
 }
 
+// Measures the baseline cost of scanning PII-free text where no patterns
+// match. Shows the fixed overhead of running all regexes with zero results.
 fn clean_text_overhead(c: &mut Criterion) {
     let scanner = Scanner::new();
 
@@ -233,7 +261,8 @@ fn clean_text_overhead(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    throughput,
+    throughput_mark_piis,
+    throughput_has_piis,
     has_piis_vs_mark_piis,
     per_detector,
     clean_text_overhead
