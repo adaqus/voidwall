@@ -213,6 +213,30 @@ Device IMEI numbers for inventory:\n\
 All IMEI numbers must be registered in the device management system.\n\
 Contact IT support for any discrepancies.";
 
+const UTR_TEXT: &str = "\
+HMRC — Unique Taxpayer Reference Verification\n\n\
+Self Assessment UTR numbers for tax filing:\n\
+- Taxpayer A: UTR: 5555555555\n\
+- Taxpayer B: Self assessment UTR: 1000000103\n\
+All UTRs must be verified before tax returns are submitted.\n\
+Contact HMRC for any discrepancies.";
+
+const ABA_TEXT: &str = "\
+US Banking — ABA Routing Number Verification\n\n\
+Bank routing numbers for wire transfers:\n\
+- JPMorgan Chase: Routing number: 021000021\n\
+- Bank of America: ABA routing number: 026009593\n\
+All routing numbers must be verified before transfers are initiated.\n\
+Contact the bank for any corrections.";
+
+const SORT_CODE_TEXT: &str = "\
+UK Banking — Sort Code Directory\n\n\
+Branch sort codes for account verification:\n\
+- Barclays: Sort code: 20-00-00\n\
+- HSBC: Bank sort code: 40-47-84\n\
+All sort codes must be verified against BACS records.\n\
+Contact the branch for any discrepancies.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -268,6 +292,10 @@ Tier 2 Verification Records:\n\
   SWIFT code: DEUTDEFF\n\
   EIN: 12-3456789\n\
   IMEI: 490154203237518\n\n\
+Tier 3 Verification Records:\n\
+  UTR: 5555555555\n\
+  Routing number: 021000021\n\
+  Sort code: 20-00-00\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -438,6 +466,18 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("imei", |b| {
         b.iter(|| scanner.mark_piis(IMEI_TEXT));
+    });
+
+    group.bench_function("uk_utr", |b| {
+        b.iter(|| scanner.mark_piis(UTR_TEXT));
+    });
+
+    group.bench_function("us_aba_routing", |b| {
+        b.iter(|| scanner.mark_piis(ABA_TEXT));
+    });
+
+    group.bench_function("uk_sort_code", |b| {
+        b.iter(|| scanner.mark_piis(SORT_CODE_TEXT));
     });
 
     group.finish();

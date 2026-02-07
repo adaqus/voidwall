@@ -30,6 +30,9 @@ pub enum PiiKind {
     SwiftBic,
     Ein,
     Imei,
+    UkUtr,
+    UsAbaRouting,
+    UkSortCode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

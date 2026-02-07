@@ -64,6 +64,21 @@ impl KeywordContextDetector {
                 r"(?i)(?:international mobile equipment identity|mobile equipment identity|equipment identity|device identifier|device id number|device serial|device imei|handset imei|serial imei|mobile imei|tablet imei|equipment id|phone imei|imei identifier|imei number|imei no\.?|imei num|imei #|imei code|imei id|your imei|my imei|meid|imei)[\s:.#/\-]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check as fn(&str) -> bool,
             ),
+            (
+                PiiKind::UkUtr,
+                r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-]*?(\d{10})\b",
+                utr_check as fn(&str) -> bool,
+            ),
+            (
+                PiiKind::UsAbaRouting,
+                r"(?i)(?:aba routing number|aba routing no\.?|aba routing|aba number|aba no\.?|aba #|routing transit number|routing transit no\.?|routing number|routing no\.?|routing #|bank routing number|bank routing no\.?|bank routing|transit number|transit no\.?|transit #|aba rtn|rtn number|rtn no\.?|rtn #|fed routing|fedwire routing|ach routing|wire routing|wire transfer routing|my routing number|your routing number|bank rtn|routing code|aba|rtn)[\s:.#/\-]*?(\d{9})\b",
+                aba_check as fn(&str) -> bool,
+            ),
+            (
+                PiiKind::UkSortCode,
+                r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-]*?(\d{2}-\d{2}-\d{2})\b",
+                sort_code_check as fn(&str) -> bool,
+            ),
         ];
 
         let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, pat, _)| *pat).collect();
@@ -335,6 +350,50 @@ fn imei_check(s: &str) -> bool {
         })
         .sum();
     checksum % 10 == 0
+}
+
+fn utr_check(s: &str) -> bool {
+    if s.len() != 10 {
+        return false;
+    }
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    if digits.len() != 10 {
+        return false;
+    }
+    let weights: [u32; 9] = [6, 7, 8, 9, 10, 5, 4, 3, 2];
+    let sum: u32 = digits[1..]
+        .iter()
+        .zip(weights.iter())
+        .map(|(&d, &w)| d * w)
+        .sum();
+    let remainder = sum % 11;
+    let check = if remainder == 0 { 0 } else { 11 - remainder };
+    // Check digit 10 means the UTR is invalid
+    if check == 10 {
+        return false;
+    }
+    check == digits[0]
+}
+
+fn aba_check(s: &str) -> bool {
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    if digits.len() != 9 {
+        return false;
+    }
+    let sum = 3 * (digits[0] + digits[3] + digits[6])
+        + 7 * (digits[1] + digits[4] + digits[7])
+        + (digits[2] + digits[5] + digits[8]);
+    sum % 10 == 0
+}
+
+fn sort_code_check(s: &str) -> bool {
+    // Basic structural validation: 6 digits in NN-NN-NN format
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    digits.len() == 6
 }
 
 #[cfg(test)]
@@ -861,5 +920,203 @@ mod tests {
         assert!(detector.has_piis("IMEI 490154203237518"));
         assert!(detector.has_piis("IMEI:490154203237518"));
         assert!(detector.has_piis("IMEI#490154203237518"));
+    }
+
+    // ===== UK UTR =====
+
+    #[test]
+    fn detects_utr_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        // 5555555555: check digit 5, body 555555555, sum=270, 270%11=6, 11-6=5
+        let matches = detector.mark_piis("UTR: 5555555555");
+        let utr: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UkUtr)
+            .collect();
+        assert_eq!(utr.len(), 1);
+    }
+
+    #[test]
+    fn utr_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "UTR number: 5555555555";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UkUtr)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "5555555555");
+    }
+
+    #[test]
+    fn utr_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("unique taxpayer reference: 5555555555"));
+        assert!(detector.has_piis("self assessment utr 5555555555"));
+        assert!(detector.has_piis("hmrc utr: 5555555555"));
+    }
+
+    #[test]
+    fn utr_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("UTR: 5555555555"));
+        assert!(detector.has_piis("utr: 5555555555"));
+        assert!(detector.has_piis("Utr: 5555555555"));
+    }
+
+    #[test]
+    fn utr_rejects_bad_checksum() {
+        let detector = KeywordContextDetector::new();
+        // Change first digit (check digit) to make it invalid
+        let matches = detector.mark_piis("UTR: 1555555555");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UkUtr));
+    }
+
+    #[test]
+    fn utr_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("number is 5555555555");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UkUtr));
+    }
+
+    #[test]
+    fn utr_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("UTR: 5555555555"));
+        assert!(detector.has_piis("UTR 5555555555"));
+        assert!(detector.has_piis("UTR:5555555555"));
+        assert!(detector.has_piis("UTR#5555555555"));
+    }
+
+    // ===== US ABA Routing =====
+
+    #[test]
+    fn detects_aba_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        // 021000021: 3*(0+0+0)+7*(2+0+2)+(1+0+1)=0+28+2=30, 30%10=0
+        let matches = detector.mark_piis("Routing number: 021000021");
+        let aba: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsAbaRouting)
+            .collect();
+        assert_eq!(aba.len(), 1);
+    }
+
+    #[test]
+    fn aba_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "ABA routing number: 021000021";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsAbaRouting)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "021000021");
+    }
+
+    #[test]
+    fn aba_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("routing transit number: 021000021"));
+        assert!(detector.has_piis("ach routing 021000021"));
+        assert!(detector.has_piis("wire routing: 021000021"));
+    }
+
+    #[test]
+    fn aba_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("ROUTING NUMBER: 021000021"));
+        assert!(detector.has_piis("routing number: 021000021"));
+        assert!(detector.has_piis("Routing Number: 021000021"));
+    }
+
+    #[test]
+    fn aba_rejects_bad_checksum() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("Routing number: 021000022");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAbaRouting));
+    }
+
+    #[test]
+    fn aba_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("number is 021000021");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAbaRouting));
+    }
+
+    #[test]
+    fn aba_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Routing number: 021000021"));
+        assert!(detector.has_piis("Routing number 021000021"));
+        assert!(detector.has_piis("Routing number:021000021"));
+        assert!(detector.has_piis("Routing number#021000021"));
+    }
+
+    // ===== UK Sort Code =====
+
+    #[test]
+    fn detects_sort_code_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("Sort code: 20-00-00");
+        let sc: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UkSortCode)
+            .collect();
+        assert_eq!(sc.len(), 1);
+    }
+
+    #[test]
+    fn sort_code_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "Bank sort code: 20-00-00";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UkSortCode)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "20-00-00");
+    }
+
+    #[test]
+    fn sort_code_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("sort code: 20-00-00"));
+        assert!(detector.has_piis("branch sort code 20-00-00"));
+        assert!(detector.has_piis("bacs sort code: 20-00-00"));
+    }
+
+    #[test]
+    fn sort_code_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("SORT CODE: 20-00-00"));
+        assert!(detector.has_piis("sort code: 20-00-00"));
+        assert!(detector.has_piis("Sort Code: 20-00-00"));
+    }
+
+    #[test]
+    fn sort_code_various_values() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Sort code: 40-47-84"));
+        assert!(detector.has_piis("Sort code: 30-90-53"));
+    }
+
+    #[test]
+    fn sort_code_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("date is 20-00-00");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UkSortCode));
+    }
+
+    #[test]
+    fn sort_code_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Sort code: 20-00-00"));
+        assert!(detector.has_piis("Sort code 20-00-00"));
+        assert!(detector.has_piis("Sort code:20-00-00"));
+        assert!(detector.has_piis("Sort code#20-00-00"));
     }
 }
