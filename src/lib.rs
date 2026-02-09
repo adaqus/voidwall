@@ -5,38 +5,43 @@ pub mod scanner;
 
 pub use scanner::Scanner;
 
+/// Classification of detected PII types.
+///
+/// Country-specific variants are prefixed with an ISO 3166-1 alpha-2 code
+/// (e.g. `Us`, `Gb`, `Au`). Variants without a country prefix are
+/// internationally applicable or not tied to a specific country.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PiiKind {
     Email,
     PhoneNumber,
     CreditCard,
-    Ssn,
-    Nino,
+    UsSsn,
+    GbNino,
     Iban,
     PassportNumber,
     IpAddress,
-    Itin,
-    Sin,
-    Ppsn,
-    SouthAfricaId,
+    UsItin,
+    CaSin,
+    IePpsn,
+    ZaId,
     MacAddress,
-    UkDrivingLicence,
+    GbDrivingLicence,
     Vin,
-    AustraliaTfn,
+    AuTfn,
     NzIrdNumber,
-    NhsNumber,
+    GbNhsNumber,
     AuMedicare,
     UsPassportNew,
     SwiftBic,
-    Ein,
+    UsEin,
     Imei,
-    UkUtr,
+    GbUtr,
     UsAbaRouting,
-    UkSortCode,
+    GbSortCode,
     PreciseGeolocation,
     UsDriversLicense,
-    AlienNumber,
-    UscisReceiptNumber,
+    UsAlienNumber,
+    UsUscisReceiptNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -25,7 +25,7 @@ impl KeywordContextDetector {
     pub fn new() -> Self {
         let raw_patterns: Vec<(PiiKind, &str, fn(&str) -> bool)> = vec![
             (
-                PiiKind::AustraliaTfn,
+                PiiKind::AuTfn,
                 r"(?i)(?:australian tax file number|australian tfn|aus tfn|ato tax file number|ato tfn|individual tax file number|tax file number|tax file no\.?|tax file num|tax file #|tax file ref(?:erence)?|tax file identifier|applicant tfn|employee tfn|client tfn|customer tfn|my tfn|your tfn|tfn number|tfn no\.?|tfn num|tfn)[\s:.#/\-]*?(\d{3}\s\d{3}\s\d{3})",
                 tfn_check as fn(&str) -> bool,
             ),
@@ -35,7 +35,7 @@ impl KeywordContextDetector {
                 ird_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::NhsNumber,
+                PiiKind::GbNhsNumber,
                 r"(?i)(?:national health service number|national health service no\.?|nhs patient number|nhs patient id|nhs patient no\.?|nhs record number|nhs registration|nhs identifier|nhs number|nhs no\.?|nhs num|nhs #|nhs id|nhs ref(?:erence)?|nhs record|health service number|health service no\.?|health index number|health id|patient number|patient no\.?|patient id|my nhs number|your nhs number|chi number|h&c number|hc number|nhs)[\s:.#/\-]*?(\d{3}\s\d{3}\s\d{4})",
                 nhs_check as fn(&str) -> bool,
             ),
@@ -55,7 +55,7 @@ impl KeywordContextDetector {
                 swift_bic_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::Ein,
+                PiiKind::UsEin,
                 r"(?i)(?:employer identification number|employer identification no\.?|federal employer identification|employer id number|employer id no\.?|federal employer id|federal tax identification|tax identification number|federal id number|federal id no\.?|federal tax id|federal ein|tax id number|employer number|employer no\.?|business tax id|company tax id|company ein|irs employer id|applicant ein|ein number|ein no\.?|ein num|ein #|tax id|irs ein|our ein|my ein|fein|ein)[\s:.#/\-]*?(\d{2}-\d{7})",
                 ein_check as fn(&str) -> bool,
             ),
@@ -65,7 +65,7 @@ impl KeywordContextDetector {
                 imei_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::UkUtr,
+                PiiKind::GbUtr,
                 r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-]*?(\d{10})\b",
                 utr_check as fn(&str) -> bool,
             ),
@@ -75,7 +75,7 @@ impl KeywordContextDetector {
                 aba_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::UkSortCode,
+                PiiKind::GbSortCode,
                 r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-]*?(\d{2}-\d{2}-\d{2})\b",
                 sort_code_check as fn(&str) -> bool,
             ),
@@ -85,12 +85,12 @@ impl KeywordContextDetector {
                 geolocation_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::AlienNumber,
+                PiiKind::UsAlienNumber,
                 r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-]*?([Aa]\d{7,9})\b",
                 a_number_check as fn(&str) -> bool,
             ),
             (
-                PiiKind::UscisReceiptNumber,
+                PiiKind::UsUscisReceiptNumber,
                 r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-]*?([A-Za-z]{3}\d{10})\b",
                 uscis_receipt_check as fn(&str) -> bool,
             ),
@@ -487,7 +487,7 @@ mod tests {
         let matches = detector.mark_piis("TFN: 123 456 782");
         let tfn: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::AustraliaTfn)
+            .filter(|m| m.kind == PiiKind::AuTfn)
             .collect();
         assert_eq!(tfn.len(), 1);
     }
@@ -521,14 +521,14 @@ mod tests {
     fn tfn_rejects_bad_checksum() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("TFN: 123 456 789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AustraliaTfn));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::AuTfn));
     }
 
     #[test]
     fn tfn_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("my number is 123 456 782");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AustraliaTfn));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::AuTfn));
     }
 
     #[test]
@@ -616,7 +616,7 @@ mod tests {
         let matches = detector.mark_piis("NHS: 943 476 5919");
         let nhs: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::NhsNumber)
+            .filter(|m| m.kind == PiiKind::GbNhsNumber)
             .collect();
         assert_eq!(nhs.len(), 1);
     }
@@ -628,7 +628,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::NhsNumber)
+            .filter(|m| m.kind == PiiKind::GbNhsNumber)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "943 476 5919");
@@ -654,14 +654,14 @@ mod tests {
     fn nhs_rejects_bad_checksum() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("NHS: 943 476 5910");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::NhsNumber));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNhsNumber));
     }
 
     #[test]
     fn nhs_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("number is 943 476 5919");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::NhsNumber));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNhsNumber));
     }
 
     #[test]
@@ -881,7 +881,10 @@ mod tests {
     fn detects_ein_with_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("EIN: 12-3456789");
-        let ein: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Ein).collect();
+        let ein: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsEin)
+            .collect();
         assert_eq!(ein.len(), 1);
     }
 
@@ -892,7 +895,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::Ein)
+            .filter(|m| m.kind == PiiKind::UsEin)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "12-3456789");
@@ -919,14 +922,14 @@ mod tests {
         let detector = KeywordContextDetector::new();
         // 07 is not a valid EIN prefix
         let matches = detector.mark_piis("EIN: 07-3456789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Ein));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsEin));
     }
 
     #[test]
     fn ein_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("number is 12-3456789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Ein));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsEin));
     }
 
     #[test]
@@ -1010,7 +1013,7 @@ mod tests {
         let matches = detector.mark_piis("UTR: 5555555555");
         let utr: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::UkUtr)
+            .filter(|m| m.kind == PiiKind::GbUtr)
             .collect();
         assert_eq!(utr.len(), 1);
     }
@@ -1022,7 +1025,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::UkUtr)
+            .filter(|m| m.kind == PiiKind::GbUtr)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "5555555555");
@@ -1049,14 +1052,14 @@ mod tests {
         let detector = KeywordContextDetector::new();
         // Change first digit (check digit) to make it invalid
         let matches = detector.mark_piis("UTR: 1555555555");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UkUtr));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::GbUtr));
     }
 
     #[test]
     fn utr_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("number is 5555555555");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UkUtr));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::GbUtr));
     }
 
     #[test]
@@ -1142,7 +1145,7 @@ mod tests {
         let matches = detector.mark_piis("Sort code: 20-00-00");
         let sc: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::UkSortCode)
+            .filter(|m| m.kind == PiiKind::GbSortCode)
             .collect();
         assert_eq!(sc.len(), 1);
     }
@@ -1154,7 +1157,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::UkSortCode)
+            .filter(|m| m.kind == PiiKind::GbSortCode)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "20-00-00");
@@ -1187,7 +1190,7 @@ mod tests {
     fn sort_code_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("date is 20-00-00");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UkSortCode));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::GbSortCode));
     }
 
     #[test]
@@ -1425,7 +1428,7 @@ mod tests {
         let matches = detector.mark_piis("Alien number: A012345678");
         let an: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::AlienNumber)
+            .filter(|m| m.kind == PiiKind::UsAlienNumber)
             .collect();
         assert_eq!(an.len(), 1);
     }
@@ -1437,7 +1440,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::AlienNumber)
+            .filter(|m| m.kind == PiiKind::UsAlienNumber)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "A012345678");
@@ -1477,7 +1480,7 @@ mod tests {
     fn a_number_no_detection_without_keyword() {
         let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis("code is A012345678");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AlienNumber));
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAlienNumber));
     }
 
     #[test]
@@ -1504,7 +1507,7 @@ mod tests {
         let matches = detector.mark_piis("Receipt number: SRC2190000001");
         let rcpt: Vec<_> = matches
             .iter()
-            .filter(|m| m.kind == PiiKind::UscisReceiptNumber)
+            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
             .collect();
         assert_eq!(rcpt.len(), 1);
     }
@@ -1516,7 +1519,7 @@ mod tests {
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::UscisReceiptNumber)
+            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "SRC2190000001");
@@ -1558,7 +1561,7 @@ mod tests {
         assert!(
             matches
                 .iter()
-                .all(|m| m.kind != PiiKind::UscisReceiptNumber)
+                .all(|m| m.kind != PiiKind::UsUscisReceiptNumber)
         );
     }
 
@@ -1569,7 +1572,7 @@ mod tests {
         assert!(
             matches
                 .iter()
-                .all(|m| m.kind != PiiKind::UscisReceiptNumber)
+                .all(|m| m.kind != PiiKind::UsUscisReceiptNumber)
         );
     }
 
