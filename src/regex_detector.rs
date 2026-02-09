@@ -24,7 +24,7 @@ impl RegexDetector {
         let raw_patterns: Vec<(PiiKind, &str)> = vec![
             (
                 PiiKind::Email,
-                r"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}",
+                r"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?",
             ),
             (
                 PiiKind::PhoneNumber,
