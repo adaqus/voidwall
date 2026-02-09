@@ -8,13 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
-- **Build:** `cargo build`
-- **Test all:** `cargo test`
+- **Build:** `cargo build | tail -n 100`
+- **Test all:** `cargo test | tail -n 100`
 - **Test single:** `cargo test <test_name>`
-- **Check (fast compile check):** `cargo check`
+- **Check (fast compile check):** `cargo check | tail -n 100`
 - **Lint:** `cargo clippy`
 - **Format:** `cargo fmt`
-- **Benchmarks:** `cargo bench --bench pii_benchmark`
+- **Benchmarks:** `cargo bench --bench pii_benchmark --quiet`
 
 ## Architecture
 
