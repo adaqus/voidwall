@@ -237,6 +237,15 @@ Branch sort codes for account verification:\n\
 All sort codes must be verified against BACS records.\n\
 Contact the branch for any discrepancies.";
 
+const GEOLOCATION_TEXT: &str = "\
+Location Tracking Report — Fleet Management\n\n\
+Vehicle positions at last check-in:\n\
+- Truck A: GPS coordinates: 40.7128,-74.0060\n\
+- Truck B: coordinates: -33.8688, 151.2093\n\
+- Truck C: lat/long: 51.5074,-0.1278\n\
+All GPS coordinates must be logged in the tracking system.\n\
+Contact dispatch for any discrepancies.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -295,7 +304,8 @@ Tier 2 Verification Records:\n\
 Tier 3 Verification Records:\n\
   UTR: 5555555555\n\
   Routing number: 021000021\n\
-  Sort code: 20-00-00\n\n\
+  Sort code: 20-00-00\n\
+  GPS coordinates: 40.7128,-74.0060\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -478,6 +488,10 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("uk_sort_code", |b| {
         b.iter(|| scanner.mark_piis(SORT_CODE_TEXT));
+    });
+
+    group.bench_function("precise_geolocation", |b| {
+        b.iter(|| scanner.mark_piis(GEOLOCATION_TEXT));
     });
 
     group.finish();

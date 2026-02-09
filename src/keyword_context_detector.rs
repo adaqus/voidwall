@@ -79,6 +79,11 @@ impl KeywordContextDetector {
                 r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-]*?(\d{2}-\d{2}-\d{2})\b",
                 sort_code_check as fn(&str) -> bool,
             ),
+            (
+                PiiKind::PreciseGeolocation,
+                r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check as fn(&str) -> bool,
+            ),
         ];
 
         let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, pat, _)| *pat).collect();
@@ -384,6 +389,22 @@ fn aba_check(s: &str) -> bool {
         + 7 * (digits[1] + digits[4] + digits[7])
         + (digits[2] + digits[5] + digits[8]);
     sum % 10 == 0
+}
+
+fn geolocation_check(s: &str) -> bool {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let lat: f64 = match parts[0].trim().parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let lon: f64 = match parts[1].trim().parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)
 }
 
 fn sort_code_check(s: &str) -> bool {
@@ -1197,5 +1218,144 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Sort code:\n20-00-00"));
         assert!(detector.has_piis("Bank sort code\n20-00-00"));
+    }
+
+    // ===== Precise Geolocation =====
+
+    #[test]
+    fn detects_geolocation_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("GPS coordinates: 40.7128,-74.0060");
+        let geo: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
+            .collect();
+        assert_eq!(geo.len(), 1);
+    }
+
+    #[test]
+    fn geolocation_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "coordinates: 40.7128,-74.0060";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "40.7128,-74.0060");
+    }
+
+    #[test]
+    fn geolocation_with_space_after_comma() {
+        let detector = KeywordContextDetector::new();
+        let input = "coordinates: 40.7128, -74.0060";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "40.7128, -74.0060"
+        );
+    }
+
+    #[test]
+    fn geolocation_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("lat/long: 40.7128,-74.0060"));
+        assert!(detector.has_piis("geolocation 40.7128,-74.0060"));
+        assert!(detector.has_piis("gps position: 40.7128,-74.0060"));
+        assert!(detector.has_piis("precise location: 40.7128,-74.0060"));
+    }
+
+    #[test]
+    fn geolocation_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("GPS COORDINATES: 40.7128,-74.0060"));
+        assert!(detector.has_piis("gps coordinates: 40.7128,-74.0060"));
+        assert!(detector.has_piis("Gps Coordinates: 40.7128,-74.0060"));
+    }
+
+    #[test]
+    fn geolocation_rejects_out_of_range_latitude() {
+        let detector = KeywordContextDetector::new();
+        // Latitude 91 is out of range
+        let matches = detector.mark_piis("coordinates: 91.0000,-74.0060");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::PreciseGeolocation)
+        );
+    }
+
+    #[test]
+    fn geolocation_rejects_out_of_range_longitude() {
+        let detector = KeywordContextDetector::new();
+        // Longitude 181 is out of range
+        let matches = detector.mark_piis("coordinates: 40.7128,181.0060");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::PreciseGeolocation)
+        );
+    }
+
+    #[test]
+    fn geolocation_rejects_insufficient_precision() {
+        let detector = KeywordContextDetector::new();
+        // Only 2 decimal places — not precise enough
+        let matches = detector.mark_piis("coordinates: 40.71,-74.00");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::PreciseGeolocation)
+        );
+    }
+
+    #[test]
+    fn geolocation_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("values are 40.7128,-74.0060");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::PreciseGeolocation)
+        );
+    }
+
+    #[test]
+    fn geolocation_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("coordinates: 40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates 40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates:40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates#40.7128,-74.0060"));
+    }
+
+    #[test]
+    fn geolocation_negative_latitude() {
+        let detector = KeywordContextDetector::new();
+        // Sydney
+        let input = "coordinates: -33.8688,151.2093";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "-33.8688,151.2093"
+        );
+    }
+
+    #[test]
+    fn geolocation_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("GPS coordinates:\n40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates\n40.7128,-74.0060"));
     }
 }
