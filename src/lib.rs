@@ -35,6 +35,8 @@ pub enum PiiKind {
     UkSortCode,
     PreciseGeolocation,
     UsDriversLicense,
+    AlienNumber,
+    UscisReceiptNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

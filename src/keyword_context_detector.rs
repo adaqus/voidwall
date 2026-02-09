@@ -85,6 +85,16 @@ impl KeywordContextDetector {
                 geolocation_check as fn(&str) -> bool,
             ),
             (
+                PiiKind::AlienNumber,
+                r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-]*?([Aa]\d{7,9})\b",
+                a_number_check as fn(&str) -> bool,
+            ),
+            (
+                PiiKind::UscisReceiptNumber,
+                r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-]*?([A-Za-z]{3}\d{10})\b",
+                uscis_receipt_check as fn(&str) -> bool,
+            ),
+            (
                 PiiKind::UsDriversLicense,
                 r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check as fn(&str) -> bool,
@@ -410,6 +420,28 @@ fn geolocation_check(s: &str) -> bool {
         Err(_) => return false,
     };
     (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)
+}
+
+fn a_number_check(s: &str) -> bool {
+    let first = s.as_bytes()[0].to_ascii_uppercase();
+    if first != b'A' {
+        return false;
+    }
+    let digits = &s[1..];
+    (7..=9).contains(&digits.len()) && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+#[rustfmt::skip]
+const USCIS_CENTER_CODES: &[&str] = &[
+    "EAC", "IOE", "LIN", "MSC", "NBC", "SRC", "WAC", "YSC",
+];
+
+fn uscis_receipt_check(s: &str) -> bool {
+    if s.len() != 13 {
+        return false;
+    }
+    let prefix = s[..3].to_uppercase();
+    USCIS_CENTER_CODES.binary_search(&prefix.as_str()).is_ok()
 }
 
 fn us_dl_check(s: &str) -> bool {
@@ -1383,6 +1415,178 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("GPS coordinates:\n40.7128,-74.0060"));
         assert!(detector.has_piis("coordinates\n40.7128,-74.0060"));
+    }
+
+    // ===== Alien Registration Number (A-Number) =====
+
+    #[test]
+    fn detects_a_number_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("Alien number: A012345678");
+        let an: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::AlienNumber)
+            .collect();
+        assert_eq!(an.len(), 1);
+    }
+
+    #[test]
+    fn a_number_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "Alien registration number: A012345678";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::AlienNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "A012345678");
+    }
+
+    #[test]
+    fn a_number_7_digit_format() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("USCIS number: A1234567"));
+    }
+
+    #[test]
+    fn a_number_8_digit_format() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("USCIS number: A12345678"));
+    }
+
+    #[test]
+    fn a_number_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("alien registration number: A012345678"));
+        assert!(detector.has_piis("green card number: A012345678"));
+        assert!(detector.has_piis("permanent resident number: A012345678"));
+        assert!(detector.has_piis("USCIS number: A012345678"));
+        assert!(detector.has_piis("A-number: A012345678"));
+    }
+
+    #[test]
+    fn a_number_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("ALIEN NUMBER: A012345678"));
+        assert!(detector.has_piis("alien number: a012345678"));
+        assert!(detector.has_piis("Alien Number: A012345678"));
+    }
+
+    #[test]
+    fn a_number_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("code is A012345678");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::AlienNumber));
+    }
+
+    #[test]
+    fn a_number_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Alien number: A012345678"));
+        assert!(detector.has_piis("Alien number A012345678"));
+        assert!(detector.has_piis("Alien number:A012345678"));
+        assert!(detector.has_piis("Alien number#A012345678"));
+    }
+
+    #[test]
+    fn a_number_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Alien number:\nA012345678"));
+        assert!(detector.has_piis("USCIS number\nA012345678"));
+    }
+
+    // ===== USCIS Receipt Number =====
+
+    #[test]
+    fn detects_uscis_receipt_with_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("Receipt number: SRC2190000001");
+        let rcpt: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UscisReceiptNumber)
+            .collect();
+        assert_eq!(rcpt.len(), 1);
+    }
+
+    #[test]
+    fn uscis_receipt_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "USCIS receipt number: SRC2190000001";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UscisReceiptNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "SRC2190000001");
+    }
+
+    #[test]
+    fn uscis_receipt_various_center_codes() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Receipt number: EAC2190000001"));
+        assert!(detector.has_piis("Receipt number: WAC2190000001"));
+        assert!(detector.has_piis("Receipt number: LIN2190000001"));
+        assert!(detector.has_piis("Receipt number: IOE2190000001"));
+        assert!(detector.has_piis("Receipt number: MSC2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("USCIS receipt number: SRC2190000001"));
+        assert!(detector.has_piis("USCIS case number: SRC2190000001"));
+        assert!(detector.has_piis("petition receipt: SRC2190000001"));
+        assert!(detector.has_piis("I-797 receipt: SRC2190000001"));
+        assert!(detector.has_piis("case number: SRC2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("RECEIPT NUMBER: SRC2190000001"));
+        assert!(detector.has_piis("receipt number: src2190000001"));
+        assert!(detector.has_piis("Receipt Number: Src2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_rejects_invalid_center_code() {
+        let detector = KeywordContextDetector::new();
+        // "XYZ" is not a valid USCIS center code
+        let matches = detector.mark_piis("Receipt number: XYZ2190000001");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::UscisReceiptNumber)
+        );
+    }
+
+    #[test]
+    fn uscis_receipt_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("code is SRC2190000001");
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.kind != PiiKind::UscisReceiptNumber)
+        );
+    }
+
+    #[test]
+    fn uscis_receipt_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Receipt number: SRC2190000001"));
+        assert!(detector.has_piis("Receipt number SRC2190000001"));
+        assert!(detector.has_piis("Receipt number:SRC2190000001"));
+        assert!(detector.has_piis("Receipt number#SRC2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Receipt number:\nSRC2190000001"));
+        assert!(detector.has_piis("USCIS case\nSRC2190000001"));
     }
 
     // ===== US Driver's License =====

@@ -246,6 +246,24 @@ Vehicle positions at last check-in:\n\
 All GPS coordinates must be logged in the tracking system.\n\
 Contact dispatch for any discrepancies.";
 
+const A_NUMBER_TEXT: &str = "\
+USCIS — Alien Registration Number Verification\n\n\
+Immigration case records:\n\
+- Applicant A: Alien number: A012345678\n\
+- Applicant B: USCIS number: A98765432\n\
+- Applicant C: Green card number: A1234567\n\
+All A-Numbers must be verified against USCIS records.\n\
+Contact the local USCIS field office for corrections.";
+
+const USCIS_RECEIPT_TEXT: &str = "\
+USCIS — Receipt Number Tracking\n\n\
+Pending immigration cases:\n\
+- Case A: USCIS receipt number: SRC2190000001\n\
+- Case B: Receipt number: EAC2180050234\n\
+- Case C: I-797 receipt: WAC2200100567\n\
+All receipt numbers must be tracked in the case management system.\n\
+Contact USCIS customer service for status updates.";
+
 const US_DL_TEXT: &str = "\
 US Department of Motor Vehicles — License Verification\n\n\
 Driver's license numbers for identity check:\n\
@@ -316,7 +334,9 @@ Tier 3 Verification Records:\n\
   Routing number: 021000021\n\
   Sort code: 20-00-00\n\
   GPS coordinates: 40.7128,-74.0060\n\
-  Driver's license: B1234568\n\n\
+  Driver's license: B1234568\n\
+  Alien number: A012345678\n\
+  USCIS receipt number: SRC2190000001\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -507,6 +527,14 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("us_drivers_license", |b| {
         b.iter(|| scanner.mark_piis(US_DL_TEXT));
+    });
+
+    group.bench_function("alien_number", |b| {
+        b.iter(|| scanner.mark_piis(A_NUMBER_TEXT));
+    });
+
+    group.bench_function("uscis_receipt", |b| {
+        b.iter(|| scanner.mark_piis(USCIS_RECEIPT_TEXT));
     });
 
     group.finish();
