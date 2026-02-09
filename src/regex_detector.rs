@@ -428,57 +428,208 @@ fn vin_check(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
+
+    // --- Detection with span verification ---
+
+    #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
+    #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
+    #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span")]
+    #[test_case("NINO: AB 12 34 56 C", PiiKind::GbNino, "AB 12 34 56 C" ; "nino with spaces")]
+    #[test_case("NINO: AB123456C", PiiKind::GbNino, "AB123456C" ; "nino no spaces")]
+    #[test_case("nino: ab 12 34 56 c", PiiKind::GbNino, "ab 12 34 56 c" ; "nino lowercase")]
+    #[test_case("IBAN: GB29 NWBK 6016 1331 9268 19", PiiKind::Iban, "GB29 NWBK 6016 1331 9268 19" ; "iban gb")]
+    #[test_case("IBAN: DE89 3704 0044 0532 0130 00", PiiKind::Iban, "DE89 3704 0044 0532 0130 00" ; "iban de")]
+    #[test_case("Passport: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
+    #[test_case("server at 192.168.1.1 is down", PiiKind::IpAddress, "192.168.1.1" ; "ipv4")]
+    #[test_case("IP: 10.0.0.255 ok", PiiKind::IpAddress, "10.0.0.255" ; "ipv4 span")]
+    #[test_case("ITIN: 912-70-1234", PiiKind::UsItin, "912-70-1234" ; "itin")]
+    #[test_case("my ITIN is 900-94-5678 ok", PiiKind::UsItin, "900-94-5678" ; "itin span")]
+    #[test_case("SIN: 130-692-544", PiiKind::CaSin, "130-692-544" ; "sin hyphens")]
+    #[test_case("SIN: 130 692 544", PiiKind::CaSin, "130 692 544" ; "sin spaces")]
+    #[test_case("PPSN: 1234567T", PiiKind::IePpsn, "1234567T" ; "ppsn 8char")]
+    #[test_case("PPSN: 1234567TW", PiiKind::IePpsn, "1234567TW" ; "ppsn 9char")]
+    #[test_case("SA ID: 8001015009087", PiiKind::ZaId, "8001015009087" ; "sa id")]
+    #[test_case("MAC: 00:1A:2B:3C:4D:5E", PiiKind::MacAddress, "00:1A:2B:3C:4D:5E" ; "mac colon")]
+    #[test_case("MAC: 00-1A-2B-3C-4D-5E", PiiKind::MacAddress, "00-1A-2B-3C-4D-5E" ; "mac hyphen")]
+    #[test_case("MAC: 001A.2B3C.4D5E", PiiKind::MacAddress, "001A.2B3C.4D5E" ; "mac cisco dot")]
+    #[test_case("MAC: aa:bb:cc:dd:ee:ff", PiiKind::MacAddress, "aa:bb:cc:dd:ee:ff" ; "mac lowercase")]
+    #[test_case("DL: JONES901157A99Y1", PiiKind::GbDrivingLicence, "JONES901157A99Y1" ; "uk driving licence")]
+    #[test_case("VIN: 1HGBH41JXMN109186", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin")]
+    #[test_case("vehicle 1HGBH41JXMN109186 registered", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin span")]
+    #[test_case("card: 4111 1111 1111 1111", PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card")]
+    fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
+        let detector = RegexDetector::new();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // --- IBAN no spaces (may have other matches too) ---
 
     #[test]
-    fn detects_email() {
+    fn detects_iban_no_spaces() {
         let detector = RegexDetector::new();
-        let matches = detector.mark_piis("contact us at user@example.com for info");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &"contact us at user@example.com for info"[matches[0].start..matches[0].end],
-            "user@example.com"
+        let matches = detector.mark_piis("IBAN: GB29NWBK60161331926819");
+        let iban_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Iban).collect();
+        assert_eq!(iban_matches.len(), 1);
+    }
+
+    // --- Rejection tests ---
+
+    #[test_case("card: 4111 1111 1111 1112", PiiKind::CreditCard ; "invalid credit card luhn")]
+    #[test_case("SSN: 000-45-6789", PiiKind::UsSsn ; "ssn area 000")]
+    #[test_case("SSN: 666-45-6789", PiiKind::UsSsn ; "ssn area 666")]
+    #[test_case("SSN: 900-45-6789", PiiKind::UsSsn ; "ssn area 900 range")]
+    #[test_case("SSN: 123-00-6789", PiiKind::UsSsn ; "ssn group 00")]
+    #[test_case("SSN: 123-45-0000", PiiKind::UsSsn ; "ssn serial 0000")]
+    #[test_case("NINO: DA123456C", PiiKind::GbNino ; "nino invalid first letter d")]
+    #[test_case("NINO: AO123456C", PiiKind::GbNino ; "nino invalid second letter o")]
+    #[test_case("NINO: BG123456C", PiiKind::GbNino ; "nino invalid prefix bg")]
+    #[test_case("NINO: ZZ123456C", PiiKind::GbNino ; "nino invalid prefix zz")]
+    #[test_case("IBAN: GB00 NWBK 6016 1331 9268 19", PiiKind::Iban ; "iban invalid checksum")]
+    #[test_case("addr: 999.999.999.999", PiiKind::IpAddress ; "ipv4 octet out of range")]
+    #[test_case("addr: 192.168.1.256", PiiKind::IpAddress ; "ipv4 single octet over 255")]
+    #[test_case("ITIN: 900-30-1234", PiiKind::UsItin ; "itin invalid group")]
+    #[test_case("SIN: 123-456-789", PiiKind::CaSin ; "sin failing luhn")]
+    #[test_case("PPSN: 1234567A", PiiKind::IePpsn ; "ppsn wrong check letter")]
+    #[test_case("SA ID: 8013015009087", PiiKind::ZaId ; "sa id invalid month")]
+    #[test_case("SA ID: 8001325009087", PiiKind::ZaId ; "sa id invalid day")]
+    #[test_case("SA ID: 8001015009086", PiiKind::ZaId ; "sa id failing luhn")]
+    #[test_case("DL: JONES900057A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid month")]
+    #[test_case("DL: JONES901007A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid day")]
+    #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
+    fn rejects_invalid_pii(input: &str, kind: PiiKind) {
+        let detector = RegexDetector::new();
+        let matches = detector.mark_piis(input);
+        assert!(
+            matches.iter().all(|m| m.kind != kind),
+            "should reject {kind:?} in: {input}"
         );
     }
 
-    #[test]
-    fn detects_email_with_plus_tag() {
+    // --- Edge cases: things that should NOT match a given kind ---
+
+    #[test_case("code: 12345678", PiiKind::PassportNumber ; "8 digits not passport")]
+    #[test_case("code: 1234567890", PiiKind::PassportNumber ; "10 digits not passport")]
+    fn does_not_detect_as(input: &str, kind: PiiKind) {
         let detector = RegexDetector::new();
-        let matches = detector.mark_piis("send to user+tag@domain.co.uk please");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
+        let matches = detector.mark_piis(input);
+        assert!(matches.iter().all(|m| m.kind != kind));
+    }
+
+    // --- Email variant tests ---
+
+    #[test_case("reply to user+thread-id-42@example.com to continue the thread", "user+thread-id-42@example.com" ; "thread identifier")]
+    #[test_case("send to user+tag1+tag2@domain.org", "user+tag1+tag2@domain.org" ; "multiple plus tags")]
+    #[test_case("send to user+tag@domain.co.uk please", "user+tag@domain.co.uk" ; "plus tag")]
+    #[test_case("first.middle.last@example.com", "first.middle.last@example.com" ; "dots in local part")]
+    #[test_case("user%tag@example.com", "user%tag@example.com" ; "percent encoding chars")]
+    #[test_case("admin@localhost.localdomain", "admin@localhost.localdomain" ; "localhost with tld")]
+    #[test_case("user@mail.internal.example.com", "user@mail.internal.example.com" ; "subdomain")]
+    #[test_case("user@example.technology", "user@example.technology" ; "long tld")]
+    #[test_case("user@example.de", "user@example.de" ; "two letter tld")]
+    #[test_case("użytkownik@example.com", "użytkownik@example.com" ; "utf8 local part")]
+    #[test_case("user@münchen.de", "user@münchen.de" ; "utf8 domain")]
+    #[test_case("太郎@example.jp", "太郎@example.jp" ; "japanese local part")]
+    #[test_case("user@例え.jp", "user@例え.jp" ; "japanese domain")]
+    #[test_case("メールは 太郎@東京.jp まで", "太郎@東京.jp" ; "fully japanese address")]
+    #[test_case("написать пользователь@домен.рф", "пользователь@домен.рф" ; "cyrillic chars")]
+    #[test_case("user@xn--mnchen-3ya.de", "user@xn--mnchen-3ya.de" ; "punycode domain")]
+    #[test_case("info@example.xn--p1ai", "info@example.xn--p1ai" ; "punycode tld")]
+    #[test_case("مستخدم@example.com", "مستخدم@example.com" ; "arabic local part")]
+    #[test_case("写信给 user@example.com 谢谢", "user@example.com" ; "adjacent to utf8 text")]
+    #[test_case("12345@example.com", "12345@example.com" ; "numeric local part")]
+    #[test_case("user@my-company.co.uk", "user@my-company.co.uk" ; "hyphenated domain")]
+    fn detects_email_variant(input: &str, expected_span: &str) {
+        let detector = RegexDetector::new();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Email)
+            .collect();
+        assert_eq!(matches.len(), 1, "expected 1 email in: {input}");
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
     }
 
     #[test]
-    fn detects_phone_number() {
+    fn does_not_detect_email_at_localhost() {
         let detector = RegexDetector::new();
-        for input in &[
-            "call 555-123-4567",
-            "call (555) 123-4567",
-            "call +1 555 123 4567",
-            "call 5551234567",
-        ] {
-            let matches = detector.mark_piis(input);
-            assert_eq!(matches.len(), 1, "failed on: {input}");
-            assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-        }
-    }
-
-    #[test]
-    fn detects_credit_card() {
-        let detector = RegexDetector::new();
-        // Valid Visa test number
-        let matches = detector.mark_piis("card: 4111 1111 1111 1111");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::CreditCard);
-    }
-
-    #[test]
-    fn rejects_invalid_credit_card_luhn() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("card: 4111 1111 1111 1112");
+        let matches = detector.mark_piis("admin@localhost");
         assert_eq!(matches.len(), 0);
     }
+
+    #[test]
+    fn detects_multiple_emails_in_text() {
+        let detector = RegexDetector::new();
+        let matches =
+            detector.mark_piis("contact alice@example.com or bob+list@domain.org for info");
+        assert_eq!(matches.len(), 2);
+        assert!(matches.iter().all(|m| m.kind == PiiKind::Email));
+    }
+
+    // --- Phone variant tests ---
+
+    #[test_case("call 555-123-4567" ; "basic hyphen")]
+    #[test_case("call (555) 123-4567" ; "parenthesized area")]
+    #[test_case("call +1 555 123 4567" ; "us country code spaces")]
+    #[test_case("call 5551234567" ; "no separators")]
+    #[test_case("call +44 207 123 4567" ; "uk phone")]
+    #[test_case("call +49 151 123 4567" ; "german phone")]
+    #[test_case("call +91 987 654 3210" ; "indian phone")]
+    #[test_case("call +81 901 234 5678" ; "japanese phone")]
+    #[test_case("ligar +55 119 876 5432" ; "brazilian phone")]
+    #[test_case("call +1-555-123-4567" ; "us country code hyphens")]
+    #[test_case("call +1.555.123.4567" ; "us country code dots")]
+    #[test_case("call 1-555-123-4567" ; "us no plus hyphens")]
+    #[test_case("call 1.555.123.4567" ; "us no plus dots")]
+    #[test_case("call +1 (555) 123-4567" ; "us country code parens")]
+    fn detects_phone_variant(input: &str) {
+        let detector = RegexDetector::new();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PhoneNumber)
+            .collect();
+        assert_eq!(matches.len(), 1, "expected 1 phone in: {input}");
+    }
+
+    #[test_case("appeler +33 612 345 678" ; "french 9 digit")]
+    #[test_case("ring +61 412 345 678" ; "australian 9 digit")]
+    fn does_not_detect_phone(input: &str) {
+        let detector = RegexDetector::new();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PhoneNumber)
+            .collect();
+        assert_eq!(matches.len(), 0, "should not detect phone in: {input}");
+    }
+
+    // --- IPv6 variant tests ---
+
+    #[test_case("host: 2001:0db8:85a3:0000:0000:8a2e:0370:7334" ; "ipv6 full")]
+    #[test_case("host: ::1" ; "ipv6 compressed")]
+    #[test_case("host: fe80::1" ; "ipv6 with collapse")]
+    fn detects_ipv6_variant(input: &str) {
+        let detector = RegexDetector::new();
+        let ip_matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(ip_matches.len(), 1);
+    }
+
+    // --- Misc standalone tests ---
 
     #[test]
     fn has_piis_short_circuits() {
@@ -494,332 +645,6 @@ mod tests {
         assert!(matches.is_empty());
     }
 
-    // --- Email: thread / sub-addressing identifiers ---
-
-    #[test]
-    fn detects_email_with_thread_identifier() {
-        let detector = RegexDetector::new();
-        let matches =
-            detector.mark_piis("reply to user+thread-id-42@example.com to continue the thread");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &"reply to user+thread-id-42@example.com to continue the thread"
-                [matches[0].start..matches[0].end],
-            "user+thread-id-42@example.com"
-        );
-    }
-
-    #[test]
-    fn detects_email_with_multiple_plus_tags() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("send to user+tag1+tag2@domain.org");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_dots_in_local_part() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("first.middle.last@example.com");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_percent_encoding_chars() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("user%tag@example.com");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    // --- Email: localhost and non-standard domains ---
-
-    #[test]
-    fn does_not_detect_email_at_localhost() {
-        let detector = RegexDetector::new();
-        // localhost has no TLD with 2+ chars, so the regex won't match
-        let matches = detector.mark_piis("admin@localhost");
-        assert_eq!(matches.len(), 0);
-    }
-
-    #[test]
-    fn detects_email_at_localhost_with_tld() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("admin@localhost.localdomain");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_subdomain() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("user@mail.internal.example.com");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_long_tld() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("user@example.technology");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_two_letter_tld() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("user@example.de");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    // --- Email: non-standard / UTF-8 characters ---
-
-    #[test]
-    fn detects_email_with_utf8_local_part() {
-        let detector = RegexDetector::new();
-        let input = "użytkownik@example.com";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "użytkownik@example.com"
-        );
-    }
-
-    #[test]
-    fn detects_email_with_utf8_domain() {
-        let detector = RegexDetector::new();
-        let input = "user@münchen.de";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(&input[matches[0].start..matches[0].end], "user@münchen.de");
-    }
-
-    #[test]
-    fn detects_email_with_japanese_local_part() {
-        let detector = RegexDetector::new();
-        let input = "太郎@example.jp";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(&input[matches[0].start..matches[0].end], "太郎@example.jp");
-    }
-
-    #[test]
-    fn detects_email_with_japanese_domain() {
-        let detector = RegexDetector::new();
-        let input = "user@例え.jp";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(&input[matches[0].start..matches[0].end], "user@例え.jp");
-    }
-
-    #[test]
-    fn detects_email_with_fully_japanese_address() {
-        let detector = RegexDetector::new();
-        let input = "メールは 太郎@東京.jp まで";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(&input[matches[0].start..matches[0].end], "太郎@東京.jp");
-    }
-
-    #[test]
-    fn detects_email_with_cyrillic_chars() {
-        let detector = RegexDetector::new();
-        let input = "написать пользователь@домен.рф";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "пользователь@домен.рф"
-        );
-    }
-
-    #[test]
-    fn detects_email_with_punycode_domain() {
-        let detector = RegexDetector::new();
-        // Punycode-encoded IDN domain (xn-- prefix is ASCII-compatible)
-        let input = "user@xn--mnchen-3ya.de";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "user@xn--mnchen-3ya.de"
-        );
-    }
-
-    #[test]
-    fn detects_email_with_punycode_tld() {
-        let detector = RegexDetector::new();
-        // .рф in Punycode is xn--p1ai
-        let input = "info@example.xn--p1ai";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_arabic_local_part() {
-        let detector = RegexDetector::new();
-        let input = "مستخدم@example.com";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "مستخدم@example.com"
-        );
-    }
-
-    #[test]
-    fn detects_email_adjacent_to_utf8_text() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("写信给 user@example.com 谢谢");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    // --- Email: edge cases ---
-
-    #[test]
-    fn detects_multiple_emails_in_text() {
-        let detector = RegexDetector::new();
-        let matches =
-            detector.mark_piis("contact alice@example.com or bob+list@domain.org for info");
-        assert_eq!(matches.len(), 2);
-        assert!(matches.iter().all(|m| m.kind == PiiKind::Email));
-    }
-
-    #[test]
-    fn detects_email_with_numeric_local_part() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("12345@example.com");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    #[test]
-    fn detects_email_with_hyphenated_domain() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("user@my-company.co.uk");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Email);
-    }
-
-    // --- Phone numbers: international country codes ---
-
-    #[test]
-    fn detects_uk_phone_number() {
-        let detector = RegexDetector::new();
-        // UK numbers: +44 followed by 10 digits — fits the 3-3-4 pattern after country code
-        let matches = detector.mark_piis("call +44 207 123 4567");
-        assert_eq!(matches.len(), 1, "should detect UK phone number");
-        assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-    }
-
-    #[test]
-    fn detects_german_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        // German mobile: +49 151 1234 5678 — the last 10 digits can match 3-3-4
-        let matches = detector.mark_piis("call +49 151 123 4567");
-        assert_eq!(matches.len(), 1, "should detect German phone number");
-        assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-    }
-
-    #[test]
-    fn detects_french_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("appeler +33 612 345 678");
-        // French numbers are 9 digits after country code — may not match 3-3-4 pattern
-        let phone_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::PhoneNumber)
-            .collect();
-        assert_eq!(
-            phone_matches.len(),
-            0,
-            "French 9-digit number should not match US-centric phone pattern"
-        );
-    }
-
-    #[test]
-    fn detects_indian_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        // Indian mobile: +91 followed by 10 digits
-        let matches = detector.mark_piis("call +91 987 654 3210");
-        assert_eq!(
-            matches.len(),
-            1,
-            "should detect Indian phone number in 3-3-4 format"
-        );
-        assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-    }
-
-    #[test]
-    fn detects_australian_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        // Australian mobile: +61 4xx xxx xxx — 9 digits after code
-        let matches = detector.mark_piis("ring +61 412 345 678");
-        assert_eq!(
-            matches.len(),
-            0,
-            "Australian 9-digit number should not match US-centric pattern"
-        );
-    }
-
-    #[test]
-    fn detects_japanese_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        // Japanese mobile: +81 followed by 10 digits
-        let matches = detector.mark_piis("call +81 901 234 5678");
-        assert_eq!(
-            matches.len(),
-            1,
-            "should detect Japanese phone in 3-3-4 format"
-        );
-        assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-    }
-
-    #[test]
-    fn detects_brazilian_phone_number_matching_pattern() {
-        let detector = RegexDetector::new();
-        // Brazilian mobile: +55 followed by 11 digits (2 area + 9 mobile)
-        // In 3-3-4 grouping only the last 10 digits would match
-        let matches = detector.mark_piis("ligar +55 119 876 5432");
-        assert_eq!(
-            matches.len(),
-            1,
-            "should detect Brazilian phone in 3-3-4 format"
-        );
-        assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-    }
-
-    #[test]
-    fn detects_us_phone_with_country_code_variants() {
-        let detector = RegexDetector::new();
-        for input in &[
-            "call +1-555-123-4567",
-            "call +1.555.123.4567",
-            "call 1-555-123-4567",
-            "call 1.555.123.4567",
-            "call +1 (555) 123-4567",
-        ] {
-            let matches = detector.mark_piis(input);
-            assert_eq!(matches.len(), 1, "failed on: {input}");
-            assert_eq!(matches[0].kind, PiiKind::PhoneNumber);
-        }
-    }
-
     #[test]
     fn does_not_detect_short_digit_sequence_as_phone() {
         let detector = RegexDetector::new();
@@ -830,9 +655,7 @@ mod tests {
     #[test]
     fn does_not_detect_long_digit_sequence_as_phone() {
         let detector = RegexDetector::new();
-        // 15 consecutive digits — shouldn't match 3-3-4 phone pattern
         let matches = detector.mark_piis("id: 123456789012345");
-        // May partially match; assert no PhoneNumber match
         let phone_matches: Vec<_> = matches
             .iter()
             .filter(|m| m.kind == PiiKind::PhoneNumber)
@@ -843,693 +666,39 @@ mod tests {
         );
     }
 
-    // --- SSN tests ---
-
-    #[test]
-    fn detects_ssn() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 123-45-6789");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::UsSsn);
-    }
-
-    #[test]
-    fn detects_ssn_span() {
-        let detector = RegexDetector::new();
-        let input = "my ssn is 078-05-1120 ok";
-        let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "078-05-1120");
-    }
-
-    #[test]
-    fn rejects_ssn_area_000() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 000-45-6789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
-    }
-
-    #[test]
-    fn rejects_ssn_area_666() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 666-45-6789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
-    }
-
-    #[test]
-    fn rejects_ssn_area_900_range() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 900-45-6789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
-    }
-
-    #[test]
-    fn rejects_ssn_group_00() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 123-00-6789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
-    }
-
-    #[test]
-    fn rejects_ssn_serial_0000() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SSN: 123-45-0000");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
-    }
-
-    // --- NINO tests ---
-
-    #[test]
-    fn detects_nino() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: AB 12 34 56 C");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::GbNino);
-    }
-
-    #[test]
-    fn detects_nino_no_spaces() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: AB123456C");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::GbNino);
-    }
-
-    #[test]
-    fn detects_nino_lowercase() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("nino: ab 12 34 56 c");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::GbNino);
-    }
-
-    #[test]
-    fn rejects_nino_invalid_first_letter_d() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: DA123456C");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNino));
-    }
-
-    #[test]
-    fn rejects_nino_invalid_second_letter_o() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: AO123456C");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNino));
-    }
-
-    #[test]
-    fn rejects_nino_invalid_prefix_bg() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: BG123456C");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNino));
-    }
-
-    #[test]
-    fn rejects_nino_invalid_prefix_zz() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("NINO: ZZ123456C");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNino));
-    }
-
-    // --- IBAN tests ---
-
-    #[test]
-    fn detects_iban_gb() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("IBAN: GB29 NWBK 6016 1331 9268 19");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Iban);
-    }
-
-    #[test]
-    fn detects_iban_de() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("IBAN: DE89 3704 0044 0532 0130 00");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::Iban);
-    }
-
-    #[test]
-    fn detects_iban_no_spaces() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("IBAN: GB29NWBK60161331926819");
-        let iban_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Iban).collect();
-        assert_eq!(iban_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_iban_invalid_checksum() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("IBAN: GB00 NWBK 6016 1331 9268 19");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Iban));
-    }
-
-    // --- Passport Number tests ---
-
-    #[test]
-    fn detects_passport_number() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("Passport: 123456789");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::PassportNumber);
-    }
-
-    #[test]
-    fn does_not_detect_8_digits_as_passport() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("code: 12345678");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::PassportNumber));
-    }
-
-    #[test]
-    fn does_not_detect_10_digits_as_passport() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("code: 1234567890");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::PassportNumber));
-    }
-
-    // --- IP Address tests ---
-
-    #[test]
-    fn detects_ipv4() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("server at 192.168.1.1 is down");
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].kind, PiiKind::IpAddress);
-    }
-
-    #[test]
-    fn detects_ipv4_span() {
-        let detector = RegexDetector::new();
-        let input = "IP: 10.0.0.255 ok";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::IpAddress)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "10.0.0.255");
-    }
-
-    #[test]
-    fn rejects_ipv4_octet_out_of_range() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("addr: 999.999.999.999");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::IpAddress));
-    }
-
-    #[test]
-    fn rejects_ipv4_single_octet_over_255() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("addr: 192.168.1.256");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::IpAddress));
-    }
-
-    #[test]
-    fn detects_ipv6_full() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("host: 2001:0db8:85a3:0000:0000:8a2e:0370:7334");
-        let ip_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::IpAddress)
-            .collect();
-        assert_eq!(ip_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_ipv6_compressed() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("host: ::1");
-        let ip_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::IpAddress)
-            .collect();
-        assert_eq!(ip_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_ipv6_with_collapse() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("host: fe80::1");
-        let ip_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::IpAddress)
-            .collect();
-        assert_eq!(ip_matches.len(), 1);
-    }
-
-    // --- ITIN tests ---
-
-    #[test]
-    fn detects_itin() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("ITIN: 912-70-1234");
-        let itin_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsItin)
-            .collect();
-        assert_eq!(itin_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_itin_span() {
-        let detector = RegexDetector::new();
-        let input = "my ITIN is 900-94-5678 ok";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsItin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "900-94-5678");
-    }
-
-    #[test]
-    fn rejects_itin_invalid_group() {
-        let detector = RegexDetector::new();
-        // Group 30 is not in any valid range
-        let matches = detector.mark_piis("ITIN: 900-30-1234");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsItin));
-    }
-
     #[test]
     fn itin_does_not_overlap_with_ssn() {
         let detector = RegexDetector::new();
-        // SSN rejects area 900+, so 900-xx-xxxx should only be ITIN if group is valid
         let matches = detector.mark_piis("number: 912-70-1234");
         assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
         assert!(matches.iter().any(|m| m.kind == PiiKind::UsItin));
     }
 
-    // --- Canada SIN tests ---
-
-    #[test]
-    fn detects_sin_hyphens() {
-        let detector = RegexDetector::new();
-        // Valid SIN with Luhn: 130-692-544
-        let matches = detector.mark_piis("SIN: 130-692-544");
-        let sin_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::CaSin)
-            .collect();
-        assert_eq!(sin_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_sin_spaces() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SIN: 130 692 544");
-        let sin_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::CaSin)
-            .collect();
-        assert_eq!(sin_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_sin_failing_luhn() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("SIN: 123-456-789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::CaSin));
-    }
-
-    // --- Ireland PPSN tests ---
-
-    #[test]
-    fn detects_ppsn_8char() {
-        let detector = RegexDetector::new();
-        // 1234567T: weights 8*1+7*2+6*3+5*4+4*5+3*6+2*7 = 8+14+18+20+20+18+14 = 112
-        // 112 % 23 = 112 - 4*23 = 112 - 92 = 20 => letter T (A=1, T=20)
-        let matches = detector.mark_piis("PPSN: 1234567T");
-        let ppsn_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::IePpsn)
-            .collect();
-        assert_eq!(ppsn_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_ppsn_9char() {
-        let detector = RegexDetector::new();
-        // 1234567TW — second letter doesn't affect check
-        let matches = detector.mark_piis("PPSN: 1234567TW");
-        let ppsn_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::IePpsn)
-            .collect();
-        assert_eq!(ppsn_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_ppsn_wrong_check_letter() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("PPSN: 1234567A");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::IePpsn));
-    }
-
-    // --- South Africa ID tests ---
-
-    #[test]
-    fn detects_sa_id() {
-        let detector = RegexDetector::new();
-        // 8001015009087: DOB 80-01-01, SSSS=5009, citizen=0, checksum valid
-        let matches = detector.mark_piis("SA ID: 8001015009087");
-        let sa_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::ZaId).collect();
-        assert_eq!(sa_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_sa_id_invalid_month() {
-        let detector = RegexDetector::new();
-        // Month 13 is invalid
-        let matches = detector.mark_piis("SA ID: 8013015009087");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::ZaId));
-    }
-
-    #[test]
-    fn rejects_sa_id_invalid_day() {
-        let detector = RegexDetector::new();
-        // Day 32 is invalid
-        let matches = detector.mark_piis("SA ID: 8001325009087");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::ZaId));
-    }
-
-    #[test]
-    fn rejects_sa_id_failing_luhn() {
-        let detector = RegexDetector::new();
-        // Valid date/citizenship but bad checksum
-        let matches = detector.mark_piis("SA ID: 8001015009086");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::ZaId));
-    }
-
-    // --- MAC Address tests ---
-
-    #[test]
-    fn detects_mac_colon() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("MAC: 00:1A:2B:3C:4D:5E");
-        let mac_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::MacAddress)
-            .collect();
-        assert_eq!(mac_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_mac_hyphen() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("MAC: 00-1A-2B-3C-4D-5E");
-        let mac_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::MacAddress)
-            .collect();
-        assert_eq!(mac_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_mac_cisco_dot() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("MAC: 001A.2B3C.4D5E");
-        let mac_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::MacAddress)
-            .collect();
-        assert_eq!(mac_matches.len(), 1);
-    }
-
-    #[test]
-    fn detects_mac_lowercase() {
-        let detector = RegexDetector::new();
-        let matches = detector.mark_piis("MAC: aa:bb:cc:dd:ee:ff");
-        let mac_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::MacAddress)
-            .collect();
-        assert_eq!(mac_matches.len(), 1);
-    }
-
-    // --- UK Driving Licence tests ---
-
-    #[test]
-    fn detects_uk_driving_licence() {
-        let detector = RegexDetector::new();
-        // JONES901157A99Y1: JONES, 9=decade, 01=Jan, 15=day, 7=year, A9=arb, 9=issue, Y=letter, 1=check
-        let matches = detector.mark_piis("DL: JONES901157A99Y1");
-        let dl_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::GbDrivingLicence)
-            .collect();
-        assert_eq!(dl_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_uk_dl_invalid_month() {
-        let detector = RegexDetector::new();
-        // Month position = 00 (invalid)
-        let matches = detector.mark_piis("DL: JONES900057A99Y1");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbDrivingLicence));
-    }
-
-    #[test]
-    fn rejects_uk_dl_invalid_day() {
-        let detector = RegexDetector::new();
-        // Day = 00 (invalid)
-        let matches = detector.mark_piis("DL: JONES901007A99Y1");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbDrivingLicence));
-    }
-
-    // --- VIN tests ---
-
-    #[test]
-    fn detects_vin() {
-        let detector = RegexDetector::new();
-        // 1HGBH41JXMN109186 — valid Honda VIN with check digit X
-        let matches = detector.mark_piis("VIN: 1HGBH41JXMN109186");
-        let vin_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Vin).collect();
-        assert_eq!(vin_matches.len(), 1);
-    }
-
-    #[test]
-    fn rejects_vin_with_invalid_chars() {
-        let detector = RegexDetector::new();
-        // I, O, Q are not allowed in VINs
-        let matches = detector.mark_piis("VIN: 1HGBH41IXMN10918O");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Vin));
-    }
-
-    #[test]
-    fn detects_vin_span() {
-        let detector = RegexDetector::new();
-        let input = "vehicle 1HGBH41JXMN109186 registered";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::Vin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "1HGBH41JXMN109186"
-        );
-    }
-
     // --- JSON input tests ---
 
-    #[test]
-    fn detects_email_in_json() {
+    #[test_case(r#"{"user": {"email": "alice@example.com", "name": "Alice"}}"#, PiiKind::Email, "alice@example.com" ; "email in json")]
+    #[test_case(r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#, PiiKind::PhoneNumber, "555-123-4567" ; "phone in json")]
+    #[test_case(r#"{"payment": {"card_number": "4111 1111 1111 1111", "expiry": "12/28"}}"#, PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card in json")]
+    #[test_case(r#"{"employee": {"ssn": "123-45-6789", "name": "John"}}"#, PiiKind::UsSsn, "123-45-6789" ; "ssn in json")]
+    #[test_case(r#"{"employee": {"nino": "AB123456C", "department": "HR"}}"#, PiiKind::GbNino, "AB123456C" ; "nino in json")]
+    #[test_case(r#"{"bank": {"iban": "DE89370400440532013000", "currency": "EUR"}}"#, PiiKind::Iban, "DE89370400440532013000" ; "iban in json")]
+    #[test_case(r#"{"server": {"ip": "192.168.1.100", "status": "up"}}"#, PiiKind::IpAddress, "192.168.1.100" ; "ipv4 in json")]
+    #[test_case(r#"{"tax": {"itin": "912-70-1234", "year": 2025}}"#, PiiKind::UsItin, "912-70-1234" ; "itin in json")]
+    #[test_case(r#"{"employee": {"sin": "130-692-544", "province": "ON"}}"#, PiiKind::CaSin, "130-692-544" ; "sin in json")]
+    #[test_case(r#"{"citizen": {"ppsn": "1234567T", "county": "Dublin"}}"#, PiiKind::IePpsn, "1234567T" ; "ppsn in json")]
+    #[test_case(r#"{"citizen": {"id_number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
+    #[test_case(r#"{"device": {"mac": "00:1A:2B:3C:4D:5E", "hostname": "ws01"}}"#, PiiKind::MacAddress, "00:1A:2B:3C:4D:5E" ; "mac in json")]
+    #[test_case(r#"{"driver": {"licence": "JONES901157A99Y1", "category": "B"}}"#, PiiKind::GbDrivingLicence, "JONES901157A99Y1" ; "uk dl in json")]
+    #[test_case(r#"{"vehicle": {"vin": "1HGBH41JXMN109186", "make": "Honda"}}"#, PiiKind::Vin, "1HGBH41JXMN109186" ; "vin in json")]
+    fn detects_pii_in_json(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = RegexDetector::new();
-        let input = r#"{"user": {"email": "alice@example.com", "name": "Alice"}}"#;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::Email)
+            .filter(|m| m.kind == kind)
             .collect();
         assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "alice@example.com"
-        );
-    }
-
-    #[test]
-    fn detects_phone_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::PhoneNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "555-123-4567");
-    }
-
-    #[test]
-    fn detects_credit_card_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"payment": {"card_number": "4111 1111 1111 1111", "expiry": "12/28"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::CreditCard)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "4111 1111 1111 1111"
-        );
-    }
-
-    #[test]
-    fn detects_ssn_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"employee": {"ssn": "123-45-6789", "name": "John"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsSsn)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "123-45-6789");
-    }
-
-    #[test]
-    fn detects_nino_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"employee": {"nino": "AB123456C", "department": "HR"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbNino)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "AB123456C");
-    }
-
-    #[test]
-    fn detects_iban_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"bank": {"iban": "DE89370400440532013000", "currency": "EUR"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::Iban)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "DE89370400440532013000"
-        );
-    }
-
-    #[test]
-    fn detects_ipv4_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"server": {"ip": "192.168.1.100", "status": "up"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::IpAddress)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "192.168.1.100");
-    }
-
-    #[test]
-    fn detects_itin_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"tax": {"itin": "912-70-1234", "year": 2025}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsItin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "912-70-1234");
-    }
-
-    #[test]
-    fn detects_sin_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"employee": {"sin": "130-692-544", "province": "ON"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::CaSin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "130-692-544");
-    }
-
-    #[test]
-    fn detects_ppsn_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"citizen": {"ppsn": "1234567T", "county": "Dublin"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::IePpsn)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "1234567T");
-    }
-
-    #[test]
-    fn detects_sa_id_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"citizen": {"id_number": "8001015009087", "province": "Gauteng"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::ZaId)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "8001015009087");
-    }
-
-    #[test]
-    fn detects_mac_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"device": {"mac": "00:1A:2B:3C:4D:5E", "hostname": "ws01"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::MacAddress)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "00:1A:2B:3C:4D:5E"
-        );
-    }
-
-    #[test]
-    fn detects_uk_dl_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"driver": {"licence": "JONES901157A99Y1", "category": "B"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbDrivingLicence)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "JONES901157A99Y1");
-    }
-
-    #[test]
-    fn detects_vin_in_json() {
-        let detector = RegexDetector::new();
-        let input = r#"{"vehicle": {"vin": "1HGBH41JXMN109186", "make": "Honda"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::Vin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(
-            &input[matches[0].start..matches[0].end],
-            "1HGBH41JXMN109186"
-        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
     }
 
     #[test]

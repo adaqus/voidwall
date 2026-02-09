@@ -478,988 +478,360 @@ fn sort_code_check(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    // ===== Australia TFN =====
+    // --- Detection with span verification ---
 
-    #[test]
-    fn detects_tfn_with_keyword() {
+    #[test_case("TFN: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "tfn")]
+    #[test_case("IRD: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird")]
+    #[test_case("IRD number: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird span")]
+    #[test_case("NHS: 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "nhs")]
+    #[test_case("NHS number: 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "nhs span")]
+    #[test_case("Medicare: 2123 45670 1", PiiKind::AuMedicare, "2123 45670 1" ; "medicare")]
+    #[test_case("Medicare number: 2123 45670 1", PiiKind::AuMedicare, "2123 45670 1" ; "medicare span")]
+    #[test_case("Passport: A12345678", PiiKind::UsPassportNew, "A12345678" ; "us passport new")]
+    #[test_case("Passport number: A12345678", PiiKind::UsPassportNew, "A12345678" ; "us passport new span")]
+    #[test_case("SWIFT: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "swift bic 8char")]
+    #[test_case("SWIFT code: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "swift bic span")]
+    #[test_case("BIC: DEUTDEFFXXX", PiiKind::SwiftBic, "DEUTDEFFXXX" ; "swift bic 11char")]
+    #[test_case("EIN: 12-3456789", PiiKind::UsEin, "12-3456789" ; "ein")]
+    #[test_case("EIN number: 12-3456789", PiiKind::UsEin, "12-3456789" ; "ein span")]
+    #[test_case("IMEI: 490154203237518", PiiKind::Imei, "490154203237518" ; "imei")]
+    #[test_case("IMEI number: 490154203237518", PiiKind::Imei, "490154203237518" ; "imei span")]
+    #[test_case("IMEI: 49-015420-323751-8", PiiKind::Imei, "49-015420-323751-8" ; "imei hyphens")]
+    #[test_case("UTR: 5555555555", PiiKind::GbUtr, "5555555555" ; "utr")]
+    #[test_case("UTR number: 5555555555", PiiKind::GbUtr, "5555555555" ; "utr span")]
+    #[test_case("Routing number: 021000021", PiiKind::UsAbaRouting, "021000021" ; "aba")]
+    #[test_case("ABA routing number: 021000021", PiiKind::UsAbaRouting, "021000021" ; "aba span")]
+    #[test_case("Sort code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "sort code")]
+    #[test_case("Bank sort code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "sort code span")]
+    #[test_case("GPS coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation")]
+    #[test_case("coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation span")]
+    #[test_case("Alien number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number")]
+    #[test_case("Alien registration number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number span")]
+    #[test_case("Receipt number: SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt")]
+    #[test_case("USCIS receipt number: SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt span")]
+    #[test_case("Driver's license: B1234568", PiiKind::UsDriversLicense, "B1234568" ; "us dl 1 letter 7 digits")]
+    #[test_case("DL number: W123456789012", PiiKind::UsDriversLicense, "W123456789012" ; "us dl 1 letter 12 digits")]
+    #[test_case("License number: AB123456", PiiKind::UsDriversLicense, "AB123456" ; "us dl 2 letters 6 digits")]
+    #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
+    #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
+    fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("TFN: 123 456 782");
-        let tfn: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::AuTfn)
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
             .collect();
-        assert_eq!(tfn.len(), 1);
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
     }
 
-    #[test]
-    fn tfn_span_covers_only_value() {
+    // --- has_piis: keyword variants, case insensitive, separator variants ---
+
+    #[test_case("tax file number: 123 456 782" ; "tfn keyword variant 1")]
+    #[test_case("australian tfn 123 456 782" ; "tfn keyword variant 2")]
+    #[test_case("my tfn: 123 456 782" ; "tfn keyword variant 3")]
+    #[test_case("TFN: 123 456 782" ; "tfn case upper")]
+    #[test_case("tfn: 123 456 782" ; "tfn case lower")]
+    #[test_case("Tfn: 123 456 782" ; "tfn case mixed")]
+    #[test_case("TFN 123 456 782" ; "tfn sep space")]
+    #[test_case("TFN:123 456 782" ; "tfn sep colon")]
+    #[test_case("TFN#123 456 782" ; "tfn sep hash")]
+    #[test_case("inland revenue number: 49-091-857" ; "ird keyword variant 1")]
+    #[test_case("nz ird 49-091-857" ; "ird keyword variant 2")]
+    #[test_case("gst number: 49-091-857" ; "ird keyword variant 3")]
+    #[test_case("IRD: 49-091-857" ; "ird case upper")]
+    #[test_case("ird: 49-091-857" ; "ird case lower")]
+    #[test_case("Ird: 49-091-857" ; "ird case mixed")]
+    #[test_case("IRD 49-091-857" ; "ird sep space")]
+    #[test_case("IRD:49-091-857" ; "ird sep colon")]
+    #[test_case("IRD#49-091-857" ; "ird sep hash")]
+    #[test_case("national health service number: 943 476 5919" ; "nhs keyword variant 1")]
+    #[test_case("patient number 943 476 5919" ; "nhs keyword variant 2")]
+    #[test_case("my nhs number: 943 476 5919" ; "nhs keyword variant 3")]
+    #[test_case("NHS: 943 476 5919" ; "nhs case upper")]
+    #[test_case("nhs: 943 476 5919" ; "nhs case lower")]
+    #[test_case("Nhs: 943 476 5919" ; "nhs case mixed")]
+    #[test_case("NHS 943 476 5919" ; "nhs sep space")]
+    #[test_case("NHS:943 476 5919" ; "nhs sep colon")]
+    #[test_case("NHS#943 476 5919" ; "nhs sep hash")]
+    #[test_case("medicare card number: 2123 45670 1" ; "medicare keyword variant 1")]
+    #[test_case("australian medicare 2123 45670 1" ; "medicare keyword variant 2")]
+    #[test_case("my medicare: 2123 45670 1" ; "medicare keyword variant 3")]
+    #[test_case("Medicare: 2123 45670 1" ; "medicare case title")]
+    #[test_case("medicare: 2123 45670 1" ; "medicare case lower")]
+    #[test_case("MEDICARE: 2123 45670 1" ; "medicare case upper")]
+    #[test_case("Medicare 2123 45670 1" ; "medicare sep space")]
+    #[test_case("Medicare:2123 45670 1" ; "medicare sep colon")]
+    #[test_case("Medicare#2123 45670 1" ; "medicare sep hash")]
+    #[test_case("us passport number: X12345678" ; "passport keyword variant 1")]
+    #[test_case("travel document number Y12345678" ; "passport keyword variant 2")]
+    #[test_case("my passport: Z12345678" ; "passport keyword variant 3")]
+    #[test_case("PASSPORT: A12345678" ; "passport case upper")]
+    #[test_case("passport: a12345678" ; "passport case lower")]
+    #[test_case("Passport: A12345678" ; "passport case title")]
+    #[test_case("Passport A12345678" ; "passport sep space")]
+    #[test_case("Passport:A12345678" ; "passport sep colon")]
+    #[test_case("Passport#A12345678" ; "passport sep hash")]
+    #[test_case("SWIFT: DEUTDEFF" ; "swift case upper")]
+    #[test_case("swift: DEUTDEFF" ; "swift case lower")]
+    #[test_case("Swift: DEUTDEFF" ; "swift case mixed")]
+    #[test_case("SWIFT DEUTDEFF" ; "swift sep space")]
+    #[test_case("SWIFT:DEUTDEFF" ; "swift sep colon")]
+    #[test_case("SWIFT#DEUTDEFF" ; "swift sep hash")]
+    #[test_case("employer identification number: 12-3456789" ; "ein keyword variant 1")]
+    #[test_case("federal ein 12-3456789" ; "ein keyword variant 2")]
+    #[test_case("tax id number: 12-3456789" ; "ein keyword variant 3")]
+    #[test_case("EIN: 12-3456789" ; "ein case upper")]
+    #[test_case("ein: 12-3456789" ; "ein case lower")]
+    #[test_case("Ein: 12-3456789" ; "ein case mixed")]
+    #[test_case("EIN 12-3456789" ; "ein sep space")]
+    #[test_case("EIN:12-3456789" ; "ein sep colon")]
+    #[test_case("EIN#12-3456789" ; "ein sep hash")]
+    #[test_case("IMEI: 490154203237518" ; "imei case upper")]
+    #[test_case("imei: 490154203237518" ; "imei case lower")]
+    #[test_case("Imei: 490154203237518" ; "imei case mixed")]
+    #[test_case("IMEI 490154203237518" ; "imei sep space")]
+    #[test_case("IMEI:490154203237518" ; "imei sep colon")]
+    #[test_case("IMEI#490154203237518" ; "imei sep hash")]
+    #[test_case("unique taxpayer reference: 5555555555" ; "utr keyword variant 1")]
+    #[test_case("self assessment utr 5555555555" ; "utr keyword variant 2")]
+    #[test_case("hmrc utr: 5555555555" ; "utr keyword variant 3")]
+    #[test_case("UTR: 5555555555" ; "utr case upper")]
+    #[test_case("utr: 5555555555" ; "utr case lower")]
+    #[test_case("Utr: 5555555555" ; "utr case mixed")]
+    #[test_case("UTR 5555555555" ; "utr sep space")]
+    #[test_case("UTR:5555555555" ; "utr sep colon")]
+    #[test_case("UTR#5555555555" ; "utr sep hash")]
+    #[test_case("routing transit number: 021000021" ; "aba keyword variant 1")]
+    #[test_case("ach routing 021000021" ; "aba keyword variant 2")]
+    #[test_case("wire routing: 021000021" ; "aba keyword variant 3")]
+    #[test_case("ROUTING NUMBER: 021000021" ; "aba case upper")]
+    #[test_case("routing number: 021000021" ; "aba case lower")]
+    #[test_case("Routing Number: 021000021" ; "aba case title")]
+    #[test_case("Routing number 021000021" ; "aba sep space")]
+    #[test_case("Routing number:021000021" ; "aba sep colon")]
+    #[test_case("Routing number#021000021" ; "aba sep hash")]
+    #[test_case("sort code: 20-00-00" ; "sort code keyword variant 1")]
+    #[test_case("branch sort code 20-00-00" ; "sort code keyword variant 2")]
+    #[test_case("bacs sort code: 20-00-00" ; "sort code keyword variant 3")]
+    #[test_case("SORT CODE: 20-00-00" ; "sort code case upper")]
+    #[test_case("Sort Code: 20-00-00" ; "sort code case title")]
+    #[test_case("Sort code 20-00-00" ; "sort code sep space")]
+    #[test_case("Sort code:20-00-00" ; "sort code sep colon")]
+    #[test_case("Sort code#20-00-00" ; "sort code sep hash")]
+    #[test_case("Sort code: 40-47-84" ; "sort code value 1")]
+    #[test_case("Sort code: 30-90-53" ; "sort code value 2")]
+    #[test_case("lat/long: 40.7128,-74.0060" ; "geolocation keyword variant 1")]
+    #[test_case("geolocation 40.7128,-74.0060" ; "geolocation keyword variant 2")]
+    #[test_case("gps position: 40.7128,-74.0060" ; "geolocation keyword variant 3")]
+    #[test_case("precise location: 40.7128,-74.0060" ; "geolocation keyword variant 4")]
+    #[test_case("GPS COORDINATES: 40.7128,-74.0060" ; "geolocation case upper")]
+    #[test_case("gps coordinates: 40.7128,-74.0060" ; "geolocation case lower")]
+    #[test_case("Gps Coordinates: 40.7128,-74.0060" ; "geolocation case title")]
+    #[test_case("coordinates 40.7128,-74.0060" ; "geolocation sep space")]
+    #[test_case("coordinates:40.7128,-74.0060" ; "geolocation sep colon")]
+    #[test_case("coordinates#40.7128,-74.0060" ; "geolocation sep hash")]
+    #[test_case("alien registration number: A012345678" ; "a number keyword variant 1")]
+    #[test_case("green card number: A012345678" ; "a number keyword variant 2")]
+    #[test_case("permanent resident number: A012345678" ; "a number keyword variant 3")]
+    #[test_case("USCIS number: A012345678" ; "a number keyword variant 4")]
+    #[test_case("A-number: A012345678" ; "a number keyword variant 5")]
+    #[test_case("ALIEN NUMBER: A012345678" ; "a number case upper")]
+    #[test_case("alien number: a012345678" ; "a number case lower")]
+    #[test_case("Alien Number: A012345678" ; "a number case title")]
+    #[test_case("Alien number A012345678" ; "a number sep space")]
+    #[test_case("Alien number:A012345678" ; "a number sep colon")]
+    #[test_case("Alien number#A012345678" ; "a number sep hash")]
+    #[test_case("USCIS number: A1234567" ; "a number 7 digit")]
+    #[test_case("USCIS number: A12345678" ; "a number 8 digit")]
+    #[test_case("USCIS receipt number: SRC2190000001" ; "uscis receipt keyword variant 1")]
+    #[test_case("USCIS case number: SRC2190000001" ; "uscis receipt keyword variant 2")]
+    #[test_case("petition receipt: SRC2190000001" ; "uscis receipt keyword variant 3")]
+    #[test_case("I-797 receipt: SRC2190000001" ; "uscis receipt keyword variant 4")]
+    #[test_case("case number: SRC2190000001" ; "uscis receipt keyword variant 5")]
+    #[test_case("RECEIPT NUMBER: SRC2190000001" ; "uscis receipt case upper")]
+    #[test_case("receipt number: src2190000001" ; "uscis receipt case lower")]
+    #[test_case("Receipt Number: Src2190000001" ; "uscis receipt case title")]
+    #[test_case("Receipt number SRC2190000001" ; "uscis receipt sep space")]
+    #[test_case("Receipt number:SRC2190000001" ; "uscis receipt sep colon")]
+    #[test_case("Receipt number#SRC2190000001" ; "uscis receipt sep hash")]
+    #[test_case("Receipt number: EAC2190000001" ; "uscis receipt center EAC")]
+    #[test_case("Receipt number: WAC2190000001" ; "uscis receipt center WAC")]
+    #[test_case("Receipt number: LIN2190000001" ; "uscis receipt center LIN")]
+    #[test_case("Receipt number: IOE2190000001" ; "uscis receipt center IOE")]
+    #[test_case("Receipt number: MSC2190000001" ; "uscis receipt center MSC")]
+    #[test_case("driver's license number: B1234568" ; "us dl keyword variant 1")]
+    #[test_case("driving licence: B1234568" ; "us dl keyword variant 2")]
+    #[test_case("state id number: B1234568" ; "us dl keyword variant 3")]
+    #[test_case("DL number: B1234568" ; "us dl keyword variant 4")]
+    #[test_case("DMV number: B1234568" ; "us dl keyword variant 5")]
+    #[test_case("DRIVER'S LICENSE: B1234568" ; "us dl case upper")]
+    #[test_case("driver's license: B1234568" ; "us dl case lower")]
+    #[test_case("Driver's License: b1234568" ; "us dl case title")]
+    #[test_case("DL B1234568" ; "us dl sep space")]
+    #[test_case("DL:B1234568" ; "us dl sep colon")]
+    #[test_case("DL#B1234568" ; "us dl sep hash")]
+    fn has_piis_with_keyword(input: &str) {
         let detector = KeywordContextDetector::new();
-        let input = "TFN: 123 456 782";
+        assert!(detector.has_piis(input), "should detect PII in: {input}");
+    }
+
+    // --- Whitespace separator variants (newline, tab, crlf) ---
+
+    #[test_case("TFN:\n123 456 782" ; "tfn newline")]
+    #[test_case("Tax file number\n123 456 782" ; "tfn keyword newline")]
+    #[test_case("TFN:\t123 456 782" ; "tfn tab")]
+    #[test_case("Tax file number\t123 456 782" ; "tfn keyword tab")]
+    #[test_case("TFN:\r\n123 456 782" ; "tfn crlf")]
+    #[test_case("Tax file number\r\n123 456 782" ; "tfn keyword crlf")]
+    #[test_case("IRD:\n49-091-857" ; "ird newline")]
+    #[test_case("IRD number\n49-091-857" ; "ird keyword newline")]
+    #[test_case("IRD:\t49-091-857" ; "ird tab")]
+    #[test_case("IRD number\t49-091-857" ; "ird keyword tab")]
+    #[test_case("IRD:\r\n49-091-857" ; "ird crlf")]
+    #[test_case("IRD number\r\n49-091-857" ; "ird keyword crlf")]
+    #[test_case("NHS:\n943 476 5919" ; "nhs newline")]
+    #[test_case("NHS number\n943 476 5919" ; "nhs keyword newline")]
+    #[test_case("NHS:\t943 476 5919" ; "nhs tab")]
+    #[test_case("NHS number\t943 476 5919" ; "nhs keyword tab")]
+    #[test_case("NHS:\r\n943 476 5919" ; "nhs crlf")]
+    #[test_case("NHS number\r\n943 476 5919" ; "nhs keyword crlf")]
+    #[test_case("Medicare:\n2123 45670 1" ; "medicare newline")]
+    #[test_case("Medicare number\n2123 45670 1" ; "medicare keyword newline")]
+    #[test_case("Medicare:\t2123 45670 1" ; "medicare tab")]
+    #[test_case("Medicare number\t2123 45670 1" ; "medicare keyword tab")]
+    #[test_case("Medicare:\r\n2123 45670 1" ; "medicare crlf")]
+    #[test_case("Medicare number\r\n2123 45670 1" ; "medicare keyword crlf")]
+    #[test_case("Passport:\nA12345678" ; "passport newline")]
+    #[test_case("Passport number\nA12345678" ; "passport keyword newline")]
+    #[test_case("Passport:\tA12345678" ; "passport tab")]
+    #[test_case("Passport number\tA12345678" ; "passport keyword tab")]
+    #[test_case("Passport:\r\nA12345678" ; "passport crlf")]
+    #[test_case("Passport number\r\nA12345678" ; "passport keyword crlf")]
+    #[test_case("SWIFT:\nDEUTDEFF" ; "swift newline")]
+    #[test_case("SWIFT code\nDEUTDEFF" ; "swift keyword newline")]
+    #[test_case("SWIFT:\tDEUTDEFF" ; "swift tab")]
+    #[test_case("SWIFT code\tDEUTDEFF" ; "swift keyword tab")]
+    #[test_case("SWIFT:\r\nDEUTDEFF" ; "swift crlf")]
+    #[test_case("SWIFT code\r\nDEUTDEFF" ; "swift keyword crlf")]
+    #[test_case("EIN:\n12-3456789" ; "ein newline")]
+    #[test_case("EIN number\n12-3456789" ; "ein keyword newline")]
+    #[test_case("EIN:\t12-3456789" ; "ein tab")]
+    #[test_case("EIN number\t12-3456789" ; "ein keyword tab")]
+    #[test_case("EIN:\r\n12-3456789" ; "ein crlf")]
+    #[test_case("EIN number\r\n12-3456789" ; "ein keyword crlf")]
+    #[test_case("IMEI:\n490154203237518" ; "imei newline")]
+    #[test_case("IMEI number\n490154203237518" ; "imei keyword newline")]
+    #[test_case("IMEI:\t490154203237518" ; "imei tab")]
+    #[test_case("IMEI number\t490154203237518" ; "imei keyword tab")]
+    #[test_case("IMEI:\r\n490154203237518" ; "imei crlf")]
+    #[test_case("IMEI number\r\n490154203237518" ; "imei keyword crlf")]
+    #[test_case("UTR:\n5555555555" ; "utr newline")]
+    #[test_case("UTR number\n5555555555" ; "utr keyword newline")]
+    #[test_case("UTR:\t5555555555" ; "utr tab")]
+    #[test_case("UTR number\t5555555555" ; "utr keyword tab")]
+    #[test_case("UTR:\r\n5555555555" ; "utr crlf")]
+    #[test_case("UTR number\r\n5555555555" ; "utr keyword crlf")]
+    #[test_case("Routing number:\n021000021" ; "aba newline")]
+    #[test_case("ABA routing\n021000021" ; "aba keyword newline")]
+    #[test_case("Routing number:\t021000021" ; "aba tab")]
+    #[test_case("ABA routing\t021000021" ; "aba keyword tab")]
+    #[test_case("Routing number:\r\n021000021" ; "aba crlf")]
+    #[test_case("ABA routing\r\n021000021" ; "aba keyword crlf")]
+    #[test_case("Sort code:\n20-00-00" ; "sort code newline")]
+    #[test_case("Bank sort code\n20-00-00" ; "sort code keyword newline")]
+    #[test_case("Sort code:\t20-00-00" ; "sort code tab")]
+    #[test_case("Bank sort code\t20-00-00" ; "sort code keyword tab")]
+    #[test_case("Sort code:\r\n20-00-00" ; "sort code crlf")]
+    #[test_case("Bank sort code\r\n20-00-00" ; "sort code keyword crlf")]
+    #[test_case("GPS coordinates:\n40.7128,-74.0060" ; "geolocation newline")]
+    #[test_case("coordinates\n40.7128,-74.0060" ; "geolocation keyword newline")]
+    #[test_case("GPS coordinates:\t40.7128,-74.0060" ; "geolocation tab")]
+    #[test_case("coordinates\t40.7128,-74.0060" ; "geolocation keyword tab")]
+    #[test_case("GPS coordinates:\r\n40.7128,-74.0060" ; "geolocation crlf")]
+    #[test_case("coordinates\r\n40.7128,-74.0060" ; "geolocation keyword crlf")]
+    #[test_case("Alien number:\nA012345678" ; "a number newline")]
+    #[test_case("USCIS number\nA012345678" ; "a number keyword newline")]
+    #[test_case("Alien number:\tA012345678" ; "a number tab")]
+    #[test_case("USCIS number\tA012345678" ; "a number keyword tab")]
+    #[test_case("Alien number:\r\nA012345678" ; "a number crlf")]
+    #[test_case("USCIS number\r\nA012345678" ; "a number keyword crlf")]
+    #[test_case("Receipt number:\nSRC2190000001" ; "uscis receipt newline")]
+    #[test_case("USCIS case\nSRC2190000001" ; "uscis receipt keyword newline")]
+    #[test_case("Receipt number:\tSRC2190000001" ; "uscis receipt tab")]
+    #[test_case("USCIS case\tSRC2190000001" ; "uscis receipt keyword tab")]
+    #[test_case("Receipt number:\r\nSRC2190000001" ; "uscis receipt crlf")]
+    #[test_case("USCIS case\r\nSRC2190000001" ; "uscis receipt keyword crlf")]
+    #[test_case("Driver's license:\nB1234568" ; "us dl newline")]
+    #[test_case("DL number\nB1234568" ; "us dl keyword newline")]
+    #[test_case("Driver's license:\tB1234568" ; "us dl tab")]
+    #[test_case("DL number\tB1234568" ; "us dl keyword tab")]
+    #[test_case("Driver's license:\r\nB1234568" ; "us dl crlf")]
+    #[test_case("DL number\r\nB1234568" ; "us dl keyword crlf")]
+    fn has_piis_with_whitespace_separator(input: &str) {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis(input), "should detect PII in: {input}");
+    }
+
+    // --- Rejection tests ---
+
+    #[test_case("TFN: 123 456 789", PiiKind::AuTfn ; "tfn bad checksum")]
+    #[test_case("IRD: 01-000-000", PiiKind::NzIrdNumber ; "ird out of range")]
+    #[test_case("NHS: 943 476 5910", PiiKind::GbNhsNumber ; "nhs bad checksum")]
+    #[test_case("Medicare: 1123 45670 1", PiiKind::AuMedicare ; "medicare invalid first digit")]
+    #[test_case("Passport: B12345678", PiiKind::UsPassportNew ; "passport invalid prefix")]
+    #[test_case("SWIFT: DEUTXXFF", PiiKind::SwiftBic ; "swift invalid country")]
+    #[test_case("EIN: 07-3456789", PiiKind::UsEin ; "ein invalid prefix")]
+    #[test_case("IMEI: 490154203237519", PiiKind::Imei ; "imei bad luhn")]
+    #[test_case("UTR: 1555555555", PiiKind::GbUtr ; "utr bad checksum")]
+    #[test_case("Routing number: 021000022", PiiKind::UsAbaRouting ; "aba bad checksum")]
+    #[test_case("coordinates: 91.0000,-74.0060", PiiKind::PreciseGeolocation ; "geolocation lat out of range")]
+    #[test_case("coordinates: 40.7128,181.0060", PiiKind::PreciseGeolocation ; "geolocation lon out of range")]
+    #[test_case("coordinates: 40.71,-74.00", PiiKind::PreciseGeolocation ; "geolocation insufficient precision")]
+    #[test_case("Receipt number: XYZ2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt invalid center")]
+    #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
+    fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
+        let detector = KeywordContextDetector::new();
         let matches = detector.mark_piis(input);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "123 456 782");
-    }
-
-    #[test]
-    fn tfn_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("tax file number: 123 456 782"));
-        assert!(detector.has_piis("australian tfn 123 456 782"));
-        assert!(detector.has_piis("my tfn: 123 456 782"));
-    }
-
-    #[test]
-    fn tfn_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("TFN: 123 456 782"));
-        assert!(detector.has_piis("tfn: 123 456 782"));
-        assert!(detector.has_piis("Tfn: 123 456 782"));
-    }
-
-    #[test]
-    fn tfn_rejects_bad_checksum() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("TFN: 123 456 789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AuTfn));
-    }
-
-    #[test]
-    fn tfn_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("my number is 123 456 782");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AuTfn));
-    }
-
-    #[test]
-    fn tfn_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("TFN: 123 456 782"));
-        assert!(detector.has_piis("TFN 123 456 782"));
-        assert!(detector.has_piis("TFN:123 456 782"));
-        assert!(detector.has_piis("TFN#123 456 782"));
-    }
-
-    // ===== NZ IRD Number =====
-
-    #[test]
-    fn detects_ird_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 49-091-857: valid IRD
-        let matches = detector.mark_piis("IRD: 49-091-857");
-        let ird: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::NzIrdNumber)
-            .collect();
-        assert_eq!(ird.len(), 1);
-    }
-
-    #[test]
-    fn ird_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "IRD number: 49-091-857";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::NzIrdNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "49-091-857");
-    }
-
-    #[test]
-    fn ird_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("inland revenue number: 49-091-857"));
-        assert!(detector.has_piis("nz ird 49-091-857"));
-        assert!(detector.has_piis("gst number: 49-091-857"));
-    }
-
-    #[test]
-    fn ird_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IRD: 49-091-857"));
-        assert!(detector.has_piis("ird: 49-091-857"));
-        assert!(detector.has_piis("Ird: 49-091-857"));
-    }
-
-    #[test]
-    fn ird_rejects_out_of_range() {
-        let detector = KeywordContextDetector::new();
-        // 01-000-000 = 1,000,000 which is below 10,000,000
-        let matches = detector.mark_piis("IRD: 01-000-000");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::NzIrdNumber));
-    }
-
-    #[test]
-    fn ird_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 49-091-857");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::NzIrdNumber));
-    }
-
-    #[test]
-    fn ird_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IRD: 49-091-857"));
-        assert!(detector.has_piis("IRD 49-091-857"));
-        assert!(detector.has_piis("IRD:49-091-857"));
-        assert!(detector.has_piis("IRD#49-091-857"));
-    }
-
-    // ===== UK NHS Number =====
-
-    #[test]
-    fn detects_nhs_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 943 476 5919: valid NHS number
-        let matches = detector.mark_piis("NHS: 943 476 5919");
-        let nhs: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::GbNhsNumber)
-            .collect();
-        assert_eq!(nhs.len(), 1);
-    }
-
-    #[test]
-    fn nhs_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "NHS number: 943 476 5919";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbNhsNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "943 476 5919");
-    }
-
-    #[test]
-    fn nhs_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("national health service number: 943 476 5919"));
-        assert!(detector.has_piis("patient number 943 476 5919"));
-        assert!(detector.has_piis("my nhs number: 943 476 5919"));
-    }
-
-    #[test]
-    fn nhs_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("NHS: 943 476 5919"));
-        assert!(detector.has_piis("nhs: 943 476 5919"));
-        assert!(detector.has_piis("Nhs: 943 476 5919"));
-    }
-
-    #[test]
-    fn nhs_rejects_bad_checksum() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("NHS: 943 476 5910");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNhsNumber));
-    }
-
-    #[test]
-    fn nhs_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 943 476 5919");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbNhsNumber));
-    }
-
-    #[test]
-    fn nhs_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("NHS: 943 476 5919"));
-        assert!(detector.has_piis("NHS 943 476 5919"));
-        assert!(detector.has_piis("NHS:943 476 5919"));
-        assert!(detector.has_piis("NHS#943 476 5919"));
-    }
-
-    // ===== Australia Medicare =====
-
-    #[test]
-    fn detects_medicare_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 2123 45670 1: first digit 2 (valid), weights check
-        let matches = detector.mark_piis("Medicare: 2123 45670 1");
-        let med: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::AuMedicare)
-            .collect();
-        assert_eq!(med.len(), 1);
-    }
-
-    #[test]
-    fn medicare_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "Medicare number: 2123 45670 1";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::AuMedicare)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "2123 45670 1");
-    }
-
-    #[test]
-    fn medicare_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("medicare card number: 2123 45670 1"));
-        assert!(detector.has_piis("australian medicare 2123 45670 1"));
-        assert!(detector.has_piis("my medicare: 2123 45670 1"));
-    }
-
-    #[test]
-    fn medicare_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Medicare: 2123 45670 1"));
-        assert!(detector.has_piis("medicare: 2123 45670 1"));
-        assert!(detector.has_piis("MEDICARE: 2123 45670 1"));
-    }
-
-    #[test]
-    fn medicare_rejects_invalid_first_digit() {
-        let detector = KeywordContextDetector::new();
-        // First digit 1 is invalid (must be 2-6)
-        let matches = detector.mark_piis("Medicare: 1123 45670 1");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AuMedicare));
-    }
-
-    #[test]
-    fn medicare_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 2123 45670 1");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::AuMedicare));
-    }
-
-    #[test]
-    fn medicare_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Medicare: 2123 45670 1"));
-        assert!(detector.has_piis("Medicare 2123 45670 1"));
-        assert!(detector.has_piis("Medicare:2123 45670 1"));
-        assert!(detector.has_piis("Medicare#2123 45670 1"));
-    }
-
-    // ===== US Passport (New format) =====
-
-    #[test]
-    fn detects_us_passport_new_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("Passport: A12345678");
-        let pp: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsPassportNew)
-            .collect();
-        assert_eq!(pp.len(), 1);
-    }
-
-    #[test]
-    fn us_passport_new_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "Passport number: A12345678";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsPassportNew)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "A12345678");
-    }
-
-    #[test]
-    fn us_passport_new_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("us passport number: X12345678"));
-        assert!(detector.has_piis("travel document number Y12345678"));
-        assert!(detector.has_piis("my passport: Z12345678"));
-    }
-
-    #[test]
-    fn us_passport_new_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("PASSPORT: A12345678"));
-        assert!(detector.has_piis("passport: a12345678"));
-        assert!(detector.has_piis("Passport: A12345678"));
-    }
-
-    #[test]
-    fn us_passport_new_rejects_invalid_prefix() {
-        let detector = KeywordContextDetector::new();
-        // B is not a valid prefix (only A, X, Y, Z)
-        let matches = detector.mark_piis("Passport: B12345678");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsPassportNew));
-    }
-
-    #[test]
-    fn us_passport_new_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("code is A12345678");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsPassportNew));
-    }
-
-    #[test]
-    fn us_passport_new_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Passport: A12345678"));
-        assert!(detector.has_piis("Passport A12345678"));
-        assert!(detector.has_piis("Passport:A12345678"));
-        assert!(detector.has_piis("Passport#A12345678"));
-    }
-
-    // ===== SWIFT/BIC =====
-
-    #[test]
-    fn detects_swift_bic_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("SWIFT: DEUTDEFF");
-        let swift: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::SwiftBic)
-            .collect();
-        assert_eq!(swift.len(), 1);
-    }
-
-    #[test]
-    fn swift_bic_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "SWIFT code: DEUTDEFF";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::SwiftBic)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "DEUTDEFF");
-    }
-
-    #[test]
-    fn swift_bic_11_char() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("BIC: DEUTDEFFXXX");
-        let swift: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::SwiftBic)
-            .collect();
-        assert_eq!(swift.len(), 1);
-    }
-
-    #[test]
-    fn swift_bic_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SWIFT: DEUTDEFF"));
-        assert!(detector.has_piis("swift: DEUTDEFF"));
-        assert!(detector.has_piis("Swift: DEUTDEFF"));
-    }
-
-    #[test]
-    fn swift_bic_rejects_invalid_country() {
-        let detector = KeywordContextDetector::new();
-        // "XX" is not a valid ISO country code
-        let matches = detector.mark_piis("SWIFT: DEUTXXFF");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::SwiftBic));
-    }
-
-    #[test]
-    fn swift_bic_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("code is DEUTDEFF");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::SwiftBic));
-    }
-
-    #[test]
-    fn swift_bic_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SWIFT: DEUTDEFF"));
-        assert!(detector.has_piis("SWIFT DEUTDEFF"));
-        assert!(detector.has_piis("SWIFT:DEUTDEFF"));
-        assert!(detector.has_piis("SWIFT#DEUTDEFF"));
-    }
-
-    // ===== US EIN =====
-
-    #[test]
-    fn detects_ein_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("EIN: 12-3456789");
-        let ein: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsEin)
-            .collect();
-        assert_eq!(ein.len(), 1);
-    }
-
-    #[test]
-    fn ein_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "EIN number: 12-3456789";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsEin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "12-3456789");
-    }
-
-    #[test]
-    fn ein_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("employer identification number: 12-3456789"));
-        assert!(detector.has_piis("federal ein 12-3456789"));
-        assert!(detector.has_piis("tax id number: 12-3456789"));
-    }
-
-    #[test]
-    fn ein_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("EIN: 12-3456789"));
-        assert!(detector.has_piis("ein: 12-3456789"));
-        assert!(detector.has_piis("Ein: 12-3456789"));
-    }
-
-    #[test]
-    fn ein_rejects_invalid_prefix() {
-        let detector = KeywordContextDetector::new();
-        // 07 is not a valid EIN prefix
-        let matches = detector.mark_piis("EIN: 07-3456789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsEin));
-    }
-
-    #[test]
-    fn ein_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 12-3456789");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsEin));
-    }
-
-    #[test]
-    fn ein_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("EIN: 12-3456789"));
-        assert!(detector.has_piis("EIN 12-3456789"));
-        assert!(detector.has_piis("EIN:12-3456789"));
-        assert!(detector.has_piis("EIN#12-3456789"));
-    }
-
-    // ===== IMEI =====
-
-    #[test]
-    fn detects_imei_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 490154203237518: valid Luhn
-        let matches = detector.mark_piis("IMEI: 490154203237518");
-        let imei: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Imei).collect();
-        assert_eq!(imei.len(), 1);
-    }
-
-    #[test]
-    fn imei_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "IMEI number: 490154203237518";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::Imei)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "490154203237518");
-    }
-
-    #[test]
-    fn imei_with_hyphens() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("IMEI: 49-015420-323751-8");
-        let imei: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Imei).collect();
-        assert_eq!(imei.len(), 1);
-    }
-
-    #[test]
-    fn imei_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IMEI: 490154203237518"));
-        assert!(detector.has_piis("imei: 490154203237518"));
-        assert!(detector.has_piis("Imei: 490154203237518"));
-    }
-
-    #[test]
-    fn imei_rejects_bad_luhn() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("IMEI: 490154203237519");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Imei));
-    }
-
-    #[test]
-    fn imei_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 490154203237518");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::Imei));
-    }
-
-    #[test]
-    fn imei_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IMEI: 490154203237518"));
-        assert!(detector.has_piis("IMEI 490154203237518"));
-        assert!(detector.has_piis("IMEI:490154203237518"));
-        assert!(detector.has_piis("IMEI#490154203237518"));
-    }
-
-    // ===== UK UTR =====
-
-    #[test]
-    fn detects_utr_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 5555555555: check digit 5, body 555555555, sum=270, 270%11=6, 11-6=5
-        let matches = detector.mark_piis("UTR: 5555555555");
-        let utr: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::GbUtr)
-            .collect();
-        assert_eq!(utr.len(), 1);
-    }
-
-    #[test]
-    fn utr_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "UTR number: 5555555555";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbUtr)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "5555555555");
-    }
-
-    #[test]
-    fn utr_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("unique taxpayer reference: 5555555555"));
-        assert!(detector.has_piis("self assessment utr 5555555555"));
-        assert!(detector.has_piis("hmrc utr: 5555555555"));
-    }
-
-    #[test]
-    fn utr_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("UTR: 5555555555"));
-        assert!(detector.has_piis("utr: 5555555555"));
-        assert!(detector.has_piis("Utr: 5555555555"));
-    }
-
-    #[test]
-    fn utr_rejects_bad_checksum() {
-        let detector = KeywordContextDetector::new();
-        // Change first digit (check digit) to make it invalid
-        let matches = detector.mark_piis("UTR: 1555555555");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbUtr));
-    }
-
-    #[test]
-    fn utr_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 5555555555");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbUtr));
-    }
-
-    #[test]
-    fn utr_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("UTR: 5555555555"));
-        assert!(detector.has_piis("UTR 5555555555"));
-        assert!(detector.has_piis("UTR:5555555555"));
-        assert!(detector.has_piis("UTR#5555555555"));
-    }
-
-    // ===== US ABA Routing =====
-
-    #[test]
-    fn detects_aba_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        // 021000021: 3*(0+0+0)+7*(2+0+2)+(1+0+1)=0+28+2=30, 30%10=0
-        let matches = detector.mark_piis("Routing number: 021000021");
-        let aba: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsAbaRouting)
-            .collect();
-        assert_eq!(aba.len(), 1);
-    }
-
-    #[test]
-    fn aba_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "ABA routing number: 021000021";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsAbaRouting)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "021000021");
-    }
-
-    #[test]
-    fn aba_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("routing transit number: 021000021"));
-        assert!(detector.has_piis("ach routing 021000021"));
-        assert!(detector.has_piis("wire routing: 021000021"));
-    }
-
-    #[test]
-    fn aba_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("ROUTING NUMBER: 021000021"));
-        assert!(detector.has_piis("routing number: 021000021"));
-        assert!(detector.has_piis("Routing Number: 021000021"));
-    }
-
-    #[test]
-    fn aba_rejects_bad_checksum() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("Routing number: 021000022");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAbaRouting));
-    }
-
-    #[test]
-    fn aba_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("number is 021000021");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAbaRouting));
-    }
-
-    #[test]
-    fn aba_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Routing number: 021000021"));
-        assert!(detector.has_piis("Routing number 021000021"));
-        assert!(detector.has_piis("Routing number:021000021"));
-        assert!(detector.has_piis("Routing number#021000021"));
-    }
-
-    // ===== UK Sort Code =====
-
-    #[test]
-    fn detects_sort_code_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("Sort code: 20-00-00");
-        let sc: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::GbSortCode)
-            .collect();
-        assert_eq!(sc.len(), 1);
-    }
-
-    #[test]
-    fn sort_code_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "Bank sort code: 20-00-00";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbSortCode)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "20-00-00");
-    }
-
-    #[test]
-    fn sort_code_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("sort code: 20-00-00"));
-        assert!(detector.has_piis("branch sort code 20-00-00"));
-        assert!(detector.has_piis("bacs sort code: 20-00-00"));
-    }
-
-    #[test]
-    fn sort_code_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SORT CODE: 20-00-00"));
-        assert!(detector.has_piis("sort code: 20-00-00"));
-        assert!(detector.has_piis("Sort Code: 20-00-00"));
-    }
-
-    #[test]
-    fn sort_code_various_values() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Sort code: 40-47-84"));
-        assert!(detector.has_piis("Sort code: 30-90-53"));
-    }
-
-    #[test]
-    fn sort_code_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("date is 20-00-00");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::GbSortCode));
-    }
-
-    #[test]
-    fn sort_code_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Sort code: 20-00-00"));
-        assert!(detector.has_piis("Sort code 20-00-00"));
-        assert!(detector.has_piis("Sort code:20-00-00"));
-        assert!(detector.has_piis("Sort code#20-00-00"));
-    }
-
-    // ===== Newline separator between keyword and value =====
-
-    #[test]
-    fn tfn_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("TFN:\n123 456 782"));
-        assert!(detector.has_piis("Tax file number\n123 456 782"));
-    }
-
-    #[test]
-    fn tfn_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("TFN:\t123 456 782"));
-        assert!(detector.has_piis("Tax file number\t123 456 782"));
-    }
-
-    #[test]
-    fn tfn_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("TFN:\r\n123 456 782"));
-        assert!(detector.has_piis("Tax file number\r\n123 456 782"));
-    }
-
-    #[test]
-    fn ird_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IRD:\n49-091-857"));
-        assert!(detector.has_piis("IRD number\n49-091-857"));
-    }
-
-    #[test]
-    fn ird_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IRD:\t49-091-857"));
-        assert!(detector.has_piis("IRD number\t49-091-857"));
-    }
-
-    #[test]
-    fn ird_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IRD:\r\n49-091-857"));
-        assert!(detector.has_piis("IRD number\r\n49-091-857"));
-    }
-
-    #[test]
-    fn nhs_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("NHS:\n943 476 5919"));
-        assert!(detector.has_piis("NHS number\n943 476 5919"));
-    }
-
-    #[test]
-    fn nhs_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("NHS:\t943 476 5919"));
-        assert!(detector.has_piis("NHS number\t943 476 5919"));
-    }
-
-    #[test]
-    fn nhs_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("NHS:\r\n943 476 5919"));
-        assert!(detector.has_piis("NHS number\r\n943 476 5919"));
-    }
-
-    #[test]
-    fn medicare_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Medicare:\n2123 45670 1"));
-        assert!(detector.has_piis("Medicare number\n2123 45670 1"));
-    }
-
-    #[test]
-    fn medicare_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Medicare:\t2123 45670 1"));
-        assert!(detector.has_piis("Medicare number\t2123 45670 1"));
-    }
-
-    #[test]
-    fn medicare_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Medicare:\r\n2123 45670 1"));
-        assert!(detector.has_piis("Medicare number\r\n2123 45670 1"));
-    }
-
-    #[test]
-    fn us_passport_new_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Passport:\nA12345678"));
-        assert!(detector.has_piis("Passport number\nA12345678"));
-    }
-
-    #[test]
-    fn us_passport_new_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Passport:\tA12345678"));
-        assert!(detector.has_piis("Passport number\tA12345678"));
-    }
-
-    #[test]
-    fn us_passport_new_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Passport:\r\nA12345678"));
-        assert!(detector.has_piis("Passport number\r\nA12345678"));
-    }
-
-    #[test]
-    fn swift_bic_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SWIFT:\nDEUTDEFF"));
-        assert!(detector.has_piis("SWIFT code\nDEUTDEFF"));
-    }
-
-    #[test]
-    fn swift_bic_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SWIFT:\tDEUTDEFF"));
-        assert!(detector.has_piis("SWIFT code\tDEUTDEFF"));
-    }
-
-    #[test]
-    fn swift_bic_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("SWIFT:\r\nDEUTDEFF"));
-        assert!(detector.has_piis("SWIFT code\r\nDEUTDEFF"));
-    }
-
-    #[test]
-    fn ein_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("EIN:\n12-3456789"));
-        assert!(detector.has_piis("EIN number\n12-3456789"));
-    }
-
-    #[test]
-    fn ein_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("EIN:\t12-3456789"));
-        assert!(detector.has_piis("EIN number\t12-3456789"));
-    }
-
-    #[test]
-    fn ein_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("EIN:\r\n12-3456789"));
-        assert!(detector.has_piis("EIN number\r\n12-3456789"));
-    }
-
-    #[test]
-    fn imei_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IMEI:\n490154203237518"));
-        assert!(detector.has_piis("IMEI number\n490154203237518"));
-    }
-
-    #[test]
-    fn imei_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IMEI:\t490154203237518"));
-        assert!(detector.has_piis("IMEI number\t490154203237518"));
-    }
-
-    #[test]
-    fn imei_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("IMEI:\r\n490154203237518"));
-        assert!(detector.has_piis("IMEI number\r\n490154203237518"));
-    }
-
-    #[test]
-    fn utr_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("UTR:\n5555555555"));
-        assert!(detector.has_piis("UTR number\n5555555555"));
-    }
-
-    #[test]
-    fn utr_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("UTR:\t5555555555"));
-        assert!(detector.has_piis("UTR number\t5555555555"));
-    }
-
-    #[test]
-    fn utr_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("UTR:\r\n5555555555"));
-        assert!(detector.has_piis("UTR number\r\n5555555555"));
-    }
-
-    #[test]
-    fn aba_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Routing number:\n021000021"));
-        assert!(detector.has_piis("ABA routing\n021000021"));
-    }
-
-    #[test]
-    fn aba_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Routing number:\t021000021"));
-        assert!(detector.has_piis("ABA routing\t021000021"));
-    }
-
-    #[test]
-    fn aba_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Routing number:\r\n021000021"));
-        assert!(detector.has_piis("ABA routing\r\n021000021"));
-    }
-
-    #[test]
-    fn sort_code_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Sort code:\n20-00-00"));
-        assert!(detector.has_piis("Bank sort code\n20-00-00"));
-    }
-
-    #[test]
-    fn sort_code_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Sort code:\t20-00-00"));
-        assert!(detector.has_piis("Bank sort code\t20-00-00"));
-    }
-
-    #[test]
-    fn sort_code_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Sort code:\r\n20-00-00"));
-        assert!(detector.has_piis("Bank sort code\r\n20-00-00"));
-    }
-
-    // ===== Precise Geolocation =====
-
-    #[test]
-    fn detects_geolocation_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("GPS coordinates: 40.7128,-74.0060");
-        let geo: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
-            .collect();
-        assert_eq!(geo.len(), 1);
-    }
-
-    #[test]
-    fn geolocation_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "coordinates: 40.7128,-74.0060";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "40.7128,-74.0060");
-    }
+        assert!(
+            matches.iter().all(|m| m.kind != kind),
+            "should reject {kind:?} in: {input}"
+        );
+    }
+
+    // --- No detection without keyword ---
+
+    #[test_case("my number is 123 456 782", PiiKind::AuTfn ; "tfn no keyword")]
+    #[test_case("number is 49-091-857", PiiKind::NzIrdNumber ; "ird no keyword")]
+    #[test_case("number is 943 476 5919", PiiKind::GbNhsNumber ; "nhs no keyword")]
+    #[test_case("number is 2123 45670 1", PiiKind::AuMedicare ; "medicare no keyword")]
+    #[test_case("code is A12345678", PiiKind::UsPassportNew ; "passport no keyword")]
+    #[test_case("code is DEUTDEFF", PiiKind::SwiftBic ; "swift no keyword")]
+    #[test_case("number is 12-3456789", PiiKind::UsEin ; "ein no keyword")]
+    #[test_case("number is 490154203237518", PiiKind::Imei ; "imei no keyword")]
+    #[test_case("number is 5555555555", PiiKind::GbUtr ; "utr no keyword")]
+    #[test_case("number is 021000021", PiiKind::UsAbaRouting ; "aba no keyword")]
+    #[test_case("date is 20-00-00", PiiKind::GbSortCode ; "sort code no keyword")]
+    #[test_case("values are 40.7128,-74.0060", PiiKind::PreciseGeolocation ; "geolocation no keyword")]
+    #[test_case("code is A012345678", PiiKind::UsAlienNumber ; "a number no keyword")]
+    #[test_case("code is SRC2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt no keyword")]
+    #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
+    fn no_detection_without_keyword(input: &str, kind: PiiKind) {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis(input);
+        assert!(
+            matches.iter().all(|m| m.kind != kind),
+            "should not detect {kind:?} without keyword in: {input}"
+        );
+    }
+
+    // --- Special cases kept as individual tests ---
 
     #[test]
     fn geolocation_with_space_after_comma() {
@@ -1478,82 +850,8 @@ mod tests {
     }
 
     #[test]
-    fn geolocation_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("lat/long: 40.7128,-74.0060"));
-        assert!(detector.has_piis("geolocation 40.7128,-74.0060"));
-        assert!(detector.has_piis("gps position: 40.7128,-74.0060"));
-        assert!(detector.has_piis("precise location: 40.7128,-74.0060"));
-    }
-
-    #[test]
-    fn geolocation_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("GPS COORDINATES: 40.7128,-74.0060"));
-        assert!(detector.has_piis("gps coordinates: 40.7128,-74.0060"));
-        assert!(detector.has_piis("Gps Coordinates: 40.7128,-74.0060"));
-    }
-
-    #[test]
-    fn geolocation_rejects_out_of_range_latitude() {
-        let detector = KeywordContextDetector::new();
-        // Latitude 91 is out of range
-        let matches = detector.mark_piis("coordinates: 91.0000,-74.0060");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::PreciseGeolocation)
-        );
-    }
-
-    #[test]
-    fn geolocation_rejects_out_of_range_longitude() {
-        let detector = KeywordContextDetector::new();
-        // Longitude 181 is out of range
-        let matches = detector.mark_piis("coordinates: 40.7128,181.0060");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::PreciseGeolocation)
-        );
-    }
-
-    #[test]
-    fn geolocation_rejects_insufficient_precision() {
-        let detector = KeywordContextDetector::new();
-        // Only 2 decimal places — not precise enough
-        let matches = detector.mark_piis("coordinates: 40.71,-74.00");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::PreciseGeolocation)
-        );
-    }
-
-    #[test]
-    fn geolocation_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("values are 40.7128,-74.0060");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::PreciseGeolocation)
-        );
-    }
-
-    #[test]
-    fn geolocation_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("coordinates: 40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates 40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates:40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates#40.7128,-74.0060"));
-    }
-
-    #[test]
     fn geolocation_negative_latitude() {
         let detector = KeywordContextDetector::new();
-        // Sydney
         let input = "coordinates: -33.8688,151.2093";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -1567,560 +865,32 @@ mod tests {
         );
     }
 
-    #[test]
-    fn geolocation_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("GPS coordinates:\n40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates\n40.7128,-74.0060"));
-    }
+    // --- JSON input tests ---
 
-    #[test]
-    fn geolocation_tab_separator() {
+    #[test_case(r#"{"tax_file_number": "TFN: 123 456 782", "state": "NSW"}"#, PiiKind::AuTfn, "123 456 782" ; "tfn in json")]
+    #[test_case(r#"{"taxpayer": {"IRD number": "49-091-857", "name": "Smith"}}"#, PiiKind::NzIrdNumber, "49-091-857" ; "ird in json")]
+    #[test_case(r#"{"patient": {"NHS number": "943 476 5919", "ward": "A3"}}"#, PiiKind::GbNhsNumber, "943 476 5919" ; "nhs in json")]
+    #[test_case(r#"{"member": {"Medicare number": "2123 45670 1", "state": "VIC"}}"#, PiiKind::AuMedicare, "2123 45670 1" ; "medicare in json")]
+    #[test_case(r#"{"traveler": {"passport number": "A12345678", "expiry": "2028-06"}}"#, PiiKind::UsPassportNew, "A12345678" ; "us passport in json")]
+    #[test_case(r#"{"bank": {"SWIFT code": "DEUTDEFF", "name": "Deutsche Bank"}}"#, PiiKind::SwiftBic, "DEUTDEFF" ; "swift in json")]
+    #[test_case(r#"{"company": {"EIN": "12-3456789", "name": "Acme Corp"}}"#, PiiKind::UsEin, "12-3456789" ; "ein in json")]
+    #[test_case(r#"{"device": {"IMEI": "490154203237518", "model": "iPhone"}}"#, PiiKind::Imei, "490154203237518" ; "imei in json")]
+    #[test_case(r#"{"taxpayer": {"UTR": "5555555555", "year": "2024-25"}}"#, PiiKind::GbUtr, "5555555555" ; "utr in json")]
+    #[test_case(r#"{"bank": {"routing number": "021000021", "type": "checking"}}"#, PiiKind::UsAbaRouting, "021000021" ; "aba in json")]
+    #[test_case(r#"{"bank": {"sort code": "20-00-00", "account": "12345678"}}"#, PiiKind::GbSortCode, "20-00-00" ; "sort code in json")]
+    #[test_case(r#"{"location": {"coordinates": "40.7128,-74.0060", "city": "New York"}}"#, PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation in json")]
+    #[test_case(r#"{"immigration": {"alien number": "A012345678", "status": "LPR"}}"#, PiiKind::UsAlienNumber, "A012345678" ; "alien number in json")]
+    #[test_case(r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#, PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt in json")]
+    #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
+    fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("GPS coordinates:\t40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates\t40.7128,-74.0060"));
-    }
-
-    #[test]
-    fn geolocation_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("GPS coordinates:\r\n40.7128,-74.0060"));
-        assert!(detector.has_piis("coordinates\r\n40.7128,-74.0060"));
-    }
-
-    // ===== Alien Registration Number (A-Number) =====
-
-    #[test]
-    fn detects_a_number_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("Alien number: A012345678");
-        let an: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsAlienNumber)
-            .collect();
-        assert_eq!(an.len(), 1);
-    }
-
-    #[test]
-    fn a_number_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "Alien registration number: A012345678";
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
-            .filter(|m| m.kind == PiiKind::UsAlienNumber)
+            .filter(|m| m.kind == kind)
             .collect();
         assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "A012345678");
-    }
-
-    #[test]
-    fn a_number_7_digit_format() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("USCIS number: A1234567"));
-    }
-
-    #[test]
-    fn a_number_8_digit_format() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("USCIS number: A12345678"));
-    }
-
-    #[test]
-    fn a_number_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("alien registration number: A012345678"));
-        assert!(detector.has_piis("green card number: A012345678"));
-        assert!(detector.has_piis("permanent resident number: A012345678"));
-        assert!(detector.has_piis("USCIS number: A012345678"));
-        assert!(detector.has_piis("A-number: A012345678"));
-    }
-
-    #[test]
-    fn a_number_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("ALIEN NUMBER: A012345678"));
-        assert!(detector.has_piis("alien number: a012345678"));
-        assert!(detector.has_piis("Alien Number: A012345678"));
-    }
-
-    #[test]
-    fn a_number_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("code is A012345678");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsAlienNumber));
-    }
-
-    #[test]
-    fn a_number_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Alien number: A012345678"));
-        assert!(detector.has_piis("Alien number A012345678"));
-        assert!(detector.has_piis("Alien number:A012345678"));
-        assert!(detector.has_piis("Alien number#A012345678"));
-    }
-
-    #[test]
-    fn a_number_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Alien number:\nA012345678"));
-        assert!(detector.has_piis("USCIS number\nA012345678"));
-    }
-
-    #[test]
-    fn a_number_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Alien number:\tA012345678"));
-        assert!(detector.has_piis("USCIS number\tA012345678"));
-    }
-
-    #[test]
-    fn a_number_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Alien number:\r\nA012345678"));
-        assert!(detector.has_piis("USCIS number\r\nA012345678"));
-    }
-
-    // ===== USCIS Receipt Number =====
-
-    #[test]
-    fn detects_uscis_receipt_with_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("Receipt number: SRC2190000001");
-        let rcpt: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
-            .collect();
-        assert_eq!(rcpt.len(), 1);
-    }
-
-    #[test]
-    fn uscis_receipt_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "USCIS receipt number: SRC2190000001";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "SRC2190000001");
-    }
-
-    #[test]
-    fn uscis_receipt_various_center_codes() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Receipt number: EAC2190000001"));
-        assert!(detector.has_piis("Receipt number: WAC2190000001"));
-        assert!(detector.has_piis("Receipt number: LIN2190000001"));
-        assert!(detector.has_piis("Receipt number: IOE2190000001"));
-        assert!(detector.has_piis("Receipt number: MSC2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("USCIS receipt number: SRC2190000001"));
-        assert!(detector.has_piis("USCIS case number: SRC2190000001"));
-        assert!(detector.has_piis("petition receipt: SRC2190000001"));
-        assert!(detector.has_piis("I-797 receipt: SRC2190000001"));
-        assert!(detector.has_piis("case number: SRC2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("RECEIPT NUMBER: SRC2190000001"));
-        assert!(detector.has_piis("receipt number: src2190000001"));
-        assert!(detector.has_piis("Receipt Number: Src2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_rejects_invalid_center_code() {
-        let detector = KeywordContextDetector::new();
-        // "XYZ" is not a valid USCIS center code
-        let matches = detector.mark_piis("Receipt number: XYZ2190000001");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::UsUscisReceiptNumber)
-        );
-    }
-
-    #[test]
-    fn uscis_receipt_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("code is SRC2190000001");
-        assert!(
-            matches
-                .iter()
-                .all(|m| m.kind != PiiKind::UsUscisReceiptNumber)
-        );
-    }
-
-    #[test]
-    fn uscis_receipt_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Receipt number: SRC2190000001"));
-        assert!(detector.has_piis("Receipt number SRC2190000001"));
-        assert!(detector.has_piis("Receipt number:SRC2190000001"));
-        assert!(detector.has_piis("Receipt number#SRC2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Receipt number:\nSRC2190000001"));
-        assert!(detector.has_piis("USCIS case\nSRC2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Receipt number:\tSRC2190000001"));
-        assert!(detector.has_piis("USCIS case\tSRC2190000001"));
-    }
-
-    #[test]
-    fn uscis_receipt_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Receipt number:\r\nSRC2190000001"));
-        assert!(detector.has_piis("USCIS case\r\nSRC2190000001"));
-    }
-
-    // ===== US Driver's License =====
-
-    #[test]
-    fn detects_us_dl_with_keyword_1_letter_7_digits() {
-        let detector = KeywordContextDetector::new();
-        // California format: 1 letter + 7 digits
-        let matches = detector.mark_piis("Driver's license: B1234568");
-        let dl: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(dl.len(), 1);
-    }
-
-    #[test]
-    fn detects_us_dl_1_letter_12_digits() {
-        let detector = KeywordContextDetector::new();
-        // Florida format: 1 letter + 12 digits
-        let matches = detector.mark_piis("DL number: W123456789012");
-        let dl: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(dl.len(), 1);
-    }
-
-    #[test]
-    fn detects_us_dl_2_letters_6_digits() {
-        let detector = KeywordContextDetector::new();
-        // Ohio format: 2 letters + 6 digits
-        let matches = detector.mark_piis("License number: AB123456");
-        let dl: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(dl.len(), 1);
-    }
-
-    #[test]
-    fn detects_us_dl_hyphenated_il_format() {
-        let detector = KeywordContextDetector::new();
-        // Illinois format: 1 letter + 3-4-4 hyphenated
-        let matches = detector.mark_piis("Driver's license number: S530-4000-0001");
-        let dl: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(dl.len(), 1);
-    }
-
-    #[test]
-    fn detects_us_dl_hyphenated_mi_format() {
-        let detector = KeywordContextDetector::new();
-        // Michigan format: 1 letter + 3-3-3-3 hyphenated
-        let matches = detector.mark_piis("DL: S123-456-789-012");
-        let dl: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(dl.len(), 1);
-    }
-
-    #[test]
-    fn us_dl_span_covers_only_value() {
-        let detector = KeywordContextDetector::new();
-        let input = "Driver's license: B1234568";
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "B1234568");
-    }
-
-    #[test]
-    fn us_dl_multiple_keyword_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("driver's license number: B1234568"));
-        assert!(detector.has_piis("driving licence: B1234568"));
-        assert!(detector.has_piis("state id number: B1234568"));
-        assert!(detector.has_piis("DL number: B1234568"));
-        assert!(detector.has_piis("DMV number: B1234568"));
-    }
-
-    #[test]
-    fn us_dl_case_insensitive() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("DRIVER'S LICENSE: B1234568"));
-        assert!(detector.has_piis("driver's license: B1234568"));
-        assert!(detector.has_piis("Driver's License: b1234568"));
-    }
-
-    #[test]
-    fn us_dl_rejects_too_few_digits() {
-        let detector = KeywordContextDetector::new();
-        // 1 letter + 3 digits is too short
-        let matches = detector.mark_piis("DL: B123");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsDriversLicense));
-    }
-
-    #[test]
-    fn us_dl_no_detection_without_keyword() {
-        let detector = KeywordContextDetector::new();
-        let matches = detector.mark_piis("code is B1234568");
-        assert!(matches.iter().all(|m| m.kind != PiiKind::UsDriversLicense));
-    }
-
-    #[test]
-    fn us_dl_separator_variants() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("DL: B1234568"));
-        assert!(detector.has_piis("DL B1234568"));
-        assert!(detector.has_piis("DL:B1234568"));
-        assert!(detector.has_piis("DL#B1234568"));
-    }
-
-    #[test]
-    fn us_dl_newline_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Driver's license:\nB1234568"));
-        assert!(detector.has_piis("DL number\nB1234568"));
-    }
-
-    #[test]
-    fn us_dl_tab_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Driver's license:\tB1234568"));
-        assert!(detector.has_piis("DL number\tB1234568"));
-    }
-
-    #[test]
-    fn us_dl_crlf_separator() {
-        let detector = KeywordContextDetector::new();
-        assert!(detector.has_piis("Driver's license:\r\nB1234568"));
-        assert!(detector.has_piis("DL number\r\nB1234568"));
-    }
-
-    // ===== JSON input tests =====
-
-    #[test]
-    fn detects_tfn_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"tax_file_number": "TFN: 123 456 782", "state": "NSW"}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::AuTfn)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "123 456 782");
-    }
-
-    #[test]
-    fn detects_ird_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"taxpayer": {"IRD number": "49-091-857", "name": "Smith"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::NzIrdNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "49-091-857");
-    }
-
-    #[test]
-    fn detects_nhs_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"patient": {"NHS number": "943 476 5919", "ward": "A3"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbNhsNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "943 476 5919");
-    }
-
-    #[test]
-    fn detects_medicare_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"member": {"Medicare number": "2123 45670 1", "state": "VIC"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::AuMedicare)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "2123 45670 1");
-    }
-
-    #[test]
-    fn detects_us_passport_new_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"traveler": {"passport number": "A12345678", "expiry": "2028-06"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsPassportNew)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "A12345678");
-    }
-
-    #[test]
-    fn detects_swift_bic_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"bank": {"SWIFT code": "DEUTDEFF", "name": "Deutsche Bank"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::SwiftBic)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "DEUTDEFF");
-    }
-
-    #[test]
-    fn detects_ein_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"company": {"EIN": "12-3456789", "name": "Acme Corp"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsEin)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "12-3456789");
-    }
-
-    #[test]
-    fn detects_imei_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"device": {"IMEI": "490154203237518", "model": "iPhone"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::Imei)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "490154203237518");
-    }
-
-    #[test]
-    fn detects_utr_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"taxpayer": {"UTR": "5555555555", "year": "2024-25"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbUtr)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "5555555555");
-    }
-
-    #[test]
-    fn detects_aba_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"bank": {"routing number": "021000021", "type": "checking"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsAbaRouting)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "021000021");
-    }
-
-    #[test]
-    fn detects_sort_code_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"bank": {"sort code": "20-00-00", "account": "12345678"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::GbSortCode)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "20-00-00");
-    }
-
-    #[test]
-    fn detects_geolocation_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"location": {"coordinates": "40.7128,-74.0060", "city": "New York"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "40.7128,-74.0060");
-    }
-
-    #[test]
-    fn detects_alien_number_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"immigration": {"alien number": "A012345678", "status": "LPR"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsAlienNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "A012345678");
-    }
-
-    #[test]
-    fn detects_uscis_receipt_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "SRC2190000001");
-    }
-
-    #[test]
-    fn detects_us_dl_in_json() {
-        let detector = KeywordContextDetector::new();
-        let input = r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#;
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::UsDriversLicense)
-            .collect();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(&input[matches[0].start..matches[0].end], "B1234568");
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
     }
 
     #[test]
