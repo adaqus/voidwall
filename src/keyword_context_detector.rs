@@ -26,77 +26,77 @@ impl KeywordContextDetector {
         let raw_patterns: Vec<(PiiKind, &str, fn(&str) -> bool)> = vec![
             (
                 PiiKind::AuTfn,
-                r"(?i)(?:australian tax file number|australian tfn|aus tfn|ato tax file number|ato tfn|individual tax file number|tax file number|tax file no\.?|tax file num|tax file #|tax file ref(?:erence)?|tax file identifier|applicant tfn|employee tfn|client tfn|customer tfn|my tfn|your tfn|tfn number|tfn no\.?|tfn num|tfn)[\s:.#/\-]*?(\d{3}\s\d{3}\s\d{3})",
+                r"(?i)(?:australian tax file number|australian tfn|aus tfn|ato tax file number|ato tfn|individual tax file number|tax file number|tax file no\.?|tax file num|tax file #|tax file ref(?:erence)?|tax file identifier|applicant tfn|employee tfn|client tfn|customer tfn|my tfn|your tfn|tfn number|tfn no\.?|tfn num|tfn)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{3})",
                 tfn_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::NzIrdNumber,
-                r"(?i)(?:inland revenue dep(?:artmen)?t|inland revenue number|inland revenue no\.?|new zealand ird|new zealand tax number|new zealand tax id|nz ird|nz tax number|nz tax id|ird number nz|ird number|ird no\.?|ird num|ird #|ird ref(?:erence)?|applicant ird|employee ird|client ird|customer ird|my ird|your ird|gst registration|gst number|gst no\.?|tax number nz|ird)[\s:.#/\-]*?(\d{2,3}-\d{3}-\d{3})",
+                r"(?i)(?:inland revenue dep(?:artmen)?t|inland revenue number|inland revenue no\.?|new zealand ird|new zealand tax number|new zealand tax id|nz ird|nz tax number|nz tax id|ird number nz|ird number|ird no\.?|ird num|ird #|ird ref(?:erence)?|applicant ird|employee ird|client ird|customer ird|my ird|your ird|gst registration|gst number|gst no\.?|tax number nz|ird)[\s:.#/\-\x22]*?(\d{2,3}-\d{3}-\d{3})",
                 ird_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::GbNhsNumber,
-                r"(?i)(?:national health service number|national health service no\.?|nhs patient number|nhs patient id|nhs patient no\.?|nhs record number|nhs registration|nhs identifier|nhs number|nhs no\.?|nhs num|nhs #|nhs id|nhs ref(?:erence)?|nhs record|health service number|health service no\.?|health index number|health id|patient number|patient no\.?|patient id|my nhs number|your nhs number|chi number|h&c number|hc number|nhs)[\s:.#/\-]*?(\d{3}\s\d{3}\s\d{4})",
+                r"(?i)(?:national health service number|national health service no\.?|nhs patient number|nhs patient id|nhs patient no\.?|nhs record number|nhs registration|nhs identifier|nhs number|nhs no\.?|nhs num|nhs #|nhs id|nhs ref(?:erence)?|nhs record|health service number|health service no\.?|health index number|health id|patient number|patient no\.?|patient id|my nhs number|your nhs number|chi number|h&c number|hc number|nhs)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{4})",
                 nhs_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::AuMedicare,
-                r"(?i)(?:medicare card number|medicare card no\.?|medicare card|australian medicare|medicare enrol(?:l)?ment|medicare registration|medicare identifier|medicare number|medicare no\.?|medicare num|medicare #|medicare id|medicare ref(?:erence)?|medicare patient|aus medicare|au medicare|applicant medicare|employee medicare|client medicare|customer medicare|my medicare|your medicare|medicare|irn)[\s:.#/\-]*?(\d{4}\s\d{5}\s\d)",
+                r"(?i)(?:medicare card number|medicare card no\.?|medicare card|australian medicare|medicare enrol(?:l)?ment|medicare registration|medicare identifier|medicare number|medicare no\.?|medicare num|medicare #|medicare id|medicare ref(?:erence)?|medicare patient|aus medicare|au medicare|applicant medicare|employee medicare|client medicare|customer medicare|my medicare|your medicare|medicare|irn)[\s:.#/\-\x22]*?(\d{4}\s\d{5}\s\d)",
                 medicare_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsPassportNew,
-                r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-]*?([AXYZaxyz]\d{8})",
+                r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?([AXYZaxyz]\d{8})",
                 passport_new_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::SwiftBic,
-                r"(?i)(?:bank identifier code|bank identifier|correspondent (?:bank )?swift|intermediary swift|intermediary bic|international bank code|beneficiary swift|beneficiary bic|swift/bic|swift bic|bic/swift|swift code|swift number|swift no\.?|swift #|swift address|swift id|bank swift|bank routing|bank bic|bic code|bic number|bic no\.?|bic #|bic id|routing code|clearing code|my swift|swift|bic)[\s:.#/\-]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:bank identifier code|bank identifier|correspondent (?:bank )?swift|intermediary swift|intermediary bic|international bank code|beneficiary swift|beneficiary bic|swift/bic|swift bic|bic/swift|swift code|swift number|swift no\.?|swift #|swift address|swift id|bank swift|bank routing|bank bic|bic code|bic number|bic no\.?|bic #|bic id|routing code|clearing code|my swift|swift|bic)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsEin,
-                r"(?i)(?:employer identification number|employer identification no\.?|federal employer identification|employer id number|employer id no\.?|federal employer id|federal tax identification|tax identification number|federal id number|federal id no\.?|federal tax id|federal ein|tax id number|employer number|employer no\.?|business tax id|company tax id|company ein|irs employer id|applicant ein|ein number|ein no\.?|ein num|ein #|tax id|irs ein|our ein|my ein|fein|ein)[\s:.#/\-]*?(\d{2}-\d{7})",
+                r"(?i)(?:employer identification number|employer identification no\.?|federal employer identification|employer id number|employer id no\.?|federal employer id|federal tax identification|tax identification number|federal id number|federal id no\.?|federal tax id|federal ein|tax id number|employer number|employer no\.?|business tax id|company tax id|company ein|irs employer id|applicant ein|ein number|ein no\.?|ein num|ein #|tax id|irs ein|our ein|my ein|fein|ein)[\s:.#/\-\x22]*?(\d{2}-\d{7})",
                 ein_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::Imei,
-                r"(?i)(?:international mobile equipment identity|mobile equipment identity|equipment identity|device identifier|device id number|device serial|device imei|handset imei|serial imei|mobile imei|tablet imei|equipment id|phone imei|imei identifier|imei number|imei no\.?|imei num|imei #|imei code|imei id|your imei|my imei|meid|imei)[\s:.#/\-]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:international mobile equipment identity|mobile equipment identity|equipment identity|device identifier|device id number|device serial|device imei|handset imei|serial imei|mobile imei|tablet imei|equipment id|phone imei|imei identifier|imei number|imei no\.?|imei num|imei #|imei code|imei id|your imei|my imei|meid|imei)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::GbUtr,
-                r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-]*?(\d{10})\b",
+                r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-\x22]*?(\d{10})\b",
                 utr_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsAbaRouting,
-                r"(?i)(?:aba routing number|aba routing no\.?|aba routing|aba number|aba no\.?|aba #|routing transit number|routing transit no\.?|routing number|routing no\.?|routing #|bank routing number|bank routing no\.?|bank routing|transit number|transit no\.?|transit #|aba rtn|rtn number|rtn no\.?|rtn #|fed routing|fedwire routing|ach routing|wire routing|wire transfer routing|my routing number|your routing number|bank rtn|routing code|aba|rtn)[\s:.#/\-]*?(\d{9})\b",
+                r"(?i)(?:aba routing number|aba routing no\.?|aba routing|aba number|aba no\.?|aba #|routing transit number|routing transit no\.?|routing number|routing no\.?|routing #|bank routing number|bank routing no\.?|bank routing|transit number|transit no\.?|transit #|aba rtn|rtn number|rtn no\.?|rtn #|fed routing|fedwire routing|ach routing|wire routing|wire transfer routing|my routing number|your routing number|bank rtn|routing code|aba|rtn)[\s:.#/\-\x22]*?(\d{9})\b",
                 aba_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::GbSortCode,
-                r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-]*?(\d{2}-\d{2}-\d{2})\b",
+                r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-\x22]*?(\d{2}-\d{2}-\d{2})\b",
                 sort_code_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::PreciseGeolocation,
-                r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsAlienNumber,
-                r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-]*?([Aa]\d{7,9})\b",
+                r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-\x22]*?([Aa]\d{7,9})\b",
                 a_number_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsUscisReceiptNumber,
-                r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-]*?([A-Za-z]{3}\d{10})\b",
+                r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-\x22]*?([A-Za-z]{3}\d{10})\b",
                 uscis_receipt_check as fn(&str) -> bool,
             ),
             (
                 PiiKind::UsDriversLicense,
-                r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
+                r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check as fn(&str) -> bool,
             ),
         ];
@@ -1212,10 +1212,38 @@ mod tests {
     }
 
     #[test]
+    fn tfn_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("TFN:\t123 456 782"));
+        assert!(detector.has_piis("Tax file number\t123 456 782"));
+    }
+
+    #[test]
+    fn tfn_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("TFN:\r\n123 456 782"));
+        assert!(detector.has_piis("Tax file number\r\n123 456 782"));
+    }
+
+    #[test]
     fn ird_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("IRD:\n49-091-857"));
         assert!(detector.has_piis("IRD number\n49-091-857"));
+    }
+
+    #[test]
+    fn ird_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IRD:\t49-091-857"));
+        assert!(detector.has_piis("IRD number\t49-091-857"));
+    }
+
+    #[test]
+    fn ird_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IRD:\r\n49-091-857"));
+        assert!(detector.has_piis("IRD number\r\n49-091-857"));
     }
 
     #[test]
@@ -1226,10 +1254,38 @@ mod tests {
     }
 
     #[test]
+    fn nhs_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("NHS:\t943 476 5919"));
+        assert!(detector.has_piis("NHS number\t943 476 5919"));
+    }
+
+    #[test]
+    fn nhs_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("NHS:\r\n943 476 5919"));
+        assert!(detector.has_piis("NHS number\r\n943 476 5919"));
+    }
+
+    #[test]
     fn medicare_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Medicare:\n2123 45670 1"));
         assert!(detector.has_piis("Medicare number\n2123 45670 1"));
+    }
+
+    #[test]
+    fn medicare_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Medicare:\t2123 45670 1"));
+        assert!(detector.has_piis("Medicare number\t2123 45670 1"));
+    }
+
+    #[test]
+    fn medicare_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Medicare:\r\n2123 45670 1"));
+        assert!(detector.has_piis("Medicare number\r\n2123 45670 1"));
     }
 
     #[test]
@@ -1240,10 +1296,38 @@ mod tests {
     }
 
     #[test]
+    fn us_passport_new_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Passport:\tA12345678"));
+        assert!(detector.has_piis("Passport number\tA12345678"));
+    }
+
+    #[test]
+    fn us_passport_new_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Passport:\r\nA12345678"));
+        assert!(detector.has_piis("Passport number\r\nA12345678"));
+    }
+
+    #[test]
     fn swift_bic_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("SWIFT:\nDEUTDEFF"));
         assert!(detector.has_piis("SWIFT code\nDEUTDEFF"));
+    }
+
+    #[test]
+    fn swift_bic_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("SWIFT:\tDEUTDEFF"));
+        assert!(detector.has_piis("SWIFT code\tDEUTDEFF"));
+    }
+
+    #[test]
+    fn swift_bic_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("SWIFT:\r\nDEUTDEFF"));
+        assert!(detector.has_piis("SWIFT code\r\nDEUTDEFF"));
     }
 
     #[test]
@@ -1254,10 +1338,38 @@ mod tests {
     }
 
     #[test]
+    fn ein_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("EIN:\t12-3456789"));
+        assert!(detector.has_piis("EIN number\t12-3456789"));
+    }
+
+    #[test]
+    fn ein_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("EIN:\r\n12-3456789"));
+        assert!(detector.has_piis("EIN number\r\n12-3456789"));
+    }
+
+    #[test]
     fn imei_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("IMEI:\n490154203237518"));
         assert!(detector.has_piis("IMEI number\n490154203237518"));
+    }
+
+    #[test]
+    fn imei_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IMEI:\t490154203237518"));
+        assert!(detector.has_piis("IMEI number\t490154203237518"));
+    }
+
+    #[test]
+    fn imei_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("IMEI:\r\n490154203237518"));
+        assert!(detector.has_piis("IMEI number\r\n490154203237518"));
     }
 
     #[test]
@@ -1268,6 +1380,20 @@ mod tests {
     }
 
     #[test]
+    fn utr_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("UTR:\t5555555555"));
+        assert!(detector.has_piis("UTR number\t5555555555"));
+    }
+
+    #[test]
+    fn utr_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("UTR:\r\n5555555555"));
+        assert!(detector.has_piis("UTR number\r\n5555555555"));
+    }
+
+    #[test]
     fn aba_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Routing number:\n021000021"));
@@ -1275,10 +1401,38 @@ mod tests {
     }
 
     #[test]
+    fn aba_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Routing number:\t021000021"));
+        assert!(detector.has_piis("ABA routing\t021000021"));
+    }
+
+    #[test]
+    fn aba_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Routing number:\r\n021000021"));
+        assert!(detector.has_piis("ABA routing\r\n021000021"));
+    }
+
+    #[test]
     fn sort_code_newline_separator() {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Sort code:\n20-00-00"));
         assert!(detector.has_piis("Bank sort code\n20-00-00"));
+    }
+
+    #[test]
+    fn sort_code_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Sort code:\t20-00-00"));
+        assert!(detector.has_piis("Bank sort code\t20-00-00"));
+    }
+
+    #[test]
+    fn sort_code_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Sort code:\r\n20-00-00"));
+        assert!(detector.has_piis("Bank sort code\r\n20-00-00"));
     }
 
     // ===== Precise Geolocation =====
@@ -1420,6 +1574,20 @@ mod tests {
         assert!(detector.has_piis("coordinates\n40.7128,-74.0060"));
     }
 
+    #[test]
+    fn geolocation_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("GPS coordinates:\t40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates\t40.7128,-74.0060"));
+    }
+
+    #[test]
+    fn geolocation_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("GPS coordinates:\r\n40.7128,-74.0060"));
+        assert!(detector.has_piis("coordinates\r\n40.7128,-74.0060"));
+    }
+
     // ===== Alien Registration Number (A-Number) =====
 
     #[test]
@@ -1497,6 +1665,20 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Alien number:\nA012345678"));
         assert!(detector.has_piis("USCIS number\nA012345678"));
+    }
+
+    #[test]
+    fn a_number_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Alien number:\tA012345678"));
+        assert!(detector.has_piis("USCIS number\tA012345678"));
+    }
+
+    #[test]
+    fn a_number_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Alien number:\r\nA012345678"));
+        assert!(detector.has_piis("USCIS number\r\nA012345678"));
     }
 
     // ===== USCIS Receipt Number =====
@@ -1590,6 +1772,20 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Receipt number:\nSRC2190000001"));
         assert!(detector.has_piis("USCIS case\nSRC2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Receipt number:\tSRC2190000001"));
+        assert!(detector.has_piis("USCIS case\tSRC2190000001"));
+    }
+
+    #[test]
+    fn uscis_receipt_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Receipt number:\r\nSRC2190000001"));
+        assert!(detector.has_piis("USCIS case\r\nSRC2190000001"));
     }
 
     // ===== US Driver's License =====
@@ -1714,5 +1910,228 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("Driver's license:\nB1234568"));
         assert!(detector.has_piis("DL number\nB1234568"));
+    }
+
+    #[test]
+    fn us_dl_tab_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Driver's license:\tB1234568"));
+        assert!(detector.has_piis("DL number\tB1234568"));
+    }
+
+    #[test]
+    fn us_dl_crlf_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Driver's license:\r\nB1234568"));
+        assert!(detector.has_piis("DL number\r\nB1234568"));
+    }
+
+    // ===== JSON input tests =====
+
+    #[test]
+    fn detects_tfn_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"tax_file_number": "TFN: 123 456 782", "state": "NSW"}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::AuTfn)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "123 456 782");
+    }
+
+    #[test]
+    fn detects_ird_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"taxpayer": {"IRD number": "49-091-857", "name": "Smith"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::NzIrdNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "49-091-857");
+    }
+
+    #[test]
+    fn detects_nhs_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"patient": {"NHS number": "943 476 5919", "ward": "A3"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::GbNhsNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "943 476 5919");
+    }
+
+    #[test]
+    fn detects_medicare_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"member": {"Medicare number": "2123 45670 1", "state": "VIC"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::AuMedicare)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "2123 45670 1");
+    }
+
+    #[test]
+    fn detects_us_passport_new_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"traveler": {"passport number": "A12345678", "expiry": "2028-06"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsPassportNew)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "A12345678");
+    }
+
+    #[test]
+    fn detects_swift_bic_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"bank": {"SWIFT code": "DEUTDEFF", "name": "Deutsche Bank"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::SwiftBic)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "DEUTDEFF");
+    }
+
+    #[test]
+    fn detects_ein_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"company": {"EIN": "12-3456789", "name": "Acme Corp"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsEin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "12-3456789");
+    }
+
+    #[test]
+    fn detects_imei_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"device": {"IMEI": "490154203237518", "model": "iPhone"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Imei)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "490154203237518");
+    }
+
+    #[test]
+    fn detects_utr_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"taxpayer": {"UTR": "5555555555", "year": "2024-25"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::GbUtr)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "5555555555");
+    }
+
+    #[test]
+    fn detects_aba_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"bank": {"routing number": "021000021", "type": "checking"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsAbaRouting)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "021000021");
+    }
+
+    #[test]
+    fn detects_sort_code_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"bank": {"sort code": "20-00-00", "account": "12345678"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::GbSortCode)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "20-00-00");
+    }
+
+    #[test]
+    fn detects_geolocation_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"location": {"coordinates": "40.7128,-74.0060", "city": "New York"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PreciseGeolocation)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "40.7128,-74.0060");
+    }
+
+    #[test]
+    fn detects_alien_number_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"immigration": {"alien number": "A012345678", "status": "LPR"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsAlienNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "A012345678");
+    }
+
+    #[test]
+    fn detects_uscis_receipt_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsUscisReceiptNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "SRC2190000001");
+    }
+
+    #[test]
+    fn detects_us_dl_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input = r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "B1234568");
+    }
+
+    #[test]
+    fn detects_multiple_keyword_pii_in_json() {
+        let detector = KeywordContextDetector::new();
+        let input =
+            r#"{"employee": {"EIN": "12-3456789", "UTR": "5555555555", "TFN": "123 456 782"}}"#;
+        let matches = detector.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::UsEin));
+        assert!(kinds.contains(&PiiKind::GbUtr));
+        assert!(kinds.contains(&PiiKind::AuTfn));
     }
 }

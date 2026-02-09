@@ -1332,4 +1332,226 @@ mod tests {
             "1HGBH41JXMN109186"
         );
     }
+
+    // --- JSON input tests ---
+
+    #[test]
+    fn detects_email_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"user": {"email": "alice@example.com", "name": "Alice"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Email)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "alice@example.com"
+        );
+    }
+
+    #[test]
+    fn detects_phone_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::PhoneNumber)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "555-123-4567");
+    }
+
+    #[test]
+    fn detects_credit_card_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"payment": {"card_number": "4111 1111 1111 1111", "expiry": "12/28"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::CreditCard)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "4111 1111 1111 1111"
+        );
+    }
+
+    #[test]
+    fn detects_ssn_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"employee": {"ssn": "123-45-6789", "name": "John"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsSsn)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "123-45-6789");
+    }
+
+    #[test]
+    fn detects_nino_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"employee": {"nino": "AB123456C", "department": "HR"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::GbNino)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "AB123456C");
+    }
+
+    #[test]
+    fn detects_iban_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"bank": {"iban": "DE89370400440532013000", "currency": "EUR"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Iban)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "DE89370400440532013000"
+        );
+    }
+
+    #[test]
+    fn detects_ipv4_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"server": {"ip": "192.168.1.100", "status": "up"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "192.168.1.100");
+    }
+
+    #[test]
+    fn detects_itin_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"tax": {"itin": "912-70-1234", "year": 2025}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsItin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "912-70-1234");
+    }
+
+    #[test]
+    fn detects_sin_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"employee": {"sin": "130-692-544", "province": "ON"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::CaSin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "130-692-544");
+    }
+
+    #[test]
+    fn detects_ppsn_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"citizen": {"ppsn": "1234567T", "county": "Dublin"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IePpsn)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "1234567T");
+    }
+
+    #[test]
+    fn detects_sa_id_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"citizen": {"id_number": "8001015009087", "province": "Gauteng"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::ZaId)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "8001015009087");
+    }
+
+    #[test]
+    fn detects_mac_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"device": {"mac": "00:1A:2B:3C:4D:5E", "hostname": "ws01"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::MacAddress)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "00:1A:2B:3C:4D:5E"
+        );
+    }
+
+    #[test]
+    fn detects_uk_dl_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"driver": {"licence": "JONES901157A99Y1", "category": "B"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::GbDrivingLicence)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "JONES901157A99Y1");
+    }
+
+    #[test]
+    fn detects_vin_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"vehicle": {"vin": "1HGBH41JXMN109186", "make": "Honda"}}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Vin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &input[matches[0].start..matches[0].end],
+            "1HGBH41JXMN109186"
+        );
+    }
+
+    #[test]
+    fn detects_multiple_pii_in_json() {
+        let detector = RegexDetector::new();
+        let input = r#"{"user": {"email": "alice@example.com", "phone": "555-123-4567", "ssn": "123-45-6789"}}"#;
+        let matches = detector.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email));
+        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsSsn));
+    }
+
+    #[test]
+    fn detects_pii_in_json_array() {
+        let detector = RegexDetector::new();
+        let input = r#"{"emails": ["alice@example.com", "bob@domain.org"], "active": true}"#;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::Email)
+            .collect();
+        assert_eq!(matches.len(), 2);
+    }
 }
