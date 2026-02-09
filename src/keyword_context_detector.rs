@@ -84,6 +84,11 @@ impl KeywordContextDetector {
                 r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check as fn(&str) -> bool,
             ),
+            (
+                PiiKind::UsDriversLicense,
+                r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
+                us_dl_check as fn(&str) -> bool,
+            ),
         ];
 
         let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, pat, _)| *pat).collect();
@@ -405,6 +410,27 @@ fn geolocation_check(s: &str) -> bool {
         Err(_) => return false,
     };
     (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)
+}
+
+fn us_dl_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| *c != '-').collect();
+    let letter_count = clean
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .count();
+    if !(1..=2).contains(&letter_count) {
+        return false;
+    }
+    let digit_part = &clean[letter_count..];
+    if !digit_part.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let digit_count = digit_part.len();
+    match letter_count {
+        1 => (7..=14).contains(&digit_count),
+        2 => (4..=8).contains(&digit_count),
+        _ => false,
+    }
 }
 
 fn sort_code_check(s: &str) -> bool {
@@ -1357,5 +1383,129 @@ mod tests {
         let detector = KeywordContextDetector::new();
         assert!(detector.has_piis("GPS coordinates:\n40.7128,-74.0060"));
         assert!(detector.has_piis("coordinates\n40.7128,-74.0060"));
+    }
+
+    // ===== US Driver's License =====
+
+    #[test]
+    fn detects_us_dl_with_keyword_1_letter_7_digits() {
+        let detector = KeywordContextDetector::new();
+        // California format: 1 letter + 7 digits
+        let matches = detector.mark_piis("Driver's license: B1234568");
+        let dl: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(dl.len(), 1);
+    }
+
+    #[test]
+    fn detects_us_dl_1_letter_12_digits() {
+        let detector = KeywordContextDetector::new();
+        // Florida format: 1 letter + 12 digits
+        let matches = detector.mark_piis("DL number: W123456789012");
+        let dl: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(dl.len(), 1);
+    }
+
+    #[test]
+    fn detects_us_dl_2_letters_6_digits() {
+        let detector = KeywordContextDetector::new();
+        // Ohio format: 2 letters + 6 digits
+        let matches = detector.mark_piis("License number: AB123456");
+        let dl: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(dl.len(), 1);
+    }
+
+    #[test]
+    fn detects_us_dl_hyphenated_il_format() {
+        let detector = KeywordContextDetector::new();
+        // Illinois format: 1 letter + 3-4-4 hyphenated
+        let matches = detector.mark_piis("Driver's license number: S530-4000-0001");
+        let dl: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(dl.len(), 1);
+    }
+
+    #[test]
+    fn detects_us_dl_hyphenated_mi_format() {
+        let detector = KeywordContextDetector::new();
+        // Michigan format: 1 letter + 3-3-3-3 hyphenated
+        let matches = detector.mark_piis("DL: S123-456-789-012");
+        let dl: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(dl.len(), 1);
+    }
+
+    #[test]
+    fn us_dl_span_covers_only_value() {
+        let detector = KeywordContextDetector::new();
+        let input = "Driver's license: B1234568";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsDriversLicense)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "B1234568");
+    }
+
+    #[test]
+    fn us_dl_multiple_keyword_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("driver's license number: B1234568"));
+        assert!(detector.has_piis("driving licence: B1234568"));
+        assert!(detector.has_piis("state id number: B1234568"));
+        assert!(detector.has_piis("DL number: B1234568"));
+        assert!(detector.has_piis("DMV number: B1234568"));
+    }
+
+    #[test]
+    fn us_dl_case_insensitive() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("DRIVER'S LICENSE: B1234568"));
+        assert!(detector.has_piis("driver's license: B1234568"));
+        assert!(detector.has_piis("Driver's License: b1234568"));
+    }
+
+    #[test]
+    fn us_dl_rejects_too_few_digits() {
+        let detector = KeywordContextDetector::new();
+        // 1 letter + 3 digits is too short
+        let matches = detector.mark_piis("DL: B123");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsDriversLicense));
+    }
+
+    #[test]
+    fn us_dl_no_detection_without_keyword() {
+        let detector = KeywordContextDetector::new();
+        let matches = detector.mark_piis("code is B1234568");
+        assert!(matches.iter().all(|m| m.kind != PiiKind::UsDriversLicense));
+    }
+
+    #[test]
+    fn us_dl_separator_variants() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("DL: B1234568"));
+        assert!(detector.has_piis("DL B1234568"));
+        assert!(detector.has_piis("DL:B1234568"));
+        assert!(detector.has_piis("DL#B1234568"));
+    }
+
+    #[test]
+    fn us_dl_newline_separator() {
+        let detector = KeywordContextDetector::new();
+        assert!(detector.has_piis("Driver's license:\nB1234568"));
+        assert!(detector.has_piis("DL number\nB1234568"));
     }
 }

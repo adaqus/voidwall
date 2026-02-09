@@ -34,6 +34,7 @@ pub enum PiiKind {
     UsAbaRouting,
     UkSortCode,
     PreciseGeolocation,
+    UsDriversLicense,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -246,6 +246,16 @@ Vehicle positions at last check-in:\n\
 All GPS coordinates must be logged in the tracking system.\n\
 Contact dispatch for any discrepancies.";
 
+const US_DL_TEXT: &str = "\
+US Department of Motor Vehicles — License Verification\n\n\
+Driver's license numbers for identity check:\n\
+- California: Driver's license: B1234568\n\
+- Florida: DL number: W123456789012\n\
+- Illinois: Driver's license number: S530-4000-0001\n\
+- Ohio: License number: AB123456\n\
+All license numbers must be verified against DMV records.\n\
+Contact the issuing state DMV for any discrepancies.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -305,7 +315,8 @@ Tier 3 Verification Records:\n\
   UTR: 5555555555\n\
   Routing number: 021000021\n\
   Sort code: 20-00-00\n\
-  GPS coordinates: 40.7128,-74.0060\n\n\
+  GPS coordinates: 40.7128,-74.0060\n\
+  Driver's license: B1234568\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -492,6 +503,10 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("precise_geolocation", |b| {
         b.iter(|| scanner.mark_piis(GEOLOCATION_TEXT));
+    });
+
+    group.bench_function("us_drivers_license", |b| {
+        b.iter(|| scanner.mark_piis(US_DL_TEXT));
     });
 
     group.finish();
