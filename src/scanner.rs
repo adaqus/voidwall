@@ -55,6 +55,7 @@ mod tests {
     fn mark_piis_finds_multiple_types() {
         let scanner = Scanner::new().unwrap();
         let input = "email: user@test.com, phone: 555-123-4567, card: 4111 1111 1111 1111";
+        // "phone:" serves as keyword context for KeywordContextDetector
         let matches = scanner.mark_piis(input);
 
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();

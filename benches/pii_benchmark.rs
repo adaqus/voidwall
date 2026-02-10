@@ -25,10 +25,10 @@ Alice";
 
 const PHONE_TEXT: &str = "\
 Customer Service Log - Ticket #4821\n\n\
-Called customer at (555) 123-4567 regarding their account issue. Customer \
-requested a callback at 555-987-6543. Transferred to supervisor line at \
-+1 (555) 246-8100. Follow-up scheduled; customer alternate number is \
-555.321.7654. Case escalated to regional office at (800) 555-0199.";
+Called customer at phone (555) 123-4567 regarding their account issue. Customer \
+requested a callback number 555-987-6543. Transferred to supervisor telephone \
++1 (555) 246-8100. Follow-up scheduled; customer alternate phone \
+555.321.7654. Case escalated to regional office tel (800) 555-0199.";
 
 const CREDIT_CARD_TEXT: &str = "\
 Order Confirmation #ORD-20250115\n\n\

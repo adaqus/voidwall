@@ -20,10 +20,6 @@ impl RegexDetector {
                 PiiKind::Email,
                 r"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?",
             ),
-            (
-                PiiKind::PhoneNumber,
-                r"(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}",
-            ),
             (PiiKind::CreditCard, r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{1,4}\b"),
             (PiiKind::UsSsn, r"\b(\d{3})-(\d{2})-(\d{4})\b"),
             (
@@ -34,7 +30,6 @@ impl RegexDetector {
                 PiiKind::Iban,
                 r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}(?:\s?[A-Z0-9]{4}){1,7}(?:\s?[A-Z0-9]{1,4})?\b",
             ),
-            (PiiKind::PassportNumber, r"\b\d{9}\b"),
             (
                 PiiKind::IpAddress,
                 r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
@@ -437,7 +432,6 @@ mod tests {
     #[test_case("nino: ab 12 34 56 c", PiiKind::GbNino, "ab 12 34 56 c" ; "nino lowercase")]
     #[test_case("IBAN: GB29 NWBK 6016 1331 9268 19", PiiKind::Iban, "GB29 NWBK 6016 1331 9268 19" ; "iban gb")]
     #[test_case("IBAN: DE89 3704 0044 0532 0130 00", PiiKind::Iban, "DE89 3704 0044 0532 0130 00" ; "iban de")]
-    #[test_case("Passport: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
     #[test_case("server at 192.168.1.1 is down", PiiKind::IpAddress, "192.168.1.1" ; "ipv4")]
     #[test_case("IP: 10.0.0.255 ok", PiiKind::IpAddress, "10.0.0.255" ; "ipv4 span")]
     #[test_case("ITIN: 912-70-1234", PiiKind::UsItin, "912-70-1234" ; "itin")]
@@ -513,16 +507,6 @@ mod tests {
         );
     }
 
-    // --- Edge cases: things that should NOT match a given kind ---
-
-    #[test_case("code: 12345678", PiiKind::PassportNumber ; "8 digits not passport")]
-    #[test_case("code: 1234567890", PiiKind::PassportNumber ; "10 digits not passport")]
-    fn does_not_detect_as(input: &str, kind: PiiKind) {
-        let detector = RegexDetector::new().unwrap();
-        let matches = detector.mark_piis(input);
-        assert!(matches.iter().all(|m| m.kind != kind));
-    }
-
     // --- Email variant tests ---
 
     #[test_case("reply to user+thread-id-42@example.com to continue the thread", "user+thread-id-42@example.com" ; "thread identifier")]
@@ -573,44 +557,6 @@ mod tests {
         assert!(matches.iter().all(|m| m.kind == PiiKind::Email));
     }
 
-    // --- Phone variant tests ---
-
-    #[test_case("call 555-123-4567" ; "basic hyphen")]
-    #[test_case("call (555) 123-4567" ; "parenthesized area")]
-    #[test_case("call +1 555 123 4567" ; "us country code spaces")]
-    #[test_case("call 5551234567" ; "no separators")]
-    #[test_case("call +44 207 123 4567" ; "uk phone")]
-    #[test_case("call +49 151 123 4567" ; "german phone")]
-    #[test_case("call +91 987 654 3210" ; "indian phone")]
-    #[test_case("call +81 901 234 5678" ; "japanese phone")]
-    #[test_case("ligar +55 119 876 5432" ; "brazilian phone")]
-    #[test_case("call +1-555-123-4567" ; "us country code hyphens")]
-    #[test_case("call +1.555.123.4567" ; "us country code dots")]
-    #[test_case("call 1-555-123-4567" ; "us no plus hyphens")]
-    #[test_case("call 1.555.123.4567" ; "us no plus dots")]
-    #[test_case("call +1 (555) 123-4567" ; "us country code parens")]
-    fn detects_phone_variant(input: &str) {
-        let detector = RegexDetector::new().unwrap();
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::PhoneNumber)
-            .collect();
-        assert_eq!(matches.len(), 1, "expected 1 phone in: {input}");
-    }
-
-    #[test_case("appeler +33 612 345 678" ; "french 9 digit")]
-    #[test_case("ring +61 412 345 678" ; "australian 9 digit")]
-    fn does_not_detect_phone(input: &str) {
-        let detector = RegexDetector::new().unwrap();
-        let matches: Vec<_> = detector
-            .mark_piis(input)
-            .into_iter()
-            .filter(|m| m.kind == PiiKind::PhoneNumber)
-            .collect();
-        assert_eq!(matches.len(), 0, "should not detect phone in: {input}");
-    }
-
     // --- IPv6 variant tests ---
 
     #[test_case("host: 2001:0db8:85a3:0000:0000:8a2e:0370:7334" ; "ipv6 full")]
@@ -643,27 +589,6 @@ mod tests {
     }
 
     #[test]
-    fn does_not_detect_short_digit_sequence_as_phone() {
-        let detector = RegexDetector::new().unwrap();
-        let matches = detector.mark_piis("order #12345 is ready");
-        assert_eq!(matches.len(), 0);
-    }
-
-    #[test]
-    fn does_not_detect_long_digit_sequence_as_phone() {
-        let detector = RegexDetector::new().unwrap();
-        let matches = detector.mark_piis("id: 123456789012345");
-        let phone_matches: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == PiiKind::PhoneNumber)
-            .collect();
-        assert!(
-            phone_matches.len() <= 1,
-            "long digit string should match at most one phone pattern"
-        );
-    }
-
-    #[test]
     fn itin_does_not_overlap_with_ssn() {
         let detector = RegexDetector::new().unwrap();
         let matches = detector.mark_piis("number: 912-70-1234");
@@ -674,7 +599,6 @@ mod tests {
     // --- JSON input tests ---
 
     #[test_case(r#"{"user": {"email": "alice@example.com", "name": "Alice"}}"#, PiiKind::Email, "alice@example.com" ; "email in json")]
-    #[test_case(r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#, PiiKind::PhoneNumber, "555-123-4567" ; "phone in json")]
     #[test_case(r#"{"payment": {"card_number": "4111 1111 1111 1111", "expiry": "12/28"}}"#, PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card in json")]
     #[test_case(r#"{"employee": {"ssn": "123-45-6789", "name": "John"}}"#, PiiKind::UsSsn, "123-45-6789" ; "ssn in json")]
     #[test_case(r#"{"employee": {"nino": "AB123456C", "department": "HR"}}"#, PiiKind::GbNino, "AB123456C" ; "nino in json")]
@@ -701,11 +625,11 @@ mod tests {
     #[test]
     fn detects_multiple_pii_in_json() {
         let detector = RegexDetector::new().unwrap();
-        let input = r#"{"user": {"email": "alice@example.com", "phone": "555-123-4567", "ssn": "123-45-6789"}}"#;
+        let input = r#"{"user": {"email": "alice@example.com", "card": "4111 1111 1111 1111", "ssn": "123-45-6789"}}"#;
         let matches = detector.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::CreditCard));
         assert!(kinds.contains(&PiiKind::UsSsn));
     }
 

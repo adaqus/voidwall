@@ -39,6 +39,16 @@ impl KeywordContextDetector {
                 medicare_check as fn(&str) -> bool,
             ),
             (
+                PiiKind::PhoneNumber,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check as fn(&str) -> bool,
+            ),
+            (
+                PiiKind::PassportNumber,
+                r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?(\d{9})\b",
+                passport_check as fn(&str) -> bool,
+            ),
+            (
                 PiiKind::UsPassportNew,
                 r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?([AXYZaxyz]\d{8})",
                 passport_new_check as fn(&str) -> bool,
@@ -274,6 +284,14 @@ fn medicare_check(s: &str) -> bool {
     sum % 10 == digits[8]
 }
 
+fn phone_check(_s: &str) -> bool {
+    true
+}
+
+fn passport_check(_s: &str) -> bool {
+    true
+}
+
 fn passport_new_check(s: &str) -> bool {
     if s.len() != 9 {
         return false;
@@ -478,6 +496,13 @@ mod tests {
 
     // --- Detection with span verification ---
 
+    #[test_case("phone: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "phone basic")]
+    #[test_case("phone: (555) 123-4567", PiiKind::PhoneNumber, "(555) 123-4567" ; "phone parens")]
+    #[test_case("phone: 555.123.4567", PiiKind::PhoneNumber, "555.123.4567" ; "phone dots")]
+    #[test_case("phone: +1-555-123-4567", PiiKind::PhoneNumber, "+1-555-123-4567" ; "phone country code")]
+    #[test_case("phone: 5551234567", PiiKind::PhoneNumber, "5551234567" ; "phone no separators")]
+    #[test_case("Passport Number: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
+    #[test_case("passport: 987654321", PiiKind::PassportNumber, "987654321" ; "passport lowercase")]
     #[test_case("TFN: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "tfn")]
     #[test_case("IRD: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird")]
     #[test_case("IRD number: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird span")]
@@ -529,6 +554,29 @@ mod tests {
 
     // --- has_piis: keyword variants, case insensitive, separator variants ---
 
+    #[test_case("phone number: 555-123-4567" ; "phone keyword variant 1")]
+    #[test_case("telephone: 555-123-4567" ; "phone keyword variant 2")]
+    #[test_case("mobile: 555-123-4567" ; "phone keyword variant 3")]
+    #[test_case("cell: 555-123-4567" ; "phone keyword variant 4")]
+    #[test_case("tel: 555-123-4567" ; "phone keyword variant 5")]
+    #[test_case("fax: 555-123-4567" ; "phone keyword variant 6")]
+    #[test_case("callback number: 555-123-4567" ; "phone keyword variant 7")]
+    #[test_case("contact number: 555-123-4567" ; "phone keyword variant 8")]
+    #[test_case("PHONE: 555-123-4567" ; "phone case upper")]
+    #[test_case("phone: 555-123-4567" ; "phone case lower")]
+    #[test_case("Phone: 555-123-4567" ; "phone case title")]
+    #[test_case("phone 555-123-4567" ; "phone sep space")]
+    #[test_case("phone:555-123-4567" ; "phone sep colon")]
+    #[test_case("phone#555-123-4567" ; "phone sep hash")]
+    #[test_case("passport number: 123456789" ; "passportnum keyword variant 1")]
+    #[test_case("travel document number: 123456789" ; "passportnum keyword variant 2")]
+    #[test_case("my passport: 123456789" ; "passportnum keyword variant 3")]
+    #[test_case("PASSPORT: 123456789" ; "passportnum case upper")]
+    #[test_case("passport: 123456789" ; "passportnum case lower")]
+    #[test_case("Passport: 123456789" ; "passportnum case title")]
+    #[test_case("passport 123456789" ; "passportnum sep space")]
+    #[test_case("passport:123456789" ; "passportnum sep colon")]
+    #[test_case("passport#123456789" ; "passportnum sep hash")]
     #[test_case("tax file number: 123 456 782" ; "tfn keyword variant 1")]
     #[test_case("australian tfn 123 456 782" ; "tfn keyword variant 2")]
     #[test_case("my tfn: 123 456 782" ; "tfn keyword variant 3")]
@@ -680,6 +728,18 @@ mod tests {
 
     // --- Whitespace separator variants (newline, tab, crlf) ---
 
+    #[test_case("phone:\n555-123-4567" ; "phone newline")]
+    #[test_case("phone number\n555-123-4567" ; "phone keyword newline")]
+    #[test_case("phone:\t555-123-4567" ; "phone tab")]
+    #[test_case("phone number\t555-123-4567" ; "phone keyword tab")]
+    #[test_case("phone:\r\n555-123-4567" ; "phone crlf")]
+    #[test_case("phone number\r\n555-123-4567" ; "phone keyword crlf")]
+    #[test_case("passport:\n123456789" ; "passportnum newline")]
+    #[test_case("passport number\n123456789" ; "passportnum keyword newline")]
+    #[test_case("passport:\t123456789" ; "passportnum tab")]
+    #[test_case("passport number\t123456789" ; "passportnum keyword tab")]
+    #[test_case("passport:\r\n123456789" ; "passportnum crlf")]
+    #[test_case("passport number\r\n123456789" ; "passportnum keyword crlf")]
     #[test_case("TFN:\n123 456 782" ; "tfn newline")]
     #[test_case("Tax file number\n123 456 782" ; "tfn keyword newline")]
     #[test_case("TFN:\t123 456 782" ; "tfn tab")]
@@ -792,6 +852,8 @@ mod tests {
     #[test_case("coordinates: 40.71,-74.00", PiiKind::PreciseGeolocation ; "geolocation insufficient precision")]
     #[test_case("Receipt number: XYZ2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt invalid center")]
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
+    #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
+    #[test_case("passport: 1234567890", PiiKind::PassportNumber ; "passportnum 10 digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = KeywordContextDetector::new().unwrap();
         let matches = detector.mark_piis(input);
@@ -803,6 +865,8 @@ mod tests {
 
     // --- No detection without keyword ---
 
+    #[test_case("call 555-123-4567 today", PiiKind::PhoneNumber ; "phone no keyword")]
+    #[test_case("code: 123456789", PiiKind::PassportNumber ; "passportnum no keyword")]
     #[test_case("my number is 123 456 782", PiiKind::AuTfn ; "tfn no keyword")]
     #[test_case("number is 49-091-857", PiiKind::NzIrdNumber ; "ird no keyword")]
     #[test_case("number is 943 476 5919", PiiKind::GbNhsNumber ; "nhs no keyword")]
@@ -863,6 +927,8 @@ mod tests {
 
     // --- JSON input tests ---
 
+    #[test_case(r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#, PiiKind::PhoneNumber, "555-123-4567" ; "phone in json")]
+    #[test_case(r#"{"traveler": {"passport": "123456789", "nationality": "US"}}"#, PiiKind::PassportNumber, "123456789" ; "passport in json")]
     #[test_case(r#"{"tax_file_number": "TFN: 123 456 782", "state": "NSW"}"#, PiiKind::AuTfn, "123 456 782" ; "tfn in json")]
     #[test_case(r#"{"taxpayer": {"IRD number": "49-091-857", "name": "Smith"}}"#, PiiKind::NzIrdNumber, "49-091-857" ; "ird in json")]
     #[test_case(r#"{"patient": {"NHS number": "943 476 5919", "ward": "A3"}}"#, PiiKind::GbNhsNumber, "943 476 5919" ; "nhs in json")]
