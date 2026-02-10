@@ -1,7 +1,7 @@
 use regex::{Regex, RegexSet};
 
 use crate::detector::Detector;
-use crate::{PiiKind, PiiMatch};
+use crate::{PiiError, PiiKind, PiiMatch};
 
 struct KeywordPattern {
     kind: PiiKind,
@@ -14,15 +14,9 @@ pub struct KeywordContextDetector {
     patterns: Vec<KeywordPattern>,
 }
 
-impl Default for KeywordContextDetector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl KeywordContextDetector {
     #[allow(clippy::type_complexity)]
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, PiiError> {
         let raw_patterns: Vec<(PiiKind, &str, fn(&str) -> bool)> = vec![
             (
                 PiiKind::AuTfn,
@@ -102,17 +96,19 @@ impl KeywordContextDetector {
         ];
 
         let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, pat, _)| *pat).collect();
-        let set = RegexSet::new(&set_patterns).unwrap();
+        let set = RegexSet::new(&set_patterns).map_err(PiiError::RegexCompilation)?;
         let patterns = raw_patterns
             .into_iter()
-            .map(|(kind, pat, validate)| KeywordPattern {
-                kind,
-                full_regex: Regex::new(pat).unwrap(),
-                validate,
+            .map(|(kind, pat, validate)| {
+                Ok(KeywordPattern {
+                    kind,
+                    full_regex: Regex::new(pat).map_err(PiiError::RegexCompilation)?,
+                    validate,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, PiiError>>()?;
 
-        Self { set, patterns }
+        Ok(Self { set, patterns })
     }
 }
 
@@ -517,7 +513,7 @@ mod tests {
     #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
     #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -678,7 +674,7 @@ mod tests {
     #[test_case("DL:B1234568" ; "us dl sep colon")]
     #[test_case("DL#B1234568" ; "us dl sep hash")]
     fn has_piis_with_keyword(input: &str) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -775,7 +771,7 @@ mod tests {
     #[test_case("Driver's license:\r\nB1234568" ; "us dl crlf")]
     #[test_case("DL number\r\nB1234568" ; "us dl keyword crlf")]
     fn has_piis_with_whitespace_separator(input: &str) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -797,7 +793,7 @@ mod tests {
     #[test_case("Receipt number: XYZ2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt invalid center")]
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -823,7 +819,7 @@ mod tests {
     #[test_case("code is SRC2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -835,7 +831,7 @@ mod tests {
 
     #[test]
     fn geolocation_with_space_after_comma() {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let input = "coordinates: 40.7128, -74.0060";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -851,7 +847,7 @@ mod tests {
 
     #[test]
     fn geolocation_negative_latitude() {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let input = "coordinates: -33.8688,151.2093";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -883,7 +879,7 @@ mod tests {
     #[test_case(r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#, PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt in json")]
     #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
     fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -895,7 +891,7 @@ mod tests {
 
     #[test]
     fn detects_multiple_keyword_pii_in_json() {
-        let detector = KeywordContextDetector::new();
+        let detector = KeywordContextDetector::new().unwrap();
         let input =
             r#"{"employee": {"EIN": "12-3456789", "UTR": "5555555555", "TFN": "123 456 782"}}"#;
         let matches = detector.mark_piis(input);

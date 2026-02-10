@@ -346,7 +346,7 @@ fn make_long_clean_text() -> String {
 // Measures bytes/second throughput of mark_piis across different input sizes
 // and content types: PII-free text (~500B), mixed PII (~2KB), and long clean text (~10KB).
 fn throughput_mark_piis(c: &mut Criterion) {
-    let scanner = Scanner::new();
+    let scanner = Scanner::new().unwrap();
     let long_clean = make_long_clean_text();
 
     let mut group = c.benchmark_group("throughput");
@@ -370,7 +370,7 @@ fn throughput_mark_piis(c: &mut Criterion) {
 // Measures bytes/second throughput of has_piis across the same input sizes.
 // Shows the speed of short-circuit detection (stops at first match) at scale.
 fn throughput_has_piis(c: &mut Criterion) {
-    let scanner = Scanner::new();
+    let scanner = Scanner::new().unwrap();
     let long_clean = make_long_clean_text();
 
     let mut group = c.benchmark_group("throughput_has_piis");
@@ -395,7 +395,7 @@ fn throughput_has_piis(c: &mut Criterion) {
 // (extracts all matches) on the same mixed-PII input to quantify the
 // early-exit advantage.
 fn has_piis_vs_mark_piis(c: &mut Criterion) {
-    let scanner = Scanner::new();
+    let scanner = Scanner::new().unwrap();
 
     let mut group = c.benchmark_group("has_piis_vs_mark_piis");
 
@@ -413,7 +413,7 @@ fn has_piis_vs_mark_piis(c: &mut Criterion) {
 // Isolates each PII type by running mark_piis on text containing only that
 // type. Shows the relative cost of each PII kind's regex + validation.
 fn per_pii_kind(c: &mut Criterion) {
-    let scanner = Scanner::new();
+    let scanner = Scanner::new().unwrap();
 
     let mut group = c.benchmark_group("per_pii_kind");
 
@@ -543,7 +543,7 @@ fn per_pii_kind(c: &mut Criterion) {
 // Measures the baseline cost of scanning PII-free text where no patterns
 // match. Shows the fixed overhead of running all regexes with zero results.
 fn clean_text_overhead(c: &mut Criterion) {
-    let scanner = Scanner::new();
+    let scanner = Scanner::new().unwrap();
 
     let mut group = c.benchmark_group("clean_text_overhead");
 
