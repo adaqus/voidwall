@@ -41,7 +41,6 @@ impl RegexDetector {
             (PiiKind::UsItin, r"\b(9\d{2})-(\d{2})-(\d{4})\b"),
             (PiiKind::CaSin, r"\b\d{3}[-\s]\d{3}[-\s]\d{3}\b"),
             (PiiKind::IePpsn, r"\b\d{7}[A-Za-z]{1,2}\b"),
-            (PiiKind::ZaId, r"\b\d{13}\b"),
             (
                 PiiKind::MacAddress,
                 r"\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b",
@@ -111,9 +110,6 @@ impl Detector for RegexDetector {
                     continue;
                 }
                 if pattern.kind == PiiKind::IePpsn && !ppsn_check(candidate) {
-                    continue;
-                }
-                if pattern.kind == PiiKind::ZaId && !sa_id_check(candidate) {
                     continue;
                 }
                 if pattern.kind == PiiKind::GbDrivingLicence && !uk_dl_check(candidate) {
@@ -310,39 +306,6 @@ fn ppsn_check(s: &str) -> bool {
     bytes[7] == check_letter
 }
 
-fn sa_id_check(s: &str) -> bool {
-    if s.len() != 13 || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return false;
-    }
-    let month: u32 = s[2..4].parse().unwrap_or(0);
-    if !(1..=12).contains(&month) {
-        return false;
-    }
-    let day: u32 = s[4..6].parse().unwrap_or(0);
-    if !(1..=31).contains(&day) {
-        return false;
-    }
-    let citizenship = s.as_bytes()[10] - b'0';
-    if citizenship > 1 {
-        return false;
-    }
-    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
-    let checksum: u32 = digits
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(i, &d)| {
-            if i % 2 == 1 {
-                let doubled = d * 2;
-                if doubled > 9 { doubled - 9 } else { doubled }
-            } else {
-                d
-            }
-        })
-        .sum();
-    checksum % 10 == 0
-}
-
 fn uk_dl_check(s: &str) -> bool {
     if s.len() != 16 {
         return false;
@@ -440,7 +403,6 @@ mod tests {
     #[test_case("SIN: 130 692 544", PiiKind::CaSin, "130 692 544" ; "sin spaces")]
     #[test_case("PPSN: 1234567T", PiiKind::IePpsn, "1234567T" ; "ppsn 8char")]
     #[test_case("PPSN: 1234567TW", PiiKind::IePpsn, "1234567TW" ; "ppsn 9char")]
-    #[test_case("SA ID: 8001015009087", PiiKind::ZaId, "8001015009087" ; "sa id")]
     #[test_case("MAC: 00:1A:2B:3C:4D:5E", PiiKind::MacAddress, "00:1A:2B:3C:4D:5E" ; "mac colon")]
     #[test_case("MAC: 00-1A-2B-3C-4D-5E", PiiKind::MacAddress, "00-1A-2B-3C-4D-5E" ; "mac hyphen")]
     #[test_case("MAC: 001A.2B3C.4D5E", PiiKind::MacAddress, "001A.2B3C.4D5E" ; "mac cisco dot")]
@@ -492,9 +454,6 @@ mod tests {
     #[test_case("ITIN: 900-30-1234", PiiKind::UsItin ; "itin invalid group")]
     #[test_case("SIN: 123-456-789", PiiKind::CaSin ; "sin failing luhn")]
     #[test_case("PPSN: 1234567A", PiiKind::IePpsn ; "ppsn wrong check letter")]
-    #[test_case("SA ID: 8013015009087", PiiKind::ZaId ; "sa id invalid month")]
-    #[test_case("SA ID: 8001325009087", PiiKind::ZaId ; "sa id invalid day")]
-    #[test_case("SA ID: 8001015009086", PiiKind::ZaId ; "sa id failing luhn")]
     #[test_case("DL: JONES900057A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid month")]
     #[test_case("DL: JONES901007A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid day")]
     #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
@@ -607,7 +566,6 @@ mod tests {
     #[test_case(r#"{"tax": {"itin": "912-70-1234", "year": 2025}}"#, PiiKind::UsItin, "912-70-1234" ; "itin in json")]
     #[test_case(r#"{"employee": {"sin": "130-692-544", "province": "ON"}}"#, PiiKind::CaSin, "130-692-544" ; "sin in json")]
     #[test_case(r#"{"citizen": {"ppsn": "1234567T", "county": "Dublin"}}"#, PiiKind::IePpsn, "1234567T" ; "ppsn in json")]
-    #[test_case(r#"{"citizen": {"id_number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
     #[test_case(r#"{"device": {"mac": "00:1A:2B:3C:4D:5E", "hostname": "ws01"}}"#, PiiKind::MacAddress, "00:1A:2B:3C:4D:5E" ; "mac in json")]
     #[test_case(r#"{"driver": {"licence": "JONES901157A99Y1", "category": "B"}}"#, PiiKind::GbDrivingLicence, "JONES901157A99Y1" ; "uk dl in json")]
     #[test_case(r#"{"vehicle": {"vin": "1HGBH41JXMN109186", "make": "Honda"}}"#, PiiKind::Vin, "1HGBH41JXMN109186" ; "vin in json")]

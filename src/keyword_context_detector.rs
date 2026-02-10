@@ -99,6 +99,11 @@ impl KeywordContextDetector {
                 uscis_receipt_check,
             ),
             (
+                PiiKind::ZaId,
+                r"(?i)(?:south african id number|south african id no\.?|south african id|south african identity number|south african identity|sa id number|sa id no\.?|sa id|sa identity number|sa identity|national id number|national id no\.?|national identity number|national identity|id number|id no\.?|id book|id card|identity number|identity no\.?|identity document|identity card|home affairs number|home affairs no\.?|home affairs id|citizen id|citizen number|applicant id|my id|your id)[\s:.#/\-\x22]*?(\d{13})\b",
+                sa_id_check,
+            ),
+            (
                 PiiKind::UsDriversLicense,
                 r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
@@ -458,6 +463,39 @@ fn uscis_receipt_check(s: &str) -> bool {
     USCIS_CENTER_CODES.binary_search(&prefix.as_str()).is_ok()
 }
 
+fn sa_id_check(s: &str) -> bool {
+    if s.len() != 13 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let month: u32 = s[2..4].parse().unwrap_or(0);
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    let day: u32 = s[4..6].parse().unwrap_or(0);
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    let citizenship = s.as_bytes()[10] - b'0';
+    if citizenship > 1 {
+        return false;
+    }
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
+
 fn us_dl_check(s: &str) -> bool {
     let clean: String = s.chars().filter(|c| *c != '-').collect();
     let letter_count = clean
@@ -532,6 +570,8 @@ mod tests {
     #[test_case("Alien registration number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number span")]
     #[test_case("Receipt number: SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt")]
     #[test_case("USCIS receipt number: SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt span")]
+    #[test_case("SA ID: 8001015009087", PiiKind::ZaId, "8001015009087" ; "sa id")]
+    #[test_case("identity number: 9506150089081", PiiKind::ZaId, "9506150089081" ; "sa id span")]
     #[test_case("Driver's license: B1234568", PiiKind::UsDriversLicense, "B1234568" ; "us dl 1 letter 7 digits")]
     #[test_case("DL number: W123456789012", PiiKind::UsDriversLicense, "W123456789012" ; "us dl 1 letter 12 digits")]
     #[test_case("License number: AB123456", PiiKind::UsDriversLicense, "AB123456" ; "us dl 2 letters 6 digits")]
@@ -710,6 +750,16 @@ mod tests {
     #[test_case("Receipt number: LIN2190000001" ; "uscis receipt center LIN")]
     #[test_case("Receipt number: IOE2190000001" ; "uscis receipt center IOE")]
     #[test_case("Receipt number: MSC2190000001" ; "uscis receipt center MSC")]
+    #[test_case("south african id: 8001015009087" ; "sa id keyword variant 1")]
+    #[test_case("sa id: 8001015009087" ; "sa id keyword variant 2")]
+    #[test_case("id number: 8001015009087" ; "sa id keyword variant 3")]
+    #[test_case("identity number: 8001015009087" ; "sa id keyword variant 4")]
+    #[test_case("SA ID: 8001015009087" ; "sa id case upper")]
+    #[test_case("sa id: 8001015009087" ; "sa id case lower")]
+    #[test_case("Sa Id: 8001015009087" ; "sa id case mixed")]
+    #[test_case("SA ID 8001015009087" ; "sa id sep space")]
+    #[test_case("SA ID:8001015009087" ; "sa id sep colon")]
+    #[test_case("SA ID#8001015009087" ; "sa id sep hash")]
     #[test_case("driver's license number: B1234568" ; "us dl keyword variant 1")]
     #[test_case("driving licence: B1234568" ; "us dl keyword variant 2")]
     #[test_case("state id number: B1234568" ; "us dl keyword variant 3")]
@@ -824,6 +874,12 @@ mod tests {
     #[test_case("USCIS case\tSRC2190000001" ; "uscis receipt keyword tab")]
     #[test_case("Receipt number:\r\nSRC2190000001" ; "uscis receipt crlf")]
     #[test_case("USCIS case\r\nSRC2190000001" ; "uscis receipt keyword crlf")]
+    #[test_case("SA ID:\n8001015009087" ; "sa id newline")]
+    #[test_case("identity number\n8001015009087" ; "sa id keyword newline")]
+    #[test_case("SA ID:\t8001015009087" ; "sa id tab")]
+    #[test_case("identity number\t8001015009087" ; "sa id keyword tab")]
+    #[test_case("SA ID:\r\n8001015009087" ; "sa id crlf")]
+    #[test_case("identity number\r\n8001015009087" ; "sa id keyword crlf")]
     #[test_case("Driver's license:\nB1234568" ; "us dl newline")]
     #[test_case("DL number\nB1234568" ; "us dl keyword newline")]
     #[test_case("Driver's license:\tB1234568" ; "us dl tab")]
@@ -851,6 +907,9 @@ mod tests {
     #[test_case("coordinates: 40.7128,181.0060", PiiKind::PreciseGeolocation ; "geolocation lon out of range")]
     #[test_case("coordinates: 40.71,-74.00", PiiKind::PreciseGeolocation ; "geolocation insufficient precision")]
     #[test_case("Receipt number: XYZ2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt invalid center")]
+    #[test_case("SA ID: 8013015009087", PiiKind::ZaId ; "sa id invalid month")]
+    #[test_case("SA ID: 8001325009087", PiiKind::ZaId ; "sa id invalid day")]
+    #[test_case("SA ID: 8001015009086", PiiKind::ZaId ; "sa id failing luhn")]
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
     #[test_case("passport: 1234567890", PiiKind::PassportNumber ; "passportnum 10 digits")]
@@ -881,6 +940,7 @@ mod tests {
     #[test_case("values are 40.7128,-74.0060", PiiKind::PreciseGeolocation ; "geolocation no keyword")]
     #[test_case("code is A012345678", PiiKind::UsAlienNumber ; "a number no keyword")]
     #[test_case("code is SRC2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt no keyword")]
+    #[test_case("number is 8001015009087", PiiKind::ZaId ; "sa id no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = KeywordContextDetector::new().unwrap();
@@ -943,6 +1003,7 @@ mod tests {
     #[test_case(r#"{"location": {"coordinates": "40.7128,-74.0060", "city": "New York"}}"#, PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation in json")]
     #[test_case(r#"{"immigration": {"alien number": "A012345678", "status": "LPR"}}"#, PiiKind::UsAlienNumber, "A012345678" ; "alien number in json")]
     #[test_case(r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#, PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt in json")]
+    #[test_case(r#"{"citizen": {"id number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
     #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
     fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = KeywordContextDetector::new().unwrap();

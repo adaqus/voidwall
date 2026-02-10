@@ -119,8 +119,8 @@ Contact the local Revenue office for queries.";
 const SA_ID_TEXT: &str = "\
 Department of Home Affairs — Identity Verification\n\n\
 The following South African ID numbers need validation:\n\
-- Thabo Mbeki: 8001015009087\n\
-- Naledi Zulu: 9506150089080\n\
+- Thabo Mbeki: SA ID number: 8001015009087\n\
+- Naledi Zulu: identity number: 9506150089081\n\
 Please ensure all ID numbers are registered in the population register.\n\
 Contact the nearest Home Affairs office for amendments.";
 
