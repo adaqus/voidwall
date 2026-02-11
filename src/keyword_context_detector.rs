@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use regex::{Regex, RegexSet};
 
+use crate::Language;
 use crate::detector::Detector;
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -16,105 +19,133 @@ pub struct KeywordContextDetector {
 
 impl KeywordContextDetector {
     #[allow(clippy::type_complexity)]
-    pub fn new() -> Result<Self, PiiError> {
-        let raw_patterns: Vec<(PiiKind, &str, fn(&str) -> bool)> = vec![
+    pub fn new(
+        enabled_kinds: &HashSet<PiiKind>,
+        enabled_languages: &HashSet<Language>,
+    ) -> Result<Self, PiiError> {
+        let all_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = vec![
             (
                 PiiKind::AuTfn,
+                Language::En,
                 r"(?i)(?:australian tax file number|australian tfn|aus tfn|ato tax file number|ato tfn|individual tax file number|tax file number|tax file no\.?|tax file num|tax file #|tax file ref(?:erence)?|tax file identifier|applicant tfn|employee tfn|client tfn|customer tfn|my tfn|your tfn|tfn number|tfn no\.?|tfn num|tfn)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{3})",
                 tfn_check,
             ),
             (
                 PiiKind::NzIrdNumber,
+                Language::En,
                 r"(?i)(?:inland revenue dep(?:artmen)?t|inland revenue number|inland revenue no\.?|new zealand ird|new zealand tax number|new zealand tax id|nz ird|nz tax number|nz tax id|ird number nz|ird number|ird no\.?|ird num|ird #|ird ref(?:erence)?|applicant ird|employee ird|client ird|customer ird|my ird|your ird|gst registration|gst number|gst no\.?|tax number nz|ird)[\s:.#/\-\x22]*?(\d{2,3}-\d{3}-\d{3})",
                 ird_check,
             ),
             (
                 PiiKind::GbNhsNumber,
+                Language::En,
                 r"(?i)(?:national health service number|national health service no\.?|nhs patient number|nhs patient id|nhs patient no\.?|nhs record number|nhs registration|nhs identifier|nhs number|nhs no\.?|nhs num|nhs #|nhs id|nhs ref(?:erence)?|nhs record|health service number|health service no\.?|health index number|health id|patient number|patient no\.?|patient id|my nhs number|your nhs number|chi number|h&c number|hc number|nhs)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{4})",
                 nhs_check,
             ),
             (
                 PiiKind::AuMedicare,
+                Language::En,
                 r"(?i)(?:medicare card number|medicare card no\.?|medicare card|australian medicare|medicare enrol(?:l)?ment|medicare registration|medicare identifier|medicare number|medicare no\.?|medicare num|medicare #|medicare id|medicare ref(?:erence)?|medicare patient|aus medicare|au medicare|applicant medicare|employee medicare|client medicare|customer medicare|my medicare|your medicare|medicare|irn)[\s:.#/\-\x22]*?(\d{4}\s\d{5}\s\d)",
                 medicare_check,
             ),
             (
                 PiiKind::PhoneNumber,
+                Language::En,
                 r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
+                Language::En,
                 r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?(\d{9})\b",
                 passport_check,
             ),
             (
                 PiiKind::UsPassportNew,
+                Language::En,
                 r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?([AXYZaxyz]\d{8})",
                 passport_new_check,
             ),
             (
                 PiiKind::SwiftBic,
+                Language::En,
                 r"(?i)(?:bank identifier code|bank identifier|correspondent (?:bank )?swift|intermediary swift|intermediary bic|international bank code|beneficiary swift|beneficiary bic|swift/bic|swift bic|bic/swift|swift code|swift number|swift no\.?|swift #|swift address|swift id|bank swift|bank routing|bank bic|bic code|bic number|bic no\.?|bic #|bic id|routing code|clearing code|my swift|swift|bic)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
                 PiiKind::UsEin,
+                Language::En,
                 r"(?i)(?:employer identification number|employer identification no\.?|federal employer identification|employer id number|employer id no\.?|federal employer id|federal tax identification|tax identification number|federal id number|federal id no\.?|federal tax id|federal ein|tax id number|employer number|employer no\.?|business tax id|company tax id|company ein|irs employer id|applicant ein|ein number|ein no\.?|ein num|ein #|tax id|irs ein|our ein|my ein|fein|ein)[\s:.#/\-\x22]*?(\d{2}-\d{7})",
                 ein_check,
             ),
             (
                 PiiKind::Imei,
+                Language::En,
                 r"(?i)(?:international mobile equipment identity|mobile equipment identity|equipment identity|device identifier|device id number|device serial|device imei|handset imei|serial imei|mobile imei|tablet imei|equipment id|phone imei|imei identifier|imei number|imei no\.?|imei num|imei #|imei code|imei id|your imei|my imei|meid|imei)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             (
                 PiiKind::GbUtr,
+                Language::En,
                 r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-\x22]*?(\d{10})\b",
                 utr_check,
             ),
             (
                 PiiKind::UsAbaRouting,
+                Language::En,
                 r"(?i)(?:aba routing number|aba routing no\.?|aba routing|aba number|aba no\.?|aba #|routing transit number|routing transit no\.?|routing number|routing no\.?|routing #|bank routing number|bank routing no\.?|bank routing|transit number|transit no\.?|transit #|aba rtn|rtn number|rtn no\.?|rtn #|fed routing|fedwire routing|ach routing|wire routing|wire transfer routing|my routing number|your routing number|bank rtn|routing code|aba|rtn)[\s:.#/\-\x22]*?(\d{9})\b",
                 aba_check,
             ),
             (
                 PiiKind::GbSortCode,
+                Language::En,
                 r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-\x22]*?(\d{2}-\d{2}-\d{2})\b",
                 sort_code_check,
             ),
             (
                 PiiKind::PreciseGeolocation,
+                Language::En,
                 r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check,
             ),
             (
                 PiiKind::UsAlienNumber,
+                Language::En,
                 r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-\x22]*?([Aa]\d{7,9})\b",
                 a_number_check,
             ),
             (
                 PiiKind::UsUscisReceiptNumber,
+                Language::En,
                 r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-\x22]*?([A-Za-z]{3}\d{10})\b",
                 uscis_receipt_check,
             ),
             (
                 PiiKind::ZaId,
+                Language::En,
                 r"(?i)(?:south african id number|south african id no\.?|south african id|south african identity number|south african identity|sa id number|sa id no\.?|sa id|sa identity number|sa identity|national id number|national id no\.?|national identity number|national identity|id number|id no\.?|id book|id card|identity number|identity no\.?|identity document|identity card|home affairs number|home affairs no\.?|home affairs id|citizen id|citizen number|applicant id|my id|your id)[\s:.#/\-\x22]*?(\d{13})\b",
                 sa_id_check,
             ),
             (
                 PiiKind::UsDriversLicense,
+                Language::En,
                 r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
             ),
         ];
 
-        let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, pat, _)| *pat).collect();
+        let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
+            .into_iter()
+            .filter(|(kind, lang, _, _)| {
+                enabled_kinds.contains(kind) && enabled_languages.contains(lang)
+            })
+            .collect();
+
+        let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, _, pat, _)| *pat).collect();
         let set = RegexSet::new(&set_patterns).map_err(PiiError::RegexCompilation)?;
         let patterns = raw_patterns
             .into_iter()
-            .map(|(kind, pat, validate)| {
+            .map(|(kind, _, pat, validate)| {
                 Ok(KeywordPattern {
                     kind,
                     full_regex: Regex::new(pat).map_err(PiiError::RegexCompilation)?,
@@ -124,6 +155,14 @@ impl KeywordContextDetector {
             .collect::<Result<Vec<_>, PiiError>>()?;
 
         Ok(Self { set, patterns })
+    }
+
+    #[cfg(test)]
+    fn new_all() -> Result<Self, PiiError> {
+        let enabled_kinds: HashSet<PiiKind> =
+            crate::PiiKind::enabled_for_countries(&crate::Country::all().iter().copied().collect());
+        let enabled_languages: HashSet<Language> = crate::Language::all().iter().copied().collect();
+        Self::new(&enabled_kinds, &enabled_languages)
     }
 }
 
@@ -578,7 +617,7 @@ mod tests {
     #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
     #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -772,7 +811,7 @@ mod tests {
     #[test_case("DL:B1234568" ; "us dl sep colon")]
     #[test_case("DL#B1234568" ; "us dl sep hash")]
     fn has_piis_with_keyword(input: &str) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -887,7 +926,7 @@ mod tests {
     #[test_case("Driver's license:\r\nB1234568" ; "us dl crlf")]
     #[test_case("DL number\r\nB1234568" ; "us dl keyword crlf")]
     fn has_piis_with_whitespace_separator(input: &str) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -914,7 +953,7 @@ mod tests {
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
     #[test_case("passport: 1234567890", PiiKind::PassportNumber ; "passportnum 10 digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -943,7 +982,7 @@ mod tests {
     #[test_case("number is 8001015009087", PiiKind::ZaId ; "sa id no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -955,7 +994,7 @@ mod tests {
 
     #[test]
     fn geolocation_with_space_after_comma() {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let input = "coordinates: 40.7128, -74.0060";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -971,7 +1010,7 @@ mod tests {
 
     #[test]
     fn geolocation_negative_latitude() {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let input = "coordinates: -33.8688,151.2093";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -1006,7 +1045,7 @@ mod tests {
     #[test_case(r#"{"citizen": {"id number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
     #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
     fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -1018,7 +1057,7 @@ mod tests {
 
     #[test]
     fn detects_multiple_keyword_pii_in_json() {
-        let detector = KeywordContextDetector::new().unwrap();
+        let detector = KeywordContextDetector::new_all().unwrap();
         let input =
             r#"{"employee": {"EIN": "12-3456789", "UTR": "5555555555", "TFN": "123 456 782"}}"#;
         let matches = detector.mark_piis(input);
