@@ -1,10 +1,10 @@
 use std::collections::HashSet;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 use crate::detector::Detector;
 use crate::keyword_context_detector::KeywordContextDetector;
 use crate::regex_detector::RegexDetector;
-use crate::{Country, Language, PiiError, PiiKind, PiiMatch};
+use crate::{Country, Language, PiiError, PiiKind, PiiMatch, RedactWith};
 
 /// Maximum byte length of any single PII token we need to detect.
 /// Overlap between chunks is set to this value so that PII spanning
@@ -105,6 +105,36 @@ impl Scanner {
         self.detectors.iter().any(|d| d.has_piis(input))
     }
 
+    /// Redacts all PII found in `reader`, writing the result to `writer`.
+    ///
+    /// Non-PII text is passed through unchanged. PII regions are replaced
+    /// according to the given `strategy`.
+    pub fn redact(
+        &self,
+        reader: impl Read,
+        writer: &mut impl Write,
+        strategy: &RedactWith,
+    ) -> io::Result<()> {
+        let mut input = String::new();
+        io::BufReader::new(reader).read_to_string(&mut input)?;
+
+        let mut matches = self.mark_piis_internal(&input);
+        matches.sort_by_key(|m| m.start);
+
+        let mut cursor = 0;
+        for m in &matches {
+            if m.start < cursor {
+                continue;
+            }
+            writer.write_all(&input.as_bytes()[cursor..m.start])?;
+            let replacement = strategy.apply(m.kind, &input[m.start..m.end]);
+            writer.write_all(replacement.as_bytes())?;
+            cursor = m.end;
+        }
+        writer.write_all(&input.as_bytes()[cursor..])?;
+        Ok(())
+    }
+
     /// Internal: run mark_piis on a string slice.
     fn mark_piis_internal(&self, input: &str) -> Vec<PiiMatch> {
         self.detectors
@@ -151,6 +181,78 @@ impl<'a> ChunkedScanner<'a> {
 
         self.advance(chunk);
         matches
+    }
+
+    /// Redacts PII in the given chunk, returning the redacted text.
+    ///
+    /// Maintains an internal overlap buffer to catch PII spanning chunk
+    /// boundaries. Call [`finish_redaction`](Self::finish_redaction) after
+    /// the last chunk to flush the remaining buffer.
+    ///
+    /// **Note:** Do not mix `redact_chunk`/`finish_redaction` calls with
+    /// `mark_piis_chunk`/`has_piis_chunk` on the same `ChunkedScanner`
+    /// instance, as they use the overlap buffer with different semantics.
+    pub fn redact_chunk(&mut self, chunk: &str, strategy: &RedactWith) -> String {
+        let combined = self.combined(chunk);
+        let matches = self.scanner.mark_piis_internal(&combined);
+
+        let safe_end = Self::safe_boundary(&combined, MAX_PII_SPAN);
+        let result = Self::build_redacted(&combined, &matches, 0, safe_end, strategy);
+
+        self.overlap = combined[safe_end..].to_string();
+        self.absolute_offset += chunk.len();
+        result
+    }
+
+    /// Flushes the remaining overlap buffer, redacting any PII found.
+    ///
+    /// Must be called after the last [`redact_chunk`](Self::redact_chunk) to
+    /// ensure all text is emitted.
+    pub fn finish_redaction(&mut self, strategy: &RedactWith) -> String {
+        let overlap = std::mem::take(&mut self.overlap);
+        let matches = self.scanner.mark_piis_internal(&overlap);
+        Self::build_redacted(&overlap, &matches, 0, overlap.len(), strategy)
+    }
+
+    /// Finds the largest char-boundary position at or before `text.len() - tail`.
+    fn safe_boundary(text: &str, tail: usize) -> usize {
+        let raw = text.len().saturating_sub(tail);
+        // Walk forward to a char boundary (floor_char_boundary is nightly-only).
+        let mut boundary = raw;
+        while boundary > 0 && !text.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        boundary
+    }
+
+    /// Builds redacted output for `text[start..end]`, replacing PII with the strategy.
+    fn build_redacted(
+        text: &str,
+        matches: &[PiiMatch],
+        start: usize,
+        end: usize,
+        strategy: &RedactWith,
+    ) -> String {
+        let mut sorted: Vec<&PiiMatch> = matches
+            .iter()
+            .filter(|m| m.end > start && m.start < end)
+            .collect();
+        sorted.sort_by_key(|m| m.start);
+
+        let mut result = String::new();
+        let mut cursor = start;
+        for m in sorted {
+            let m_start = m.start.max(start);
+            let m_end = m.end.min(end);
+            if m_start < cursor {
+                continue;
+            }
+            result.push_str(&text[cursor..m_start]);
+            result.push_str(&strategy.apply(m.kind, &text[m_start..m_end]));
+            cursor = m_end;
+        }
+        result.push_str(&text[cursor..end]);
+        result
     }
 
     /// Build the combined string: overlap + chunk.
@@ -441,5 +543,143 @@ mod tests {
         let kinds: Vec<PiiKind> = all_matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
         assert!(kinds.contains(&PiiKind::UsSsn));
+    }
+
+    // --- Redaction tests ---
+
+    #[test]
+    fn redact_replaces_email_with_char_mask() {
+        let scanner = Scanner::new().unwrap();
+        let mut out = Vec::new();
+        scanner
+            .redact(
+                "email me at test@example.com please".as_bytes(),
+                &mut out,
+                &crate::RedactWith::Char('*'),
+            )
+            .unwrap();
+        let result = String::from_utf8(out).unwrap();
+        assert_eq!(result, "email me at **************** please");
+    }
+
+    #[test]
+    fn redact_replaces_with_type_label() {
+        let scanner = Scanner::new().unwrap();
+        let mut out = Vec::new();
+        scanner
+            .redact(
+                "email me at test@example.com please".as_bytes(),
+                &mut out,
+                &crate::RedactWith::TypeLabel,
+            )
+            .unwrap();
+        let result = String::from_utf8(out).unwrap();
+        assert_eq!(result, "email me at [EMAIL] please");
+    }
+
+    #[test]
+    fn redact_preserves_non_pii_text() {
+        let scanner = Scanner::new().unwrap();
+        let input = "nothing sensitive here at all";
+        let mut out = Vec::new();
+        scanner
+            .redact(input.as_bytes(), &mut out, &crate::RedactWith::Char('*'))
+            .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), input);
+    }
+
+    #[test]
+    fn redact_handles_multiple_pii_types() {
+        let scanner = Scanner::new().unwrap();
+        let input = "email: user@test.com, SSN: 123-45-6789";
+        let mut out = Vec::new();
+        scanner
+            .redact(input.as_bytes(), &mut out, &crate::RedactWith::TypeLabel)
+            .unwrap();
+        let result = String::from_utf8(out).unwrap();
+        assert!(result.contains("[EMAIL]"));
+        assert!(result.contains("[US_SSN]"));
+        assert!(!result.contains("user@test.com"));
+        assert!(!result.contains("123-45-6789"));
+    }
+
+    #[test]
+    fn redact_writes_to_vec() {
+        let scanner = Scanner::new().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        scanner
+            .redact(
+                "test@example.com".as_bytes(),
+                &mut out,
+                &crate::RedactWith::Char('#'),
+            )
+            .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "################");
+    }
+
+    #[test]
+    fn chunked_redact_single_chunk() {
+        let scanner = Scanner::new().unwrap();
+        let input = "email me at test@example.com please";
+
+        // Non-chunked
+        let mut out = Vec::new();
+        scanner
+            .redact(input.as_bytes(), &mut out, &crate::RedactWith::Char('*'))
+            .unwrap();
+        let expected = String::from_utf8(out).unwrap();
+
+        // Chunked (single chunk)
+        let mut chunked = scanner.chunked_scanner();
+        let mut result = chunked.redact_chunk(input, &crate::RedactWith::Char('*'));
+        result.push_str(&chunked.finish_redaction(&crate::RedactWith::Char('*')));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn chunked_redact_pii_spanning_boundary() {
+        let scanner = Scanner::new().unwrap();
+        let chunk1 = "contact us at test@";
+        let chunk2 = "example.com for info";
+        let strategy = crate::RedactWith::Char('*');
+
+        let mut chunked = scanner.chunked_scanner();
+        let mut result = String::new();
+        result.push_str(&chunked.redact_chunk(chunk1, &strategy));
+        result.push_str(&chunked.redact_chunk(chunk2, &strategy));
+        result.push_str(&chunked.finish_redaction(&strategy));
+
+        // The email should be fully redacted
+        assert!(!result.contains("test@example.com"));
+        assert!(result.contains("contact us at"));
+        assert!(result.contains("for info"));
+    }
+
+    #[test]
+    fn chunked_redact_finish_flushes() {
+        let scanner = Scanner::new().unwrap();
+        let strategy = crate::RedactWith::TypeLabel;
+
+        let mut chunked = scanner.chunked_scanner();
+        let r1 = chunked.redact_chunk("hello test@example.com", &strategy);
+        let r2 = chunked.finish_redaction(&strategy);
+
+        let result = format!("{}{}", r1, r2);
+        assert!(result.contains("[EMAIL]"));
+        assert!(!result.contains("test@example.com"));
+    }
+
+    #[test]
+    fn chunked_redact_no_pii() {
+        let scanner = Scanner::new().unwrap();
+        let strategy = crate::RedactWith::Char('*');
+
+        let mut chunked = scanner.chunked_scanner();
+        let mut result = String::new();
+        result.push_str(&chunked.redact_chunk("no sensitive data ", &strategy));
+        result.push_str(&chunked.redact_chunk("in this text at all", &strategy));
+        result.push_str(&chunked.finish_redaction(&strategy));
+
+        assert_eq!(result, "no sensitive data in this text at all");
     }
 }

@@ -5,6 +5,17 @@ pub mod scanner;
 
 pub use scanner::{ChunkedScanner, Scanner, ScannerBuilder};
 
+/// Strategy for redacting detected PII.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RedactWith {
+    /// Replace each character of the PII with the given char.
+    /// e.g. `Char('*')`: `test@example.com` → `****************`
+    Char(char),
+    /// Replace with a type label derived from the PiiKind.
+    /// e.g. `test@example.com` → `[EMAIL]`
+    TypeLabel,
+}
+
 use std::collections::HashSet;
 
 /// Errors that can occur during PII scanner initialization.
@@ -112,7 +123,52 @@ pub enum PiiKind {
     UsUscisReceiptNumber,
 }
 
+impl RedactWith {
+    pub(crate) fn apply(&self, kind: PiiKind, original: &str) -> String {
+        match self {
+            RedactWith::Char(c) => c.to_string().repeat(original.chars().count()),
+            RedactWith::TypeLabel => format!("[{}]", kind.label()),
+        }
+    }
+}
+
 impl PiiKind {
+    /// Returns a human-readable label for this PII kind.
+    pub const fn label(&self) -> &'static str {
+        match self {
+            PiiKind::Email => "EMAIL",
+            PiiKind::PhoneNumber => "PHONE_NUMBER",
+            PiiKind::CreditCard => "CREDIT_CARD",
+            PiiKind::UsSsn => "US_SSN",
+            PiiKind::GbNino => "GB_NINO",
+            PiiKind::Iban => "IBAN",
+            PiiKind::PassportNumber => "PASSPORT_NUMBER",
+            PiiKind::IpAddress => "IP_ADDRESS",
+            PiiKind::UsItin => "US_ITIN",
+            PiiKind::CaSin => "CA_SIN",
+            PiiKind::IePpsn => "IE_PPSN",
+            PiiKind::ZaId => "ZA_ID",
+            PiiKind::MacAddress => "MAC_ADDRESS",
+            PiiKind::GbDrivingLicence => "GB_DRIVING_LICENCE",
+            PiiKind::Vin => "VIN",
+            PiiKind::AuTfn => "AU_TFN",
+            PiiKind::NzIrdNumber => "NZ_IRD_NUMBER",
+            PiiKind::GbNhsNumber => "GB_NHS_NUMBER",
+            PiiKind::AuMedicare => "AU_MEDICARE",
+            PiiKind::UsPassportNew => "US_PASSPORT_NEW",
+            PiiKind::SwiftBic => "SWIFT_BIC",
+            PiiKind::UsEin => "US_EIN",
+            PiiKind::Imei => "IMEI",
+            PiiKind::GbUtr => "GB_UTR",
+            PiiKind::UsAbaRouting => "US_ABA_ROUTING",
+            PiiKind::GbSortCode => "GB_SORT_CODE",
+            PiiKind::PreciseGeolocation => "PRECISE_GEOLOCATION",
+            PiiKind::UsDriversLicense => "US_DRIVERS_LICENSE",
+            PiiKind::UsAlienNumber => "US_ALIEN_NUMBER",
+            PiiKind::UsUscisReceiptNumber => "US_USCIS_RECEIPT_NUMBER",
+        }
+    }
+
     pub const fn country(&self) -> Country {
         match self {
             PiiKind::Email

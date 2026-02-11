@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use pii::Scanner;
+use pii::{RedactWith, Scanner};
 
 const CLEAN_TEXT: &str = "\
 The quick brown fox jumps over the lazy dog. In a world filled with wonders, \
@@ -558,12 +558,40 @@ fn clean_text_overhead(c: &mut Criterion) {
     group.finish();
 }
 
+fn redaction_throughput(c: &mut Criterion) {
+    let scanner = Scanner::new().unwrap();
+
+    let mut group = c.benchmark_group("redaction");
+    group.throughput(Throughput::Bytes(MIXED_PII_TEXT.len() as u64));
+
+    group.bench_function("char_mask_mixed", |b| {
+        b.iter(|| {
+            let mut out = Vec::new();
+            scanner
+                .redact(MIXED_PII_TEXT.as_bytes(), &mut out, &RedactWith::Char('*'))
+                .unwrap();
+        });
+    });
+
+    group.bench_function("type_label_mixed", |b| {
+        b.iter(|| {
+            let mut out = Vec::new();
+            scanner
+                .redact(MIXED_PII_TEXT.as_bytes(), &mut out, &RedactWith::TypeLabel)
+                .unwrap();
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     throughput_mark_piis,
     throughput_has_piis,
     has_piis_vs_mark_piis,
     per_pii_kind,
-    clean_text_overhead
+    clean_text_overhead,
+    redaction_throughput
 );
 criterion_main!(benches);
