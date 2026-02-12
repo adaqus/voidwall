@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `pii` is a Rust library for detecting Personally Identifiable Information (PII) in text. Uses Rust edition 2024.
 
+**Primary use case:** embedded inside a tokio-based HTTP reverse proxy. The proxy shares a single `Scanner` across async tasks via `Arc<Scanner>`. Requests are mostly small (~3 KB) but may include large attachments (e.g. PDFs, up to tens of MB). The library stays sync and runtime-agnostic — the caller decides scheduling (inline for small requests, `spawn_blocking` for large ones).
+
 ## Build Commands
 
 - **Build:** `cargo build | tail -n 100`
@@ -15,6 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Lint:** `cargo clippy`
 - **Format:** `cargo fmt`
 - **Benchmarks:** `cargo bench --bench pii_benchmark --quiet`
+- **Test with parallel:** `cargo test --features parallel | tail -n 100`
+- **Clippy with parallel:** `cargo clippy --features parallel`
 
 ## Architecture
 
@@ -25,14 +29,23 @@ Library crate (no `main.rs`). Two detection modes:
 
 ### Key Types
 
-- `Scanner` — public entry point, holds a chain of `Box<dyn Detector>`. Constructed via `Scanner::new()` which pre-compiles all patterns.
+- `Scanner` — public entry point, holds a chain of `Box<dyn Detector + Send + Sync>`. Constructed via `Scanner::new()` or `Scanner::builder()`. Thread-safe (`Send + Sync`) for sharing via `Arc`.
 - `Detector` trait (`detector.rs`) — interface for all detectors: `has_piis()` + `mark_piis()`
 - `RegexDetector` (`regex_detector.rs`) — structured PII detection via compiled regexes (email, phone, credit card with Luhn validation)
 - `PiiKind` / `PiiMatch` — defined in `lib.rs`, re-exported at crate root
 
 ### Detector Chain
 
-Detectors are stored as `Vec<Box<dyn Detector>>` in `Scanner`. In `has_piis` mode, iteration short-circuits on the first detector that returns `true`. In `mark_piis` mode, all detectors run and results are concatenated. New detector types (e.g., unstructured/NLP-based) plug in by implementing the `Detector` trait.
+Detectors are stored as `Vec<Box<dyn Detector + Send + Sync>>` in `Scanner`. In `has_piis` mode, iteration short-circuits on the first detector that returns `true`. In `mark_piis` mode, all detectors run and results are concatenated. New detector types (e.g., unstructured/NLP-based) plug in by implementing the `Detector` trait (which requires `Send + Sync`).
+
+### Thread Safety & Parallel Scanning
+
+- `Scanner` is `Send + Sync` — safe to wrap in `Arc` and share across tokio tasks/threads.
+- The `Detector` trait requires `Send + Sync`. All concrete detectors must satisfy this (they contain only `Regex`, `RegexSet`, `fn` pointers, and `Copy` enums).
+- Optional `parallel` feature (gated behind `rayon`): inputs >= 128 KB are split into 64 KB overlapping chunks and scanned in parallel.
+- Each `Scanner` owns a dedicated `rayon::ThreadPool`, configurable via `Scanner::builder().thread_count(n)`. Default (`0`) lets rayon auto-detect.
+- Below the threshold, the sequential streaming path is used (preserves short-circuit advantage for small inputs).
+- When testing/linting parallel code, always pass `--features parallel`.
 
 ### Adding a New Detector — Checklist
 
