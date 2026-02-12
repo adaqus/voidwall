@@ -1,6 +1,6 @@
 use crate::PiiMatch;
 
-pub trait Detector {
+pub trait Detector: Send + Sync {
     /// Returns `true` as soon as any PII is found in the input.
     ///
     /// Default implementation delegates to `mark_piis`, but detectors should

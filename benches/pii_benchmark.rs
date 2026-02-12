@@ -585,6 +585,39 @@ fn redaction_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "parallel")]
+fn parallel_throughput(c: &mut Criterion) {
+    let scanner = Scanner::new().unwrap();
+    // ~1MB input with mixed PII
+    let large_input = MIXED_PII_TEXT.repeat(1024 * 1024 / MIXED_PII_TEXT.len() + 1);
+
+    let mut group = c.benchmark_group("parallel_throughput");
+    group.throughput(Throughput::Bytes(large_input.len() as u64));
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| scanner.mark_piis(large_input.as_bytes()).unwrap());
+    });
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| scanner.has_piis(large_input.as_bytes()).unwrap());
+    });
+
+    group.finish();
+}
+
+#[cfg(feature = "parallel")]
+criterion_group!(
+    benches,
+    throughput_mark_piis,
+    throughput_has_piis,
+    has_piis_vs_mark_piis,
+    per_pii_kind,
+    clean_text_overhead,
+    redaction_throughput,
+    parallel_throughput
+);
+
+#[cfg(not(feature = "parallel"))]
 criterion_group!(
     benches,
     throughput_mark_piis,

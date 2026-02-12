@@ -4,8 +4,12 @@ description = "Library detecting various Personally Identifiable Information"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+parallel = ["rayon"]
+
 [dependencies]
 regex = "1"
+rayon = { version = "1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -14,13 +14,81 @@ const MAX_PII_SPAN: usize = 256;
 /// Default chunk size used by the `Read`-based streaming methods.
 const DEFAULT_CHUNK_SIZE: usize = 64 * 1024;
 
+/// Input size threshold above which parallel scanning is used.
+#[cfg(feature = "parallel")]
+const PARALLEL_THRESHOLD: usize = 128 * 1024;
+
+/// Chunk size for parallel scanning.
+#[cfg(feature = "parallel")]
+const PARALLEL_CHUNK_SIZE: usize = 64 * 1024;
+
+/// Splits `input` into overlapping chunks for parallel processing.
+///
+/// Returns `(chunk_abs_start, owned_start, chunk_slice)` tuples where:
+/// - `chunk_abs_start` is the byte offset of the chunk slice in the original input
+/// - `owned_start` is the byte offset where the "owned" (non-overlap) region begins
+/// - `chunk_slice` is the slice of input for this chunk
+///
+/// The first chunk has no overlap prefix. Subsequent chunks include an
+/// `overlap`-byte prefix (adjusted to UTF-8 char boundaries) so that PII
+/// spanning a chunk boundary is not missed.
+#[cfg(feature = "parallel")]
+fn split_overlapping_chunks(
+    input: &str,
+    chunk_size: usize,
+    overlap: usize,
+) -> Vec<(usize, usize, &str)> {
+    let mut chunks = Vec::new();
+    let len = input.len();
+    let mut owned_start: usize = 0;
+
+    while owned_start < len {
+        let owned_end = (owned_start + chunk_size).min(len);
+        // Adjust to char boundary
+        let owned_end = if owned_end < len {
+            let mut b = owned_end;
+            while b > owned_start && !input.is_char_boundary(b) {
+                b -= 1;
+            }
+            b
+        } else {
+            owned_end
+        };
+
+        // Compute overlap prefix start
+        let chunk_abs_start = if owned_start == 0 {
+            0
+        } else {
+            let raw = owned_start.saturating_sub(overlap);
+            let mut b = raw;
+            while b < owned_start && !input.is_char_boundary(b) {
+                b += 1;
+            }
+            b
+        };
+
+        chunks.push((
+            chunk_abs_start,
+            owned_start,
+            &input[chunk_abs_start..owned_end],
+        ));
+        owned_start = owned_end;
+    }
+
+    chunks
+}
+
 pub struct Scanner {
-    detectors: Vec<Box<dyn Detector>>,
+    detectors: Vec<Box<dyn Detector + Send + Sync>>,
+    #[cfg(feature = "parallel")]
+    thread_pool: rayon::ThreadPool,
 }
 
 pub struct ScannerBuilder {
     countries: HashSet<Country>,
     languages: HashSet<Language>,
+    #[cfg(feature = "parallel")]
+    thread_count: usize,
 }
 
 /// Incrementally scans text chunk-by-chunk for PII.
@@ -45,13 +113,50 @@ impl Scanner {
         ScannerBuilder {
             countries: HashSet::new(),
             languages: HashSet::new(),
+            #[cfg(feature = "parallel")]
+            thread_count: 0,
         }
     }
 
     /// Returns `true` if any PII is detected in the data from `reader`.
     ///
     /// Reads the input in chunks, short-circuiting as soon as PII is found.
+    /// When the `parallel` feature is enabled and the input exceeds 128 KB,
+    /// chunks are scanned in parallel using rayon.
     pub fn has_piis(&self, reader: impl Read) -> io::Result<bool> {
+        #[cfg(feature = "parallel")]
+        {
+            let mut input = String::new();
+            io::BufReader::new(reader).read_to_string(&mut input)?;
+            if input.len() >= PARALLEL_THRESHOLD {
+                return Ok(self.has_piis_parallel(&input));
+            }
+            self.has_piis_sequential(input.as_bytes())
+        }
+        #[cfg(not(feature = "parallel"))]
+        self.has_piis_sequential(reader)
+    }
+
+    /// Returns all PII matches found in the data from `reader`.
+    ///
+    /// Match offsets are absolute byte positions from the start of the stream.
+    /// When the `parallel` feature is enabled and the input exceeds 128 KB,
+    /// chunks are scanned in parallel using rayon.
+    pub fn mark_piis(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
+        #[cfg(feature = "parallel")]
+        {
+            let mut input = String::new();
+            io::BufReader::new(reader).read_to_string(&mut input)?;
+            if input.len() >= PARALLEL_THRESHOLD {
+                return Ok(self.mark_piis_parallel(&input));
+            }
+            self.mark_piis_sequential(input.as_bytes())
+        }
+        #[cfg(not(feature = "parallel"))]
+        self.mark_piis_sequential(reader)
+    }
+
+    fn has_piis_sequential(&self, reader: impl Read) -> io::Result<bool> {
         let mut chunked = self.chunked_scanner();
         let mut buf_reader = io::BufReader::with_capacity(DEFAULT_CHUNK_SIZE, reader);
         let mut buf = vec![0u8; DEFAULT_CHUNK_SIZE];
@@ -70,10 +175,7 @@ impl Scanner {
         Ok(false)
     }
 
-    /// Returns all PII matches found in the data from `reader`.
-    ///
-    /// Match offsets are absolute byte positions from the start of the stream.
-    pub fn mark_piis(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
+    fn mark_piis_sequential(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
         let mut chunked = self.chunked_scanner();
         let mut buf_reader = io::BufReader::with_capacity(DEFAULT_CHUNK_SIZE, reader);
         let mut buf = vec![0u8; DEFAULT_CHUNK_SIZE];
@@ -141,6 +243,41 @@ impl Scanner {
             .iter()
             .flat_map(|d| d.mark_piis(input))
             .collect()
+    }
+
+    #[cfg(feature = "parallel")]
+    fn has_piis_parallel(&self, input: &str) -> bool {
+        use rayon::prelude::*;
+        let chunks = split_overlapping_chunks(input, PARALLEL_CHUNK_SIZE, MAX_PII_SPAN);
+        self.thread_pool.install(|| {
+            chunks
+                .par_iter()
+                .any(|&(_, _, chunk)| self.has_piis_internal(chunk))
+        })
+    }
+
+    #[cfg(feature = "parallel")]
+    fn mark_piis_parallel(&self, input: &str) -> Vec<PiiMatch> {
+        use rayon::prelude::*;
+        let chunks = split_overlapping_chunks(input, PARALLEL_CHUNK_SIZE, MAX_PII_SPAN);
+        let mut results: Vec<PiiMatch> = self.thread_pool.install(|| {
+            chunks
+                .par_iter()
+                .flat_map_iter(|&(chunk_abs_start, owned_start, chunk)| {
+                    let overlap_len = owned_start - chunk_abs_start;
+                    self.mark_piis_internal(chunk)
+                        .into_iter()
+                        .filter(move |m| m.end > overlap_len)
+                        .map(move |m| PiiMatch {
+                            kind: m.kind,
+                            start: chunk_abs_start + m.start,
+                            end: chunk_abs_start + m.end,
+                        })
+                })
+                .collect()
+        });
+        results.sort_by_key(|m| m.start);
+        results
     }
 }
 
@@ -301,6 +438,16 @@ impl ScannerBuilder {
         self
     }
 
+    /// Set the number of threads for the parallel scanning thread pool.
+    ///
+    /// Only available with the `parallel` feature. A value of `0` (the
+    /// default) lets rayon choose based on available CPUs.
+    #[cfg(feature = "parallel")]
+    pub fn thread_count(mut self, count: usize) -> Self {
+        self.thread_count = count;
+        self
+    }
+
     /// Build the scanner, compiling all selected patterns.
     pub fn build(self) -> Result<Scanner, PiiError> {
         let countries = if self.countries.is_empty() {
@@ -322,6 +469,14 @@ impl ScannerBuilder {
                 Box::new(RegexDetector::new(&enabled_kinds)?),
                 Box::new(KeywordContextDetector::new(&enabled_kinds, &languages)?),
             ],
+            #[cfg(feature = "parallel")]
+            thread_pool: {
+                let mut builder = rayon::ThreadPoolBuilder::new();
+                if self.thread_count > 0 {
+                    builder = builder.num_threads(self.thread_count);
+                }
+                builder.build().expect("failed to create rayon thread pool")
+            },
         })
     }
 }
@@ -681,5 +836,44 @@ mod tests {
         result.push_str(&chunked.finish_redaction(&strategy));
 
         assert_eq!(result, "no sensitive data in this text at all");
+    }
+
+    // Compile-time assertion that Scanner is Send + Sync.
+    #[test]
+    fn scanner_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Scanner>();
+    }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_mark_piis_matches_sequential() {
+        let scanner = Scanner::new().unwrap();
+        // Build input larger than PARALLEL_THRESHOLD (128KB)
+        let base = "Contact jane.doe@example.com or call (555) 123-4567. \
+                     SSN: 123-45-6789. Card: 4111 1111 1111 1111. \
+                     Nothing sensitive in this filler text that pads the input. ";
+        let repetitions = (128 * 1024 / base.len()) + 10;
+        let large_input: String = base.repeat(repetitions);
+        assert!(large_input.len() >= 128 * 1024);
+
+        // Sequential result: use the internal method on the whole string
+        let mut sequential = scanner.mark_piis_internal(&large_input);
+        sequential.sort_by_key(|m| (m.start, m.end));
+
+        // Parallel result: goes through the public API which dispatches to parallel
+        let mut parallel = scanner.mark_piis(large_input.as_bytes()).unwrap();
+        parallel.sort_by_key(|m| (m.start, m.end));
+
+        assert_eq!(
+            sequential.len(),
+            parallel.len(),
+            "match count differs: sequential={}, parallel={}",
+            sequential.len(),
+            parallel.len()
+        );
+        for (s, p) in sequential.iter().zip(parallel.iter()) {
+            assert_eq!(s, p, "mismatch: sequential={:?} parallel={:?}", s, p);
+        }
     }
 }
