@@ -2,8 +2,12 @@ pub mod detector;
 pub mod keyword_context_detector;
 pub mod regex_detector;
 pub mod scanner;
+pub(crate) mod validators;
 
-pub use scanner::{ChunkedScanner, Scanner, ScannerBuilder};
+#[cfg(feature = "hyperscan")]
+pub mod hyperscan_detector;
+
+pub use scanner::{Scanner, ScannerBuilder};
 
 /// Strategy for redacting detected PII.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,12 +27,19 @@ use std::collections::HashSet;
 pub enum PiiError {
     /// A regular expression failed to compile.
     RegexCompilation(regex::Error),
+    /// A Hyperscan/Vectorscan pattern failed to compile.
+    #[cfg(feature = "hyperscan")]
+    HyperscanCompilation(String),
 }
 
 impl std::fmt::Display for PiiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PiiError::RegexCompilation(e) => write!(f, "regex compilation failed: {e}"),
+            #[cfg(feature = "hyperscan")]
+            PiiError::HyperscanCompilation(e) => {
+                write!(f, "hyperscan compilation failed: {e}")
+            }
         }
     }
 }
@@ -37,6 +48,8 @@ impl std::error::Error for PiiError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PiiError::RegexCompilation(e) => Some(e),
+            #[cfg(feature = "hyperscan")]
+            PiiError::HyperscanCompilation(_) => None,
         }
     }
 }

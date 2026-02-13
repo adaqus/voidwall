@@ -19,6 +19,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Benchmarks:** `cargo bench --bench pii_benchmark --quiet`
 - **Test with parallel:** `cargo test --features parallel | tail -n 100`
 - **Clippy with parallel:** `cargo clippy --features parallel`
+- **Test with hyperscan:** `cargo test --features hyperscan | tail -n 100`
+- **Clippy with hyperscan:** `cargo clippy --features hyperscan`
+- **Benchmarks with hyperscan:** `cargo bench --bench pii_benchmark --features hyperscan --quiet`
+- **Test with hyperscan+parallel:** `cargo test --features hyperscan,parallel | tail -n 100`
 
 ## Architecture
 

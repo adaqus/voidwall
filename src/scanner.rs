@@ -2,24 +2,29 @@ use std::collections::HashSet;
 use std::io::{self, Read, Write};
 
 use crate::detector::Detector;
+#[cfg(feature = "hyperscan")]
+use crate::hyperscan_detector::HyperscanDetector;
 use crate::keyword_context_detector::KeywordContextDetector;
+#[cfg(not(feature = "hyperscan"))]
 use crate::regex_detector::RegexDetector;
 use crate::{Country, Language, PiiError, PiiKind, PiiMatch, RedactWith};
 
 /// Maximum byte length of any single PII token we need to detect.
 /// Overlap between chunks is set to this value so that PII spanning
 /// a chunk boundary is never missed.
+#[cfg(not(feature = "hyperscan"))]
 const MAX_PII_SPAN: usize = 256;
 
 /// Default chunk size used by the `Read`-based streaming methods.
+#[cfg(not(feature = "hyperscan"))]
 const DEFAULT_CHUNK_SIZE: usize = 64 * 1024;
 
 /// Input size threshold above which parallel scanning is used.
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
 const PARALLEL_THRESHOLD: usize = 128 * 1024;
 
 /// Chunk size for parallel scanning.
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
 const PARALLEL_CHUNK_SIZE: usize = 64 * 1024;
 
 /// Splits `input` into overlapping chunks for parallel processing.
@@ -32,7 +37,7 @@ const PARALLEL_CHUNK_SIZE: usize = 64 * 1024;
 /// The first chunk has no overlap prefix. Subsequent chunks include an
 /// `overlap`-byte prefix (adjusted to UTF-8 char boundaries) so that PII
 /// spanning a chunk boundary is not missed.
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
 fn split_overlapping_chunks(
     input: &str,
     chunk_size: usize,
@@ -80,24 +85,19 @@ fn split_overlapping_chunks(
 
 pub struct Scanner {
     detectors: Vec<Box<dyn Detector + Send + Sync>>,
-    #[cfg(feature = "parallel")]
+    #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
     thread_pool: rayon::ThreadPool,
 }
 
 pub struct ScannerBuilder {
     countries: HashSet<Country>,
     languages: HashSet<Language>,
-    #[cfg(feature = "parallel")]
+    #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
     thread_count: usize,
 }
 
-/// Incrementally scans text chunk-by-chunk for PII.
-///
-/// Created via [`Scanner::chunked_scanner`]. Feed arbitrary chunks of text
-/// with [`has_piis_chunk`](ChunkedScanner::has_piis_chunk) or
-/// [`mark_piis_chunk`](ChunkedScanner::mark_piis_chunk). The scanner
-/// maintains an overlap window so PII spanning chunk boundaries is detected.
-pub struct ChunkedScanner<'a> {
+#[cfg(not(feature = "hyperscan"))]
+pub(crate) struct ChunkedScanner<'a> {
     scanner: &'a Scanner,
     overlap: String,
     absolute_offset: usize,
@@ -113,7 +113,7 @@ impl Scanner {
         ScannerBuilder {
             countries: HashSet::new(),
             languages: HashSet::new(),
-            #[cfg(feature = "parallel")]
+            #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
             thread_count: 0,
         }
     }
@@ -124,17 +124,26 @@ impl Scanner {
     /// When the `parallel` feature is enabled and the input exceeds 128 KB,
     /// chunks are scanned in parallel using rayon.
     pub fn has_piis(&self, reader: impl Read) -> io::Result<bool> {
-        #[cfg(feature = "parallel")]
+        #[cfg(feature = "hyperscan")]
         {
             let mut input = String::new();
             io::BufReader::new(reader).read_to_string(&mut input)?;
-            if input.len() >= PARALLEL_THRESHOLD {
-                return Ok(self.has_piis_parallel(&input));
-            }
-            self.has_piis_sequential(input.as_bytes())
+            Ok(self.has_piis_internal(&input))
         }
-        #[cfg(not(feature = "parallel"))]
-        self.has_piis_sequential(reader)
+        #[cfg(not(feature = "hyperscan"))]
+        {
+            #[cfg(feature = "parallel")]
+            {
+                let mut input = String::new();
+                io::BufReader::new(reader).read_to_string(&mut input)?;
+                if input.len() >= PARALLEL_THRESHOLD {
+                    return Ok(self.has_piis_parallel(&input));
+                }
+                self.has_piis_sequential(input.as_bytes())
+            }
+            #[cfg(not(feature = "parallel"))]
+            self.has_piis_sequential(reader)
+        }
     }
 
     /// Returns all PII matches found in the data from `reader`.
@@ -143,19 +152,29 @@ impl Scanner {
     /// When the `parallel` feature is enabled and the input exceeds 128 KB,
     /// chunks are scanned in parallel using rayon.
     pub fn mark_piis(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
-        #[cfg(feature = "parallel")]
+        #[cfg(feature = "hyperscan")]
         {
             let mut input = String::new();
             io::BufReader::new(reader).read_to_string(&mut input)?;
-            if input.len() >= PARALLEL_THRESHOLD {
-                return Ok(self.mark_piis_parallel(&input));
-            }
-            self.mark_piis_sequential(input.as_bytes())
+            Ok(self.mark_piis_internal(&input))
         }
-        #[cfg(not(feature = "parallel"))]
-        self.mark_piis_sequential(reader)
+        #[cfg(not(feature = "hyperscan"))]
+        {
+            #[cfg(feature = "parallel")]
+            {
+                let mut input = String::new();
+                io::BufReader::new(reader).read_to_string(&mut input)?;
+                if input.len() >= PARALLEL_THRESHOLD {
+                    return Ok(self.mark_piis_parallel(&input));
+                }
+                self.mark_piis_sequential(input.as_bytes())
+            }
+            #[cfg(not(feature = "parallel"))]
+            self.mark_piis_sequential(reader)
+        }
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     fn has_piis_sequential(&self, reader: impl Read) -> io::Result<bool> {
         let mut chunked = self.chunked_scanner();
         let mut buf_reader = io::BufReader::with_capacity(DEFAULT_CHUNK_SIZE, reader);
@@ -175,6 +194,7 @@ impl Scanner {
         Ok(false)
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     fn mark_piis_sequential(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
         let mut chunked = self.chunked_scanner();
         let mut buf_reader = io::BufReader::with_capacity(DEFAULT_CHUNK_SIZE, reader);
@@ -193,8 +213,8 @@ impl Scanner {
         Ok(all_matches)
     }
 
-    /// Creates a [`ChunkedScanner`] for manually feeding text chunks.
-    pub fn chunked_scanner(&self) -> ChunkedScanner<'_> {
+    #[cfg(not(feature = "hyperscan"))]
+    pub(crate) fn chunked_scanner(&self) -> ChunkedScanner<'_> {
         ChunkedScanner {
             scanner: self,
             overlap: String::new(),
@@ -245,7 +265,7 @@ impl Scanner {
             .collect()
     }
 
-    #[cfg(feature = "parallel")]
+    #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
     fn has_piis_parallel(&self, input: &str) -> bool {
         use rayon::prelude::*;
         let chunks = split_overlapping_chunks(input, PARALLEL_CHUNK_SIZE, MAX_PII_SPAN);
@@ -256,7 +276,7 @@ impl Scanner {
         })
     }
 
-    #[cfg(feature = "parallel")]
+    #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
     fn mark_piis_parallel(&self, input: &str) -> Vec<PiiMatch> {
         use rayon::prelude::*;
         let chunks = split_overlapping_chunks(input, PARALLEL_CHUNK_SIZE, MAX_PII_SPAN);
@@ -281,6 +301,7 @@ impl Scanner {
     }
 }
 
+#[cfg(not(feature = "hyperscan"))]
 impl<'a> ChunkedScanner<'a> {
     /// Returns `true` if any PII is found in the current chunk
     /// (including overlap from the previous chunk).
@@ -442,7 +463,7 @@ impl ScannerBuilder {
     ///
     /// Only available with the `parallel` feature. A value of `0` (the
     /// default) lets rayon choose based on available CPUs.
-    #[cfg(feature = "parallel")]
+    #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
     pub fn thread_count(mut self, count: usize) -> Self {
         self.thread_count = count;
         self
@@ -464,12 +485,20 @@ impl ScannerBuilder {
 
         let enabled_kinds = PiiKind::enabled_for_countries(&countries);
 
+        #[cfg(feature = "hyperscan")]
+        let regex_detector: Box<dyn Detector + Send + Sync> =
+            Box::new(HyperscanDetector::new(&enabled_kinds)?);
+
+        #[cfg(not(feature = "hyperscan"))]
+        let regex_detector: Box<dyn Detector + Send + Sync> =
+            Box::new(RegexDetector::new(&enabled_kinds)?);
+
         Ok(Scanner {
             detectors: vec![
-                Box::new(RegexDetector::new(&enabled_kinds)?),
+                regex_detector,
                 Box::new(KeywordContextDetector::new(&enabled_kinds, &languages)?),
             ],
-            #[cfg(feature = "parallel")]
+            #[cfg(all(feature = "parallel", not(feature = "hyperscan")))]
             thread_pool: {
                 let mut builder = rayon::ThreadPoolBuilder::new();
                 if self.thread_count > 0 {
@@ -619,6 +648,7 @@ mod tests {
 
     // --- ChunkedScanner tests ---
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_scanner_detects_pii_within_single_chunk() {
         let scanner = Scanner::new().unwrap();
@@ -626,6 +656,7 @@ mod tests {
         assert!(chunked.has_piis_chunk("email me at test@example.com"));
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_scanner_mark_piis_absolute_offsets() {
         let scanner = Scanner::new().unwrap();
@@ -646,6 +677,7 @@ mod tests {
         assert_eq!(&full[m2[0].start..m2[0].end], "test@example.com");
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_scanner_pii_spanning_boundary() {
         let scanner = Scanner::new().unwrap();
@@ -668,6 +700,7 @@ mod tests {
         assert_eq!(&full[m2[0].start..m2[0].end], "test@example.com");
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_scanner_no_duplicate_matches() {
         let scanner = Scanner::new().unwrap();
@@ -686,6 +719,7 @@ mod tests {
         assert!(email_matches.is_empty());
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_scanner_multiple_chunks_multiple_piis() {
         let scanner = Scanner::new().unwrap();
@@ -772,6 +806,7 @@ mod tests {
         assert_eq!(String::from_utf8(out).unwrap(), "################");
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_redact_single_chunk() {
         let scanner = Scanner::new().unwrap();
@@ -791,6 +826,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_redact_pii_spanning_boundary() {
         let scanner = Scanner::new().unwrap();
@@ -810,6 +846,7 @@ mod tests {
         assert!(result.contains("for info"));
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_redact_finish_flushes() {
         let scanner = Scanner::new().unwrap();
@@ -824,6 +861,7 @@ mod tests {
         assert!(!result.contains("test@example.com"));
     }
 
+    #[cfg(not(feature = "hyperscan"))]
     #[test]
     fn chunked_redact_no_pii() {
         let scanner = Scanner::new().unwrap();
