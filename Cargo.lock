@@ -394,7 +394,6 @@ name = "pii"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "rayon",
  "regex",
  "test-case",
  "vectorscan-rs",

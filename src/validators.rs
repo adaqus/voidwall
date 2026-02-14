@@ -1,4 +1,3 @@
-#[cfg(feature = "hyperscan")]
 pub(crate) fn always_valid(_s: &str) -> bool {
     true
 }

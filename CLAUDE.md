@@ -17,12 +17,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Lint:** `cargo clippy`
 - **Format:** `cargo fmt`
 - **Benchmarks:** `cargo bench --bench pii_benchmark --quiet`
-- **Test with parallel:** `cargo test --features parallel | tail -n 100`
-- **Clippy with parallel:** `cargo clippy --features parallel`
-- **Test with hyperscan:** `cargo test --features hyperscan | tail -n 100`
-- **Clippy with hyperscan:** `cargo clippy --features hyperscan`
-- **Benchmarks with hyperscan:** `cargo bench --bench pii_benchmark --features hyperscan --quiet`
-- **Test with hyperscan+parallel:** `cargo test --features hyperscan,parallel | tail -n 100`
 
 ## Architecture
 
@@ -42,14 +36,11 @@ Library crate (no `main.rs`). Two detection modes:
 
 Detectors are stored as `Vec<Box<dyn Detector + Send + Sync>>` in `Scanner`. In `has_piis` mode, iteration short-circuits on the first detector that returns `true`. In `mark_piis` mode, all detectors run and results are concatenated. New detector types (e.g., unstructured/NLP-based) plug in by implementing the `Detector` trait (which requires `Send + Sync`).
 
-### Thread Safety & Parallel Scanning
+### Thread Safety
 
 - `Scanner` is `Send + Sync` — safe to wrap in `Arc` and share across tokio tasks/threads.
-- The `Detector` trait requires `Send + Sync`. All concrete detectors must satisfy this (they contain only `Regex`, `RegexSet`, `fn` pointers, and `Copy` enums).
-- Optional `parallel` feature (gated behind `rayon`): inputs >= 128 KB are split into 64 KB overlapping chunks and scanned in parallel.
-- Each `Scanner` owns a dedicated `rayon::ThreadPool`, configurable via `Scanner::builder().thread_count(n)`. Default (`0`) lets rayon auto-detect.
-- Below the threshold, the sequential streaming path is used (preserves short-circuit advantage for small inputs).
-- When testing/linting parallel code, always pass `--features parallel`.
+- The `Detector` trait requires `Send + Sync`. All concrete detectors must satisfy this.
+- Concurrency is handled at the caller level (e.g. `Arc<Scanner>` across tokio tasks with `spawn_blocking` for large inputs).
 
 ### Adding a New Detector — Checklist
 
