@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use regex::Regex;
@@ -6,6 +7,13 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 use crate::detector::Detector;
 use crate::validators::*;
 use crate::{PiiError, PiiKind, PiiMatch};
+
+thread_local! {
+    static DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
+        = const { RefCell::new(None) };
+    static EXTRACTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
+        = const { RefCell::new(None) };
+}
 
 struct PatternEntry {
     kind: PiiKind,
@@ -16,9 +24,15 @@ struct PatternEntry {
 }
 
 pub struct HyperscanDetector {
-    detection_db: BlockDatabase,
-    extraction_db: BlockDatabase,
     entries: Vec<PatternEntry>,
+    // SAFETY: Prototypes are declared before databases so they are dropped first.
+    // Cloned into thread-local cache on first use per thread via hs_clone_scratch.
+    detection_prototype: BlockScanner<'static>,
+    extraction_prototype: BlockScanner<'static>,
+    // Box'd for stable heap address — the &BlockDatabase refs inside the
+    // prototypes (and all clones) point into these Boxes.
+    detection_db: Box<BlockDatabase>,
+    extraction_db: Box<BlockDatabase>,
 }
 
 struct PatternDef {
@@ -192,40 +206,92 @@ impl HyperscanDetector {
             }
         }
 
-        let detection_db = BlockDatabase::new(detection_patterns)
-            .map_err(|e| PiiError::HyperscanCompilation(format!("detection db: {e}")))?;
+        let detection_db = Box::new(
+            BlockDatabase::new(detection_patterns)
+                .map_err(|e| PiiError::HyperscanCompilation(format!("detection db: {e}")))?,
+        );
+        let detection_prototype = {
+            let scanner = BlockScanner::new(&detection_db).expect("scratch alloc");
+            // SAFETY: Box guarantees a stable heap address for the database.
+            // The prototype (and its clones) hold a reference into the Box.
+            // This is sound because: (1) the prototype field is declared before
+            // detection_db, so it is dropped first; (2) BlockScanner::drop only
+            // frees scratch via hs_free_scratch and does not dereference the
+            // database pointer; (3) thread-local clones may outlive the detector
+            // but their drop also only frees scratch.
+            unsafe { std::mem::transmute::<BlockScanner<'_>, BlockScanner<'static>>(scanner) }
+        };
 
-        let extraction_db = BlockDatabase::new(extraction_patterns)
-            .map_err(|e| PiiError::HyperscanCompilation(format!("extraction db: {e}")))?;
+        let extraction_db = Box::new(
+            BlockDatabase::new(extraction_patterns)
+                .map_err(|e| PiiError::HyperscanCompilation(format!("extraction db: {e}")))?,
+        );
+        let extraction_prototype = {
+            let scanner = BlockScanner::new(&extraction_db).expect("scratch alloc");
+            // SAFETY: Same invariants as detection_prototype above.
+            unsafe { std::mem::transmute::<BlockScanner<'_>, BlockScanner<'static>>(scanner) }
+        };
 
         Ok(Self {
+            entries,
+            detection_prototype,
+            extraction_prototype,
             detection_db,
             extraction_db,
-            entries,
+        })
+    }
+
+    fn with_detection_scanner<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut BlockScanner<'static>) -> R,
+    {
+        let db_key = &*self.detection_db as *const BlockDatabase as usize;
+        DETECTION_CACHE.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
+                *opt = Some((db_key, self.detection_prototype.clone()));
+            }
+            f(&mut opt.as_mut().unwrap().1)
+        })
+    }
+
+    fn with_extraction_scanner<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut BlockScanner<'static>) -> R,
+    {
+        let db_key = &*self.extraction_db as *const BlockDatabase as usize;
+        EXTRACTION_CACHE.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
+                *opt = Some((db_key, self.extraction_prototype.clone()));
+            }
+            f(&mut opt.as_mut().unwrap().1)
         })
     }
 }
 
 impl Detector for HyperscanDetector {
     fn has_piis(&self, input: &str) -> bool {
-        let mut scanner = BlockScanner::new(&self.detection_db).expect("scratch alloc");
-        let mut found = false;
-        let _ = scanner.scan(input.as_bytes(), |_id, _from, _to, _flags| {
-            found = true;
-            Scan::Terminate
-        });
-        found
+        self.with_detection_scanner(|scanner| {
+            let mut found = false;
+            let _ = scanner.scan(input.as_bytes(), |_id, _from, _to, _flags| {
+                found = true;
+                Scan::Terminate
+            });
+            found
+        })
     }
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
         let mut results = Vec::new();
 
         // Phase 1: SOM_LEFTMOST extraction for patterns in the extraction DB
-        let mut scanner = BlockScanner::new(&self.extraction_db).expect("scratch alloc");
         let mut raw: Vec<(u32, u64, u64)> = Vec::new();
-        let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
-            raw.push((id, from, to));
-            Scan::Continue
+        self.with_extraction_scanner(|scanner| {
+            let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
+                raw.push((id, from, to));
+                Scan::Continue
+            });
         });
 
         for (id, from, to) in raw {
