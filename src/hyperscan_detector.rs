@@ -49,7 +49,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
     let all: Vec<PatternDef> = vec![
         PatternDef {
             kind: PiiKind::Email,
-            expr: r"[\w._%+-]+@[\w.-]+\.\w[\w-]*\w",
+            expr: r"[\w._%+&#;-]+(?:@|%40|&#64;|&#[xX]40;|&commat;)[\w.%&#;-]+(?:\.|%2[eE]|&#46;|&#[xX]2[eE];|&period;)\w[\w-]*\w",
             validator: always_valid as fn(&str) -> bool,
             needs_ucp: true,
             som_fallback: true,
@@ -446,6 +446,31 @@ mod tests {
     #[test_case("user@example.de", "user@example.de" ; "two letter tld")]
     #[test_case("12345@example.com", "12345@example.com" ; "numeric local part")]
     #[test_case("user@my-company.co.uk", "user@my-company.co.uk" ; "hyphenated domain")]
+    #[test_case("user@xn--nxasmq6b.com", "user@xn--nxasmq6b.com" ; "punycode domain")]
+    #[test_case("user@xn--80akhbyknj4f.xn--p1ai", "user@xn--80akhbyknj4f.xn--p1ai" ; "punycode domain cyrillic")]
+    #[test_case("user%40example.com", "user%40example.com" ; "url encoded at sign")]
+    #[test_case("first.last%40domain.org", "first.last%40domain.org" ; "url encoded with dots")]
+    #[test_case("user&#64;example.com", "user&#64;example.com" ; "html decimal entity at sign")]
+    #[test_case("user&#x40;example.com", "user&#x40;example.com" ; "html hex entity at sign")]
+    #[test_case("user&#X40;example.com", "user&#X40;example.com" ; "html hex entity uppercase at sign")]
+    #[test_case("user&commat;example.com", "user&commat;example.com" ; "html named entity at sign")]
+    // URL-encoded local part
+    #[test_case("user%2Btag@example.com", "user%2Btag@example.com" ; "url encoded plus in local part")]
+    #[test_case("user%2Ename@example.com", "user%2Ename@example.com" ; "url encoded dot in local part")]
+    // URL-encoded host part
+    #[test_case("user@example%2Ecom", "user@example%2Ecom" ; "url encoded dot in host")]
+    #[test_case("user@sub%2Edomain%2Ecom", "user@sub%2Edomain%2Ecom" ; "url encoded multiple dots in host")]
+    // Fully URL-encoded email
+    #[test_case("user%2Btag%40example%2Ecom", "user%2Btag%40example%2Ecom" ; "fully url encoded email")]
+    // HTML entities in local part
+    #[test_case("user&#43;tag@example.com", "user&#43;tag@example.com" ; "html decimal entity plus in local part")]
+    #[test_case("user&#x2B;tag@example.com", "user&#x2B;tag@example.com" ; "html hex entity plus in local part")]
+    // HTML entities in host part
+    #[test_case("user@example&#46;com", "user@example&#46;com" ; "html decimal entity dot in host")]
+    #[test_case("user@example&#x2E;com", "user@example&#x2E;com" ; "html hex entity dot in host")]
+    #[test_case("user@example&period;com", "user@example&period;com" ; "html named entity dot in host")]
+    // Fully HTML-encoded email
+    #[test_case("user&#43;tag&#64;example&#46;com", "user&#43;tag&#64;example&#46;com" ; "fully html encoded email")]
     fn detects_email_variant(input: &str, expected_span: &str) {
         let detector = new_all();
         let matches: Vec<_> = detector
