@@ -241,6 +241,13 @@ impl HyperscanDetector {
         })
     }
 
+    #[cfg(test)]
+    fn new_all() -> Result<Self, PiiError> {
+        let enabled =
+            PiiKind::enabled_for_countries(&crate::Country::all().iter().copied().collect());
+        Self::new(&enabled)
+    }
+
     fn with_detection_scanner<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut BlockScanner<'static>) -> R,
@@ -348,14 +355,10 @@ mod tests {
     use std::sync::LazyLock;
 
     use super::*;
-    use crate::Country;
     use test_case::test_case;
 
-    // Global detector for unit tests optimization (otherwise veery slow)
-    static DETECTOR: LazyLock<HyperscanDetector> = LazyLock::new(|| {
-        let enabled = PiiKind::enabled_for_countries(&Country::all().iter().copied().collect());
-        HyperscanDetector::new(&enabled).unwrap()
-    });
+    static DETECTOR: LazyLock<HyperscanDetector> =
+        LazyLock::new(|| HyperscanDetector::new_all().unwrap());
 
     // --- Detection with span verification ---
 
