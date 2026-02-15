@@ -54,6 +54,14 @@ Two regex engines are used:
 - 'vectorscan' crate for fast and scalable checking of PII presence (called hyperscan sometimes, but vectorscan is used, which is a fork of hyperscan)
 - `regex` crate - when vectorscan's regular expressions support is not sufficient
 
+### Why Vectorscan (benchmark at 83 patterns)
+
+At 83 patterns, `RegexSet` degrades catastrophically (5s on clean 1MB vs 2ms at 33 patterns). Vectorscan scales much better: 16ms detect, 18ms all-matches on clean 1MB. On typical 2KB proxy requests: vectorscan detect 23µs (108 MB/s) vs regex 164µs (15 MB/s).
+
+Do not use Chimera. The PCRE fallback negates Hyperscan's performance advantage
+(~1 MB/s vs 40-108 MB/s) and none of the current patterns require backreferences
+or lookaround.
+
 ### Adding a New Detector — Checklist
 
 When adding a new detector or PII type, update **all** of the following:
