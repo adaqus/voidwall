@@ -24,7 +24,7 @@ fn hex_val(b: u8) -> Option<u8> {
 
 fn decode_percent(hi: u8, lo: u8) -> Option<u8> {
     let val = (hex_val(hi)? << 4) | hex_val(lo)?;
-    if val >= 0x20 && val <= 0x7e {
+    if (0x20..=0x7e).contains(&val) {
         Some(val)
     } else {
         None
@@ -49,7 +49,7 @@ fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
             if val == 160 {
                 return Some((b' ', semi + 1));
             }
-            if val >= 0x20 && val <= 0x7e {
+            if (0x20..=0x7e).contains(&val) {
                 Some((val as u8, semi + 1))
             } else {
                 None
@@ -69,7 +69,7 @@ fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
             if val == 160 {
                 return Some((b' ', semi + 1));
             }
-            if val >= 0x20 && val <= 0x7e {
+            if (0x20..=0x7e).contains(&val) {
                 Some((val as u8, semi + 1))
             } else {
                 None
@@ -115,23 +115,24 @@ fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> {
     let mut changed = false;
 
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Some(ch) = decode_percent(bytes[i + 1], bytes[i + 2]) {
-                offset_map.push(i);
-                decoded.push(ch);
-                i += 3;
-                changed = true;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Some(ch) = decode_percent(bytes[i + 1], bytes[i + 2])
+        {
+            offset_map.push(i);
+            decoded.push(ch);
+            i += 3;
+            changed = true;
+            continue;
         }
-        if bytes[i] == b'&' {
-            if let Some((ch, len)) = decode_html_entity(&bytes[i..]) {
-                offset_map.push(i);
-                decoded.push(ch);
-                i += len;
-                changed = true;
-                continue;
-            }
+        if bytes[i] == b'&'
+            && let Some((ch, len)) = decode_html_entity(&bytes[i..])
+        {
+            offset_map.push(i);
+            decoded.push(ch);
+            i += len;
+            changed = true;
+            continue;
         }
         offset_map.push(i);
         decoded.push(bytes[i]);
@@ -430,8 +431,14 @@ impl Detector for KeywordContextDetector {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
     use test_case::test_case;
+
+    // Global detector for unit tests optimization (otherwise veery slow)
+    static DETECTOR: LazyLock<KeywordContextDetector> =
+        LazyLock::new(|| KeywordContextDetector::new_all().unwrap());
 
     // --- Detection with span verification ---
 
@@ -479,7 +486,7 @@ mod tests {
     #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
     #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -673,7 +680,7 @@ mod tests {
     #[test_case("DL:B1234568" ; "us dl sep colon")]
     #[test_case("DL#B1234568" ; "us dl sep hash")]
     fn has_piis_with_keyword(input: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -788,7 +795,7 @@ mod tests {
     #[test_case("Driver's license:\r\nB1234568" ; "us dl crlf")]
     #[test_case("DL number\r\nB1234568" ; "us dl keyword crlf")]
     fn has_piis_with_whitespace_separator(input: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -815,7 +822,7 @@ mod tests {
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
     #[test_case("passport: 1234567890", PiiKind::PassportNumber ; "passportnum 10 digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -844,7 +851,7 @@ mod tests {
     #[test_case("number is 8001015009087", PiiKind::ZaId ; "sa id no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -856,7 +863,7 @@ mod tests {
 
     #[test]
     fn geolocation_with_space_after_comma() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let input = "coordinates: 40.7128, -74.0060";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -872,7 +879,7 @@ mod tests {
 
     #[test]
     fn geolocation_negative_latitude() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let input = "coordinates: -33.8688,151.2093";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -907,7 +914,7 @@ mod tests {
     #[test_case(r#"{"citizen": {"id number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
     #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
     fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -919,7 +926,7 @@ mod tests {
 
     #[test]
     fn detects_multiple_keyword_pii_in_json() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let input =
             r#"{"employee": {"EIN": "12-3456789", "UTR": "5555555555", "TFN": "123 456 782"}}"#;
         let matches = detector.mark_piis(input);
@@ -951,7 +958,7 @@ mod tests {
     #[test_case("SA%20ID%3A 8001015009087", PiiKind::ZaId, "8001015009087" ; "url sa id keyword")]
     #[test_case("DL%3A B1234568", PiiKind::UsDriversLicense, "B1234568" ; "url us dl sep")]
     fn detects_url_encoded(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -982,7 +989,7 @@ mod tests {
     #[test_case("IMEI&#x3a; 490154203237518", PiiKind::Imei, "490154203237518" ; "html imei hex colon lowercase")]
     #[test_case("alien&nbsp;number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "html alien number nbsp")]
     fn detects_html_entities(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -1003,7 +1010,7 @@ mod tests {
     #[test_case("phone&colon; 555-123-4567" ; "html named entity has_piis")]
     #[test_case("TFN%3A%20123%20456%20782" ; "url fully encoded has_piis")]
     fn has_piis_with_encoded_input(input: &str) {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
     }
 
@@ -1011,7 +1018,7 @@ mod tests {
 
     #[test]
     fn url_encoded_value_hyphens() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let input = "EIN%3A 12%2D3456789";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -1024,7 +1031,7 @@ mod tests {
 
     #[test]
     fn html_entity_value_hyphens() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         let input = "EIN&#58; 12&#45;3456789";
         let matches: Vec<_> = detector
             .mark_piis(input)
@@ -1039,7 +1046,7 @@ mod tests {
 
     #[test]
     fn no_detection_partial_percent_encoding() {
-        let detector = KeywordContextDetector::new_all().unwrap();
+        let detector = &*DETECTOR;
         // %ZZ is not valid percent encoding, should not be decoded
         let input = "phone%ZZ 555-123-4567";
         assert!(

@@ -137,11 +137,15 @@ impl ScannerBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
+
+    static SCANNER: LazyLock<Scanner> = LazyLock::new(|| Scanner::new().unwrap());
 
     #[test]
     fn has_piis_detects_email() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         assert!(
             scanner
                 .has_piis("email me at test@example.com".as_bytes())
@@ -151,7 +155,7 @@ mod tests {
 
     #[test]
     fn has_piis_returns_false_for_clean_text() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         assert!(
             !scanner
                 .has_piis("nothing sensitive here".as_bytes())
@@ -161,7 +165,7 @@ mod tests {
 
     #[test]
     fn mark_piis_finds_multiple_types() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let input = "email: user@test.com, phone: 555-123-4567, card: 4111 1111 1111 1111";
         let matches = scanner.mark_piis(input.as_bytes()).unwrap();
 
@@ -173,7 +177,7 @@ mod tests {
 
     #[test]
     fn mark_piis_returns_correct_spans() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let input = "hello user@test.com world";
         let matches = scanner.mark_piis(input.as_bytes()).unwrap();
         assert_eq!(matches.len(), 1);
@@ -182,7 +186,7 @@ mod tests {
 
     #[test]
     fn builder_all_countries_matches_new() {
-        let scanner_new = Scanner::new().unwrap();
+        let scanner_new = &*SCANNER;
         let scanner_builder = Scanner::builder().build().unwrap();
         let input = "email: user@test.com, SSN: 123-45-6789, NINO: AB 12 34 56 C, \
                      phone: 555-123-4567, card: 4111 1111 1111 1111";
@@ -275,7 +279,7 @@ mod tests {
 
     #[test]
     fn redact_replaces_email_with_char_mask() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let mut out = Vec::new();
         scanner
             .redact(
@@ -290,7 +294,7 @@ mod tests {
 
     #[test]
     fn redact_replaces_with_type_label() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let mut out = Vec::new();
         scanner
             .redact(
@@ -305,7 +309,7 @@ mod tests {
 
     #[test]
     fn redact_preserves_non_pii_text() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let input = "nothing sensitive here at all";
         let mut out = Vec::new();
         scanner
@@ -316,7 +320,7 @@ mod tests {
 
     #[test]
     fn redact_handles_multiple_pii_types() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let input = "email: user@test.com, SSN: 123-45-6789";
         let mut out = Vec::new();
         scanner
@@ -331,7 +335,7 @@ mod tests {
 
     #[test]
     fn redact_writes_to_vec() {
-        let scanner = Scanner::new().unwrap();
+        let scanner = &*SCANNER;
         let mut out: Vec<u8> = Vec::new();
         scanner
             .redact(

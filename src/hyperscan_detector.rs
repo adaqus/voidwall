@@ -345,14 +345,17 @@ impl Detector for HyperscanDetector {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
     use crate::Country;
     use test_case::test_case;
 
-    fn new_all() -> HyperscanDetector {
+    // Global detector for unit tests optimization (otherwise veery slow)
+    static DETECTOR: LazyLock<HyperscanDetector> = LazyLock::new(|| {
         let enabled = PiiKind::enabled_for_countries(&Country::all().iter().copied().collect());
         HyperscanDetector::new(&enabled).unwrap()
-    }
+    });
 
     // --- Detection with span verification ---
 
@@ -381,7 +384,7 @@ mod tests {
     #[test_case("vehicle 1HGBH41JXMN109186 registered", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin span")]
     #[test_case("card: 4111 1111 1111 1111", PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card")]
     fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -397,7 +400,7 @@ mod tests {
 
     #[test]
     fn detects_iban_no_spaces() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis("IBAN: GB29NWBK60161331926819");
         let iban_matches: Vec<_> = matches.iter().filter(|m| m.kind == PiiKind::Iban).collect();
         assert_eq!(iban_matches.len(), 1);
@@ -425,7 +428,7 @@ mod tests {
     #[test_case("DL: JONES901007A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid day")]
     #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
     fn rejects_invalid_pii(input: &str, kind: PiiKind) {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
         assert!(
             matches.iter().all(|m| m.kind != kind),
@@ -472,7 +475,7 @@ mod tests {
     // Fully HTML-encoded email
     #[test_case("user&#43;tag&#64;example&#46;com", "user&#43;tag&#64;example&#46;com" ; "fully html encoded email")]
     fn detects_email_variant(input: &str, expected_span: &str) {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -484,14 +487,14 @@ mod tests {
 
     #[test]
     fn does_not_detect_email_at_localhost() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis("admin@localhost");
         assert_eq!(matches.len(), 0);
     }
 
     #[test]
     fn detects_multiple_emails_in_text() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches =
             detector.mark_piis("contact alice@example.com or bob+list@domain.org for info");
         let email_matches: Vec<_> = matches
@@ -507,7 +510,7 @@ mod tests {
     #[test_case("host: ::1" ; "ipv6 compressed")]
     #[test_case("host: fe80::1" ; "ipv6 with collapse")]
     fn detects_ipv6_variant(input: &str) {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let ip_matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()
@@ -518,21 +521,21 @@ mod tests {
 
     #[test]
     fn has_piis_short_circuits() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         assert!(detector.has_piis("user@example.com"));
         assert!(!detector.has_piis("no pii here"));
     }
 
     #[test]
     fn no_false_positives_on_clean_text() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis("The quick brown fox jumps over the lazy dog.");
         assert!(matches.is_empty());
     }
 
     #[test]
     fn itin_does_not_overlap_with_ssn() {
-        let detector = new_all();
+        let detector = &*DETECTOR;
         let matches = detector.mark_piis("number: 912-70-1234");
         assert!(matches.iter().all(|m| m.kind != PiiKind::UsSsn));
         assert!(matches.iter().any(|m| m.kind == PiiKind::UsItin));
@@ -542,22 +545,17 @@ mod tests {
 
     #[test]
     fn thread_safe_concurrent_scanning() {
-        use std::sync::Arc;
         use std::thread;
 
-        let detector = Arc::new(new_all());
-        let handles: Vec<_> = (0..4)
-            .map(|_| {
-                let d = Arc::clone(&detector);
-                thread::spawn(move || {
-                    assert!(d.has_piis("user@example.com"));
-                    let m = d.mark_piis("SSN: 123-45-6789");
+        let detector = &*DETECTOR;
+        thread::scope(|s| {
+            for _ in 0..4 {
+                s.spawn(|| {
+                    assert!(detector.has_piis("user@example.com"));
+                    let m = detector.mark_piis("SSN: 123-45-6789");
                     assert!(!m.is_empty());
-                })
-            })
-            .collect();
-        for h in handles {
-            h.join().unwrap();
-        }
+                });
+            }
+        });
     }
 }
