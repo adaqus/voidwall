@@ -27,6 +27,10 @@ Library crate (no `main.rs`). Two detection modes:
 - **`has_piis(input)`** — returns `bool`, short-circuits on first PII found (across detectors)
 - **`mark_piis(input)`** — returns `Vec<PiiMatch>` with byte-offset spans, runs all detectors
 
+### Responsibility Boundary
+
+The library handles **text-based PII detection only**. Binary format handling (PDF, DOCX, images) is **not** the library's responsibility. The HTTP proxy is responsible for: parsing `multipart/form-data`, extracting text from binary attachments (via external tools like `pdftotext`), and passing the extracted UTF-8 text as `&[u8]` to the scanner.
+
 ### Key Types
 
 - `Scanner` — public entry point, holds a chain of `Box<dyn Detector + Send + Sync>`. Constructed via `Scanner::new()` or `Scanner::builder()`. Thread-safe (`Send + Sync`) for sharing via `Arc`.
