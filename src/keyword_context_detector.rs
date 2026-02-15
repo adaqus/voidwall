@@ -6,8 +6,148 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::Language;
 use crate::detector::Detector;
-use crate::validators::{a_number_check, aba_check, ein_check, geolocation_check, imei_check, ird_check, medicare_check, nhs_check, passport_check, passport_new_check, phone_check, sa_id_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check};
+use crate::validators::{
+    a_number_check, aba_check, ein_check, geolocation_check, imei_check, ird_check, medicare_check,
+    nhs_check, passport_check, passport_new_check, phone_check, sa_id_check, sort_code_check,
+    swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check,
+};
 use crate::{PiiError, PiiKind, PiiMatch};
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn decode_percent(hi: u8, lo: u8) -> Option<u8> {
+    let val = (hex_val(hi)? << 4) | hex_val(lo)?;
+    if val >= 0x20 && val <= 0x7e {
+        Some(val)
+    } else {
+        None
+    }
+}
+
+fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
+    debug_assert!(bytes[0] == b'&');
+    let max_len = bytes.len().min(12);
+    let semi = bytes[1..max_len].iter().position(|&b| b == b';')? + 1;
+
+    if bytes[1] == b'#' {
+        if bytes.len() > 2 && (bytes[2] == b'x' || bytes[2] == b'X') {
+            // &#xHH;
+            if semi < 4 {
+                return None;
+            }
+            let mut val: u16 = 0;
+            for &b in &bytes[3..semi] {
+                val = val.checked_mul(16)?.checked_add(hex_val(b)? as u16)?;
+            }
+            if val == 160 {
+                return Some((b' ', semi + 1));
+            }
+            if val >= 0x20 && val <= 0x7e {
+                Some((val as u8, semi + 1))
+            } else {
+                None
+            }
+        } else {
+            // &#DDD;
+            if semi < 3 {
+                return None;
+            }
+            let mut val: u16 = 0;
+            for &b in &bytes[2..semi] {
+                if !b.is_ascii_digit() {
+                    return None;
+                }
+                val = val.checked_mul(10)?.checked_add((b - b'0') as u16)?;
+            }
+            if val == 160 {
+                return Some((b' ', semi + 1));
+            }
+            if val >= 0x20 && val <= 0x7e {
+                Some((val as u8, semi + 1))
+            } else {
+                None
+            }
+        }
+    } else {
+        let name = &bytes[1..semi];
+        let ch = match name {
+            b"nbsp" => b' ',
+            b"quot" => b'"',
+            b"amp" => b'&',
+            b"lt" => b'<',
+            b"gt" => b'>',
+            b"period" => b'.',
+            b"commat" => b'@',
+            b"colon" => b':',
+            b"num" => b'#',
+            b"plus" => b'+',
+            b"comma" => b',',
+            b"lpar" => b'(',
+            b"rpar" => b')',
+            b"sol" => b'/',
+            b"hyphen" => b'-',
+            _ => return None,
+        };
+        Some((ch, semi + 1))
+    }
+}
+
+/// Decodes URL percent-encoding and HTML entities to plain ASCII.
+/// Returns `None` if input contains no encoded sequences (fast path).
+/// Otherwise returns `(decoded, offset_map)` where `offset_map[i]` maps
+/// decoded byte position `i` to the corresponding original byte position.
+fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> {
+    if !input.as_bytes().iter().any(|&b| b == b'%' || b == b'&') {
+        return None;
+    }
+
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut offset_map = Vec::with_capacity(bytes.len() + 1);
+    let mut i = 0;
+    let mut changed = false;
+
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(ch) = decode_percent(bytes[i + 1], bytes[i + 2]) {
+                offset_map.push(i);
+                decoded.push(ch);
+                i += 3;
+                changed = true;
+                continue;
+            }
+        }
+        if bytes[i] == b'&' {
+            if let Some((ch, len)) = decode_html_entity(&bytes[i..]) {
+                offset_map.push(i);
+                decoded.push(ch);
+                i += len;
+                changed = true;
+                continue;
+            }
+        }
+        offset_map.push(i);
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    offset_map.push(i);
+
+    if !changed {
+        return None;
+    }
+
+    // SAFETY: We only replace ASCII-encoded sequences (%XX, &#DD;, &name;) with
+    // single ASCII bytes (0x20..=0x7E), and copy all other bytes verbatim from
+    // valid UTF-8 input. The result is always valid UTF-8.
+    Some((unsafe { String::from_utf8_unchecked(decoded) }, offset_map))
+}
 
 thread_local! {
     static KW_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
@@ -227,10 +367,8 @@ impl KeywordContextDetector {
         });
         matched
     }
-}
 
-impl Detector for KeywordContextDetector {
-    fn has_piis(&self, input: &str) -> bool {
+    fn has_piis_on(&self, input: &str) -> bool {
         let matched_indices = self.scan_matched_ids(input);
         for idx in matched_indices {
             let pattern = &self.patterns[idx];
@@ -245,7 +383,7 @@ impl Detector for KeywordContextDetector {
         false
     }
 
-    fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
+    fn mark_piis_on(&self, input: &str) -> Vec<PiiMatch> {
         let mut matches = Vec::new();
         let matched_indices = self.scan_matched_ids(input);
         for idx in matched_indices {
@@ -263,6 +401,30 @@ impl Detector for KeywordContextDetector {
             }
         }
         matches
+    }
+}
+
+impl Detector for KeywordContextDetector {
+    fn has_piis(&self, input: &str) -> bool {
+        match decode_for_detection(input) {
+            Some((decoded, _)) => self.has_piis_on(&decoded),
+            None => self.has_piis_on(input),
+        }
+    }
+
+    fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
+        match decode_for_detection(input) {
+            Some((decoded, offset_map)) => self
+                .mark_piis_on(&decoded)
+                .into_iter()
+                .map(|m| PiiMatch {
+                    kind: m.kind,
+                    start: offset_map[m.start],
+                    end: offset_map[m.end],
+                })
+                .collect(),
+            None => self.mark_piis_on(input),
+        }
     }
 }
 
@@ -765,5 +927,124 @@ mod tests {
         assert!(kinds.contains(&PiiKind::UsEin));
         assert!(kinds.contains(&PiiKind::GbUtr));
         assert!(kinds.contains(&PiiKind::AuTfn));
+    }
+
+    // --- URL-encoded input tests ---
+
+    #[test_case("phone%3A 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone sep colon")]
+    #[test_case("phone%3A%20555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone sep colon space")]
+    #[test_case("phone%20number%3A 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone keyword space")]
+    #[test_case("passport%3A 123456789", PiiKind::PassportNumber, "123456789" ; "url passport sep")]
+    #[test_case("TFN%3A 123 456 782", PiiKind::AuTfn, "123 456 782" ; "url tfn sep")]
+    #[test_case("EIN%3A 12-3456789", PiiKind::UsEin, "12-3456789" ; "url ein sep")]
+    #[test_case("SWIFT%3A DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "url swift sep")]
+    #[test_case("sort%20code%3A 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "url sort code keyword")]
+    #[test_case("coordinates%3A 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "url geolocation sep")]
+    #[test_case("IMEI%3A 490154203237518", PiiKind::Imei, "490154203237518" ; "url imei sep")]
+    #[test_case("UTR%3A 5555555555", PiiKind::GbUtr, "5555555555" ; "url utr sep")]
+    #[test_case("NHS%3A 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "url nhs sep")]
+    #[test_case("Medicare%3A 2123 45670 1", PiiKind::AuMedicare, "2123 45670 1" ; "url medicare sep")]
+    #[test_case("IRD%3A 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "url ird sep")]
+    #[test_case("routing%20number%3A 021000021", PiiKind::UsAbaRouting, "021000021" ; "url aba keyword")]
+    #[test_case("alien%20number%3A A012345678", PiiKind::UsAlienNumber, "A012345678" ; "url alien number keyword")]
+    #[test_case("receipt%20number%3A SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "url uscis receipt keyword")]
+    #[test_case("SA%20ID%3A 8001015009087", PiiKind::ZaId, "8001015009087" ; "url sa id keyword")]
+    #[test_case("DL%3A B1234568", PiiKind::UsDriversLicense, "B1234568" ; "url us dl sep")]
+    fn detects_url_encoded(input: &str, kind: PiiKind, expected_span: &str) {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // --- HTML entity input tests ---
+
+    #[test_case("phone&#58; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone decimal colon")]
+    #[test_case("phone&colon; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone named colon")]
+    #[test_case("phone&#x3A; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone hex colon")]
+    #[test_case("phone&nbsp;number: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone nbsp keyword")]
+    #[test_case("passport&#58; 123456789", PiiKind::PassportNumber, "123456789" ; "html passport colon")]
+    #[test_case("EIN&colon; 12-3456789", PiiKind::UsEin, "12-3456789" ; "html ein named colon")]
+    #[test_case("SWIFT&#58; DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "html swift colon")]
+    #[test_case("sort&nbsp;code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "html sort code nbsp")]
+    #[test_case("coordinates&#58; 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "html geolocation colon")]
+    #[test_case("phone&#58;&#32;555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone colon and space")]
+    #[test_case("NHS&#58; 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "html nhs colon")]
+    #[test_case("UTR&colon; 5555555555", PiiKind::GbUtr, "5555555555" ; "html utr named colon")]
+    #[test_case("IMEI&#x3a; 490154203237518", PiiKind::Imei, "490154203237518" ; "html imei hex colon lowercase")]
+    #[test_case("alien&nbsp;number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "html alien number nbsp")]
+    fn detects_html_entities(input: &str, kind: PiiKind, expected_span: &str) {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // --- has_piis with encoded input ---
+
+    #[test_case("phone%3A 555-123-4567" ; "url encoded has_piis")]
+    #[test_case("phone&#58; 555-123-4567" ; "html entity has_piis")]
+    #[test_case("phone&colon; 555-123-4567" ; "html named entity has_piis")]
+    #[test_case("TFN%3A%20123%20456%20782" ; "url fully encoded has_piis")]
+    fn has_piis_with_encoded_input(input: &str) {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        assert!(detector.has_piis(input), "should detect PII in: {input}");
+    }
+
+    // --- Encoded values (span includes encoded form) ---
+
+    #[test]
+    fn url_encoded_value_hyphens() {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        let input = "EIN%3A 12%2D3456789";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsEin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "12%2D3456789");
+    }
+
+    #[test]
+    fn html_entity_value_hyphens() {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        let input = "EIN&#58; 12&#45;3456789";
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::UsEin)
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&input[matches[0].start..matches[0].end], "12&#45;3456789");
+    }
+
+    // --- No false positives from partial encoding ---
+
+    #[test]
+    fn no_detection_partial_percent_encoding() {
+        let detector = KeywordContextDetector::new_all().unwrap();
+        // %ZZ is not valid percent encoding, should not be decoded
+        let input = "phone%ZZ 555-123-4567";
+        assert!(
+            !detector.has_piis(input),
+            "should not detect PII with invalid encoding: {input}"
+        );
     }
 }

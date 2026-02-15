@@ -245,7 +245,6 @@ pub(crate) fn vin_check(s: &str) -> bool {
     true
 }
 
-
 pub(crate) fn tfn_check(s: &str) -> bool {
     let digits: Vec<u32> = s
         .chars()
