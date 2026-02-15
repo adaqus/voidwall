@@ -360,7 +360,7 @@ fn throughput_mark_piis(c: &mut Criterion) {
     for (name, text) in inputs {
         group.throughput(Throughput::Bytes(text.len() as u64));
         group.bench_with_input(BenchmarkId::new("mark_piis", name), text, |b, input| {
-            b.iter(|| scanner.mark_piis(input.as_bytes()).unwrap());
+            b.iter(|| scanner.mark_piis(input));
         });
     }
 
@@ -384,7 +384,7 @@ fn throughput_has_piis(c: &mut Criterion) {
     for (name, text) in inputs {
         group.throughput(Throughput::Bytes(text.len() as u64));
         group.bench_with_input(BenchmarkId::new("has_piis", name), text, |b, input| {
-            b.iter(|| scanner.has_piis(input.as_bytes()).unwrap());
+            b.iter(|| scanner.has_piis(input));
         });
     }
 
@@ -400,11 +400,11 @@ fn has_piis_vs_mark_piis(c: &mut Criterion) {
     let mut group = c.benchmark_group("has_piis_vs_mark_piis");
 
     group.bench_function("has_piis", |b| {
-        b.iter(|| scanner.has_piis(MIXED_PII_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.has_piis(MIXED_PII_TEXT));
     });
 
     group.bench_function("mark_piis", |b| {
-        b.iter(|| scanner.mark_piis(MIXED_PII_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(MIXED_PII_TEXT));
     });
 
     group.finish();
@@ -418,123 +418,123 @@ fn per_pii_kind(c: &mut Criterion) {
     let mut group = c.benchmark_group("per_pii_kind");
 
     group.bench_function("email", |b| {
-        b.iter(|| scanner.mark_piis(EMAIL_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(EMAIL_TEXT));
     });
 
     group.bench_function("phone", |b| {
-        b.iter(|| scanner.mark_piis(PHONE_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(PHONE_TEXT));
     });
 
     group.bench_function("credit_card", |b| {
-        b.iter(|| scanner.mark_piis(CREDIT_CARD_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(CREDIT_CARD_TEXT));
     });
 
     group.bench_function("ssn", |b| {
-        b.iter(|| scanner.mark_piis(SSN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(SSN_TEXT));
     });
 
     group.bench_function("nino", |b| {
-        b.iter(|| scanner.mark_piis(NINO_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(NINO_TEXT));
     });
 
     group.bench_function("iban", |b| {
-        b.iter(|| scanner.mark_piis(IBAN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(IBAN_TEXT));
     });
 
     group.bench_function("passport", |b| {
-        b.iter(|| scanner.mark_piis(PASSPORT_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(PASSPORT_TEXT));
     });
 
     group.bench_function("ip_address", |b| {
-        b.iter(|| scanner.mark_piis(IP_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(IP_TEXT));
     });
 
     group.bench_function("itin", |b| {
-        b.iter(|| scanner.mark_piis(ITIN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(ITIN_TEXT));
     });
 
     group.bench_function("sin", |b| {
-        b.iter(|| scanner.mark_piis(SIN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(SIN_TEXT));
     });
 
     group.bench_function("ppsn", |b| {
-        b.iter(|| scanner.mark_piis(PPSN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(PPSN_TEXT));
     });
 
     group.bench_function("sa_id", |b| {
-        b.iter(|| scanner.mark_piis(SA_ID_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(SA_ID_TEXT));
     });
 
     group.bench_function("mac_address", |b| {
-        b.iter(|| scanner.mark_piis(MAC_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(MAC_TEXT));
     });
 
     group.bench_function("uk_driving_licence", |b| {
-        b.iter(|| scanner.mark_piis(UK_DL_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(UK_DL_TEXT));
     });
 
     group.bench_function("vin", |b| {
-        b.iter(|| scanner.mark_piis(VIN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(VIN_TEXT));
     });
 
     group.bench_function("australia_tfn", |b| {
-        b.iter(|| scanner.mark_piis(TFN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(TFN_TEXT));
     });
 
     group.bench_function("nz_ird", |b| {
-        b.iter(|| scanner.mark_piis(NZ_IRD_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(NZ_IRD_TEXT));
     });
 
     group.bench_function("nhs_number", |b| {
-        b.iter(|| scanner.mark_piis(NHS_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(NHS_TEXT));
     });
 
     group.bench_function("au_medicare", |b| {
-        b.iter(|| scanner.mark_piis(MEDICARE_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(MEDICARE_TEXT));
     });
 
     group.bench_function("us_passport_new", |b| {
-        b.iter(|| scanner.mark_piis(US_PASSPORT_NEW_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(US_PASSPORT_NEW_TEXT));
     });
 
     group.bench_function("swift_bic", |b| {
-        b.iter(|| scanner.mark_piis(SWIFT_BIC_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(SWIFT_BIC_TEXT));
     });
 
     group.bench_function("ein", |b| {
-        b.iter(|| scanner.mark_piis(EIN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(EIN_TEXT));
     });
 
     group.bench_function("imei", |b| {
-        b.iter(|| scanner.mark_piis(IMEI_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(IMEI_TEXT));
     });
 
     group.bench_function("uk_utr", |b| {
-        b.iter(|| scanner.mark_piis(UTR_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(UTR_TEXT));
     });
 
     group.bench_function("us_aba_routing", |b| {
-        b.iter(|| scanner.mark_piis(ABA_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(ABA_TEXT));
     });
 
     group.bench_function("uk_sort_code", |b| {
-        b.iter(|| scanner.mark_piis(SORT_CODE_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(SORT_CODE_TEXT));
     });
 
     group.bench_function("precise_geolocation", |b| {
-        b.iter(|| scanner.mark_piis(GEOLOCATION_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(GEOLOCATION_TEXT));
     });
 
     group.bench_function("us_drivers_license", |b| {
-        b.iter(|| scanner.mark_piis(US_DL_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(US_DL_TEXT));
     });
 
     group.bench_function("alien_number", |b| {
-        b.iter(|| scanner.mark_piis(A_NUMBER_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(A_NUMBER_TEXT));
     });
 
     group.bench_function("uscis_receipt", |b| {
-        b.iter(|| scanner.mark_piis(USCIS_RECEIPT_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(USCIS_RECEIPT_TEXT));
     });
 
     group.finish();
@@ -548,11 +548,11 @@ fn clean_text_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("clean_text_overhead");
 
     group.bench_function("has_piis", |b| {
-        b.iter(|| scanner.has_piis(CLEAN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.has_piis(CLEAN_TEXT));
     });
 
     group.bench_function("mark_piis", |b| {
-        b.iter(|| scanner.mark_piis(CLEAN_TEXT.as_bytes()).unwrap());
+        b.iter(|| scanner.mark_piis(CLEAN_TEXT));
     });
 
     group.finish();
@@ -566,19 +566,15 @@ fn redaction_throughput(c: &mut Criterion) {
 
     group.bench_function("char_mask_mixed", |b| {
         b.iter(|| {
-            let mut out = Vec::new();
-            scanner
-                .redact(MIXED_PII_TEXT.as_bytes(), &mut out, &RedactWith::Char('*'))
-                .unwrap();
+            let mut input = String::from(MIXED_PII_TEXT);
+            scanner.redact(&mut input, &RedactWith::Char('*'));
         });
     });
 
     group.bench_function("type_label_mixed", |b| {
         b.iter(|| {
-            let mut out = Vec::new();
-            scanner
-                .redact(MIXED_PII_TEXT.as_bytes(), &mut out, &RedactWith::TypeLabel)
-                .unwrap();
+            let mut input = String::from(MIXED_PII_TEXT);
+            scanner.redact(&mut input, &RedactWith::TypeLabel);
         });
     });
 

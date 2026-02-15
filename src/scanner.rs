@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::io::{self, Read, Write};
 
 use crate::detector::Detector;
 use crate::hyperscan_detector::HyperscanDetector;
@@ -28,63 +27,41 @@ impl Scanner {
         }
     }
 
-    /// Returns `true` if any PII is detected in the data from `reader`.
-    pub fn has_piis(&self, reader: impl Read) -> io::Result<bool> {
-        let mut input = String::new();
-        io::BufReader::new(reader).read_to_string(&mut input)?;
-        Ok(self.has_piis_internal(&input))
-    }
-
-    /// Returns all PII matches found in the data from `reader`.
-    ///
-    /// Match offsets are absolute byte positions from the start of the stream.
-    pub fn mark_piis(&self, reader: impl Read) -> io::Result<Vec<PiiMatch>> {
-        let mut input = String::new();
-        io::BufReader::new(reader).read_to_string(&mut input)?;
-        Ok(self.mark_piis_internal(&input))
-    }
-
-    /// Internal: run has_piis on a string slice.
-    fn has_piis_internal(&self, input: &str) -> bool {
+    /// Returns `true` if any PII is detected in the input.
+    pub fn has_piis(&self, input: &str) -> bool {
         self.detectors.iter().any(|d| d.has_piis(input))
     }
 
-    /// Redacts all PII found in `reader`, writing the result to `writer`.
+    /// Returns all PII matches found in the input.
     ///
-    /// Non-PII text is passed through unchanged. PII regions are replaced
-    /// according to the given `strategy`.
-    pub fn redact(
-        &self,
-        reader: impl Read,
-        writer: &mut impl Write,
-        strategy: &RedactWith,
-    ) -> io::Result<()> {
-        let mut input = String::new();
-        io::BufReader::new(reader).read_to_string(&mut input)?;
-
-        let mut matches = self.mark_piis_internal(&input);
-        matches.sort_by_key(|m| m.start);
-
-        let mut cursor = 0;
-        for m in &matches {
-            if m.start < cursor {
-                continue;
-            }
-            writer.write_all(&input.as_bytes()[cursor..m.start])?;
-            let replacement = strategy.apply(m.kind, &input[m.start..m.end]);
-            writer.write_all(replacement.as_bytes())?;
-            cursor = m.end;
-        }
-        writer.write_all(&input.as_bytes()[cursor..])?;
-        Ok(())
-    }
-
-    /// Internal: run mark_piis on a string slice.
-    fn mark_piis_internal(&self, input: &str) -> Vec<PiiMatch> {
+    /// Match offsets are absolute byte positions from the start of the string.
+    pub fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
         self.detectors
             .iter()
             .flat_map(|d| d.mark_piis(input))
             .collect()
+    }
+
+    /// Redacts all PII found in `input` in place.
+    ///
+    /// Non-PII text is left unchanged. PII regions are replaced according to
+    /// the given `strategy`. Matches are applied back-to-front so that byte
+    /// offsets remain valid after each replacement.
+    pub fn redact(&self, input: &mut String, strategy: &RedactWith) {
+        let mut matches = self.mark_piis(input);
+        // Sort by start descending so we can replace back-to-front.
+        matches.sort_by(|a, b| b.start.cmp(&a.start));
+
+        let mut prev_start = usize::MAX;
+        for m in &matches {
+            // Skip overlapping matches (already covered by an earlier replacement).
+            if m.end > prev_start {
+                continue;
+            }
+            let replacement = strategy.apply(m.kind, &input[m.start..m.end]);
+            input.replace_range(m.start..m.end, &replacement);
+            prev_start = m.start;
+        }
     }
 }
 
@@ -146,28 +123,20 @@ mod tests {
     #[test]
     fn has_piis_detects_email() {
         let scanner = &*SCANNER;
-        assert!(
-            scanner
-                .has_piis("email me at test@example.com".as_bytes())
-                .unwrap()
-        );
+        assert!(scanner.has_piis("email me at test@example.com"));
     }
 
     #[test]
     fn has_piis_returns_false_for_clean_text() {
         let scanner = &*SCANNER;
-        assert!(
-            !scanner
-                .has_piis("nothing sensitive here".as_bytes())
-                .unwrap()
-        );
+        assert!(!scanner.has_piis("nothing sensitive here"));
     }
 
     #[test]
     fn mark_piis_finds_multiple_types() {
         let scanner = &*SCANNER;
         let input = "email: user@test.com, phone: 555-123-4567, card: 4111 1111 1111 1111";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
 
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
@@ -179,7 +148,7 @@ mod tests {
     fn mark_piis_returns_correct_spans() {
         let scanner = &*SCANNER;
         let input = "hello user@test.com world";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "user@test.com");
     }
@@ -190,8 +159,8 @@ mod tests {
         let scanner_builder = Scanner::builder().build().unwrap();
         let input = "email: user@test.com, SSN: 123-45-6789, NINO: AB 12 34 56 C, \
                      phone: 555-123-4567, card: 4111 1111 1111 1111";
-        let matches_new = scanner_new.mark_piis(input.as_bytes()).unwrap();
-        let matches_builder = scanner_builder.mark_piis(input.as_bytes()).unwrap();
+        let matches_new = scanner_new.mark_piis(input);
+        let matches_builder = scanner_builder.mark_piis(input);
         assert_eq!(matches_new.len(), matches_builder.len());
     }
 
@@ -203,7 +172,7 @@ mod tests {
             .unwrap();
         // US SSN should be detected
         let input = "SSN: 123-45-6789 and NINO: AB 12 34 56 C";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::UsSsn));
         // GB NINO should NOT be detected
@@ -217,7 +186,7 @@ mod tests {
             .build()
             .unwrap();
         let input = "SSN: 123-45-6789 and NINO: AB 12 34 56 C";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::GbNino));
         assert!(!kinds.contains(&PiiKind::UsSsn));
@@ -230,7 +199,7 @@ mod tests {
             .build()
             .unwrap();
         let input = "email: user@test.com, SSN: 123-45-6789, card: 4111 1111 1111 1111";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
         assert!(kinds.contains(&PiiKind::CreditCard));
@@ -242,7 +211,7 @@ mod tests {
         let scanner = Scanner::builder().countries([Country::Us]).build().unwrap();
         // Input with US SSN + GB NINO + GB UTR
         let input = "SSN: 123-45-6789, NINO: AB 12 34 56 C, UTR: 5555555555";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::UsSsn));
         assert!(!kinds.contains(&PiiKind::GbNino));
@@ -256,7 +225,7 @@ mod tests {
             .build()
             .unwrap();
         let input = "SSN: 123-45-6789 and NINO: AB 12 34 56 C";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::UsSsn));
         assert!(kinds.contains(&PiiKind::GbNino));
@@ -270,7 +239,7 @@ mod tests {
             .unwrap();
         // keyword-based detection should still work
         let input = "phone: 555-123-4567";
-        let matches = scanner.mark_piis(input.as_bytes()).unwrap();
+        let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::PhoneNumber));
     }
@@ -280,71 +249,44 @@ mod tests {
     #[test]
     fn redact_replaces_email_with_char_mask() {
         let scanner = &*SCANNER;
-        let mut out = Vec::new();
-        scanner
-            .redact(
-                "email me at test@example.com please".as_bytes(),
-                &mut out,
-                &crate::RedactWith::Char('*'),
-            )
-            .unwrap();
-        let result = String::from_utf8(out).unwrap();
-        assert_eq!(result, "email me at **************** please");
+        let mut input = String::from("email me at test@example.com please");
+        scanner.redact(&mut input, &crate::RedactWith::Char('*'));
+        assert_eq!(input, "email me at **************** please");
     }
 
     #[test]
     fn redact_replaces_with_type_label() {
         let scanner = &*SCANNER;
-        let mut out = Vec::new();
-        scanner
-            .redact(
-                "email me at test@example.com please".as_bytes(),
-                &mut out,
-                &crate::RedactWith::TypeLabel,
-            )
-            .unwrap();
-        let result = String::from_utf8(out).unwrap();
-        assert_eq!(result, "email me at [EMAIL] please");
+        let mut input = String::from("email me at test@example.com please");
+        scanner.redact(&mut input, &crate::RedactWith::TypeLabel);
+        assert_eq!(input, "email me at [EMAIL] please");
     }
 
     #[test]
     fn redact_preserves_non_pii_text() {
         let scanner = &*SCANNER;
-        let input = "nothing sensitive here at all";
-        let mut out = Vec::new();
-        scanner
-            .redact(input.as_bytes(), &mut out, &crate::RedactWith::Char('*'))
-            .unwrap();
-        assert_eq!(String::from_utf8(out).unwrap(), input);
+        let mut input = String::from("nothing sensitive here at all");
+        scanner.redact(&mut input, &crate::RedactWith::Char('*'));
+        assert_eq!(input, "nothing sensitive here at all");
     }
 
     #[test]
     fn redact_handles_multiple_pii_types() {
         let scanner = &*SCANNER;
-        let input = "email: user@test.com, SSN: 123-45-6789";
-        let mut out = Vec::new();
-        scanner
-            .redact(input.as_bytes(), &mut out, &crate::RedactWith::TypeLabel)
-            .unwrap();
-        let result = String::from_utf8(out).unwrap();
-        assert!(result.contains("[EMAIL]"));
-        assert!(result.contains("[US_SSN]"));
-        assert!(!result.contains("user@test.com"));
-        assert!(!result.contains("123-45-6789"));
+        let mut input = String::from("email: user@test.com, SSN: 123-45-6789");
+        scanner.redact(&mut input, &crate::RedactWith::TypeLabel);
+        assert!(input.contains("[EMAIL]"));
+        assert!(input.contains("[US_SSN]"));
+        assert!(!input.contains("user@test.com"));
+        assert!(!input.contains("123-45-6789"));
     }
 
     #[test]
-    fn redact_writes_to_vec() {
+    fn redact_char_mask_whole_string() {
         let scanner = &*SCANNER;
-        let mut out: Vec<u8> = Vec::new();
-        scanner
-            .redact(
-                "test@example.com".as_bytes(),
-                &mut out,
-                &crate::RedactWith::Char('#'),
-            )
-            .unwrap();
-        assert_eq!(String::from_utf8(out).unwrap(), "################");
+        let mut input = String::from("test@example.com");
+        scanner.redact(&mut input, &crate::RedactWith::Char('#'));
+        assert_eq!(input, "################");
     }
 
     // Compile-time assertion that Scanner is Send + Sync.
