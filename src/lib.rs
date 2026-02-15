@@ -1,6 +1,5 @@
 pub mod detector;
 pub mod keyword_context_detector;
-pub mod regex_detector;
 pub mod scanner;
 pub(crate) mod validators;
 
