@@ -1,10 +1,17 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 
-use regex::{Regex, RegexSet};
+use regex::Regex;
+use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::Language;
 use crate::detector::Detector;
 use crate::{PiiError, PiiKind, PiiMatch};
+
+thread_local! {
+    static KW_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
+        = const { RefCell::new(None) };
+}
 
 struct KeywordPattern {
     kind: PiiKind,
@@ -13,7 +20,8 @@ struct KeywordPattern {
 }
 
 pub struct KeywordContextDetector {
-    set: RegexSet,
+    detection_db: Box<BlockDatabase>,
+    detection_prototype: BlockScanner<'static>,
     patterns: Vec<KeywordPattern>,
 }
 
@@ -141,8 +149,31 @@ impl KeywordContextDetector {
             })
             .collect();
 
-        let set_patterns: Vec<&str> = raw_patterns.iter().map(|(_, _, pat, _)| *pat).collect();
-        let set = RegexSet::new(&set_patterns).map_err(PiiError::RegexCompilation)?;
+        let mut vs_patterns = Vec::with_capacity(raw_patterns.len());
+        for (id, (_, _, pat, _)) in raw_patterns.iter().enumerate() {
+            vs_patterns.push(Pattern::new(
+                pat.as_bytes().to_vec(),
+                Flag::UTF8 | Flag::SINGLEMATCH,
+                Some(id as u32),
+            ));
+        }
+
+        let detection_db =
+            Box::new(BlockDatabase::new(vs_patterns).map_err(|e| {
+                PiiError::HyperscanCompilation(format!("keyword detection db: {e}"))
+            })?);
+        let detection_prototype = {
+            let scanner = BlockScanner::new(&detection_db).expect("scratch alloc");
+            // SAFETY: Box guarantees a stable heap address for the database.
+            // The prototype (and its clones) hold a reference into the Box.
+            // This is sound because: (1) detection_prototype is declared before
+            // detection_db so it is dropped first; (2) BlockScanner::drop only
+            // frees scratch via hs_free_scratch and does not dereference the
+            // database pointer; (3) thread-local clones may outlive the detector
+            // but their drop also only frees scratch.
+            unsafe { std::mem::transmute::<BlockScanner<'_>, BlockScanner<'static>>(scanner) }
+        };
+
         let patterns = raw_patterns
             .into_iter()
             .map(|(kind, _, pat, validate)| {
@@ -154,7 +185,11 @@ impl KeywordContextDetector {
             })
             .collect::<Result<Vec<_>, PiiError>>()?;
 
-        Ok(Self { set, patterns })
+        Ok(Self {
+            detection_db,
+            detection_prototype,
+            patterns,
+        })
     }
 
     #[cfg(test)]
@@ -166,10 +201,37 @@ impl KeywordContextDetector {
     }
 }
 
+impl KeywordContextDetector {
+    fn with_detection_scanner<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut BlockScanner<'static>) -> R,
+    {
+        let db_key = &*self.detection_db as *const BlockDatabase as usize;
+        KW_DETECTION_CACHE.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
+                *opt = Some((db_key, self.detection_prototype.clone()));
+            }
+            f(&mut opt.as_mut().unwrap().1)
+        })
+    }
+
+    fn scan_matched_ids(&self, input: &str) -> Vec<usize> {
+        let mut matched = Vec::new();
+        self.with_detection_scanner(|scanner| {
+            let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
+                matched.push(id as usize);
+                Scan::Continue
+            });
+        });
+        matched
+    }
+}
+
 impl Detector for KeywordContextDetector {
     fn has_piis(&self, input: &str) -> bool {
-        let matched_indices: Vec<usize> = self.set.matches(input).into_iter().collect();
-        for &idx in &matched_indices {
+        let matched_indices = self.scan_matched_ids(input);
+        for idx in matched_indices {
             let pattern = &self.patterns[idx];
             for caps in pattern.full_regex.captures_iter(input) {
                 if let Some(value_match) = caps.get(1)
@@ -184,8 +246,8 @@ impl Detector for KeywordContextDetector {
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
         let mut matches = Vec::new();
-        let matched_indices: Vec<usize> = self.set.matches(input).into_iter().collect();
-        for &idx in &matched_indices {
+        let matched_indices = self.scan_matched_ids(input);
+        for idx in matched_indices {
             let pattern = &self.patterns[idx];
             for caps in pattern.full_regex.captures_iter(input) {
                 if let Some(value_match) = caps.get(1)

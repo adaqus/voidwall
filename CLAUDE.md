@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Primary use case:** embedded inside a tokio-based HTTP reverse proxy. The proxy shares a single `Scanner` across async tasks via `Arc<Scanner>`. Requests are mostly small (~3 KB) but may include large attachments (e.g. PDFs, up to tens of MB). The library stays sync and runtime-agnostic — the caller decides scheduling (inline for small requests, `spawn_blocking` for large ones).
 
+Currently the library supports English-speaking countries only. Other countries and languages are going to be added, hence all decisions should be made in context of scalability when number of regular expressions to handle grows.
+
 ## Build Commands
 
 - **Build:** `cargo build | tail -n 100`
@@ -41,6 +43,12 @@ Detectors are stored as `Vec<Box<dyn Detector + Send + Sync>>` in `Scanner`. In 
 - `Scanner` is `Send + Sync` — safe to wrap in `Arc` and share across tokio tasks/threads.
 - The `Detector` trait requires `Send + Sync`. All concrete detectors must satisfy this.
 - Concurrency is handled at the caller level (e.g. `Arc<Scanner>` across tokio tasks with `spawn_blocking` for large inputs).
+
+### Dependencies
+
+Two regex engines are used:
+- 'vectorscan' crate for fast and scalable checking of PII presence (called hyperscan sometimes, but vectorscan is used, which is a fork of hyperscan)
+- `regex` crate - when vectorscan's regular expressions support is not sufficient
 
 ### Adding a New Detector — Checklist
 
