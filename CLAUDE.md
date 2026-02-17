@@ -62,6 +62,16 @@ Do not use Chimera. The PCRE fallback negates Hyperscan's performance advantage
 (~1 MB/s vs 40-108 MB/s) and none of the current patterns require backreferences
 or lookaround.
 
+### Two-Detector Design: HyperscanDetector vs KeywordContextDetector
+
+**HyperscanDetector** — PII types with structurally unique patterns (email, SSN, credit card). Vectorscan handles both detection and extraction. Uses `SOM_LEFTMOST` to get match start positions. The full match *is* the PII span.
+
+**KeywordContextDetector** — PII types that are ambiguous without context (phone numbers, passport numbers, TFN, etc.). Patterns have the form `keyword + separator + (value)` where only the capture group is the PII. Vectorscan handles detection (`SINGLEMATCH`), then the `regex` crate extracts capture groups. Vectorscan cannot report capture group positions — it only reports full match boundaries — so regex extraction is required.
+
+**Scaling:** Two-phase approach in KeywordContextDetector scales well. Vectorscan scans all patterns in one pass regardless of count. Regex extraction only runs for patterns vectorscan confirmed as present (typically 0–5 per input since input is usually in one language). Memory cost is ~1–5 KB per compiled `Regex`, negligible even at 2,000 patterns.
+
+**Pattern compatibility constraint:** Each keyword pattern string is currently shared verbatim between vectorscan (detection) and the regex crate (extraction). Patterns must be valid in both dialects. If non-Latin language support requires syntax only one engine supports, split into separate `detection_expr` / `extraction_expr` per pattern.
+
 ### Adding a New Detector — Checklist
 
 When adding a new detector or PII type, update **all** of the following:
