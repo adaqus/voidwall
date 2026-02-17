@@ -129,6 +129,11 @@ pub enum PiiKind {
     UsDriversLicense,
     UsAlienNumber,
     UsUscisReceiptNumber,
+    NzNhiNumber,
+    NzDriverLicence,
+    IeDriverNumber,
+    ZaTaxReference,
+    CaOhip,
 }
 
 impl RedactWith {
@@ -174,6 +179,11 @@ impl PiiKind {
             PiiKind::UsDriversLicense => "US_DRIVERS_LICENSE",
             PiiKind::UsAlienNumber => "US_ALIEN_NUMBER",
             PiiKind::UsUscisReceiptNumber => "US_USCIS_RECEIPT_NUMBER",
+            PiiKind::NzNhiNumber => "NZ_NHI_NUMBER",
+            PiiKind::NzDriverLicence => "NZ_DRIVER_LICENCE",
+            PiiKind::IeDriverNumber => "IE_DRIVER_NUMBER",
+            PiiKind::ZaTaxReference => "ZA_TAX_REFERENCE",
+            PiiKind::CaOhip => "CA_OHIP",
         }
     }
 
@@ -208,13 +218,13 @@ impl PiiKind {
 
             PiiKind::AuTfn | PiiKind::AuMedicare => Country::Au,
 
-            PiiKind::NzIrdNumber => Country::Nz,
+            PiiKind::NzIrdNumber | PiiKind::NzNhiNumber | PiiKind::NzDriverLicence => Country::Nz,
 
-            PiiKind::CaSin => Country::Ca,
+            PiiKind::CaSin | PiiKind::CaOhip => Country::Ca,
 
-            PiiKind::IePpsn => Country::Ie,
+            PiiKind::IePpsn | PiiKind::IeDriverNumber => Country::Ie,
 
-            PiiKind::ZaId => Country::Za,
+            PiiKind::ZaId | PiiKind::ZaTaxReference => Country::Za,
         }
     }
 
@@ -249,6 +259,11 @@ impl PiiKind {
         PiiKind::UsDriversLicense,
         PiiKind::UsAlienNumber,
         PiiKind::UsUscisReceiptNumber,
+        PiiKind::NzNhiNumber,
+        PiiKind::NzDriverLicence,
+        PiiKind::IeDriverNumber,
+        PiiKind::ZaTaxReference,
+        PiiKind::CaOhip,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

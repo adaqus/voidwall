@@ -7,9 +7,10 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 use crate::Language;
 use crate::detector::Detector;
 use crate::validators::{
-    a_number_check, aba_check, ein_check, geolocation_check, imei_check, ird_check, medicare_check,
-    nhs_check, passport_check, passport_new_check, phone_check, sa_id_check, sort_code_check,
-    swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check,
+    a_number_check, aba_check, ein_check, geolocation_check, ie_driver_check, imei_check,
+    ird_check, medicare_check, nhi_check, nhs_check, nz_dl_check, ohip_check, passport_check,
+    passport_new_check, phone_check, sa_id_check, sort_code_check, swift_bic_check, tfn_check,
+    us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -282,6 +283,36 @@ impl KeywordContextDetector {
                 r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
             ),
+            (
+                PiiKind::NzNhiNumber,
+                Language::En,
+                r"(?i)(?:national health index number|national health index no\.?|national health index|nhi number|nhi no\.?|nhi num|nhi #|nhi id|nhi ref(?:erence)?|nhi code|my nhi|your nhi|patient nhi|nhi)[\s:.#/\-\x22]*?([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
+                nhi_check,
+            ),
+            (
+                PiiKind::NzDriverLicence,
+                Language::En,
+                r"(?i)(?:new zealand driver licen[cs]e|nz driver licen[cs]e|nz driving licen[cs]e|driver licen[cs]e|licen[cs]e number|licen[cs]e no\.?|licence num|driving licence)[\s:.#/\-\x22]*?([A-Z]{2}\d{6})\b",
+                nz_dl_check,
+            ),
+            (
+                PiiKind::IeDriverNumber,
+                Language::En,
+                r"(?i)(?:irish driver number|irish driving licen[cs]e|ireland driver number|ireland driving licen[cs]e|ie driver number|ie driving licen[cs]e|driver number|driving licen[cs]e|licen[cs]e number|driver no\.?)[\s:.#/\-\x22]*?(\d{9})\b",
+                ie_driver_check,
+            ),
+            (
+                PiiKind::ZaTaxReference,
+                Language::En,
+                r"(?i)(?:south african tax ref(?:erence)?|south african tax number|sa tax ref(?:erence)?|sa tax number|sars ref(?:erence)?|sars number|sars tax|tax ref(?:erence)?|tax number|tax ref|SARS)[\s:.#/\-\x22]*?([0-3,9]\d{9})\b",
+                za_trn_check,
+            ),
+            (
+                PiiKind::CaOhip,
+                Language::En,
+                r"(?i)(?:ontario health insurance plan|ontario health card|ontario health number|health card number|health card no\.?|health card|health insurance number|health insurance no\.?|health number|carte sant[eé]|OHIP number|OHIP no\.?|OHIP card|OHIP)[\s:.#/\-\x22]*?(\d{10}(?:\s?[A-Za-z]{2})?)\b",
+                ohip_check,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -481,10 +512,20 @@ mod tests {
     #[test_case("SA ID: 8001015009087", PiiKind::ZaId, "8001015009087" ; "sa id")]
     #[test_case("identity number: 9506150089081", PiiKind::ZaId, "9506150089081" ; "sa id span")]
     #[test_case("Driver's license: B1234568", PiiKind::UsDriversLicense, "B1234568" ; "us dl 1 letter 7 digits")]
-    #[test_case("DL number: W123456789012", PiiKind::UsDriversLicense, "W123456789012" ; "us dl 1 letter 12 digits")]
+    #[test_case("DL number: W123456789712", PiiKind::UsDriversLicense, "W123456789712" ; "us dl 1 letter 12 digits")]
     #[test_case("License number: AB123456", PiiKind::UsDriversLicense, "AB123456" ; "us dl 2 letters 6 digits")]
     #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
     #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
+    #[test_case("NHI: DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "nz nhi")]
+    #[test_case("NHI number: DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "nz nhi span")]
+    #[test_case("licence number: AB123456", PiiKind::NzDriverLicence, "AB123456" ; "nz dl")]
+    #[test_case("driver licence: CD789012", PiiKind::NzDriverLicence, "CD789012" ; "nz dl span")]
+    #[test_case("driver number: 123456789", PiiKind::IeDriverNumber, "123456789" ; "ie driver")]
+    #[test_case("driving licence: 987654321", PiiKind::IeDriverNumber, "987654321" ; "ie driver span")]
+    #[test_case("tax reference: 0123456789", PiiKind::ZaTaxReference, "0123456789" ; "za trn")]
+    #[test_case("SARS: 9876543210", PiiKind::ZaTaxReference, "9876543210" ; "za trn sars")]
+    #[test_case("OHIP: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip")]
+    #[test_case("health card: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip span")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -679,6 +720,28 @@ mod tests {
     #[test_case("DL B1234568" ; "us dl sep space")]
     #[test_case("DL:B1234568" ; "us dl sep colon")]
     #[test_case("DL#B1234568" ; "us dl sep hash")]
+    #[test_case("NHI: DAB8745" ; "nz nhi keyword")]
+    #[test_case("national health index: DAB8745" ; "nz nhi keyword variant")]
+    #[test_case("nhi DAB8745" ; "nz nhi sep space")]
+    #[test_case("nhi:DAB8745" ; "nz nhi sep colon")]
+    #[test_case("driver licence: AB123456" ; "nz dl keyword")]
+    #[test_case("licence number: AB123456" ; "nz dl keyword variant")]
+    #[test_case("licence number AB123456" ; "nz dl sep space")]
+    #[test_case("licence number:AB123456" ; "nz dl sep colon")]
+    #[test_case("driver number: 123456789" ; "ie driver keyword")]
+    #[test_case("driving licence: 123456789" ; "ie driver keyword variant")]
+    #[test_case("driver number 123456789" ; "ie driver sep space")]
+    #[test_case("driver number:123456789" ; "ie driver sep colon")]
+    #[test_case("tax reference: 0123456789" ; "za trn keyword")]
+    #[test_case("SARS: 9876543210" ; "za trn keyword sars")]
+    #[test_case("tax number: 1234567897" ; "za trn keyword variant")]
+    #[test_case("tax reference 0123456789" ; "za trn sep space")]
+    #[test_case("tax reference:0123456789" ; "za trn sep colon")]
+    #[test_case("OHIP: 1234567897" ; "ca ohip keyword")]
+    #[test_case("health card: 1234567897" ; "ca ohip keyword variant")]
+    #[test_case("health insurance number: 1234567897" ; "ca ohip keyword variant 2")]
+    #[test_case("OHIP 1234567897" ; "ca ohip sep space")]
+    #[test_case("OHIP:1234567897" ; "ca ohip sep colon")]
     fn has_piis_with_keyword(input: &str) {
         let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
@@ -794,6 +857,21 @@ mod tests {
     #[test_case("DL number\tB1234568" ; "us dl keyword tab")]
     #[test_case("Driver's license:\r\nB1234568" ; "us dl crlf")]
     #[test_case("DL number\r\nB1234568" ; "us dl keyword crlf")]
+    #[test_case("NHI:\nDAB8745" ; "nz nhi newline")]
+    #[test_case("NHI:\tDAB8745" ; "nz nhi tab")]
+    #[test_case("NHI:\r\nDAB8745" ; "nz nhi crlf")]
+    #[test_case("licence number:\nAB123456" ; "nz dl newline")]
+    #[test_case("licence number:\tAB123456" ; "nz dl tab")]
+    #[test_case("licence number:\r\nAB123456" ; "nz dl crlf")]
+    #[test_case("driver number:\n123456789" ; "ie driver newline")]
+    #[test_case("driver number:\t123456789" ; "ie driver tab")]
+    #[test_case("driver number:\r\n123456789" ; "ie driver crlf")]
+    #[test_case("tax reference:\n0123456789" ; "za trn newline")]
+    #[test_case("tax reference:\t0123456789" ; "za trn tab")]
+    #[test_case("tax reference:\r\n0123456789" ; "za trn crlf")]
+    #[test_case("OHIP:\n1234567897" ; "ca ohip newline")]
+    #[test_case("OHIP:\t1234567897" ; "ca ohip tab")]
+    #[test_case("OHIP:\r\n1234567897" ; "ca ohip crlf")]
     fn has_piis_with_whitespace_separator(input: &str) {
         let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
@@ -820,7 +898,17 @@ mod tests {
     #[test_case("SA ID: 8001015009086", PiiKind::ZaId ; "sa id failing luhn")]
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
-    #[test_case("passport: 1234567890", PiiKind::PassportNumber ; "passportnum 10 digits")]
+    #[test_case("passport: 1234567897", PiiKind::PassportNumber ; "passportnum 10 digits")]
+    #[test_case("NHI: DAI5765", PiiKind::NzNhiNumber ; "nz nhi letter I")]
+    #[test_case("NHI: DAO5765", PiiKind::NzNhiNumber ; "nz nhi letter O")]
+    #[test_case("NHI: DAB8740", PiiKind::NzNhiNumber ; "nz nhi bad check digit")]
+    #[test_case("licence number: A1234567", PiiKind::NzDriverLicence ; "nz dl 1 letter")]
+    #[test_case("licence number: ABC12345", PiiKind::NzDriverLicence ; "nz dl 3 letters")]
+    #[test_case("driver number: 12345678", PiiKind::IeDriverNumber ; "ie driver 8 digits")]
+    #[test_case("driver number: 1234567897", PiiKind::IeDriverNumber ; "ie driver 10 digits")]
+    #[test_case("tax reference: 4123456789", PiiKind::ZaTaxReference ; "za trn invalid first digit 4")]
+    #[test_case("tax reference: 5123456789", PiiKind::ZaTaxReference ; "za trn invalid first digit 5")]
+    #[test_case("OHIP: 1234567898", PiiKind::CaOhip ; "ca ohip bad luhn")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -850,6 +938,11 @@ mod tests {
     #[test_case("code is SRC2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt no keyword")]
     #[test_case("number is 8001015009087", PiiKind::ZaId ; "sa id no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
+    #[test_case("code is DAB8745", PiiKind::NzNhiNumber ; "nz nhi no keyword")]
+    #[test_case("code is AB123456", PiiKind::NzDriverLicence ; "nz dl no keyword")]
+    #[test_case("code is 123456789", PiiKind::IeDriverNumber ; "ie driver no keyword")]
+    #[test_case("code is 0123456789", PiiKind::ZaTaxReference ; "za trn no keyword")]
+    #[test_case("code is 1234567897", PiiKind::CaOhip ; "ca ohip no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -913,6 +1006,11 @@ mod tests {
     #[test_case(r#"{"case": {"receipt number": "SRC2190000001", "form": "I-130"}}"#, PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt in json")]
     #[test_case(r#"{"citizen": {"id number": "8001015009087", "province": "Gauteng"}}"#, PiiKind::ZaId, "8001015009087" ; "sa id in json")]
     #[test_case(r#"{"identity": {"license number": "B1234568", "state": "CA"}}"#, PiiKind::UsDriversLicense, "B1234568" ; "us dl in json")]
+    #[test_case(r#"{"patient": {"NHI": "DAB8745", "ward": "B2"}}"#, PiiKind::NzNhiNumber, "DAB8745" ; "nz nhi in json")]
+    #[test_case(r#"{"driver": {"licence number": "AB123456", "expiry": "2028"}}"#, PiiKind::NzDriverLicence, "AB123456" ; "nz dl in json")]
+    #[test_case(r#"{"driver": {"driver number": "123456789", "country": "IE"}}"#, PiiKind::IeDriverNumber, "123456789" ; "ie driver in json")]
+    #[test_case(r#"{"tax": {"tax reference": "0123456789", "year": "2025"}}"#, PiiKind::ZaTaxReference, "0123456789" ; "za trn in json")]
+    #[test_case(r#"{"health": {"OHIP": "1234567897", "province": "ON"}}"#, PiiKind::CaOhip, "1234567897" ; "ca ohip in json")]
     fn detects_in_json(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -957,6 +1055,11 @@ mod tests {
     #[test_case("receipt%20number%3A SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "url uscis receipt keyword")]
     #[test_case("SA%20ID%3A 8001015009087", PiiKind::ZaId, "8001015009087" ; "url sa id keyword")]
     #[test_case("DL%3A B1234568", PiiKind::UsDriversLicense, "B1234568" ; "url us dl sep")]
+    #[test_case("NHI%3A DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "url nz nhi sep")]
+    #[test_case("licence%20number%3A AB123456", PiiKind::NzDriverLicence, "AB123456" ; "url nz dl keyword")]
+    #[test_case("driver%20number%3A 123456789", PiiKind::IeDriverNumber, "123456789" ; "url ie driver keyword")]
+    #[test_case("tax%20reference%3A 0123456789", PiiKind::ZaTaxReference, "0123456789" ; "url za trn keyword")]
+    #[test_case("OHIP%3A 1234567897", PiiKind::CaOhip, "1234567897" ; "url ca ohip sep")]
     fn detects_url_encoded(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -988,6 +1091,8 @@ mod tests {
     #[test_case("UTR&colon; 5555555555", PiiKind::GbUtr, "5555555555" ; "html utr named colon")]
     #[test_case("IMEI&#x3a; 490154203237518", PiiKind::Imei, "490154203237518" ; "html imei hex colon lowercase")]
     #[test_case("alien&nbsp;number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "html alien number nbsp")]
+    #[test_case("NHI&#58; DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "html nz nhi colon")]
+    #[test_case("OHIP&#58; 1234567897", PiiKind::CaOhip, "1234567897" ; "html ca ohip colon")]
     fn detects_html_entities(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector

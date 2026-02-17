@@ -607,3 +607,103 @@ pub(crate) fn sort_code_check(s: &str) -> bool {
         .collect();
     digits.len() == 6
 }
+
+/// NZ NHI Number check (old format: 3 letters + 4 digits, check digit).
+/// Letters exclude I and O. Mapping: A=1..H=8, J=9..N=13, P=14..Z=24.
+pub(crate) fn nhi_check(s: &str) -> bool {
+    let upper = s.to_uppercase();
+    let bytes = upper.as_bytes();
+    if bytes.len() != 7 {
+        return false;
+    }
+    let alpha_val = |b: u8| -> Option<u32> {
+        match b {
+            b'A'..=b'H' => Some((b - b'A' + 1) as u32),
+            b'J'..=b'N' => Some((b - b'J' + 9) as u32),
+            b'P'..=b'Z' => Some((b - b'P' + 14) as u32),
+            _ => None,
+        }
+    };
+    // First 3 must be letters (not I, O)
+    let a1 = match alpha_val(bytes[0]) {
+        Some(v) => v,
+        None => return false,
+    };
+    let a2 = match alpha_val(bytes[1]) {
+        Some(v) => v,
+        None => return false,
+    };
+    let a3 = match alpha_val(bytes[2]) {
+        Some(v) => v,
+        None => return false,
+    };
+    // Next 4 must be digits
+    if !bytes[3..7].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let d1 = (bytes[3] - b'0') as u32;
+    let d2 = (bytes[4] - b'0') as u32;
+    let d3 = (bytes[5] - b'0') as u32;
+    let check = (bytes[6] - b'0') as u32;
+
+    let sum = a1 * 7 + a2 * 6 + a3 * 5 + d1 * 4 + d2 * 3 + d3 * 2;
+    let remainder = sum % 11;
+    if remainder == 0 {
+        return false; // check digit would be 11, invalid
+    }
+    let expected = 11 - remainder;
+    if expected == 10 {
+        return check == 0;
+    }
+    expected == check
+}
+
+/// NZ Driver Licence: 2 uppercase letters + 6 digits.
+pub(crate) fn nz_dl_check(s: &str) -> bool {
+    if s.len() != 8 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    bytes[0].is_ascii_uppercase()
+        && bytes[1].is_ascii_uppercase()
+        && bytes[2..].iter().all(|b| b.is_ascii_digit())
+}
+
+/// IE Driver Number: exactly 9 digits.
+pub(crate) fn ie_driver_check(s: &str) -> bool {
+    s.len() == 9 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// ZA Tax Reference Number: 10 digits, first digit in {0,1,2,3,9}.
+pub(crate) fn za_trn_check(s: &str) -> bool {
+    if s.len() != 10 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    matches!(s.as_bytes()[0], b'0' | b'1' | b'2' | b'3' | b'9')
+}
+
+/// Ontario Health Insurance Plan (OHIP) number: 10 digits, Luhn mod-10.
+pub(crate) fn ohip_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 10 {
+        return false;
+    }
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
