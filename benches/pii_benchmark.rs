@@ -274,6 +274,46 @@ Driver's license numbers for identity check:\n\
 All license numbers must be verified against DMV records.\n\
 Contact the issuing state DMV for any discrepancies.";
 
+const NZ_NHI_TEXT: &str = "\
+New Zealand Ministry of Health — NHI Verification\n\n\
+Patient NHI numbers for records:\n\
+- Patient A: NHI: DAB8745\n\
+- Patient B: National health index: ZAC5361\n\
+All NHI numbers must be verified against the NHI register.\n\
+Contact the Ministry of Health for any corrections.";
+
+const NZ_DL_TEXT: &str = "\
+New Zealand Transport Agency — Licence Verification\n\n\
+Driver licence numbers for identity check:\n\
+- Driver A: Licence number: AB123456\n\
+- Driver B: Driver licence: CD789012\n\
+All licence numbers must be verified against NZTA records.\n\
+Contact the nearest NZTA office for any discrepancies.";
+
+const IE_DRIVER_TEXT: &str = "\
+Road Safety Authority — Irish Driver Number Verification\n\n\
+Driver numbers for licence check:\n\
+- Driver A: Driver number: 123456789\n\
+- Driver B: Driving licence: 987654321\n\
+All driver numbers must be verified against RSA records.\n\
+Contact the NDLS for any corrections.";
+
+const ZA_TRN_TEXT: &str = "\
+South African Revenue Service — Tax Reference Verification\n\n\
+Tax reference numbers for filing:\n\
+- Taxpayer A: Tax reference: 0123456789\n\
+- Taxpayer B: SARS: 9876543210\n\
+All tax reference numbers must be verified before filing.\n\
+Contact SARS for any discrepancies.";
+
+const CA_OHIP_TEXT: &str = "\
+Ontario Ministry of Health — OHIP Verification\n\n\
+Health card numbers for registration:\n\
+- Patient A: OHIP: 1234567897\n\
+- Patient B: Health card: 9876543219\n\
+All OHIP numbers must be verified before claims are processed.\n\
+Contact ServiceOntario for any corrections.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -337,6 +377,12 @@ Tier 3 Verification Records:\n\
   Driver's license: B1234568\n\
   Alien number: A012345678\n\
   USCIS receipt number: SRC2190000001\n\n\
+Tier 4 Verification Records:\n\
+  NHI: DAB8745\n\
+  Licence number: AB123456\n\
+  Driver number: 123456789\n\
+  Tax reference: 0123456789\n\
+  OHIP: 1234567897\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -535,6 +581,26 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("uscis_receipt", |b| {
         b.iter(|| scanner.mark_piis(USCIS_RECEIPT_TEXT));
+    });
+
+    group.bench_function("nz_nhi", |b| {
+        b.iter(|| scanner.mark_piis(NZ_NHI_TEXT));
+    });
+
+    group.bench_function("nz_driver_licence", |b| {
+        b.iter(|| scanner.mark_piis(NZ_DL_TEXT));
+    });
+
+    group.bench_function("ie_driver_number", |b| {
+        b.iter(|| scanner.mark_piis(IE_DRIVER_TEXT));
+    });
+
+    group.bench_function("za_tax_reference", |b| {
+        b.iter(|| scanner.mark_piis(ZA_TRN_TEXT));
+    });
+
+    group.bench_function("ca_ohip", |b| {
+        b.iter(|| scanner.mark_piis(CA_OHIP_TEXT));
     });
 
     group.finish();
