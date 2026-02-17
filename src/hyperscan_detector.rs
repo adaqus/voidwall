@@ -211,7 +211,7 @@ impl HyperscanDetector {
                 .map_err(|e| PiiError::HyperscanCompilation(format!("detection db: {e}")))?,
         );
         let detection_prototype = {
-            let scanner = BlockScanner::new(&detection_db).expect("scratch alloc");
+            let scanner = BlockScanner::new(&detection_db).expect("detection scratch alloc");
             // SAFETY: Box guarantees a stable heap address for the database.
             // The prototype (and its clones) hold a reference into the Box.
             // This is sound because: (1) the prototype field is declared before
@@ -227,7 +227,7 @@ impl HyperscanDetector {
                 .map_err(|e| PiiError::HyperscanCompilation(format!("extraction db: {e}")))?,
         );
         let extraction_prototype = {
-            let scanner = BlockScanner::new(&extraction_db).expect("scratch alloc");
+            let scanner = BlockScanner::new(&extraction_db).expect("extraction scratch alloc");
             // SAFETY: Same invariants as detection_prototype above.
             unsafe { std::mem::transmute::<BlockScanner<'_>, BlockScanner<'static>>(scanner) }
         };
