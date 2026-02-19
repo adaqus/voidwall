@@ -43,6 +43,12 @@ struct PatternDef {
     /// If true, this pattern can't use SOM_LEFTMOST (too large with UCP).
     /// Falls back to regex extraction instead.
     som_fallback: bool,
+    /// Simplified expression for the vectorscan detection DB. When set, this
+    /// lighter pattern is compiled into the detection DFA instead of `expr`,
+    /// keeping the automaton small. The full `expr` is still used for regex
+    /// extraction. Only useful for `som_fallback` patterns where vectorscan
+    /// detection just needs a "might be here" signal.
+    detection_expr: Option<&'static str>,
 }
 
 fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
@@ -53,6 +59,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid as fn(&str) -> bool,
             needs_ucp: true,
             som_fallback: true,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::CreditCard,
@@ -60,6 +67,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: luhn_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::UsSsn,
@@ -67,6 +75,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ssn_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::GbNino,
@@ -74,6 +83,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: nino_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::Iban,
@@ -81,6 +91,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: iban_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
@@ -88,6 +99,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ip_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
@@ -95,6 +107,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::UsItin,
@@ -102,6 +115,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: itin_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::CaSin,
@@ -109,6 +123,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: sin_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IePpsn,
@@ -116,6 +131,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ppsn_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -123,6 +139,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -130,6 +147,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -137,6 +155,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::GbDrivingLicence,
@@ -144,6 +163,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: uk_dl_check,
             needs_ucp: false,
+            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::Vin,
@@ -151,6 +171,61 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: vin_check,
             needs_ucp: false,
+            detection_expr: None,
+        },
+        PatternDef {
+            kind: PiiKind::AwsAccessKey,
+            expr: r"\bAKIA[0-9A-Z]{16}\b",
+            som_fallback: false,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: None,
+        },
+        // GithubToken: {36} and {59} fixed repetitions create long DFA state
+        // chains. Use short prefix for detection; regex extraction verifies length.
+        PatternDef {
+            kind: PiiKind::GithubToken,
+            expr: r"\bgh[opsu]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{59}\b",
+            som_fallback: true,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: Some(r"\bgh[opsu]_[A-Za-z0-9]{10}|\bgithub_pat_[A-Za-z0-9_]{10}"),
+        },
+        PatternDef {
+            kind: PiiKind::GbPostcode,
+            expr: r"\b[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2}\b",
+            som_fallback: false,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: None,
+        },
+        PatternDef {
+            kind: PiiKind::CaPostalCode,
+            expr: r"\b[ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz]\s?[0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9]\b",
+            som_fallback: false,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: None,
+        },
+        // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
+        // classes cause DFA state explosion. Use minimum-length prefix for
+        // detection; regex extraction verifies exact length and word boundary.
+        PatternDef {
+            kind: PiiKind::BitcoinAddress,
+            expr: r"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\bbc1[ac-hj-np-z02-9]{39,59}\b",
+            som_fallback: true,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: Some(r"\b[13][a-km-zA-HJ-NP-Z1-9]{25}|\bbc1[ac-hj-np-z02-9]{39}"),
+        },
+        // EthereumAddress: {40} fixed repetition. Use short prefix for detection.
+        PatternDef {
+            kind: PiiKind::EthereumAddress,
+            expr: r"\b0x[0-9a-fA-F]{40}\b",
+            som_fallback: true,
+            validator: always_valid,
+            needs_ucp: false,
+            detection_expr: Some(r"\b0x[0-9a-fA-F]{10}"),
         },
     ];
 
@@ -187,9 +262,11 @@ impl HyperscanDetector {
                 Flag::UTF8
             };
 
-            // Detection: SINGLEMATCH for fast bail-out per pattern
+            // Detection: SINGLEMATCH for fast bail-out per pattern.
+            // Use detection_expr when set (lighter pattern to keep DFA small).
+            let det_expr = pdef.detection_expr.unwrap_or(pdef.expr);
             detection_patterns.push(Pattern::new(
-                pdef.expr.as_bytes().to_vec(),
+                det_expr.as_bytes().to_vec(),
                 base_flags | Flag::SINGLEMATCH,
                 Some(id),
             ));
@@ -386,6 +463,15 @@ mod tests {
     #[test_case("VIN: 1HGBH41JXMN109186", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin")]
     #[test_case("vehicle 1HGBH41JXMN109186 registered", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin span")]
     #[test_case("card: 4111 1111 1111 1111", PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card")]
+    #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE" ; "aws access key")]
+    #[test_case("token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github oauth token")]
+    #[test_case("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github pat token")]
+    #[test_case("postcode: SW1A 1AA", PiiKind::GbPostcode, "SW1A 1AA" ; "gb postcode with space")]
+    #[test_case("postcode: EC1A1BB", PiiKind::GbPostcode, "EC1A1BB" ; "gb postcode no space")]
+    #[test_case("postal code: M5V 3L9", PiiKind::CaPostalCode, "M5V 3L9" ; "ca postal code with space")]
+    #[test_case("postal code: K1A0B1", PiiKind::CaPostalCode, "K1A0B1" ; "ca postal code no space")]
+    #[test_case("send to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na", PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf" ; "bitcoin legacy p2pkh")]
+    #[test_case("wallet: 0x1234567890abcdef1234567890abcdef12345678", PiiKind::EthereumAddress, "0x1234567890abcdef1234567890abcdef12345678" ; "ethereum address")]
     fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -430,6 +516,10 @@ mod tests {
     #[test_case("DL: JONES900057A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid month")]
     #[test_case("DL: JONES901007A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid day")]
     #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
+    #[test_case("key: AKIAIOSFODNN7EXAMPL", PiiKind::AwsAccessKey ; "aws access key too short")]
+    #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
+    #[test_case("0x1234567890abcdef1234567890abcdef1234567", PiiKind::EthereumAddress ; "ethereum too short")]
+    #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]
     fn rejects_invalid_pii(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

@@ -682,6 +682,90 @@ pub(crate) fn za_trn_check(s: &str) -> bool {
     matches!(s.as_bytes()[0], b'0' | b'1' | b'2' | b'3' | b'9')
 }
 
+/// Date of birth validator: accepts year 1900..=current_year, month 1..=12, day 1..=31.
+/// Handles formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, "15 March 1990", "March 15, 1990".
+/// Rejects ISO timestamps (values containing 'T' after the date portion).
+pub(crate) fn dob_check(s: &str) -> bool {
+    // Reject ISO timestamps like "2024-10-15T12:00:00"
+    if s.contains('T') || s.contains('t') {
+        return false;
+    }
+
+    // Current year upper bound
+    const MAX_YEAR: u32 = 2030; // generous upper bound; birth years won't exceed current year
+
+    // Helper to validate y/m/d components
+    let valid_date = |y: u32, m: u32, d: u32| -> bool {
+        (1900..=MAX_YEAR).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d)
+    };
+
+    let month_from_name = |name: &str| -> Option<u32> {
+        match name.to_ascii_lowercase().as_str() {
+            "jan" | "january" => Some(1),
+            "feb" | "february" => Some(2),
+            "mar" | "march" => Some(3),
+            "apr" | "april" => Some(4),
+            "may" => Some(5),
+            "jun" | "june" => Some(6),
+            "jul" | "july" => Some(7),
+            "aug" | "august" => Some(8),
+            "sep" | "september" => Some(9),
+            "oct" | "october" => Some(10),
+            "nov" | "november" => Some(11),
+            "dec" | "december" => Some(12),
+            _ => None,
+        }
+    };
+
+    let trimmed = s.trim();
+
+    // Try numeric formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD (separators: / - .)
+    if trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        // Split on / - .
+        let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
+        if parts.len() == 3 {
+            let a: Option<u32> = parts[0].trim().parse().ok();
+            let b: Option<u32> = parts[1].trim().parse().ok();
+            let c: Option<u32> = parts[2].trim().parse().ok();
+            if let (Some(a), Some(b), Some(c)) = (a, b, c) {
+                // YYYY-MM-DD: first part is 4-digit year
+                if parts[0].trim().len() == 4 && a >= 1900 {
+                    return valid_date(a, b, c);
+                }
+                // DD/MM/YYYY or MM/DD/YYYY: last part is 4-digit year
+                if parts[2].trim().len() == 4 && c >= 1900 {
+                    return valid_date(c, b, a) || valid_date(c, a, b);
+                }
+            }
+        }
+        return false;
+    }
+
+    // Try "DD Month YYYY" — e.g. "15 March 1990"
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words.len() == 3 {
+        // "DD Month YYYY"
+        if let (Ok(day), Some(month), Ok(year)) = (
+            words[0].parse::<u32>(),
+            month_from_name(words[1]),
+            words[2].parse::<u32>(),
+        ) {
+            return valid_date(year, month, day);
+        }
+        // "Month DD, YYYY" or "Month DD YYYY"
+        let day_str = words[1].trim_end_matches(',');
+        if let (Some(month), Ok(day), Ok(year)) = (
+            month_from_name(words[0]),
+            day_str.parse::<u32>(),
+            words[2].parse::<u32>(),
+        ) {
+            return valid_date(year, month, day);
+        }
+    }
+
+    false
+}
+
 /// Ontario Health Insurance Plan (OHIP) number: 10 digits, Luhn mod-10.
 pub(crate) fn ohip_check(s: &str) -> bool {
     let digits: Vec<u32> = s

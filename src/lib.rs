@@ -134,6 +134,26 @@ pub enum PiiKind {
     IeDriverNumber,
     ZaTaxReference,
     CaOhip,
+    GbPhoneNumber,
+    AuPhoneNumber,
+    NzPhoneNumber,
+    IePhoneNumber,
+    ZaPhoneNumber,
+    AwsAccessKey,
+    GithubToken,
+    AwsSecretKey,
+    GbPassportNumber,
+    AuPassportNumber,
+    CaPassportNumber,
+    NzPassportNumber,
+    IePassportNumber,
+    DateOfBirth,
+    GbPostcode,
+    CaPostalCode,
+    BitcoinAddress,
+    EthereumAddress,
+    AuBankAccount,
+    CaBankAccount,
 }
 
 impl RedactWith {
@@ -184,6 +204,26 @@ impl PiiKind {
             PiiKind::IeDriverNumber => "IE_DRIVER_NUMBER",
             PiiKind::ZaTaxReference => "ZA_TAX_REFERENCE",
             PiiKind::CaOhip => "CA_OHIP",
+            PiiKind::GbPhoneNumber => "GB_PHONE_NUMBER",
+            PiiKind::AuPhoneNumber => "AU_PHONE_NUMBER",
+            PiiKind::NzPhoneNumber => "NZ_PHONE_NUMBER",
+            PiiKind::IePhoneNumber => "IE_PHONE_NUMBER",
+            PiiKind::ZaPhoneNumber => "ZA_PHONE_NUMBER",
+            PiiKind::AwsAccessKey => "AWS_ACCESS_KEY",
+            PiiKind::GithubToken => "GITHUB_TOKEN",
+            PiiKind::AwsSecretKey => "AWS_SECRET_KEY",
+            PiiKind::GbPassportNumber => "GB_PASSPORT_NUMBER",
+            PiiKind::AuPassportNumber => "AU_PASSPORT_NUMBER",
+            PiiKind::CaPassportNumber => "CA_PASSPORT_NUMBER",
+            PiiKind::NzPassportNumber => "NZ_PASSPORT_NUMBER",
+            PiiKind::IePassportNumber => "IE_PASSPORT_NUMBER",
+            PiiKind::DateOfBirth => "DATE_OF_BIRTH",
+            PiiKind::GbPostcode => "GB_POSTCODE",
+            PiiKind::CaPostalCode => "CA_POSTAL_CODE",
+            PiiKind::BitcoinAddress => "BITCOIN_ADDRESS",
+            PiiKind::EthereumAddress => "ETHEREUM_ADDRESS",
+            PiiKind::AuBankAccount => "AU_BANK_ACCOUNT",
+            PiiKind::CaBankAccount => "CA_BANK_ACCOUNT",
         }
     }
 
@@ -214,17 +254,42 @@ impl PiiKind {
             | PiiKind::GbDrivingLicence
             | PiiKind::GbNhsNumber
             | PiiKind::GbUtr
-            | PiiKind::GbSortCode => Country::Gb,
+            | PiiKind::GbSortCode
+            | PiiKind::GbPhoneNumber
+            | PiiKind::GbPassportNumber
+            | PiiKind::GbPostcode => Country::Gb,
 
-            PiiKind::AuTfn | PiiKind::AuMedicare => Country::Au,
+            PiiKind::AuTfn
+            | PiiKind::AuMedicare
+            | PiiKind::AuPhoneNumber
+            | PiiKind::AuPassportNumber
+            | PiiKind::AuBankAccount => Country::Au,
 
-            PiiKind::NzIrdNumber | PiiKind::NzNhiNumber | PiiKind::NzDriverLicence => Country::Nz,
+            PiiKind::NzIrdNumber
+            | PiiKind::NzNhiNumber
+            | PiiKind::NzDriverLicence
+            | PiiKind::NzPhoneNumber
+            | PiiKind::NzPassportNumber => Country::Nz,
 
-            PiiKind::CaSin | PiiKind::CaOhip => Country::Ca,
+            PiiKind::CaSin
+            | PiiKind::CaOhip
+            | PiiKind::CaPassportNumber
+            | PiiKind::CaPostalCode
+            | PiiKind::CaBankAccount => Country::Ca,
 
-            PiiKind::IePpsn | PiiKind::IeDriverNumber => Country::Ie,
+            PiiKind::IePpsn
+            | PiiKind::IeDriverNumber
+            | PiiKind::IePhoneNumber
+            | PiiKind::IePassportNumber => Country::Ie,
 
-            PiiKind::ZaId | PiiKind::ZaTaxReference => Country::Za,
+            PiiKind::ZaId | PiiKind::ZaTaxReference | PiiKind::ZaPhoneNumber => Country::Za,
+
+            PiiKind::AwsAccessKey
+            | PiiKind::GithubToken
+            | PiiKind::AwsSecretKey
+            | PiiKind::DateOfBirth
+            | PiiKind::BitcoinAddress
+            | PiiKind::EthereumAddress => Country::International,
         }
     }
 
@@ -264,6 +329,26 @@ impl PiiKind {
         PiiKind::IeDriverNumber,
         PiiKind::ZaTaxReference,
         PiiKind::CaOhip,
+        PiiKind::GbPhoneNumber,
+        PiiKind::AuPhoneNumber,
+        PiiKind::NzPhoneNumber,
+        PiiKind::IePhoneNumber,
+        PiiKind::ZaPhoneNumber,
+        PiiKind::AwsAccessKey,
+        PiiKind::GithubToken,
+        PiiKind::AwsSecretKey,
+        PiiKind::GbPassportNumber,
+        PiiKind::AuPassportNumber,
+        PiiKind::CaPassportNumber,
+        PiiKind::NzPassportNumber,
+        PiiKind::IePassportNumber,
+        PiiKind::DateOfBirth,
+        PiiKind::GbPostcode,
+        PiiKind::CaPostalCode,
+        PiiKind::BitcoinAddress,
+        PiiKind::EthereumAddress,
+        PiiKind::AuBankAccount,
+        PiiKind::CaBankAccount,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

@@ -7,10 +7,10 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 use crate::Language;
 use crate::detector::Detector;
 use crate::validators::{
-    a_number_check, aba_check, ein_check, geolocation_check, ie_driver_check, imei_check,
-    ird_check, medicare_check, nhi_check, nhs_check, nz_dl_check, ohip_check, passport_check,
-    passport_new_check, phone_check, sa_id_check, sort_code_check, swift_bic_check, tfn_check,
-    us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
+    a_number_check, aba_check, always_valid, dob_check, ein_check, geolocation_check,
+    ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nz_dl_check,
+    ohip_check, passport_check, passport_new_check, phone_check, sa_id_check, sort_code_check,
+    swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -313,6 +313,95 @@ impl KeywordContextDetector {
                 r"(?i)(?:ontario health insurance plan|ontario health card|ontario health number|health card number|health card no\.?|health card|health insurance number|health insurance no\.?|health number|carte sant[eé]|OHIP number|OHIP no\.?|OHIP card|OHIP)[\s:.#/\-\x22]*?(\d{10}(?:\s?[A-Za-z]{2})?)\b",
                 ohip_check,
             ),
+            // International phone numbers
+            (
+                PiiKind::GbPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
+                phone_check,
+            ),
+            (
+                PiiKind::AuPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
+                phone_check,
+            ),
+            (
+                PiiKind::NzPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                phone_check,
+            ),
+            (
+                PiiKind::IePhoneNumber,
+                Language::En,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                phone_check,
+            ),
+            (
+                PiiKind::ZaPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
+                phone_check,
+            ),
+            // AWS Secret Key
+            (
+                PiiKind::AwsSecretKey,
+                Language::En,
+                r"(?:AWS_SECRET_ACCESS_KEY=?|aws_secret_access_key=?|secret_access_key[\s:.=]+|aws[_\s]secret[\s:.=]+)([A-Za-z0-9/+=]{40})",
+                always_valid,
+            ),
+            // Country-specific passport numbers
+            (
+                PiiKind::GbPassportNumber,
+                Language::En,
+                r"(?i)(?:british passport|uk passport|united kingdom passport|hmpo)[\s:.#/\-\x22]*?(\d{9})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::AuPassportNumber,
+                Language::En,
+                r"(?i)(?:australian passport|australia passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]\d{7})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::CaPassportNumber,
+                Language::En,
+                r"(?i)(?:canadian passport|canada passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{2}\d{6})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::NzPassportNumber,
+                Language::En,
+                r"(?i)(?:new zealand passport|nz passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{6,7})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::IePassportNumber,
+                Language::En,
+                r"(?i)(?:irish passport|ireland passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{2}\d{7})\b",
+                always_valid,
+            ),
+            // Date of birth
+            (
+                PiiKind::DateOfBirth,
+                Language::En,
+                r"(?i)(?:date of birth|birth date|birthdate|dob|d\.o\.b\.?|born on)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})",
+                dob_check,
+            ),
+            // Bank accounts
+            (
+                PiiKind::AuBankAccount,
+                Language::En,
+                r"(?i)(?:bsb|bank state branch|bsb number|bsb no\.?)[\s:.#/\-\x22]*?(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
+                always_valid,
+            ),
+            (
+                PiiKind::CaBankAccount,
+                Language::En,
+                r"(?i)(?:transit number|transit no\.?|institution number|chequing account|savings account|canadian account|ca account)[\s:.#/\-\x22]*?(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
+                always_valid,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -401,18 +490,23 @@ impl KeywordContextDetector {
     }
 
     fn has_piis_on(&self, input: &str) -> bool {
-        let matched_indices = self.scan_matched_ids(input);
-        for idx in matched_indices {
-            let pattern = &self.patterns[idx];
-            for caps in pattern.full_regex.captures_iter(input) {
-                if let Some(value_match) = caps.get(1)
-                    && (pattern.validate)(value_match.as_str())
-                {
-                    return true;
+        let patterns = &self.patterns;
+        self.with_detection_scanner(|scanner| {
+            let mut found = false;
+            let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
+                let pattern = &patterns[id as usize];
+                if let Some(caps) = pattern.full_regex.captures(input) {
+                    if let Some(value_match) = caps.get(1) {
+                        if (pattern.validate)(value_match.as_str()) {
+                            found = true;
+                            return Scan::Terminate;
+                        }
+                    }
                 }
-            }
-        }
-        false
+                Scan::Continue
+            });
+            found
+        })
     }
 
     fn mark_piis_on(&self, input: &str) -> Vec<PiiMatch> {
@@ -526,6 +620,35 @@ mod tests {
     #[test_case("SARS: 9876543210", PiiKind::ZaTaxReference, "9876543210" ; "za trn sars")]
     #[test_case("OHIP: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip")]
     #[test_case("health card: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip span")]
+    #[test_case("phone: +44 7911 123456", PiiKind::GbPhoneNumber, "+44 7911 123456" ; "gb phone mobile intl")]
+    #[test_case("phone: 07700 900123", PiiKind::GbPhoneNumber, "07700 900123" ; "gb phone mobile local")]
+    #[test_case("tel: +61 4 1234 5678", PiiKind::AuPhoneNumber, "+61 4 1234 5678" ; "au phone mobile intl")]
+    #[test_case("phone: 04 1234 5678", PiiKind::AuPhoneNumber, "04 1234 5678" ; "au phone mobile local")]
+    #[test_case("phone: +64 2 123 4567", PiiKind::NzPhoneNumber, "+64 2 123 4567" ; "nz phone mobile intl")]
+    #[test_case("phone: 02 123 4567", PiiKind::NzPhoneNumber, "02 123 4567" ; "nz phone mobile local")]
+    #[test_case("phone: +353 87 123 4567", PiiKind::IePhoneNumber, "+353 87 123 4567" ; "ie phone mobile intl")]
+    #[test_case("phone: 087 123 4567", PiiKind::IePhoneNumber, "087 123 4567" ; "ie phone mobile local")]
+    #[test_case("phone: +27 71 123 4567", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone mobile intl")]
+    #[test_case("phone: 071 123 4567", PiiKind::ZaPhoneNumber, "071 123 4567" ; "za phone mobile local")]
+    #[test_case("british passport: 123456789", PiiKind::GbPassportNumber, "123456789" ; "gb passport")]
+    #[test_case("uk passport: 987654321", PiiKind::GbPassportNumber, "987654321" ; "gb passport uk keyword")]
+    #[test_case("australian passport: A1234567", PiiKind::AuPassportNumber, "A1234567" ; "au passport")]
+    #[test_case("passport number: B7654321", PiiKind::AuPassportNumber, "B7654321" ; "au passport generic keyword")]
+    #[test_case("canadian passport: AB123456", PiiKind::CaPassportNumber, "AB123456" ; "ca passport")]
+    #[test_case("passport number: XY987654", PiiKind::CaPassportNumber, "XY987654" ; "ca passport generic keyword")]
+    #[test_case("new zealand passport: NZ123456", PiiKind::NzPassportNumber, "NZ123456" ; "nz passport")]
+    #[test_case("nz passport: L1234567", PiiKind::NzPassportNumber, "L1234567" ; "nz passport short keyword")]
+    #[test_case("irish passport: AB1234567", PiiKind::IePassportNumber, "AB1234567" ; "ie passport")]
+    #[test_case("ireland passport: CD7654321", PiiKind::IePassportNumber, "CD7654321" ; "ie passport ireland keyword")]
+    #[test_case("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws secret env")]
+    #[test_case("secret_access_key: abcdefghijklmnopqrstuvwxyz0123456789ABCD", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret keyword")]
+    #[test_case("date of birth: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "dob dd/mm/yyyy")]
+    #[test_case("dob: 1990-03-15", PiiKind::DateOfBirth, "1990-03-15" ; "dob iso")]
+    #[test_case("born on: 01-01-2000", PiiKind::DateOfBirth, "01-01-2000" ; "dob born on")]
+    #[test_case("BSB: 012-345", PiiKind::AuBankAccount, "012-345" ; "au bsb bare")]
+    #[test_case("bsb number: 012345", PiiKind::AuBankAccount, "012345" ; "au bsb no hyphen")]
+    #[test_case("transit number: 12345 001 1234567", PiiKind::CaBankAccount, "12345 001 1234567" ; "ca transit full")]
+    #[test_case("chequing account: 1234567890", PiiKind::CaBankAccount, "1234567890" ; "ca chequing account")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -909,6 +1032,8 @@ mod tests {
     #[test_case("tax reference: 4123456789", PiiKind::ZaTaxReference ; "za trn invalid first digit 4")]
     #[test_case("tax reference: 5123456789", PiiKind::ZaTaxReference ; "za trn invalid first digit 5")]
     #[test_case("OHIP: 1234567898", PiiKind::CaOhip ; "ca ohip bad luhn")]
+    #[test_case("dob: 15/13/1990", PiiKind::DateOfBirth ; "dob invalid month 13")]
+    #[test_case("dob: 00/00/0000", PiiKind::DateOfBirth ; "dob all zeros")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -943,6 +1068,20 @@ mod tests {
     #[test_case("code is 123456789", PiiKind::IeDriverNumber ; "ie driver no keyword")]
     #[test_case("code is 0123456789", PiiKind::ZaTaxReference ; "za trn no keyword")]
     #[test_case("code is 1234567897", PiiKind::CaOhip ; "ca ohip no keyword")]
+    #[test_case("+44 7911 123456", PiiKind::GbPhoneNumber ; "gb phone no keyword")]
+    #[test_case("04 1234 5678", PiiKind::AuPhoneNumber ; "au phone no keyword")]
+    #[test_case("02 123 4567", PiiKind::NzPhoneNumber ; "nz phone no keyword")]
+    #[test_case("087 123 4567", PiiKind::IePhoneNumber ; "ie phone no keyword")]
+    #[test_case("071 123 4567", PiiKind::ZaPhoneNumber ; "za phone no keyword")]
+    #[test_case("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey ; "aws secret no keyword")]
+    #[test_case("123456789", PiiKind::GbPassportNumber ; "gb passport no keyword")]
+    #[test_case("A1234567", PiiKind::AuPassportNumber ; "au passport no keyword")]
+    #[test_case("AB123456", PiiKind::CaPassportNumber ; "ca passport no keyword")]
+    #[test_case("NZ123456", PiiKind::NzPassportNumber ; "nz passport no keyword")]
+    #[test_case("AB1234567", PiiKind::IePassportNumber ; "ie passport no keyword")]
+    #[test_case("15/03/1990", PiiKind::DateOfBirth ; "dob no keyword")]
+    #[test_case("012-345", PiiKind::AuBankAccount ; "au bsb no keyword")]
+    #[test_case("1234567890", PiiKind::CaBankAccount ; "ca bank no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

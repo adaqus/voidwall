@@ -78,7 +78,7 @@ When adding a new detector or PII type, update **all** of the following:
 
 1. Implement the `Detector` trait and register it in `Scanner::new()`
 2. Add the new variant to `PiiKind`
-3. Add unit tests
+3. Add unit tests — **add `#[test_case]` entries to the existing parametrized test functions first** (`detects_pii`, `rejects_invalid_pii` in `hyperscan_detector.rs`; `detects_with_keyword`, `no_detection_without_keyword`, `rejects_invalid_with_keyword` in `keyword_context_detector.rs`). Only create a new standalone test function if the existing parametrized functions genuinely cannot cover the case (e.g. a different assertion shape is required).
 4. **Update benchmarks** (`benches/pii_benchmark.rs`):
    - Add a corpus constant (e.g., `SSN_TEXT`) with realistic embedded PII
    - Add an entry in the `per_detector` benchmark group

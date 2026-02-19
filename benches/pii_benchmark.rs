@@ -314,6 +314,170 @@ Health card numbers for registration:\n\
 All OHIP numbers must be verified before claims are processed.\n\
 Contact ServiceOntario for any corrections.";
 
+const GB_PHONE_TEXT: &str = "\
+UK Customer Service Record — Call Log\n\n\
+Customer: Sarah Jenkins\n\
+Phone: +44 7911 123456\n\
+Alternate: 07700 900234\n\
+Case opened after customer called regarding account access issues.\n\
+Follow-up scheduled at phone 020 7946 0958.\n\
+Contact agent at ext. 4200 for case updates.";
+
+const AU_PHONE_TEXT: &str = "\
+Australia Customer Service — Ticket #AU-4821\n\n\
+Customer: James Nguyen\n\
+Phone: +61 4 1234 5678\n\
+Alternate: 04 9876 5432\n\
+Customer called regarding a billing dispute.\n\
+Transferred to billing team at tel 02 9876 5432.\n\
+Callback scheduled for business hours.";
+
+const NZ_PHONE_TEXT: &str = "\
+New Zealand Support Ticket — NZ-1234\n\n\
+Customer: Aroha Williams\n\
+Phone: +64 2 123 4567\n\
+Alternate: 09 876 5432\n\
+Customer reported connectivity issues.\n\
+Technical support callback at phone 04 987 6543.";
+
+const IE_PHONE_TEXT: &str = "\
+Irish Customer Service — Ticket #IE-0023\n\n\
+Customer: Ciarán O'Brien\n\
+Phone: +353 87 123 4567\n\
+Alternate: 086 987 6543\n\
+Case escalated to senior support at telephone 01 234 5678.";
+
+const ZA_PHONE_TEXT: &str = "\
+South Africa Customer Support — Ticket #ZA-0782\n\n\
+Customer: Thabo Nkosi\n\
+Phone: +27 71 123 4567\n\
+Alternate: 082 987 6543\n\
+Customer queried account statement.\n\
+Escalation contact: tel 011 234 5678.";
+
+const AWS_ACCESS_KEY_TEXT: &str = "\
+AWS Infrastructure Audit — Q1 2025\n\n\
+Rotated credentials detected in CI pipeline logs:\n\
+- Service account A: AKIAIOSFODNN7EXAMPLE\n\
+- Service account B: AKIAI44QH8DHBEXAMPLE\n\
+All access keys must be rotated within 90 days per security policy.\n\
+Contact the security team to revoke compromised credentials.";
+
+const GITHUB_TOKEN_TEXT: &str = "\
+GitHub Actions Workflow — Token Audit\n\n\
+Personal access tokens found in repository history:\n\
+- Developer A: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12\n\
+- Developer B: ghp_XYZabcdefghijklmnopqrstuvwxyz012345\n\
+All tokens must be revoked and regenerated immediately.\n\
+Review secret scanning alerts in the GitHub repository settings.";
+
+const AWS_SECRET_KEY_TEXT: &str = "\
+AWS Secrets Rotation — Security Notice\n\n\
+The following secret access keys require immediate rotation:\n\
+- Account A: AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\
+- Account B: secret_access_key: abcdefghijklmnopqrstuvwxyz0123456789ABCD\n\
+Please update all affected services and rotate keys in IAM immediately.\n\
+Contact DevOps for assistance with the rotation procedure.";
+
+const GB_PASSPORT_TEXT: &str = "\
+UK Border Control — Passenger Verification\n\n\
+Passengers requiring identity verification:\n\
+- Passenger A: British passport: 123456789\n\
+- Passenger B: UK passport: 987654321\n\
+All passports must be verified against UKBA records before boarding.\n\
+Contact border control for any discrepancies.";
+
+const AU_PASSPORT_TEXT: &str = "\
+Australian Border Force — Passenger Records\n\n\
+Passengers processed at international arrivals:\n\
+- Traveller A: Australian passport: A1234567\n\
+- Traveller B: Passport number: B7654321\n\
+All passport numbers must be scanned and verified.\n\
+Contact the ABF helpdesk for any issues.";
+
+const CA_PASSPORT_TEXT: &str = "\
+Canada Border Services Agency — Entry Records\n\n\
+Travellers processed at the port of entry:\n\
+- Traveller A: Canadian passport: AB123456\n\
+- Traveller B: Passport number: XY987654\n\
+All documents must be verified against CBSA records.\n\
+Contact CBSA for discrepancies.";
+
+const NZ_PASSPORT_TEXT: &str = "\
+New Zealand Customs — Arrival Records\n\n\
+Arriving passengers:\n\
+- Passenger A: New Zealand passport: NZ123456\n\
+- Passenger B: NZ passport: L1234567\n\
+All passports verified against NZCS records.\n\
+Contact customs for queries.";
+
+const IE_PASSPORT_TEXT: &str = "\
+Irish Naturalisation and Immigration Service — Records\n\n\
+Applications processed:\n\
+- Applicant A: Irish passport: AB1234567\n\
+- Applicant B: Ireland passport: CD7654321\n\
+All passports verified against INIS records.\n\
+Contact INIS for corrections.";
+
+const DOB_TEXT: &str = "\
+HR System — Employee Date of Birth Verification\n\n\
+The following records require DOB confirmation:\n\
+- Employee A: Date of birth: 15/03/1985\n\
+- Employee B: DOB: 1990-07-22\n\
+- Employee C: Born on: 01-01-1978\n\
+All records must be verified against original documents.\n\
+Contact HR for any discrepancies.";
+
+const GB_POSTCODE_TEXT: &str = "\
+UK Address Verification — Batch Process\n\n\
+Addresses requiring postcode validation:\n\
+- Record A: London, SW1A 1AA\n\
+- Record B: Manchester, M1 1AE\n\
+- Record C: Edinburgh, EH1 1YZ\n\
+All postcodes must be validated against Royal Mail PAF.\n\
+Contact the address team for corrections.";
+
+const CA_POSTAL_CODE_TEXT: &str = "\
+Canada Post — Address Verification\n\n\
+Delivery records requiring postal code check:\n\
+- Record A: Toronto, M5V 3L9\n\
+- Record B: Ottawa, K1A 0B1\n\
+- Record C: Vancouver, V6B 2W9\n\
+All postal codes verified against Canada Post database.\n\
+Contact the delivery team for corrections.";
+
+const BITCOIN_ADDRESS_TEXT: &str = "\
+Cryptocurrency Audit — Wallet Inventory\n\n\
+Bitcoin wallets flagged for review:\n\
+- Wallet A: 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa\n\
+- Wallet B: 3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy\n\
+All wallet addresses must be verified against transaction records.\n\
+Contact the compliance team for further investigation.";
+
+const ETHEREUM_ADDRESS_TEXT: &str = "\
+DeFi Platform — Account Review\n\n\
+Ethereum wallets requiring KYC verification:\n\
+- Account A: 0x1234567890abcdef1234567890abcdef12345678\n\
+- Account B: 0xAbCdEf1234567890AbCdEf1234567890AbCdEf12\n\
+All addresses must be linked to verified identities.\n\
+Contact the compliance team for KYC escalation.";
+
+const AU_BANK_ACCOUNT_TEXT: &str = "\
+Australian Banking — BSB Verification\n\n\
+Bank accounts flagged for validation:\n\
+- Account A: BSB: 012-345 Account: 123456789\n\
+- Account B: BSB number: 082-001\n\
+All BSB numbers must be validated against APCA records.\n\
+Contact the bank for any discrepancies.";
+
+const CA_BANK_ACCOUNT_TEXT: &str = "\
+Canadian Banking — Account Verification\n\n\
+Bank transit records requiring validation:\n\
+- Account A: Transit number: 00100 001 1234567\n\
+- Account B: Chequing account: 9876543210\n\
+All transit and institution numbers must be verified.\n\
+Contact the bank for corrections.";
+
 // Realistic support ticket containing the 5 most common US PII types:
 // email, phone, credit card, SSN, IP address. Used for a focused
 // throughput benchmark that reflects everyday US proxy traffic.
@@ -408,6 +572,27 @@ Tier 4 Verification Records:\n\
   Driver number: 123456789\n\
   Tax reference: 0123456789\n\
   OHIP: 1234567897\n\n\
+Tier 5 Verification Records:\n\
+  GB phone: +44 7911 123456\n\
+  AU phone: +61 4 1234 5678\n\
+  NZ phone: +64 2 123 4567\n\
+  IE phone: +353 87 123 4567\n\
+  ZA phone: +27 71 123 4567\n\
+  AWS access key: AKIAIOSFODNN7EXAMPLE\n\
+  GitHub token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12\n\
+  AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\
+  British passport: 123456789\n\
+  Australian passport: A1234567\n\
+  Canadian passport: AB123456\n\
+  New Zealand passport: NZ123456\n\
+  Irish passport: AB1234567\n\
+  Date of birth: 15/03/1985\n\
+  GB postcode: SW1A 1AA\n\
+  CA postal code: M5V 3L9\n\
+  Bitcoin wallet: 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa\n\
+  Ethereum wallet: 0x1234567890abcdef1234567890abcdef12345678\n\
+  BSB: 012-345\n\
+  Transit number: 00100 001 1234567\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -647,6 +832,93 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("ca_ohip", |b| {
         b.iter(|| scanner.mark_piis(CA_OHIP_TEXT));
+    });
+
+    // International phones
+    group.bench_function("gb_phone", |b| {
+        b.iter(|| scanner.mark_piis(GB_PHONE_TEXT));
+    });
+
+    group.bench_function("au_phone", |b| {
+        b.iter(|| scanner.mark_piis(AU_PHONE_TEXT));
+    });
+
+    group.bench_function("nz_phone", |b| {
+        b.iter(|| scanner.mark_piis(NZ_PHONE_TEXT));
+    });
+
+    group.bench_function("ie_phone", |b| {
+        b.iter(|| scanner.mark_piis(IE_PHONE_TEXT));
+    });
+
+    group.bench_function("za_phone", |b| {
+        b.iter(|| scanner.mark_piis(ZA_PHONE_TEXT));
+    });
+
+    // API secrets
+    group.bench_function("aws_access_key", |b| {
+        b.iter(|| scanner.mark_piis(AWS_ACCESS_KEY_TEXT));
+    });
+
+    group.bench_function("github_token", |b| {
+        b.iter(|| scanner.mark_piis(GITHUB_TOKEN_TEXT));
+    });
+
+    group.bench_function("aws_secret_key", |b| {
+        b.iter(|| scanner.mark_piis(AWS_SECRET_KEY_TEXT));
+    });
+
+    // Country-specific passports
+    group.bench_function("gb_passport", |b| {
+        b.iter(|| scanner.mark_piis(GB_PASSPORT_TEXT));
+    });
+
+    group.bench_function("au_passport", |b| {
+        b.iter(|| scanner.mark_piis(AU_PASSPORT_TEXT));
+    });
+
+    group.bench_function("ca_passport", |b| {
+        b.iter(|| scanner.mark_piis(CA_PASSPORT_TEXT));
+    });
+
+    group.bench_function("nz_passport", |b| {
+        b.iter(|| scanner.mark_piis(NZ_PASSPORT_TEXT));
+    });
+
+    group.bench_function("ie_passport", |b| {
+        b.iter(|| scanner.mark_piis(IE_PASSPORT_TEXT));
+    });
+
+    // Date of birth
+    group.bench_function("date_of_birth", |b| {
+        b.iter(|| scanner.mark_piis(DOB_TEXT));
+    });
+
+    // Postal codes
+    group.bench_function("gb_postcode", |b| {
+        b.iter(|| scanner.mark_piis(GB_POSTCODE_TEXT));
+    });
+
+    group.bench_function("ca_postal_code", |b| {
+        b.iter(|| scanner.mark_piis(CA_POSTAL_CODE_TEXT));
+    });
+
+    // Crypto addresses
+    group.bench_function("bitcoin_address", |b| {
+        b.iter(|| scanner.mark_piis(BITCOIN_ADDRESS_TEXT));
+    });
+
+    group.bench_function("ethereum_address", |b| {
+        b.iter(|| scanner.mark_piis(ETHEREUM_ADDRESS_TEXT));
+    });
+
+    // Bank accounts
+    group.bench_function("au_bank_account", |b| {
+        b.iter(|| scanner.mark_piis(AU_BANK_ACCOUNT_TEXT));
+    });
+
+    group.bench_function("ca_bank_account", |b| {
+        b.iter(|| scanner.mark_piis(CA_BANK_ACCOUNT_TEXT));
     });
 
     group.finish();
