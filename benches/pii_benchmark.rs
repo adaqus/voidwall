@@ -314,6 +314,31 @@ Health card numbers for registration:\n\
 All OHIP numbers must be verified before claims are processed.\n\
 Contact ServiceOntario for any corrections.";
 
+// Realistic support ticket containing the 5 most common US PII types:
+// email, phone, credit card, SSN, IP address. Used for a focused
+// throughput benchmark that reflects everyday US proxy traffic.
+const US_COMMON_PII_TEXT: &str = "\
+CUSTOMER SERVICE RECORD #CS-2025-1138\n\
+Date: 2025-01-15\n\n\
+Customer Information:\n\
+  Name: Michael Turner\n\
+  Email: m.turner@example.com\n\
+  Phone: (555) 867-5309\n\
+  Alternate contact: 555-234-7890\n\n\
+Account Activity:\n\
+Customer called about a disputed charge on their Visa card. \
+The card number on file is 4111 1111 1111 1111. A second charge was \
+also flagged on card 5500 0000 0000 0004.\n\n\
+Identity Verification:\n\
+  SSN provided: 123-45-6789\n\n\
+Technical Notes:\n\
+Login attempt flagged from IP address 203.0.113.55. \
+A second access attempt originated from 198.51.100.42 within the same session. \
+Both IPs have been logged for security review.\n\n\
+Agent assigned: sarah.jones@support.example.com\n\
+Escalation email: fraud-team@bank.example.com\n\n\
+Case Status: Open — awaiting customer callback at (555) 867-5309.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -433,6 +458,27 @@ fn throughput_has_piis(c: &mut Criterion) {
             b.iter(|| scanner.has_piis(input));
         });
     }
+
+    group.finish();
+}
+
+// Measures bytes/second throughput of mark_piis and has_piis on a realistic
+// US support-ticket containing only the 5 most common US PII types
+// (email, phone, credit card, SSN, IP address). More representative of
+// everyday proxy traffic than the exhaustive MIXED_PII_TEXT fixture.
+fn throughput_us_common_pii(c: &mut Criterion) {
+    let scanner = Scanner::new().unwrap();
+
+    let mut group = c.benchmark_group("throughput_us_common_pii");
+    group.throughput(Throughput::Bytes(US_COMMON_PII_TEXT.len() as u64));
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| scanner.mark_piis(US_COMMON_PII_TEXT));
+    });
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| scanner.has_piis(US_COMMON_PII_TEXT));
+    });
 
     group.finish();
 }
@@ -651,6 +697,7 @@ criterion_group!(
     benches,
     throughput_mark_piis,
     throughput_has_piis,
+    throughput_us_common_pii,
     has_piis_vs_mark_piis,
     per_pii_kind,
     clean_text_overhead,
