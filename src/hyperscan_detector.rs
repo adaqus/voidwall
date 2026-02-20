@@ -27,11 +27,9 @@ pub struct HyperscanDetector {
     entries: Vec<PatternEntry>,
     // SAFETY: Prototypes are declared before databases so they are dropped first.
     // Cloned into thread-local cache on first use per thread via hs_clone_scratch.
-    detection_prototype: BlockScanner<'static>,
     extraction_prototype: BlockScanner<'static>,
     // Box'd for stable heap address — the &BlockDatabase refs inside the
     // prototypes (and all clones) point into these Boxes.
-    detection_db: Box<BlockDatabase>,
     extraction_db: Box<BlockDatabase>,
 }
 
@@ -43,12 +41,6 @@ struct PatternDef {
     /// If true, this pattern can't use SOM_LEFTMOST (too large with UCP).
     /// Falls back to regex extraction instead.
     som_fallback: bool,
-    /// Simplified expression for the vectorscan detection DB. When set, this
-    /// lighter pattern is compiled into the detection DFA instead of `expr`,
-    /// keeping the automaton small. The full `expr` is still used for regex
-    /// extraction. Only useful for `som_fallback` patterns where vectorscan
-    /// detection just needs a "might be here" signal.
-    detection_expr: Option<&'static str>,
 }
 
 fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
@@ -59,7 +51,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: true,
             som_fallback: true,
-            detection_expr: Some(r"@|%40|&#64;|&#[xX]40;|&commat;"),
         },
         PatternDef {
             kind: PiiKind::CreditCard,
@@ -67,7 +58,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: luhn_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::UsSsn,
@@ -75,7 +65,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ssn_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::GbNino,
@@ -83,7 +72,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: nino_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::Iban,
@@ -91,7 +79,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: iban_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
@@ -99,7 +86,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ip_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
@@ -107,7 +93,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::UsItin,
@@ -115,7 +100,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: itin_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::CaSin,
@@ -123,7 +107,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: sin_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::IePpsn,
@@ -131,7 +114,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: ppsn_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -139,7 +121,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -147,7 +128,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -155,7 +135,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::GbDrivingLicence,
@@ -163,7 +142,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: uk_dl_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::Vin,
@@ -171,7 +149,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: vin_check,
             needs_ucp: false,
-            detection_expr: None,
         },
         PatternDef {
             kind: PiiKind::AwsAccessKey,
@@ -179,7 +156,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         // GithubToken: {36} and {59} fixed repetitions create long DFA state
         // chains. Use short prefix for detection; regex extraction verifies length.
@@ -189,7 +165,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: Some(r"\bgh[opsu]_[A-Za-z0-9]{10}|\bgithub_pat_[A-Za-z0-9_]{10}"),
         },
         PatternDef {
             kind: PiiKind::GbPostcode,
@@ -197,7 +172,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
         },
         // CaPostalCode: 3 large character classes (~40 chars each) cause DFA
         // state explosion with SOM_LEFTMOST. Use short prefix for detection;
@@ -208,9 +182,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: Some(
-                r"\b[ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz]",
-            ),
         },
         // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
         // classes cause DFA state explosion. Use minimum-length prefix for
@@ -221,7 +192,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: Some(r"\b[13][a-km-zA-HJ-NP-Z1-9]{25}|\bbc1[ac-hj-np-z02-9]{39}"),
         },
         // EthereumAddress: {40} fixed repetition. Use short prefix for detection.
         PatternDef {
@@ -230,7 +200,6 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: Some(r"\b0x[0-9a-fA-F]{10}"),
         },
     ];
 
@@ -244,7 +213,6 @@ impl HyperscanDetector {
         let raw = build_patterns(enabled);
 
         let mut entries = Vec::with_capacity(raw.len());
-        let mut detection_patterns = Vec::with_capacity(raw.len());
         let mut extraction_patterns = Vec::with_capacity(raw.len());
 
         for (id, pdef) in raw.iter().enumerate() {
@@ -267,15 +235,6 @@ impl HyperscanDetector {
                 Flag::UTF8
             };
 
-            // Detection: SINGLEMATCH for fast bail-out per pattern.
-            // Use detection_expr when set (lighter pattern to keep DFA small).
-            let det_expr = pdef.detection_expr.unwrap_or(pdef.expr);
-            detection_patterns.push(Pattern::new(
-                det_expr.as_bytes().to_vec(),
-                base_flags | Flag::SINGLEMATCH,
-                Some(id),
-            ));
-
             // Extraction: SOM_LEFTMOST to get start-of-match.
             // Patterns with som_fallback use regex extraction instead, but we
             // still need a placeholder in the extraction DB to keep IDs aligned.
@@ -287,22 +246,6 @@ impl HyperscanDetector {
                 ));
             }
         }
-
-        let detection_db = Box::new(
-            BlockDatabase::new(detection_patterns)
-                .map_err(|e| PiiError::HyperscanCompilation(format!("detection db: {e}")))?,
-        );
-        let detection_prototype = {
-            let scanner = BlockScanner::new(&detection_db).expect("detection scratch alloc");
-            // SAFETY: Box guarantees a stable heap address for the database.
-            // The prototype (and its clones) hold a reference into the Box.
-            // This is sound because: (1) the prototype field is declared before
-            // detection_db, so it is dropped first; (2) BlockScanner::drop only
-            // frees scratch via hs_free_scratch and does not dereference the
-            // database pointer; (3) thread-local clones may outlive the detector
-            // but their drop also only frees scratch.
-            unsafe { std::mem::transmute::<BlockScanner<'_>, BlockScanner<'static>>(scanner) }
-        };
 
         let extraction_db = Box::new(
             BlockDatabase::new(extraction_patterns)
@@ -316,9 +259,7 @@ impl HyperscanDetector {
 
         Ok(Self {
             entries,
-            detection_prototype,
             extraction_prototype,
-            detection_db,
             extraction_db,
         })
     }
@@ -328,20 +269,6 @@ impl HyperscanDetector {
         let enabled =
             PiiKind::enabled_for_countries(&crate::Country::all().iter().copied().collect());
         Self::new(&enabled)
-    }
-
-    fn with_detection_scanner<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut BlockScanner<'static>) -> R,
-    {
-        let db_key = &*self.detection_db as *const BlockDatabase as usize;
-        DETECTION_CACHE.with(|cell| {
-            let mut opt = cell.borrow_mut();
-            if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
-                *opt = Some((db_key, self.detection_prototype.clone()));
-            }
-            f(&mut opt.as_mut().unwrap().1)
-        })
     }
 
     fn with_extraction_scanner<F, R>(&self, f: F) -> R
@@ -361,14 +288,45 @@ impl HyperscanDetector {
 
 impl Detector for HyperscanDetector {
     fn has_piis(&self, input: &str) -> bool {
-        self.with_detection_scanner(|scanner| {
-            let mut found = false;
-            let _ = scanner.scan(input.as_bytes(), |_id, _from, _to, _flags| {
-                found = true;
-                Scan::Terminate
+        // Phase 1: SOM_LEFTMOST extraction patterns — validate before accepting
+        let mut found = false;
+        self.with_extraction_scanner(|scanner| {
+            let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
+                let entry = &self.entries[id as usize];
+                let start = from as usize;
+                let end = to as usize;
+                if start > input.len()
+                    || end > input.len()
+                    || start >= end
+                    || !input.is_char_boundary(start)
+                    || !input.is_char_boundary(end)
+                {
+                    return Scan::Continue;
+                }
+                let candidate = &input[start..end];
+                if (entry.validator)(candidate) {
+                    found = true;
+                    return Scan::Terminate;
+                }
+                Scan::Continue
             });
-            found
-        })
+        });
+        if found {
+            return true;
+        }
+
+        // Phase 2: Regex fallback for patterns that can't use SOM_LEFTMOST
+        for entry in &self.entries {
+            if let Some(ref re) = entry.extraction_regex {
+                for m in re.find_iter(input) {
+                    if (entry.validator)(m.as_str()) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
