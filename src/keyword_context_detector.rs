@@ -495,14 +495,12 @@ impl KeywordContextDetector {
             let mut found = false;
             let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
                 let pattern = &patterns[id as usize];
-                if let Some(caps) = pattern.full_regex.captures(input) {
-                    if let Some(value_match) = caps.get(1) {
-                        if (pattern.validate)(value_match.as_str()) {
+                if let Some(caps) = pattern.full_regex.captures(input)
+                    && let Some(value_match) = caps.get(1)
+                        && (pattern.validate)(value_match.as_str()) {
                             found = true;
                             return Scan::Terminate;
                         }
-                    }
-                }
                 Scan::Continue
             });
             found
@@ -666,6 +664,11 @@ mod tests {
 
     // --- has_piis: keyword variants, case insensitive, separator variants ---
 
+    // Unicode context — detection still succeeds.
+    // RTL mark (U+200F) before the keyword is just a prefix byte; vectorscan
+    // finds "phone" at its actual position in the byte stream.
+    #[test_case("\u{200F}phone: 555-123-4567" ; "phone rtl mark prefix")]
+    #[test_case("\u{200F}passport: 123456789" ; "passport rtl mark prefix")]
     #[test_case("phone number: 555-123-4567" ; "phone keyword variant 1")]
     #[test_case("telephone: 555-123-4567" ; "phone keyword variant 2")]
     #[test_case("mobile: 555-123-4567" ; "phone keyword variant 3")]
@@ -1002,6 +1005,15 @@ mod tests {
 
     // --- Rejection tests ---
 
+    // Zero-width space evasion — detection correctly fails.
+    // U+200B inserted inside a value breaks the digit/separator sequence; the
+    // regex value pattern no longer matches, so no PII span is extracted.
+    #[test_case("phone: 555\u{200B}-123-4567", PiiKind::PhoneNumber ; "phone zwsp in value")]
+    #[test_case("TFN: 123\u{200B}456 782", PiiKind::AuTfn ; "tfn zwsp in value")]
+    // U+200B inside the keyword itself prevents vectorscan from matching the
+    // keyword token, so the detection phase never triggers.
+    #[test_case("ph\u{200B}one: 555-123-4567", PiiKind::PhoneNumber ; "phone zwsp in keyword")]
+    #[test_case("pass\u{200B}port: 123456789", PiiKind::PassportNumber ; "passport zwsp in keyword")]
     #[test_case("TFN: 123 456 789", PiiKind::AuTfn ; "tfn bad checksum")]
     #[test_case("IRD: 01-000-000", PiiKind::NzIrdNumber ; "ird out of range")]
     #[test_case("NHS: 943 476 5910", PiiKind::GbNhsNumber ; "nhs bad checksum")]

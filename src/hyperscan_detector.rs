@@ -402,6 +402,14 @@ mod tests {
 
     // --- Detection with span verification ---
 
+    // Unicode edge cases — detection still succeeds
+    // RTL mark (U+200F) surrounds the email; it is a formatting char, not \w,
+    // so the email pattern still anchors correctly on the ASCII characters.
+    #[test_case("contact \u{200F}user@example.com\u{200F} please", PiiKind::Email, "user@example.com" ; "email rtl marks surrounding")]
+    // Cyrillic 'а' (U+0430) looks identical to Latin 'a'.  With vectorscan UCP
+    // and regex-crate Unicode mode, \w matches Unicode letters, so the homoglyph
+    // domain is still detected.
+    #[test_case("user@ex\u{0430}mple.com", PiiKind::Email, "user@ex\u{0430}mple.com" ; "email cyrillic homoglyph in domain")]
     #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
     #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
     #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span")]
@@ -460,6 +468,15 @@ mod tests {
 
     // --- Rejection tests ---
 
+    // Unicode zero-width / bidi evasion — detection correctly fails.
+    // U+200B (ZERO WIDTH SPACE) is not \w, not a digit, and not an allowed
+    // separator, so inserting it inside a pattern breaks the match.
+    #[test_case("user\u{200B}@example.com", PiiKind::Email ; "email zwsp breaks at sign boundary")]
+    #[test_case("SSN: 123\u{200B}-45-6789", PiiKind::UsSsn ; "ssn zwsp evades pattern")]
+    #[test_case("card: 4111\u{200B}1111\u{200B}1111\u{200B}1111", PiiKind::CreditCard ; "credit card zwsp evasion")]
+    // U+202E (RIGHT-TO-LEFT OVERRIDE) inserted between '@' and the domain is not
+    // a word character, so the domain half of the email pattern cannot match.
+    #[test_case("user@\u{202E}moc.elpmaxe", PiiKind::Email ; "email bidi rlo evades")]
     #[test_case("card: 4111 1111 1111 1112", PiiKind::CreditCard ; "invalid credit card luhn")]
     #[test_case("SSN: 000-45-6789", PiiKind::UsSsn ; "ssn area 000")]
     #[test_case("SSN: 666-45-6789", PiiKind::UsSsn ; "ssn area 666")]
