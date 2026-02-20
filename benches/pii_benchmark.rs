@@ -605,7 +605,7 @@ fn throughput_mark_piis(c: &mut Criterion) {
     let scanner = Scanner::new().unwrap();
     let long_clean = make_long_clean_text();
 
-    let mut group = c.benchmark_group("throughput");
+    let mut group = c.benchmark_group("throughput_mark_piis");
 
     let inputs: &[(&str, &str)] = &[
         ("clean_500b", CLEAN_TEXT),

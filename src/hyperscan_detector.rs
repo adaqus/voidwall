@@ -56,10 +56,10 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
         PatternDef {
             kind: PiiKind::Email,
             expr: r"[\w._%+&#;-]+(?:@|%40|&#64;|&#[xX]40;|&commat;)[\w.%&#;-]+(?:\.|%2[eE]|&#46;|&#[xX]2[eE];|&period;)\w[\w-]*\w",
-            validator: always_valid as fn(&str) -> bool,
+            validator: always_valid,
             needs_ucp: true,
             som_fallback: true,
-            detection_expr: None,
+            detection_expr: Some(r"@|%40|&#64;|&#[xX]40;|&commat;"),
         },
         PatternDef {
             kind: PiiKind::CreditCard,
@@ -199,13 +199,18 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             needs_ucp: false,
             detection_expr: None,
         },
+        // CaPostalCode: 3 large character classes (~40 chars each) cause DFA
+        // state explosion with SOM_LEFTMOST. Use short prefix for detection;
+        // regex extraction verifies the full format.
         PatternDef {
             kind: PiiKind::CaPostalCode,
             expr: r"\b[ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz]\s?[0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9]\b",
-            som_fallback: false,
+            som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
-            detection_expr: None,
+            detection_expr: Some(
+                r"\b[ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz]",
+            ),
         },
         // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
         // classes cause DFA state explosion. Use minimum-length prefix for
