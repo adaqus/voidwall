@@ -6,6 +6,7 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::Language;
 use crate::detector::Detector;
+use crate::normalize::has_zero_width;
 use crate::validators::{
     a_number_check, aba_check, always_valid, dob_check, ein_check, geolocation_check,
     ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nz_dl_check,
@@ -100,22 +101,36 @@ fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
     }
 }
 
-/// Decodes URL percent-encoding and HTML entities to plain ASCII.
-/// Returns `None` if input contains no encoded sequences (fast path).
-/// Otherwise returns `(decoded, offset_map)` where `offset_map[i]` maps
-/// decoded byte position `i` to the corresponding original byte position.
+/// Normalises input for detection: decodes URL percent-encoding and HTML
+/// entities to plain ASCII, and strips zero-width invisible characters
+/// (U+200B/C/D) that are inserted to break keyword and value patterns.
+/// Returns `None` if the input needs no normalisation (fast path).
+/// Otherwise returns `(normalised, offset_map)` where `offset_map[i]` maps
+/// normalised byte position `i` to the corresponding original byte position.
 fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> {
-    if !input.as_bytes().iter().any(|&b| b == b'%' || b == b'&') {
+    let bytes = input.as_bytes();
+    let has_encoding = bytes.iter().any(|&b| b == b'%' || b == b'&');
+    if !has_encoding && !has_zero_width(bytes) {
         return None;
     }
 
-    let bytes = input.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut offset_map = Vec::with_capacity(bytes.len() + 1);
     let mut i = 0;
     let mut changed = false;
 
     while i < bytes.len() {
+        // Strip zero-width invisible characters inserted to evade detection.
+        if bytes[i] == 0xE2
+            && i + 2 < bytes.len()
+            && bytes[i + 1] == 0x80
+            && matches!(bytes[i + 2], 0x8B..=0x8D)
+        {
+            i += 3;
+            changed = true;
+            continue;
+        }
+
         if bytes[i] == b'%'
             && i + 2 < bytes.len()
             && let Some(ch) = decode_percent(bytes[i + 1], bytes[i + 2])
@@ -146,7 +161,8 @@ fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> {
     }
 
     // SAFETY: We only replace ASCII-encoded sequences (%XX, &#DD;, &name;) with
-    // single ASCII bytes (0x20..=0x7E), and copy all other bytes verbatim from
+    // single ASCII bytes (0x20..=0x7E), strip complete 3-byte zero-width
+    // codepoints (E2 80 8B/8C/8D), and copy all other bytes verbatim from
     // valid UTF-8 input. The result is always valid UTF-8.
     Some((unsafe { String::from_utf8_unchecked(decoded) }, offset_map))
 }
@@ -497,10 +513,11 @@ impl KeywordContextDetector {
                 let pattern = &patterns[id as usize];
                 if let Some(caps) = pattern.full_regex.captures(input)
                     && let Some(value_match) = caps.get(1)
-                        && (pattern.validate)(value_match.as_str()) {
-                            found = true;
-                            return Scan::Terminate;
-                        }
+                    && (pattern.validate)(value_match.as_str())
+                {
+                    found = true;
+                    return Scan::Terminate;
+                }
                 Scan::Continue
             });
             found
@@ -565,6 +582,12 @@ mod tests {
 
     // --- Detection with span verification ---
 
+    // Zero-width space (U+200B) is stripped before matching; the returned span
+    // covers the original bytes so the caller can redact the full obfuscated token.
+    #[test_case("phone: 555\u{200B}-123-4567", PiiKind::PhoneNumber, "555\u{200B}-123-4567" ; "phone zwsp in value stripped")]
+    // ZWS inside a digit group (not replacing a separator) — after stripping,
+    // "1\u{200B}23 456 782" becomes "123 456 782" which passes the TFN checksum.
+    #[test_case("TFN: 1\u{200B}23 456 782", PiiKind::AuTfn, "1\u{200B}23 456 782" ; "tfn zwsp in digit stripped")]
     #[test_case("phone: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "phone basic")]
     #[test_case("phone: (555) 123-4567", PiiKind::PhoneNumber, "(555) 123-4567" ; "phone parens")]
     #[test_case("phone: 555.123.4567", PiiKind::PhoneNumber, "555.123.4567" ; "phone dots")]
@@ -669,6 +692,10 @@ mod tests {
     // finds "phone" at its actual position in the byte stream.
     #[test_case("\u{200F}phone: 555-123-4567" ; "phone rtl mark prefix")]
     #[test_case("\u{200F}passport: 123456789" ; "passport rtl mark prefix")]
+    // U+200B inside the keyword is stripped before scanning, so "ph\u{200B}one"
+    // normalises to "phone" and the keyword is matched.
+    #[test_case("ph\u{200B}one: 555-123-4567" ; "phone zwsp in keyword stripped")]
+    #[test_case("pass\u{200B}port: 123456789" ; "passport zwsp in keyword stripped")]
     #[test_case("phone number: 555-123-4567" ; "phone keyword variant 1")]
     #[test_case("telephone: 555-123-4567" ; "phone keyword variant 2")]
     #[test_case("mobile: 555-123-4567" ; "phone keyword variant 3")]
@@ -1005,15 +1032,6 @@ mod tests {
 
     // --- Rejection tests ---
 
-    // Zero-width space evasion — detection correctly fails.
-    // U+200B inserted inside a value breaks the digit/separator sequence; the
-    // regex value pattern no longer matches, so no PII span is extracted.
-    #[test_case("phone: 555\u{200B}-123-4567", PiiKind::PhoneNumber ; "phone zwsp in value")]
-    #[test_case("TFN: 123\u{200B}456 782", PiiKind::AuTfn ; "tfn zwsp in value")]
-    // U+200B inside the keyword itself prevents vectorscan from matching the
-    // keyword token, so the detection phase never triggers.
-    #[test_case("ph\u{200B}one: 555-123-4567", PiiKind::PhoneNumber ; "phone zwsp in keyword")]
-    #[test_case("pass\u{200B}port: 123456789", PiiKind::PassportNumber ; "passport zwsp in keyword")]
     #[test_case("TFN: 123 456 789", PiiKind::AuTfn ; "tfn bad checksum")]
     #[test_case("IRD: 01-000-000", PiiKind::NzIrdNumber ; "ird out of range")]
     #[test_case("NHS: 943 476 5910", PiiKind::GbNhsNumber ; "nhs bad checksum")]

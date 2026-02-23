@@ -5,6 +5,7 @@ use regex::Regex;
 use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::detector::Detector;
+use crate::normalize::strip_zero_width;
 use crate::validators::*;
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -288,6 +289,12 @@ impl HyperscanDetector {
 
 impl Detector for HyperscanDetector {
     fn has_piis(&self, input: &str) -> bool {
+        let stripped = strip_zero_width(input);
+        let input: &str = match &stripped {
+            Some((s, _)) => s.as_str(),
+            None => input,
+        };
+
         // Phase 1: SOM_LEFTMOST extraction patterns — validate before accepting
         let mut found = false;
         self.with_extraction_scanner(|scanner| {
@@ -330,6 +337,19 @@ impl Detector for HyperscanDetector {
     }
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
+        let stripped = strip_zero_width(input);
+        let zwsp_map: Option<&Vec<usize>>;
+        let input: &str = match &stripped {
+            Some((s, m)) => {
+                zwsp_map = Some(m);
+                s.as_str()
+            }
+            None => {
+                zwsp_map = None;
+                input
+            }
+        };
+
         let mut results = Vec::new();
 
         // Phase 1: SOM_LEFTMOST extraction for patterns in the extraction DB
@@ -386,6 +406,15 @@ impl Detector for HyperscanDetector {
             // b is the earlier element (already kept). Remove a if it overlaps b with same kind.
             a.kind == b.kind && a.start >= b.start && a.end <= b.end
         });
+
+        // Remap match positions from the stripped string back to the original input.
+        if let Some(map) = zwsp_map {
+            for m in &mut results {
+                m.start = map[m.start];
+                m.end = map[m.end];
+            }
+        }
+
         results
     }
 }
@@ -410,6 +439,11 @@ mod tests {
     // and regex-crate Unicode mode, \w matches Unicode letters, so the homoglyph
     // domain is still detected.
     #[test_case("user@ex\u{0430}mple.com", PiiKind::Email, "user@ex\u{0430}mple.com" ; "email cyrillic homoglyph in domain")]
+    // Zero-width space (U+200B) is stripped before scanning; the reported span
+    // covers the full original bytes including the invisible character.
+    #[test_case("user\u{200B}@example.com", PiiKind::Email, "user\u{200B}@example.com" ; "email zwsp stripped before matching")]
+    #[test_case("SSN: 123\u{200B}-45-6789", PiiKind::UsSsn, "123\u{200B}-45-6789" ; "ssn zwsp stripped before matching")]
+    #[test_case("card: 4111\u{200B}1111\u{200B}1111\u{200B}1111", PiiKind::CreditCard, "4111\u{200B}1111\u{200B}1111\u{200B}1111" ; "credit card zwsp stripped before matching")]
     #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
     #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
     #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span")]
@@ -468,14 +502,10 @@ mod tests {
 
     // --- Rejection tests ---
 
-    // Unicode zero-width / bidi evasion — detection correctly fails.
-    // U+200B (ZERO WIDTH SPACE) is not \w, not a digit, and not an allowed
-    // separator, so inserting it inside a pattern breaks the match.
-    #[test_case("user\u{200B}@example.com", PiiKind::Email ; "email zwsp breaks at sign boundary")]
-    #[test_case("SSN: 123\u{200B}-45-6789", PiiKind::UsSsn ; "ssn zwsp evades pattern")]
-    #[test_case("card: 4111\u{200B}1111\u{200B}1111\u{200B}1111", PiiKind::CreditCard ; "credit card zwsp evasion")]
     // U+202E (RIGHT-TO-LEFT OVERRIDE) inserted between '@' and the domain is not
     // a word character, so the domain half of the email pattern cannot match.
+    // Unlike zero-width spaces (which are stripped), RLO is a display-semantic
+    // character and is not normalised away.
     #[test_case("user@\u{202E}moc.elpmaxe", PiiKind::Email ; "email bidi rlo evades")]
     #[test_case("card: 4111 1111 1111 1112", PiiKind::CreditCard ; "invalid credit card luhn")]
     #[test_case("SSN: 000-45-6789", PiiKind::UsSsn ; "ssn area 000")]
