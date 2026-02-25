@@ -8,10 +8,11 @@ use crate::Language;
 use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
-    a_number_check, aba_check, always_valid, dob_check, ein_check, geolocation_check,
-    ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nz_dl_check,
-    ohip_check, passport_check, passport_new_check, phone_check, sa_id_check, sort_code_check,
-    swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
+    a_number_check, aba_check, always_valid, dob_check, ein_check, fr_nif_check, fr_postal_check,
+    geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check, nhi_check,
+    nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check, phone_check,
+    sa_id_check, siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check,
+    us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -266,6 +267,98 @@ impl KeywordContextDetector {
                 r"(?i)(?:transit number|transit no\.?|institution number|chequing account|savings account|canadian account|ca account)[\s:.#/\-\x22]*?(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
                 always_valid,
             ),
+            // --- France-specific PII types (Language::Fr) ---
+            (
+                PiiKind::FrNir,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro de s[eé]curit[eé] sociale|num[eé]ro s[eé]curit[eé] sociale|n° de s[eé]curit[eé] sociale|n° s[eé]curit[eé] sociale|num[eé]ro de s[eé]cu|num[eé]ro s[eé]cu|n° s[eé]cu|s[eé]curit[eé] sociale|num[eé]ro SS|n° SS|code s[eé]cu|NIR|s[eé]cu)[\s:.#/\-\x22]*?(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?\d{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
+                nir_check,
+            ),
+            (
+                PiiKind::FrSiret,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro SIRET|n° SIRET|[eé]tablissement SIRET|SIRET)[\s:.#/\-\x22]*?(\d{14})\b",
+                siret_luhn_check,
+            ),
+            (
+                PiiKind::FrSiren,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro SIREN|n° SIREN|entreprise SIREN|SIREN)[\s:.#/\-\x22]*?(\d{9})\b",
+                siren_luhn_check,
+            ),
+            (
+                PiiKind::FrPassportNumber,
+                Language::Fr,
+                r"(?i)(?:passeport fran[cç]ais|passeport france|num[eé]ro de passeport)[\s:.#/\-\x22]*?(\d{2}[A-Za-z]{2}\d{5})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::FrCni,
+                Language::Fr,
+                r"(?i)(?:carte nationale d'identit[eé]|carte d'identit[eé]|pi[eè]ce d'identit[eé]|num[eé]ro CNI|CNI)[\s:.#/\-\x22]*?(\d{12})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::FrDriversLicense,
+                Language::Fr,
+                r"(?i)(?:permis de conduire|num[eé]ro de permis|n° permis)[\s:.#/\-\x22]*?(\d{12})\b",
+                always_valid,
+            ),
+            (
+                PiiKind::FrPhoneNumber,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro de t[eé]l[eé]phone|num[eé]ro de t[eé]l|n° de t[eé]l[eé]phone|n° de t[eé]l|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|tel|num[eé]ro t[eé]l|appeler|rappel|contact)[\s:.#/\-\x22]*?((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
+                phone_check,
+            ),
+            (
+                PiiKind::FrPostalCode,
+                Language::Fr,
+                r"(?i)(?:code postal|CP)[\s:.#/\-\x22]*?(\d{5})\b",
+                fr_postal_check,
+            ),
+            (
+                PiiKind::FrNif,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro d'identification fiscale|num[eé]ro fiscal|identifiant fiscal|avis d'imposition|NIF|SPI)[\s:.#/\-\x22]*?(\d{13})\b",
+                fr_nif_check,
+            ),
+            // --- French keywords for existing international types ---
+            (
+                PiiKind::PhoneNumber,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro de t[eé]l[eé]phone|num[eé]ro de t[eé]l|n° de t[eé]l[eé]phone|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|appeler|rappel)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            (
+                PiiKind::PassportNumber,
+                Language::Fr,
+                r"(?i)(?:passeport|num[eé]ro de passeport|document de voyage)[\s:.#/\-\x22]*?(\d{9})\b",
+                passport_check,
+            ),
+            (
+                PiiKind::DateOfBirth,
+                Language::Fr,
+                r"(?i)(?:date de naissance|n[eé]e? le|DDN|d\.d\.n\.?)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|fevrier|f[eé]vrier|mars|avril|mai|juin|juillet|aout|ao[uû]t|septembre|octobre|novembre|decembre|d[eé]cembre)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::Fr,
+                r"(?i)(?:coordonn[eé]es GPS|position GPS|g[eé]olocalisation|coordonn[eé]es g[eé]ographiques|latitude/longitude)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::Fr,
+                r"(?i)(?:identifiant bancaire)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::Fr,
+                r"(?i)(?:num[eé]ro IMEI|identifiant appareil)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -518,6 +611,23 @@ mod tests {
     #[test_case("bsb number: 012345", PiiKind::AuBankAccount, "012345" ; "au bsb no hyphen")]
     #[test_case("transit number: 12345 001 1234567", PiiKind::CaBankAccount, "12345 001 1234567" ; "ca transit full")]
     #[test_case("chequing account: 1234567890", PiiKind::CaBankAccount, "1234567890" ; "ca chequing account")]
+    // France-specific PII types
+    #[test_case("numéro de sécu: 1 85 05 78 006 084 91", PiiKind::FrNir, "1 85 05 78 006 084 91" ; "fr nir")]
+    #[test_case("SIRET: 73282932000074", PiiKind::FrSiret, "73282932000074" ; "fr siret")]
+    #[test_case("SIREN: 732829320", PiiKind::FrSiren, "732829320" ; "fr siren")]
+    #[test_case("passeport français: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport")]
+    #[test_case("carte d'identité: 123456789012", PiiKind::FrCni, "123456789012" ; "fr cni")]
+    #[test_case("permis de conduire: 123456789012", PiiKind::FrDriversLicense, "123456789012" ; "fr drivers license")]
+    #[test_case("téléphone: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr phone")]
+    #[test_case("code postal: 75008", PiiKind::FrPostalCode, "75008" ; "fr postal code")]
+    #[test_case("numéro fiscal: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif")]
+    // French keywords for existing international types
+    #[test_case("date de naissance: 15 mars 1990", PiiKind::DateOfBirth, "15 mars 1990" ; "fr dob")]
+    #[test_case("rappel: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "fr keyword us phone")]
+    #[test_case("document de voyage: 123456789", PiiKind::PassportNumber, "123456789" ; "fr keyword passport")]
+    #[test_case("géolocalisation: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "fr keyword geolocation")]
+    #[test_case("identifiant bancaire: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "fr keyword swift")]
+    #[test_case("identifiant appareil: 490154203237518", PiiKind::Imei, "490154203237518" ; "fr keyword imei")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -912,6 +1022,13 @@ mod tests {
     #[test_case("OHIP: 1234567898", PiiKind::CaOhip ; "ca ohip bad luhn")]
     #[test_case("dob: 15/13/1990", PiiKind::DateOfBirth ; "dob invalid month 13")]
     #[test_case("dob: 00/00/0000", PiiKind::DateOfBirth ; "dob all zeros")]
+    // France
+    #[test_case("numéro de sécu: 1 85 05 78 006 084 99", PiiKind::FrNir ; "fr nir bad checksum")]
+    #[test_case("code postal: 00100", PiiKind::FrPostalCode ; "fr postal below range")]
+    #[test_case("code postal: 99999", PiiKind::FrPostalCode ; "fr postal above range")]
+    #[test_case("numéro fiscal: 4123456789012", PiiKind::FrNif ; "fr nif invalid first digit")]
+    #[test_case("SIRET: 73282932000075", PiiKind::FrSiret ; "fr siret bad luhn")]
+    #[test_case("SIREN: 732829321", PiiKind::FrSiren ; "fr siren bad luhn")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -960,6 +1077,12 @@ mod tests {
     #[test_case("15/03/1990", PiiKind::DateOfBirth ; "dob no keyword")]
     #[test_case("012-345", PiiKind::AuBankAccount ; "au bsb no keyword")]
     #[test_case("1234567890", PiiKind::CaBankAccount ; "ca bank no keyword")]
+    // France
+    #[test_case("185057800608491", PiiKind::FrNir ; "fr nir no keyword")]
+    #[test_case("73282932000074", PiiKind::FrSiret ; "fr siret no keyword")]
+    #[test_case("06 12 34 56 78", PiiKind::FrPhoneNumber ; "fr phone no keyword")]
+    #[test_case("75008", PiiKind::FrPostalCode ; "fr postal no keyword")]
+    #[test_case("0123456789012", PiiKind::FrNif ; "fr nif no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

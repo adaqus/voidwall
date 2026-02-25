@@ -64,6 +64,7 @@ pub enum Country {
     Ca,
     Ie,
     Za,
+    Fr,
 }
 
 impl Country {
@@ -77,6 +78,7 @@ impl Country {
             Country::Ca,
             Country::Ie,
             Country::Za,
+            Country::Fr,
         ]
     }
 }
@@ -85,11 +87,12 @@ impl Country {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     En,
+    Fr,
 }
 
 impl Language {
     pub fn all() -> &'static [Language] {
-        &[Language::En]
+        &[Language::En, Language::Fr]
     }
 }
 
@@ -155,6 +158,15 @@ pub enum PiiKind {
     EthereumAddress,
     AuBankAccount,
     CaBankAccount,
+    FrNir,
+    FrSiret,
+    FrSiren,
+    FrPassportNumber,
+    FrCni,
+    FrDriversLicense,
+    FrPhoneNumber,
+    FrPostalCode,
+    FrNif,
 }
 
 impl RedactWith {
@@ -225,6 +237,15 @@ impl PiiKind {
             PiiKind::EthereumAddress => "ETHEREUM_ADDRESS",
             PiiKind::AuBankAccount => "AU_BANK_ACCOUNT",
             PiiKind::CaBankAccount => "CA_BANK_ACCOUNT",
+            PiiKind::FrNir => "FR_NIR",
+            PiiKind::FrSiret => "FR_SIRET",
+            PiiKind::FrSiren => "FR_SIREN",
+            PiiKind::FrPassportNumber => "FR_PASSPORT_NUMBER",
+            PiiKind::FrCni => "FR_CNI",
+            PiiKind::FrDriversLicense => "FR_DRIVERS_LICENSE",
+            PiiKind::FrPhoneNumber => "FR_PHONE_NUMBER",
+            PiiKind::FrPostalCode => "FR_POSTAL_CODE",
+            PiiKind::FrNif => "FR_NIF",
         }
     }
 
@@ -284,6 +305,16 @@ impl PiiKind {
             | PiiKind::IePassportNumber => Country::Ie,
 
             PiiKind::ZaId | PiiKind::ZaTaxReference | PiiKind::ZaPhoneNumber => Country::Za,
+
+            PiiKind::FrNir
+            | PiiKind::FrSiret
+            | PiiKind::FrSiren
+            | PiiKind::FrPassportNumber
+            | PiiKind::FrCni
+            | PiiKind::FrDriversLicense
+            | PiiKind::FrPhoneNumber
+            | PiiKind::FrPostalCode
+            | PiiKind::FrNif => Country::Fr,
 
             PiiKind::AwsAccessKey
             | PiiKind::GithubToken
@@ -350,6 +381,15 @@ impl PiiKind {
         PiiKind::EthereumAddress,
         PiiKind::AuBankAccount,
         PiiKind::CaBankAccount,
+        PiiKind::FrNir,
+        PiiKind::FrSiret,
+        PiiKind::FrSiren,
+        PiiKind::FrPassportNumber,
+        PiiKind::FrCni,
+        PiiKind::FrDriversLicense,
+        PiiKind::FrPhoneNumber,
+        PiiKind::FrPostalCode,
+        PiiKind::FrNif,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

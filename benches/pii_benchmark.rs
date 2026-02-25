@@ -478,6 +478,54 @@ Bank transit records requiring validation:\n\
 All transit and institution numbers must be verified.\n\
 Contact the bank for corrections.";
 
+const FR_NIR_TEXT: &str = "\
+Caisse Primaire d'Assurance Maladie — Vérification des Assurés\n\n\
+Dossiers à vérifier avant traitement :\n\
+- Assuré A : numéro de sécurité sociale : 1 85 05 78 006 084 91\n\
+- Assuré B : numéro sécu : 2 84 11 75 012 345 20\n\
+Tous les numéros doivent être vérifiés avant le remboursement.\n\
+Contactez la CPAM pour toute correction.";
+
+const FR_SIRET_TEXT: &str = "\
+Chambre de Commerce — Vérification des Entreprises\n\n\
+Entreprises enregistrées ce trimestre :\n\
+- Entreprise A : SIRET : 73282932000074\n\
+- Entreprise B : numéro SIRET : 44306184100047\n\
+Tous les numéros SIRET doivent être vérifiés au registre.\n\
+Contactez le greffe pour toute correction.";
+
+const FR_PHONE_TEXT: &str = "\
+Service Client — Fiche d'Appel\n\n\
+Client : Jean Dupont\n\
+Téléphone : 06 12 34 56 78\n\
+Autre contact : portable : +33 7 98 76 54 32\n\
+Le client a appelé concernant une facturation.\n\
+Rappel prévu à téléphone : 01 23 45 67 89.";
+
+const FR_MIXED_TEXT: &str = "\
+DOSSIER CLIENT #FR-2025-0042\n\
+Priorité : Haute\n\
+Créé : 2025-01-15 09:23:41 UTC\n\n\
+Informations Client :\n\
+  Nom : Marie Dubois\n\
+  Téléphone : 06 12 34 56 78\n\
+  Code postal : 75008\n\n\
+Vérification d'Identité :\n\
+  Numéro de sécurité sociale : 1 85 05 78 006 084 91\n\
+  Carte d'identité : 123456789012\n\
+  Passeport français : 05AB12345\n\
+  Permis de conduire : 987654321012\n\
+  Numéro fiscal : 0123456789012\n\n\
+Entreprise :\n\
+  SIRET : 73282932000074\n\
+  SIREN : 732829320\n\n\
+Informations Bancaires :\n\
+  Code SWIFT : BNPAFRPP\n\
+  Numéro IMEI : 490154203237518\n\n\
+Date de naissance : 15 mars 1990\n\
+Coordonnées GPS : 48.8566,2.3522\n\n\
+Fin des notes du dossier.\n";
+
 // Realistic support ticket containing the 5 most common US PII types:
 // email, phone, credit card, SSN, IP address. Used for a focused
 // throughput benchmark that reflects everyday US proxy traffic.
@@ -593,6 +641,16 @@ Tier 5 Verification Records:\n\
   Ethereum wallet: 0x1234567890abcdef1234567890abcdef12345678\n\
   BSB: 012-345\n\
   Transit number: 00100 001 1234567\n\n\
+Tier 6 France Verification Records:\n\
+  Numéro de sécurité sociale: 1 85 05 78 006 084 91\n\
+  SIRET: 73282932000074\n\
+  SIREN: 732829320\n\
+  Passeport français: 05AB12345\n\
+  Carte d'identité: 123456789012\n\
+  Permis de conduire: 987654321012\n\
+  Téléphone: 06 12 34 56 78\n\
+  Code postal: 75008\n\
+  Numéro fiscal: 0123456789012\n\n\
 End of ticket notes.\n";
 
 fn make_long_clean_text() -> String {
@@ -919,6 +977,23 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("ca_bank_account", |b| {
         b.iter(|| scanner.mark_piis(CA_BANK_ACCOUNT_TEXT));
+    });
+
+    // France
+    group.bench_function("fr_nir", |b| {
+        b.iter(|| scanner.mark_piis(FR_NIR_TEXT));
+    });
+
+    group.bench_function("fr_siret", |b| {
+        b.iter(|| scanner.mark_piis(FR_SIRET_TEXT));
+    });
+
+    group.bench_function("fr_phone", |b| {
+        b.iter(|| scanner.mark_piis(FR_PHONE_TEXT));
+    });
+
+    group.bench_function("fr_mixed", |b| {
+        b.iter(|| scanner.mark_piis(FR_MIXED_TEXT));
     });
 
     group.finish();

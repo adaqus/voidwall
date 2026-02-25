@@ -700,19 +700,19 @@ pub(crate) fn dob_check(s: &str) -> bool {
     };
 
     let month_from_name = |name: &str| -> Option<u32> {
-        match name.to_ascii_lowercase().as_str() {
-            "jan" | "january" => Some(1),
-            "feb" | "february" => Some(2),
-            "mar" | "march" => Some(3),
-            "apr" | "april" => Some(4),
-            "may" => Some(5),
-            "jun" | "june" => Some(6),
-            "jul" | "july" => Some(7),
-            "aug" | "august" => Some(8),
-            "sep" | "september" => Some(9),
-            "oct" | "october" => Some(10),
-            "nov" | "november" => Some(11),
-            "dec" | "december" => Some(12),
+        match name.to_lowercase().as_str() {
+            "jan" | "january" | "janvier" => Some(1),
+            "feb" | "february" | "février" | "fevrier" => Some(2),
+            "mar" | "march" | "mars" => Some(3),
+            "apr" | "april" | "avril" => Some(4),
+            "may" | "mai" => Some(5),
+            "jun" | "june" | "juin" => Some(6),
+            "jul" | "july" | "juillet" => Some(7),
+            "aug" | "august" | "août" | "aout" => Some(8),
+            "sep" | "september" | "septembre" => Some(9),
+            "oct" | "october" | "octobre" => Some(10),
+            "nov" | "november" | "novembre" => Some(11),
+            "dec" | "december" | "décembre" | "decembre" => Some(12),
             _ => None,
         }
     };
@@ -720,28 +720,24 @@ pub(crate) fn dob_check(s: &str) -> bool {
     let trimmed = s.trim();
 
     // Try numeric formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD (separators: / - .)
-    if trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        // Split on / - .
-        let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
-        if parts.len() == 3 {
-            let a: Option<u32> = parts[0].trim().parse().ok();
-            let b: Option<u32> = parts[1].trim().parse().ok();
-            let c: Option<u32> = parts[2].trim().parse().ok();
-            if let (Some(a), Some(b), Some(c)) = (a, b, c) {
-                // YYYY-MM-DD: first part is 4-digit year
-                if parts[0].trim().len() == 4 && a >= 1900 {
-                    return valid_date(a, b, c);
-                }
-                // DD/MM/YYYY or MM/DD/YYYY: last part is 4-digit year
-                if parts[2].trim().len() == 4 && c >= 1900 {
-                    return valid_date(c, b, a) || valid_date(c, a, b);
-                }
+    let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
+    if parts.len() == 3 {
+        let a: Option<u32> = parts[0].trim().parse().ok();
+        let b: Option<u32> = parts[1].trim().parse().ok();
+        let c: Option<u32> = parts[2].trim().parse().ok();
+        if let (Some(a), Some(b), Some(c)) = (a, b, c) {
+            // YYYY-MM-DD: first part is 4-digit year
+            if parts[0].trim().len() == 4 && a >= 1900 {
+                return valid_date(a, b, c);
+            }
+            // DD/MM/YYYY or MM/DD/YYYY: last part is 4-digit year
+            if parts[2].trim().len() == 4 && c >= 1900 {
+                return valid_date(c, b, a) || valid_date(c, a, b);
             }
         }
-        return false;
     }
 
-    // Try "DD Month YYYY" — e.g. "15 March 1990"
+    // Try "DD Month YYYY" — e.g. "15 March 1990", "15 mars 1990"
     let words: Vec<&str> = trimmed.split_whitespace().collect();
     if words.len() == 3 {
         // "DD Month YYYY"
@@ -764,6 +760,124 @@ pub(crate) fn dob_check(s: &str) -> bool {
     }
 
     false
+}
+
+/// France SIREN Luhn check: exactly 9 digits, Luhn mod-10.
+pub(crate) fn siren_luhn_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 9 {
+        return false;
+    }
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
+
+/// France SIRET Luhn check: exactly 14 digits, Luhn mod-10.
+pub(crate) fn siret_luhn_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 14 {
+        return false;
+    }
+    let checksum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            if i % 2 == 1 {
+                let doubled = d * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                d
+            }
+        })
+        .sum();
+    checksum % 10 == 0
+}
+
+/// France NIR (Sécurité Sociale) check: 13-digit body + 2-digit key.
+/// Handles Corsica departments (2A → 19, 2B → 18 substitution before numeric check).
+/// Valid if key == 97 - (body % 97).
+pub(crate) fn nir_check(s: &str) -> bool {
+    // Strip spaces, dots, hyphens
+    let clean: String = s
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '.' | '-'))
+        .collect();
+
+    if clean.len() != 15 {
+        return false;
+    }
+
+    // Handle Corsica: 2A/2B in department position (chars 5-6, 0-indexed)
+    let numeric_str = if clean.len() >= 7 {
+        let dept = &clean[5..7];
+        if dept.eq_ignore_ascii_case("2A") {
+            format!("{}19{}", &clean[..5], &clean[7..])
+        } else if dept.eq_ignore_ascii_case("2B") {
+            format!("{}18{}", &clean[..5], &clean[7..])
+        } else {
+            clean.clone()
+        }
+    } else {
+        clean.clone()
+    };
+
+    if !numeric_str.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+
+    let body: u64 = match numeric_str[..13].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let key: u64 = match numeric_str[13..15].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    key == 97 - (body % 97)
+}
+
+/// France postal code check: 5 digits, range 01000..=98999.
+pub(crate) fn fr_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 5 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let val: u32 = match clean.parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    (1000..=98999).contains(&val)
+}
+
+/// France NIF (Numéro d'Identification Fiscale / SPI) check: 13 digits, first digit 0-3.
+pub(crate) fn fr_nif_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 13 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    matches!(clean.as_bytes()[0], b'0' | b'1' | b'2' | b'3')
 }
 
 /// Ontario Health Insurance Plan (OHIP) number: 10 digits, Luhn mod-10.
@@ -790,4 +904,89 @@ pub(crate) fn ohip_check(s: &str) -> bool {
         })
         .sum();
     checksum % 10 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- nir_check ---
+    #[test]
+    fn nir_valid_standard() {
+        assert!(nir_check("1 85 05 78 006 084 91"));
+    }
+
+    #[test]
+    fn nir_valid_no_spaces() {
+        assert!(nir_check("185057800608491"));
+    }
+
+    #[test]
+    fn nir_valid_corsica_2a() {
+        // After substitution 2A→19: body=2841119033457, key=97-(2841119033457%97)=14
+        assert!(nir_check("284112A03345714"));
+    }
+
+    #[test]
+    fn nir_valid_corsica_2b() {
+        // After substitution 2B→18: body=2841118033457, key=97-(2841118033457%97)=41
+        assert!(nir_check("284112B03345741"));
+    }
+
+    #[test]
+    fn nir_invalid_checksum() {
+        assert!(!nir_check("185057800608499"));
+    }
+
+    #[test]
+    fn nir_wrong_length() {
+        assert!(!nir_check("18505780060843"));
+    }
+
+    // --- fr_postal_check ---
+    #[test]
+    fn fr_postal_valid_paris() {
+        assert!(fr_postal_check("75008"));
+    }
+
+    #[test]
+    fn fr_postal_valid_dom_tom() {
+        assert!(fr_postal_check("97100"));
+    }
+
+    #[test]
+    fn fr_postal_valid_low() {
+        assert!(fr_postal_check("01000"));
+    }
+
+    #[test]
+    fn fr_postal_invalid_below_range() {
+        assert!(!fr_postal_check("00100"));
+    }
+
+    #[test]
+    fn fr_postal_invalid_above_range() {
+        assert!(!fr_postal_check("99000"));
+    }
+
+    // --- fr_nif_check ---
+    #[test]
+    fn fr_nif_valid() {
+        assert!(fr_nif_check("0123456789012"));
+    }
+
+    #[test]
+    fn fr_nif_valid_first_digit_3() {
+        assert!(fr_nif_check("3123456789012"));
+    }
+
+    #[test]
+    fn fr_nif_invalid_length() {
+        assert!(!fr_nif_check("012345678901"));
+    }
+
+    #[test]
+    fn fr_nif_invalid_first_digit() {
+        assert!(!fr_nif_check("4123456789012"));
+    }
 }
