@@ -526,6 +526,34 @@ Date de naissance : 15 mars 1990\n\
 Coordonnées GPS : 48.8566,2.3522\n\n\
 Fin des notes du dossier.\n";
 
+// Realistic French support ticket containing the 5 most common France PII
+// types: email, phone, NIR (sécurité sociale), postal code, and SIRET.
+// More representative of everyday French-language proxy traffic than the
+// exhaustive FR_MIXED_TEXT fixture.
+const FR_COMMON_PII_TEXT: &str = "\
+FICHE DE SUIVI — SERVICE CLIENT\n\
+Dossier : #CLI-2025-0317\n\
+Date : 2025-03-15\n\n\
+Informations Client :\n\
+  Nom : Sophie Martin\n\
+  E-mail : s.martin@example.fr\n\
+  Téléphone : 06 12 34 56 78\n\
+  Autre contact : portable : +33 7 98 76 54 32\n\n\
+Vérification d'Identité :\n\
+  Numéro de sécurité sociale : 2 84 11 75 012 345 20\n\n\
+Adresse :\n\
+  12 rue de la Paix\n\
+  Code postal : 75002\n\
+  Paris, France\n\n\
+Entreprise associée :\n\
+  Raison sociale : Dupont & Fils SARL\n\
+  SIRET : 73282932000074\n\n\
+Notes :\n\
+La cliente a contacté le service au sujet d'une erreur de facturation.\n\
+Un second e-mail a été envoyé à comptabilite@dupont-fils.example.fr.\n\
+Rappel prévu à téléphone : 01 23 45 67 89.\n\n\
+Statut : En cours — en attente de rappel client.";
+
 // Realistic support ticket containing the 5 most common US PII types:
 // email, phone, credit card, SSN, IP address. Used for a focused
 // throughput benchmark that reflects everyday US proxy traffic.
@@ -721,6 +749,27 @@ fn throughput_us_common_pii(c: &mut Criterion) {
 
     group.bench_function("has_piis", |b| {
         b.iter(|| scanner.has_piis(US_COMMON_PII_TEXT));
+    });
+
+    group.finish();
+}
+
+// Measures bytes/second throughput of mark_piis and has_piis on a realistic
+// French support-ticket containing only the 5 most common France PII types
+// (email, phone, NIR, postal code, SIRET). More representative of
+// everyday French-language proxy traffic than the exhaustive FR_MIXED_TEXT fixture.
+fn throughput_fr_common_pii(c: &mut Criterion) {
+    let scanner = Scanner::new().unwrap();
+
+    let mut group = c.benchmark_group("throughput_fr_common_pii");
+    group.throughput(Throughput::Bytes(FR_COMMON_PII_TEXT.len() as u64));
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| scanner.mark_piis(FR_COMMON_PII_TEXT));
+    });
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| scanner.has_piis(FR_COMMON_PII_TEXT));
     });
 
     group.finish();
@@ -1045,6 +1094,7 @@ criterion_group!(
     throughput_mark_piis,
     throughput_has_piis,
     throughput_us_common_pii,
+    throughput_fr_common_pii,
     has_piis_vs_mark_piis,
     per_pii_kind,
     clean_text_overhead,
