@@ -5,7 +5,7 @@ use regex::Regex;
 use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::detector::Detector;
-use crate::normalize::strip_zero_width;
+use crate::normalize::decode_for_detection;
 use crate::validators::*;
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -48,7 +48,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
     let all: Vec<PatternDef> = vec![
         PatternDef {
             kind: PiiKind::Email,
-            expr: r"[\w._%+&#;-]+(?:@|%40|&#64;|&#[xX]40;|&commat;)[\w.%&#;-]+(?:\.|%2[eE]|&#46;|&#[xX]2[eE];|&period;)\w[\w-]*\w",
+            expr: r"[\w._%+-]+@[\w.-]+\.\w[\w-]*\w",
             validator: always_valid,
             needs_ucp: true,
             som_fallback: true,
@@ -289,8 +289,8 @@ impl HyperscanDetector {
 
 impl Detector for HyperscanDetector {
     fn has_piis(&self, input: &str) -> bool {
-        let stripped = strip_zero_width(input);
-        let input: &str = match &stripped {
+        let decoded = decode_for_detection(input);
+        let input: &str = match &decoded {
             Some((s, _)) => s.as_str(),
             None => input,
         };
@@ -337,15 +337,15 @@ impl Detector for HyperscanDetector {
     }
 
     fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
-        let stripped = strip_zero_width(input);
-        let zwsp_map: Option<&Vec<usize>>;
-        let input: &str = match &stripped {
+        let decoded = decode_for_detection(input);
+        let offset_map: Option<&Vec<usize>>;
+        let input: &str = match &decoded {
             Some((s, m)) => {
-                zwsp_map = Some(m);
+                offset_map = Some(m);
                 s.as_str()
             }
             None => {
-                zwsp_map = None;
+                offset_map = None;
                 input
             }
         };
@@ -407,8 +407,8 @@ impl Detector for HyperscanDetector {
             a.kind == b.kind && a.start >= b.start && a.end <= b.end
         });
 
-        // Remap match positions from the stripped string back to the original input.
-        if let Some(map) = zwsp_map {
+        // Remap match positions from the decoded string back to the original input.
+        if let Some(map) = offset_map {
             for m in &mut results {
                 m.start = map[m.start];
                 m.end = map[m.end];
@@ -445,6 +445,7 @@ mod tests {
     #[test_case("SSN: 123\u{200B}-45-6789", PiiKind::UsSsn, "123\u{200B}-45-6789" ; "ssn zwsp stripped before matching")]
     #[test_case("card: 4111\u{200B}1111\u{200B}1111\u{200B}1111", PiiKind::CreditCard, "4111\u{200B}1111\u{200B}1111\u{200B}1111" ; "credit card zwsp stripped before matching")]
     #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
+    #[test_case("SSN: 123%2D45%2D6789", PiiKind::UsSsn, "123%2D45%2D6789" ; "ssn percent encoded")]
     #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
     #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span")]
     #[test_case("NINO: AB 12 34 56 C", PiiKind::GbNino, "AB 12 34 56 C" ; "nino with spaces")]
