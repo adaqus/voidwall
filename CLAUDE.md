@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Primary use case:** embedded inside a tokio-based HTTP reverse proxy. The proxy shares a single `Scanner` across async tasks via `Arc<Scanner>`. Requests are mostly small (~3 KB) but may include large attachments (e.g. PDFs, up to tens of MB). The library stays sync and runtime-agnostic — the caller decides scheduling (inline for small requests, `spawn_blocking` for large ones).
 
-Currently the library supports English-speaking countries only. Other countries and languages are going to be added, hence all decisions should be made in context of scalability when number of regular expressions to handle grows.
+The library supports English and French. More countries and languages will be added, hence all decisions should be made in context of scalability when number of regular expressions to handle grows.
 
 ## Build Commands
 
@@ -83,3 +83,26 @@ When adding a new detector or PII type, update **all** of the following:
    - Add a corpus constant (e.g., `SSN_TEXT`) with realistic embedded PII
    - Add an entry in the `per_detector` benchmark group
    - Add the new PII type into `MIXED_PII_TEXT` so throughput and comparison benchmarks cover it
+
+### Adding a New Language + Country — Checklist
+
+Distilled from the French (`Language::Fr`, `Country::Fr`) implementation.
+
+#### Files to modify
+
+1. **`src/lib.rs`** — Add `Country` variant + `Country::all()`, `Language` variant + `Language::all()`, new `PiiKind` variants with `label()`, `country()`, and `ALL` entries.
+2. **`src/validators.rs`** — Add country-specific validators with unit tests.
+3. **`src/keyword_context_detector.rs`** — Add `Language::NewLang` patterns for new PII types AND translated keywords for existing international types (`PhoneNumber`, `PassportNumber`, `DateOfBirth`, `PreciseGeolocation`, `SwiftBic`, `Imei`). Add `#[test_case]` entries to `detects_with_keyword`, `no_detection_without_keyword`, `rejects_invalid_with_keyword`.
+4. **`benches/pii_benchmark.rs`** — Add corpus constants, `per_pii_kind` entries, and samples in `MIXED_PII_TEXT`.
+
+#### Known pitfalls
+
+**Keyword substring overlap (duplicate matches).** Vectorscan finds literal byte substrings. "téléphone" contains "phone", "passeport" contains "passport", "numéro IMEI" contains "IMEI". When both English and foreign patterns exist for the same `PiiKind`, the English pattern fires too (keyword found as substring), producing duplicate matches. **Prevention:** Don't add bare English words to foreign-language keyword alternations if the English pattern already has them. In tests, use exclusively-foreign keywords (e.g. `"rappel"` not `"téléphone"`, `"identifiant bancaire"` not `"code SWIFT"`).
+
+**`luhn_check` has a hardcoded 13–19 digit range.** Write type-specific Luhn validators for other lengths (e.g. `siren_luhn_check` for 9-digit SIREN, `siret_luhn_check` for 14-digit SIRET).
+
+**`dob_check` and new month names.** Add new language month names to the `month_from_name` closure in `dob_check`. Use `to_lowercase()` (not `to_ascii_lowercase()`) so non-ASCII names like "février" match.
+
+**Complex patterns may silently fail in vectorscan's multi-pattern database** even if they compile and work in isolation. A month-name DOB pattern with 12+ alternations worked alone but didn't fire alongside 50+ other patterns. **Workaround:** Keep one combined pattern tuple with both simple (numeric) and complex (month-name) alternations in the regex. Vectorscan fires on the ASCII keyword, then the regex crate handles value extraction including complex alternations.
+
+**Always verify checksum/validation test data with a script.** Compute expected check digits independently before writing test values.
