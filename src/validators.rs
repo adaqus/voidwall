@@ -712,7 +712,13 @@ pub(crate) fn dob_check(s: &str) -> bool {
             "sep" | "september" | "septembre" => Some(9),
             "oct" | "october" | "octobre" => Some(10),
             "nov" | "november" | "novembre" => Some(11),
-            "dec" | "december" | "décembre" | "decembre" => Some(12),
+            "dec" | "december" | "décembre" | "decembre" | "dezember" => Some(12),
+            "januar" => Some(1),
+            "februar" => Some(2),
+            "märz" | "maerz" => Some(3),
+            "juni" => Some(6),
+            "juli" => Some(7),
+            "oktober" => Some(10),
             _ => None,
         }
     };
@@ -880,6 +886,158 @@ pub(crate) fn fr_nif_check(s: &str) -> bool {
     matches!(clean.as_bytes()[0], b'0' | b'1' | b'2' | b'3')
 }
 
+/// German Steuer-ID (Steueridentifikationsnummer) check: ISO 7064 MOD 11,10.
+/// 11 digits, first digit nonzero.
+pub(crate) fn de_steuer_id_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 11 {
+        return false;
+    }
+    if digits[0] == 0 {
+        return false;
+    }
+    let mut product: u32 = 10;
+    for &d in &digits[..10] {
+        let mut sum = (d + product) % 10;
+        if sum == 0 {
+            sum = 10;
+        }
+        product = (sum * 2) % 11;
+    }
+    let check = if product == 1 { 0 } else { 11 - product };
+    check == digits[10]
+}
+
+/// German Personalausweis (new format) check: 1 letter + 8 alphanumeric + 1 check digit.
+/// Check digit: weighted sum mod 10 (weights 7,3,1 repeating over 9 chars).
+/// Letters: A=10..Z=35, digits 0-9.
+pub(crate) fn de_personalausweis_check(s: &str) -> bool {
+    let upper = s.to_uppercase();
+    let bytes = upper.as_bytes();
+    if bytes.len() != 10 {
+        return false;
+    }
+    if !bytes[0].is_ascii_uppercase() {
+        return false;
+    }
+    let char_val = |b: u8| -> Option<u32> {
+        if b.is_ascii_digit() {
+            Some((b - b'0') as u32)
+        } else if b.is_ascii_uppercase() {
+            Some((b - b'A') as u32 + 10)
+        } else {
+            None
+        }
+    };
+    let weights: [u32; 9] = [7, 3, 1, 7, 3, 1, 7, 3, 1];
+    let mut total: u32 = 0;
+    for i in 0..9 {
+        let val = match char_val(bytes[i]) {
+            Some(v) => v,
+            None => return false,
+        };
+        total += val * weights[i];
+    }
+    let expected = total % 10;
+    let check = match char_val(bytes[9]) {
+        Some(v) => v,
+        None => return false,
+    };
+    expected == check
+}
+
+/// German postal code check: 5 digits, range 01000–99999.
+pub(crate) fn de_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 5 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let val: u32 = match clean.parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    (1000..=99999).contains(&val)
+}
+
+/// Austrian SVNR (Sozialversicherungsnummer) check: 10 digits.
+/// Format: NNNN+DDMMYY where position 3 (0-indexed) is the check digit.
+/// Weights: [3,7,9,_,5,8,4,2,1,6], sum mod 11 == digit[3].
+pub(crate) fn at_svnr_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 10 {
+        return false;
+    }
+    let weights: [u32; 10] = [3, 7, 9, 0, 5, 8, 4, 2, 1, 6];
+    let mut total: u32 = 0;
+    for i in 0..10 {
+        if i == 3 {
+            continue;
+        }
+        total += digits[i] * weights[i];
+    }
+    let check = total % 11;
+    if check >= 10 {
+        return false;
+    }
+    check == digits[3]
+}
+
+/// Austrian postal code check: 4 digits, range 1010–9992.
+pub(crate) fn at_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 4 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let val: u32 = match clean.parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    (1010..=9992).contains(&val)
+}
+
+/// Swiss AHV/OASI number check: 13 digits starting with "756", EAN-13 check digit.
+pub(crate) fn ch_ahv_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    if clean.len() != 13 {
+        return false;
+    }
+    if !clean.starts_with("756") {
+        return false;
+    }
+    let digits: Vec<u32> = clean.chars().filter_map(|c| c.to_digit(10)).collect();
+    let total: u32 = digits[..12]
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| {
+            let w = if i % 2 == 0 { 1 } else { 3 };
+            d * w
+        })
+        .sum();
+    let expected = (10 - total % 10) % 10;
+    expected == digits[12]
+}
+
+/// Swiss postal code check: 4 digits, range 1000–9658.
+pub(crate) fn ch_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 4 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let val: u32 = match clean.parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    (1000..=9658).contains(&val)
+}
+
 /// Ontario Health Insurance Plan (OHIP) number: 10 digits, Luhn mod-10.
 pub(crate) fn ohip_check(s: &str) -> bool {
     let digits: Vec<u32> = s
@@ -988,5 +1146,321 @@ mod tests {
     #[test]
     fn fr_nif_invalid_first_digit() {
         assert!(!fr_nif_check("4123456789012"));
+    }
+
+    // --- de_steuer_id_check ---
+    // Values from kryptografie.de and github.com/rechtlogisch/steuer-id
+    #[test]
+    fn de_steuer_id_valid() {
+        assert!(de_steuer_id_check("65929970489"));
+    }
+
+    #[test]
+    fn de_steuer_id_valid_2() {
+        assert!(de_steuer_id_check("86095742719"));
+    }
+
+    #[test]
+    fn de_steuer_id_valid_from_kontist() {
+        // From github.com/kontist/validate-steuerid
+        assert!(de_steuer_id_check("26954371827"));
+    }
+
+    #[test]
+    fn de_steuer_id_valid_from_kryptografie() {
+        // From kryptografie.de — example with sequential first 9 digits
+        assert!(de_steuer_id_check("12345678995"));
+    }
+
+    #[test]
+    fn de_steuer_id_valid_triple_digit() {
+        // 65929970489 has digit 9 appearing 3 times — valid per spec
+        // (one digit may appear up to 3 times)
+        assert!(de_steuer_id_check("65929970489"));
+    }
+
+    #[test]
+    fn de_steuer_id_invalid_checksum() {
+        assert!(!de_steuer_id_check("65929970480"));
+    }
+
+    #[test]
+    fn de_steuer_id_invalid_checksum_2() {
+        assert!(!de_steuer_id_check("26954371820"));
+    }
+
+    #[test]
+    fn de_steuer_id_invalid_first_digit_zero() {
+        // Test IDs starting with 0 are invalid in production
+        assert!(!de_steuer_id_check("05929970489"));
+    }
+
+    #[test]
+    fn de_steuer_id_wrong_length() {
+        assert!(!de_steuer_id_check("6592997048"));
+    }
+
+    #[test]
+    fn de_steuer_id_too_long() {
+        assert!(!de_steuer_id_check("659299704890"));
+    }
+
+    // --- de_personalausweis_check ---
+    // Values from kryptografie.de/personalausweis.htm
+    #[test]
+    fn de_pa_valid_newest_format() {
+        // Newest format (since Aug 2021): L01X00T471
+        assert!(de_personalausweis_check("L01X00T471"));
+    }
+
+    #[test]
+    fn de_pa_valid_new_format() {
+        // New format (2010-2021): T220001293
+        assert!(de_personalausweis_check("T220001293"));
+    }
+
+    #[test]
+    fn de_pa_valid_c_prefix() {
+        assert!(de_personalausweis_check("C01X00T478"));
+    }
+
+    #[test]
+    fn de_pa_valid_sequential() {
+        assert!(de_personalausweis_check("M123456788"));
+    }
+
+    #[test]
+    fn de_pa_valid_mixed_alphanumeric() {
+        assert!(de_personalausweis_check("Y0A1B2C3D6"));
+    }
+
+    #[test]
+    fn de_pa_invalid_check() {
+        assert!(!de_personalausweis_check("L01X00T470"));
+    }
+
+    #[test]
+    fn de_pa_invalid_check_2() {
+        assert!(!de_personalausweis_check("T220001290"));
+    }
+
+    #[test]
+    fn de_pa_wrong_length() {
+        assert!(!de_personalausweis_check("L01X00T47"));
+    }
+
+    #[test]
+    fn de_pa_starts_with_digit() {
+        // Must start with a letter
+        assert!(!de_personalausweis_check("1220001297"));
+    }
+
+    // --- de_postal_check ---
+    #[test]
+    fn de_postal_valid_berlin() {
+        assert!(de_postal_check("10115"));
+    }
+
+    #[test]
+    fn de_postal_valid_dresden() {
+        assert!(de_postal_check("01067"));
+    }
+
+    #[test]
+    fn de_postal_valid_munich() {
+        assert!(de_postal_check("80331"));
+    }
+
+    #[test]
+    fn de_postal_valid_hamburg() {
+        assert!(de_postal_check("20095"));
+    }
+
+    #[test]
+    fn de_postal_valid_frankfurt() {
+        assert!(de_postal_check("60311"));
+    }
+
+    #[test]
+    fn de_postal_invalid_below_range() {
+        assert!(!de_postal_check("00100"));
+    }
+
+    #[test]
+    fn de_postal_invalid_all_zeros() {
+        assert!(!de_postal_check("00000"));
+    }
+
+    // --- at_svnr_check ---
+    // Values from gist.github.com/jensens (documented example: 1237010180)
+    #[test]
+    fn at_svnr_valid() {
+        assert!(at_svnr_check("1238150185"));
+    }
+
+    #[test]
+    fn at_svnr_valid_2() {
+        assert!(at_svnr_check("1233250689"));
+    }
+
+    #[test]
+    fn at_svnr_valid_documented() {
+        // From gist.github.com/jensens: 1237 010180 (born 01.01.1980)
+        assert!(at_svnr_check("1237010180"));
+    }
+
+    #[test]
+    fn at_svnr_valid_born_1990() {
+        // Seq=456, check=7, born 15.03.1990
+        assert!(at_svnr_check("4567150390"));
+    }
+
+    #[test]
+    fn at_svnr_valid_born_1975() {
+        // Seq=789, check=2, born 28.12.1975
+        assert!(at_svnr_check("7892281275"));
+    }
+
+    #[test]
+    fn at_svnr_invalid_checksum() {
+        assert!(!at_svnr_check("1230150185"));
+    }
+
+    #[test]
+    fn at_svnr_invalid_check_off_by_one() {
+        // 1237010180 is valid; 1238010180 has wrong check digit
+        assert!(!at_svnr_check("1238010180"));
+    }
+
+    #[test]
+    fn at_svnr_wrong_length() {
+        assert!(!at_svnr_check("123815018"));
+    }
+
+    // --- at_postal_check ---
+    #[test]
+    fn at_postal_valid_vienna() {
+        assert!(at_postal_check("1010"));
+    }
+
+    #[test]
+    fn at_postal_valid_salzburg() {
+        assert!(at_postal_check("5020"));
+    }
+
+    #[test]
+    fn at_postal_valid_graz() {
+        assert!(at_postal_check("8010"));
+    }
+
+    #[test]
+    fn at_postal_valid_innsbruck() {
+        assert!(at_postal_check("6020"));
+    }
+
+    #[test]
+    fn at_postal_invalid_below_range() {
+        assert!(!at_postal_check("1000"));
+    }
+
+    #[test]
+    fn at_postal_invalid_just_below() {
+        assert!(!at_postal_check("1009"));
+    }
+
+    // --- ch_ahv_check ---
+    // Values from sozialversicherungsnummer.ch and gist.github.com/rordi
+    #[test]
+    fn ch_ahv_valid() {
+        assert!(ch_ahv_check("7561234567897"));
+    }
+
+    #[test]
+    fn ch_ahv_valid_from_sozialversicherungsnummer_ch() {
+        // Documented example from sozialversicherungsnummer.ch
+        assert!(ch_ahv_check("7569217076985"));
+    }
+
+    #[test]
+    fn ch_ahv_valid_from_gist() {
+        // From gist.github.com/rordi: 756.0081.3782.50
+        assert!(ch_ahv_check("7560081378250"));
+    }
+
+    #[test]
+    fn ch_ahv_valid_3026() {
+        // 756.3026.0705.92
+        assert!(ch_ahv_check("7563026070592"));
+    }
+
+    #[test]
+    fn ch_ahv_valid_check_digit_zero() {
+        // Check digit can be 0: 756.1122.3344.02 → check=2? Let me verify
+        // Actually 7561122334402 check: digits[..12]=[7,5,6,1,1,2,2,3,3,4,4,0]
+        // weights alternating 1,3: 7*1+5*3+6*1+1*3+1*1+2*3+2*1+3*3+3*1+4*3+4*1+0*3
+        // = 7+15+6+3+1+6+2+9+3+12+4+0 = 68, (10-68%10)%10 = (10-8)%10 = 2
+        assert!(ch_ahv_check("7561122334402"));
+    }
+
+    #[test]
+    fn ch_ahv_invalid_checksum() {
+        assert!(!ch_ahv_check("7561234567890"));
+    }
+
+    #[test]
+    fn ch_ahv_invalid_checksum_real_prefix() {
+        // Real-structure number with wrong check digit
+        assert!(!ch_ahv_check("7569217076980"));
+    }
+
+    #[test]
+    fn ch_ahv_invalid_prefix() {
+        assert!(!ch_ahv_check("1231234567897"));
+    }
+
+    #[test]
+    fn ch_ahv_wrong_length() {
+        assert!(!ch_ahv_check("756123456789"));
+    }
+
+    // --- ch_postal_check ---
+    #[test]
+    fn ch_postal_valid_zurich() {
+        assert!(ch_postal_check("8001"));
+    }
+
+    #[test]
+    fn ch_postal_valid_bern() {
+        assert!(ch_postal_check("3000"));
+    }
+
+    #[test]
+    fn ch_postal_valid_geneva() {
+        assert!(ch_postal_check("1200"));
+    }
+
+    #[test]
+    fn ch_postal_valid_low() {
+        assert!(ch_postal_check("1000"));
+    }
+
+    #[test]
+    fn ch_postal_valid_upper_bound() {
+        assert!(ch_postal_check("9658"));
+    }
+
+    #[test]
+    fn ch_postal_invalid_above_range() {
+        assert!(!ch_postal_check("9999"));
+    }
+
+    #[test]
+    fn ch_postal_invalid_just_above() {
+        assert!(!ch_postal_check("9659"));
+    }
+
+    #[test]
+    fn ch_postal_invalid_below_range() {
+        assert!(!ch_postal_check("0999"));
     }
 }

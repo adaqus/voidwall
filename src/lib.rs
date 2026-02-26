@@ -65,6 +65,9 @@ pub enum Country {
     Ie,
     Za,
     Fr,
+    De,
+    At,
+    Ch,
 }
 
 impl Country {
@@ -79,6 +82,9 @@ impl Country {
             Country::Ie,
             Country::Za,
             Country::Fr,
+            Country::De,
+            Country::At,
+            Country::Ch,
         ]
     }
 }
@@ -88,11 +94,12 @@ impl Country {
 pub enum Language {
     En,
     Fr,
+    De,
 }
 
 impl Language {
     pub fn all() -> &'static [Language] {
-        &[Language::En, Language::Fr]
+        &[Language::En, Language::Fr, Language::De]
     }
 }
 
@@ -167,6 +174,16 @@ pub enum PiiKind {
     FrPhoneNumber,
     FrPostalCode,
     FrNif,
+    DeSteuerId,
+    DePersonalausweis,
+    DePhoneNumber,
+    DePostalCode,
+    AtSvnr,
+    AtPhoneNumber,
+    AtPostalCode,
+    ChAhv,
+    ChPhoneNumber,
+    ChPostalCode,
 }
 
 impl RedactWith {
@@ -246,6 +263,16 @@ impl PiiKind {
             PiiKind::FrPhoneNumber => "FR_PHONE_NUMBER",
             PiiKind::FrPostalCode => "FR_POSTAL_CODE",
             PiiKind::FrNif => "FR_NIF",
+            PiiKind::DeSteuerId => "DE_STEUER_ID",
+            PiiKind::DePersonalausweis => "DE_PERSONALAUSWEIS",
+            PiiKind::DePhoneNumber => "DE_PHONE_NUMBER",
+            PiiKind::DePostalCode => "DE_POSTAL_CODE",
+            PiiKind::AtSvnr => "AT_SVNR",
+            PiiKind::AtPhoneNumber => "AT_PHONE_NUMBER",
+            PiiKind::AtPostalCode => "AT_POSTAL_CODE",
+            PiiKind::ChAhv => "CH_AHV",
+            PiiKind::ChPhoneNumber => "CH_PHONE_NUMBER",
+            PiiKind::ChPostalCode => "CH_POSTAL_CODE",
         }
     }
 
@@ -315,6 +342,15 @@ impl PiiKind {
             | PiiKind::FrPhoneNumber
             | PiiKind::FrPostalCode
             | PiiKind::FrNif => Country::Fr,
+
+            PiiKind::DeSteuerId
+            | PiiKind::DePersonalausweis
+            | PiiKind::DePhoneNumber
+            | PiiKind::DePostalCode => Country::De,
+
+            PiiKind::AtSvnr | PiiKind::AtPhoneNumber | PiiKind::AtPostalCode => Country::At,
+
+            PiiKind::ChAhv | PiiKind::ChPhoneNumber | PiiKind::ChPostalCode => Country::Ch,
 
             PiiKind::AwsAccessKey
             | PiiKind::GithubToken
@@ -390,6 +426,16 @@ impl PiiKind {
         PiiKind::FrPhoneNumber,
         PiiKind::FrPostalCode,
         PiiKind::FrNif,
+        PiiKind::DeSteuerId,
+        PiiKind::DePersonalausweis,
+        PiiKind::DePhoneNumber,
+        PiiKind::DePostalCode,
+        PiiKind::AtSvnr,
+        PiiKind::AtPhoneNumber,
+        PiiKind::AtPostalCode,
+        PiiKind::ChAhv,
+        PiiKind::ChPhoneNumber,
+        PiiKind::ChPostalCode,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

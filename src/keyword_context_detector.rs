@@ -8,11 +8,13 @@ use crate::Language;
 use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
-    a_number_check, aba_check, always_valid, dob_check, ein_check, fr_nif_check, fr_postal_check,
-    geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check, nhi_check,
-    nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check, phone_check,
-    sa_id_check, siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check,
-    us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
+    a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, ch_ahv_check,
+    ch_postal_check, de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check,
+    ein_check, fr_nif_check, fr_postal_check, geolocation_check, ie_driver_check, imei_check,
+    ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check,
+    passport_check, passport_new_check, phone_check, sa_id_check, siren_luhn_check,
+    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
+    uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -359,6 +361,106 @@ impl KeywordContextDetector {
                 r"(?i)(?:num[eé]ro IMEI|identifiant appareil)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
+            // --- Germany-specific PII types (Language::De) ---
+            (
+                PiiKind::DeSteuerId,
+                Language::De,
+                r"(?i)(?:Steueridentifikationsnummer|Steuerliche Identifikationsnummer|Steuer-ID|IdNr|Steuernummer)[\s:.#/\-\x22]*?(\d{11})\b",
+                de_steuer_id_check,
+            ),
+            (
+                PiiKind::DePersonalausweis,
+                Language::De,
+                r"(?i)(?:Personalausweisnummer|Personalausweis|Ausweisnummer)[\s:.#/\-\x22]*?([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
+                de_personalausweis_check,
+            ),
+            (
+                PiiKind::DePhoneNumber,
+                Language::De,
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            (
+                PiiKind::DePostalCode,
+                Language::De,
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{5})\b",
+                de_postal_check,
+            ),
+            // --- Austria-specific PII types (Language::De) ---
+            (
+                PiiKind::AtSvnr,
+                Language::De,
+                r"(?i)(?:Sozialversicherungsnummer|Versicherungsnummer|SVNR)[\s:.#/\-\x22]*?(\d{4}\s?\d{6})\b",
+                at_svnr_check,
+            ),
+            (
+                PiiKind::AtPhoneNumber,
+                Language::De,
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            (
+                PiiKind::AtPostalCode,
+                Language::De,
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{4})\b",
+                at_postal_check,
+            ),
+            // --- Switzerland-specific PII types (Language::De) ---
+            (
+                PiiKind::ChAhv,
+                Language::De,
+                r"(?i)(?:AHV-Nummer|AHV-Nr|OASI|Versichertennummer)[\s:.#/\-\x22]*?(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
+                ch_ahv_check,
+            ),
+            (
+                PiiKind::ChPhoneNumber,
+                Language::De,
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
+                phone_check,
+            ),
+            (
+                PiiKind::ChPostalCode,
+                Language::De,
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{4})\b",
+                ch_postal_check,
+            ),
+            // --- German keywords for existing international types ---
+            (
+                PiiKind::PhoneNumber,
+                Language::De,
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            (
+                PiiKind::PassportNumber,
+                Language::De,
+                r"(?i)(?:Reisepass|Passnummer)[\s:.#/\-\x22]*?(\d{9})\b",
+                passport_check,
+            ),
+            (
+                PiiKind::DateOfBirth,
+                Language::De,
+                r"(?i)(?:Geburtsdatum|geboren am|Geb\.?datum)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Februar|M[aä]rz|Maerz|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::De,
+                r"(?i)(?:GPS-Koordinaten|Standort|Geokoordinaten)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::De,
+                r"(?i)(?:Bankleitzahl|BIC-Code)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::De,
+                r"(?i)(?:Ger[aä]tekennung|Ger[aä]te-IMEI)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -628,6 +730,69 @@ mod tests {
     #[test_case("géolocalisation: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "fr keyword geolocation")]
     #[test_case("identifiant bancaire: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "fr keyword swift")]
     #[test_case("identifiant appareil: 490154203237518", PiiKind::Imei, "490154203237518" ; "fr keyword imei")]
+    // Germany-specific PII types
+    // Germany-specific PII types — values from kryptografie.de and rechtlogisch/steuer-id
+    #[test_case("Steuer-ID: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id")]
+    #[test_case("Steueridentifikationsnummer: 86095742719", PiiKind::DeSteuerId, "86095742719" ; "de steuer id long keyword")]
+    #[test_case("IdNr: 26954371827", PiiKind::DeSteuerId, "26954371827" ; "de steuer id idnr keyword")]
+    #[test_case("Steuernummer: 12345678995", PiiKind::DeSteuerId, "12345678995" ; "de steuer id kryptografie example")]
+    // Personalausweis — values from kryptografie.de/personalausweis.htm
+    #[test_case("Personalausweis: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis newest format")]
+    #[test_case("Ausweisnummer: T220001293", PiiKind::DePersonalausweis, "T220001293" ; "de personalausweis new format")]
+    #[test_case("Personalausweisnummer: C01X00T478", PiiKind::DePersonalausweis, "C01X00T478" ; "de personalausweis long keyword")]
+    #[test_case("Personalausweis: M123456788", PiiKind::DePersonalausweis, "M123456788" ; "de personalausweis sequential digits")]
+    // German phones
+    #[test_case("Rufnummer: +49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de phone berlin landline")]
+    #[test_case("Handynummer: +49 151 12345678", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de phone mobile")]
+    #[test_case("Telefonnummer: +49 89 98765432", PiiKind::DePhoneNumber, "+49 89 98765432" ; "de phone munich landline")]
+    #[test_case("Festnetz: 030 12345678", PiiKind::DePhoneNumber, "030 12345678" ; "de phone local format")]
+    #[test_case("Kontaktnummer: +49 221 1234567", PiiKind::DePhoneNumber, "+49 221 1234567" ; "de phone cologne")]
+    // German postal codes
+    #[test_case("Postleitzahl: 10115", PiiKind::DePostalCode, "10115" ; "de postal code berlin")]
+    #[test_case("PLZ: 80331", PiiKind::DePostalCode, "80331" ; "de postal code munich")]
+    #[test_case("Postleitzahl: 01067", PiiKind::DePostalCode, "01067" ; "de postal code dresden")]
+    #[test_case("PLZ: 60311", PiiKind::DePostalCode, "60311" ; "de postal code frankfurt")]
+    #[test_case("PLZ: 20095", PiiKind::DePostalCode, "20095" ; "de postal code hamburg")]
+    // Austria-specific PII types — SVNR from gist.github.com/jensens
+    #[test_case("SVNR: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr")]
+    #[test_case("Sozialversicherungsnummer: 1233250689", PiiKind::AtSvnr, "1233250689" ; "at svnr long keyword")]
+    #[test_case("Versicherungsnummer: 1237010180", PiiKind::AtSvnr, "1237010180" ; "at svnr documented example")]
+    #[test_case("SVNR: 4567150390", PiiKind::AtSvnr, "4567150390" ; "at svnr born 1990")]
+    #[test_case("SVNR: 7892281275", PiiKind::AtSvnr, "7892281275" ; "at svnr born 1975")]
+    // Austrian phones and postal
+    #[test_case("Rufnummer: +43 1 12345678", PiiKind::AtPhoneNumber, "+43 1 12345678" ; "at phone vienna")]
+    #[test_case("Handynummer: +43 664 1234567", PiiKind::AtPhoneNumber, "+43 664 1234567" ; "at phone mobile")]
+    #[test_case("PLZ: 1010", PiiKind::AtPostalCode, "1010" ; "at postal code vienna")]
+    #[test_case("Postleitzahl: 5020", PiiKind::AtPostalCode, "5020" ; "at postal code salzburg")]
+    #[test_case("PLZ: 8010", PiiKind::AtPostalCode, "8010" ; "at postal code graz")]
+    // Switzerland-specific — AHV from sozialversicherungsnummer.ch and gist.github.com/rordi
+    #[test_case("AHV-Nummer: 756.1234.5678.97", PiiKind::ChAhv, "756.1234.5678.97" ; "ch ahv dotted")]
+    #[test_case("Versichertennummer: 7561234567897", PiiKind::ChAhv, "7561234567897" ; "ch ahv plain")]
+    #[test_case("AHV-Nr: 756.9217.0769.85", PiiKind::ChAhv, "756.9217.0769.85" ; "ch ahv sozialversicherungsnummer.ch example")]
+    #[test_case("AHV-Nummer: 756.0081.3782.50", PiiKind::ChAhv, "756.0081.3782.50" ; "ch ahv gist example")]
+    #[test_case("OASI: 756.3026.0705.92", PiiKind::ChAhv, "756.3026.0705.92" ; "ch ahv oasi keyword")]
+    // Swiss phones and postal
+    #[test_case("Rufnummer: +41 44 123 45 67", PiiKind::ChPhoneNumber, "+41 44 123 45 67" ; "ch phone zurich")]
+    #[test_case("Handynummer: +41 79 123 45 67", PiiKind::ChPhoneNumber, "+41 79 123 45 67" ; "ch phone mobile")]
+    #[test_case("PLZ: 8001", PiiKind::ChPostalCode, "8001" ; "ch postal code zurich")]
+    #[test_case("Postleitzahl: 3000", PiiKind::ChPostalCode, "3000" ; "ch postal code bern")]
+    #[test_case("PLZ: 1200", PiiKind::ChPostalCode, "1200" ; "ch postal code geneva")]
+    // German keywords for existing international types
+    #[test_case("Rufnummer: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "de keyword us phone")]
+    #[test_case("Kontaktnummer: (555) 234-5678", PiiKind::PhoneNumber, "(555) 234-5678" ; "de keyword us phone parens")]
+    #[test_case("Reisepass: 123456789", PiiKind::PassportNumber, "123456789" ; "de keyword passport")]
+    #[test_case("Passnummer: 987654321", PiiKind::PassportNumber, "987654321" ; "de keyword passport alt")]
+    #[test_case("Geburtsdatum: 15.03.1990", PiiKind::DateOfBirth, "15.03.1990" ; "de keyword dob numeric")]
+    #[test_case("Geburtsdatum: 15 März 1990", PiiKind::DateOfBirth, "15 März 1990" ; "de keyword dob month name")]
+    #[test_case("geboren am: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "de keyword dob geboren am")]
+    #[test_case("Gebdatum: 28/12/1975", PiiKind::DateOfBirth, "28/12/1975" ; "de keyword dob gebdatum")]
+    #[test_case("Standort: 48.1351,11.5820", PiiKind::PreciseGeolocation, "48.1351,11.5820" ; "de keyword geolocation munich")]
+    #[test_case("GPS-Koordinaten: 47.3769,8.5417", PiiKind::PreciseGeolocation, "47.3769,8.5417" ; "de keyword geolocation zurich")]
+    #[test_case("Geokoordinaten: 48.2082,16.3738", PiiKind::PreciseGeolocation, "48.2082,16.3738" ; "de keyword geolocation vienna")]
+    #[test_case("BIC-Code: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "de keyword swift deutsche bank")]
+    #[test_case("Bankleitzahl: COBADEFFXXX", PiiKind::SwiftBic, "COBADEFFXXX" ; "de keyword swift commerzbank")]
+    #[test_case("Gerätekennung: 490154203237518", PiiKind::Imei, "490154203237518" ; "de keyword imei")]
+    #[test_case("Gerätekennung: 35-209900-176148-1", PiiKind::Imei, "35-209900-176148-1" ; "de keyword imei hyphenated")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -1029,6 +1194,22 @@ mod tests {
     #[test_case("numéro fiscal: 4123456789012", PiiKind::FrNif ; "fr nif invalid first digit")]
     #[test_case("SIRET: 73282932000075", PiiKind::FrSiret ; "fr siret bad luhn")]
     #[test_case("SIREN: 732829321", PiiKind::FrSiren ; "fr siren bad luhn")]
+    // Germany/Austria/Switzerland
+    #[test_case("Steuer-ID: 65929970480", PiiKind::DeSteuerId ; "de steuer id bad checksum")]
+    #[test_case("Steuer-ID: 26954371820", PiiKind::DeSteuerId ; "de steuer id bad checksum 2")]
+    #[test_case("Personalausweis: L01X00T470", PiiKind::DePersonalausweis ; "de personalausweis bad check")]
+    #[test_case("Personalausweis: T220001290", PiiKind::DePersonalausweis ; "de personalausweis bad check 2")]
+    #[test_case("PLZ: 00100", PiiKind::DePostalCode ; "de postal below range")]
+    #[test_case("PLZ: 00000", PiiKind::DePostalCode ; "de postal all zeros")]
+    #[test_case("SVNR: 1230150185", PiiKind::AtSvnr ; "at svnr bad checksum")]
+    #[test_case("SVNR: 1238010180", PiiKind::AtSvnr ; "at svnr check digit off by one")]
+    #[test_case("PLZ: 1000", PiiKind::AtPostalCode ; "at postal below range")]
+    #[test_case("PLZ: 1009", PiiKind::AtPostalCode ; "at postal just below range")]
+    #[test_case("AHV-Nummer: 7561234567890", PiiKind::ChAhv ; "ch ahv bad checksum")]
+    #[test_case("AHV-Nummer: 756.9217.0769.80", PiiKind::ChAhv ; "ch ahv bad checksum real prefix")]
+    #[test_case("AHV-Nummer: 1231234567897", PiiKind::ChAhv ; "ch ahv wrong prefix")]
+    #[test_case("PLZ: 9999", PiiKind::ChPostalCode ; "ch postal above range")]
+    #[test_case("PLZ: 0999", PiiKind::ChPostalCode ; "ch postal below range")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -1083,6 +1264,17 @@ mod tests {
     #[test_case("06 12 34 56 78", PiiKind::FrPhoneNumber ; "fr phone no keyword")]
     #[test_case("75008", PiiKind::FrPostalCode ; "fr postal no keyword")]
     #[test_case("0123456789012", PiiKind::FrNif ; "fr nif no keyword")]
+    // Germany/Austria/Switzerland
+    #[test_case("65929970489", PiiKind::DeSteuerId ; "de steuer id no keyword")]
+    #[test_case("L01X00T471", PiiKind::DePersonalausweis ; "de personalausweis no keyword")]
+    #[test_case("+49 30 12345678", PiiKind::DePhoneNumber ; "de phone no keyword")]
+    #[test_case("10115", PiiKind::DePostalCode ; "de postal no keyword")]
+    #[test_case("1238150185", PiiKind::AtSvnr ; "at svnr no keyword")]
+    #[test_case("+43 1 12345678", PiiKind::AtPhoneNumber ; "at phone no keyword")]
+    #[test_case("1010", PiiKind::AtPostalCode ; "at postal no keyword")]
+    #[test_case("7561234567897", PiiKind::ChAhv ; "ch ahv no keyword")]
+    #[test_case("+41 44 123 45 67", PiiKind::ChPhoneNumber ; "ch phone no keyword")]
+    #[test_case("8001", PiiKind::ChPostalCode ; "ch postal no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

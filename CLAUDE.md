@@ -95,6 +95,16 @@ Distilled from the French (`Language::Fr`, `Country::Fr`) implementation.
 3. **`src/keyword_context_detector.rs`** — Add `Language::NewLang` patterns for new PII types AND translated keywords for existing international types (`PhoneNumber`, `PassportNumber`, `DateOfBirth`, `PreciseGeolocation`, `SwiftBic`, `Imei`). Add `#[test_case]` entries to `detects_with_keyword`, `no_detection_without_keyword`, `rejects_invalid_with_keyword`.
 4. **`benches/pii_benchmark.rs`** — Add corpus constants, `per_pii_kind` entries, and samples in `MIXED_PII_TEXT`.
 
+#### Validate with real-world examples
+
+After implementing validators and patterns, search the web for documented real examples and add them as additional test cases. This catches algorithm bugs that synthetic test data may miss.
+
+1. **Find documented examples** — Search for official government documentation, Wikipedia articles, and open-source validator repos (e.g., `github.com/rechtlogisch/steuer-id`, `gist.github.com/jensens` for AT SVNR, `sozialversicherungsnummer.ch` for CH AHV). Look for pages like `kryptografie.de` that show worked check-digit calculations.
+2. **Verify programmatically** — Before adding examples as test values, verify them independently with a script (e.g., Python) that reimplements the check-digit algorithm. Never trust a web source without cross-checking.
+3. **Add to validator unit tests** (`src/validators.rs`) — Add the verified real examples as additional `#[test]` cases, citing the source in a comment (e.g., `// From sozialversicherungsnummer.ch`).
+4. **Add to keyword detector tests** (`src/keyword_context_detector.rs`) — Add `#[test_case]` entries using the real values with different keyword variants (long keyword, short keyword, alternative keywords).
+5. **Test boundary/edge cases** — Use real-world knowledge to add tests for boundaries: check-digit-is-zero, upper/lower range limits for postal codes, off-by-one invalid checksums, real city postal codes (Berlin 10115, Vienna 1010, Zürich 8001).
+
 #### Known pitfalls
 
 **Keyword substring overlap (duplicate matches).** Vectorscan finds literal byte substrings. "téléphone" contains "phone", "passeport" contains "passport", "numéro IMEI" contains "IMEI". When both English and foreign patterns exist for the same `PiiKind`, the English pattern fires too (keyword found as substring), producing duplicate matches. **Prevention:** Don't add bare English words to foreign-language keyword alternations if the English pattern already has them. In tests, use exclusively-foreign keywords (e.g. `"rappel"` not `"téléphone"`, `"identifiant bancaire"` not `"code SWIFT"`).

@@ -679,7 +679,96 @@ Tier 6 France Verification Records:\n\
   Téléphone: 06 12 34 56 78\n\
   Code postal: 75008\n\
   Numéro fiscal: 0123456789012\n\n\
+Tier 7 Germany/Austria/Switzerland Verification Records:\n\
+  Steuer-ID: 65929970489\n\
+  Personalausweis: L01X00T471\n\
+  Rufnummer: +49 30 12345678\n\
+  Postleitzahl: 10115\n\
+  SVNR: 1238150185\n\
+  AHV-Nummer: 756.1234.5678.97\n\
+  Geburtsdatum: 15 März 1990\n\
+  Reisepass: 123456789\n\n\
 End of ticket notes.\n";
+
+const DE_STEUER_ID_TEXT: &str = "\
+Bundeszentralamt für Steuern — Steuerliche Identifikation\n\n\
+Die folgenden Steuer-IDs müssen überprüft werden:\n\
+- Steuerpflichtiger A: Steuer-ID: 65929970489\n\
+- Steuerpflichtiger B: Steueridentifikationsnummer: 86095742719\n\
+Alle Steuer-IDs müssen vor der Steuererklärung verifiziert werden.\n\
+Kontaktieren Sie das Finanzamt bei Unstimmigkeiten.";
+
+const DE_PHONE_TEXT: &str = "\
+Kundendienst — Anrufprotokoll\n\n\
+Kunde: Hans Müller\n\
+Rufnummer: +49 30 12345678\n\
+Alternativ: Handynummer: +49 151 12345678\n\
+Der Kunde rief bezüglich einer Rechnungsfrage an.\n\
+Rückruf geplant an Telefonnummer: +49 89 98765432.";
+
+const AT_SVNR_TEXT: &str = "\
+Österreichische Sozialversicherung — Versichertendaten\n\n\
+Versicherte zur Überprüfung:\n\
+- Versicherter A: SVNR: 1238150185\n\
+- Versicherter B: Sozialversicherungsnummer: 1233250689\n\
+Alle Versicherungsnummern müssen verifiziert werden.\n\
+Kontaktieren Sie die zuständige Kasse bei Fragen.";
+
+const CH_AHV_TEXT: &str = "\
+Schweizerische Ausgleichskasse — AHV-Nummern\n\n\
+Zu überprüfende Versicherte:\n\
+- Versicherter A: AHV-Nummer: 756.1234.5678.97\n\
+- Versicherter B: Versichertennummer: 756.5432.1098.73\n\
+Alle AHV-Nummern müssen im Register verifiziert werden.\n\
+Kontaktieren Sie die Ausgleichskasse bei Korrekturen.";
+
+const DE_MIXED_TEXT: &str = "\
+KUNDENDOSSIER #DE-2025-0042\n\
+Priorität: Hoch\n\
+Erstellt: 2025-01-15 09:23:41 UTC\n\n\
+Kundeninformationen:\n\
+  Name: Thomas Müller\n\
+  Rufnummer: +49 30 12345678\n\
+  Postleitzahl: 10115\n\n\
+Identitätsprüfung:\n\
+  Steuer-ID: 65929970489\n\
+  Personalausweis: L01X00T471\n\n\
+Österreichischer Partner:\n\
+  SVNR: 1238150185\n\
+  PLZ: 1010\n\n\
+Schweizer Kontakt:\n\
+  AHV-Nummer: 756.1234.5678.97\n\
+  PLZ: 8001\n\n\
+Internationale Daten:\n\
+  Reisepass: 123456789\n\
+  BIC-Code: DEUTDEFF\n\
+  Geburtsdatum: 15 März 1990\n\
+  Standort: 48.1351,11.5820\n\
+  Gerätekennung: 490154203237518\n\n\
+Ende der Notizen.\n";
+
+const DE_COMMON_PII_TEXT: &str = "\
+KUNDENSERVICE — GESPRÄCHSNOTIZ\n\
+Vorgang: #KD-2025-0317\n\
+Datum: 2025-03-15\n\n\
+Kundeninformationen:\n\
+  Name: Anna Schmidt\n\
+  E-Mail: a.schmidt@example.de\n\
+  Rufnummer: +49 30 12345678\n\
+  Alternativ: Handynummer: +49 151 98765432\n\n\
+Identitätsprüfung:\n\
+  Steuer-ID: 65929970489\n\n\
+Adresse:\n\
+  Friedrichstraße 43\n\
+  Postleitzahl: 10117\n\
+  Berlin, Deutschland\n\n\
+Bankverbindung:\n\
+  BIC-Code: DEUTDEFF\n\n\
+Notizen:\n\
+Die Kundin hat sich wegen einer fehlerhaften Rechnung gemeldet.\n\
+Eine Bestätigung wurde an buchhaltung@firma-beispiel.de gesendet.\n\
+Rückruf geplant an Rufnummer: +49 89 98765432.\n\n\
+Status: In Bearbeitung — warte auf Kundenrückruf.";
 
 fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
@@ -770,6 +859,27 @@ fn throughput_fr_common_pii(c: &mut Criterion) {
 
     group.bench_function("has_piis", |b| {
         b.iter(|| scanner.has_piis(FR_COMMON_PII_TEXT));
+    });
+
+    group.finish();
+}
+
+// Measures bytes/second throughput of mark_piis and has_piis on a realistic
+// German support-ticket containing common DACH PII types (email, phone,
+// Steuer-ID, postal code, BIC). Representative of everyday German-language
+// proxy traffic.
+fn throughput_de_common_pii(c: &mut Criterion) {
+    let scanner = Scanner::new().unwrap();
+
+    let mut group = c.benchmark_group("throughput_de_common_pii");
+    group.throughput(Throughput::Bytes(DE_COMMON_PII_TEXT.len() as u64));
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| scanner.mark_piis(DE_COMMON_PII_TEXT));
+    });
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| scanner.has_piis(DE_COMMON_PII_TEXT));
     });
 
     group.finish();
@@ -1045,6 +1155,27 @@ fn per_pii_kind(c: &mut Criterion) {
         b.iter(|| scanner.mark_piis(FR_MIXED_TEXT));
     });
 
+    // Germany/Austria/Switzerland
+    group.bench_function("de_steuer_id", |b| {
+        b.iter(|| scanner.mark_piis(DE_STEUER_ID_TEXT));
+    });
+
+    group.bench_function("de_phone", |b| {
+        b.iter(|| scanner.mark_piis(DE_PHONE_TEXT));
+    });
+
+    group.bench_function("at_svnr", |b| {
+        b.iter(|| scanner.mark_piis(AT_SVNR_TEXT));
+    });
+
+    group.bench_function("ch_ahv", |b| {
+        b.iter(|| scanner.mark_piis(CH_AHV_TEXT));
+    });
+
+    group.bench_function("de_mixed", |b| {
+        b.iter(|| scanner.mark_piis(DE_MIXED_TEXT));
+    });
+
     group.finish();
 }
 
@@ -1095,6 +1226,7 @@ criterion_group!(
     throughput_has_piis,
     throughput_us_common_pii,
     throughput_fr_common_pii,
+    throughput_de_common_pii,
     has_piis_vs_mark_piis,
     per_pii_kind,
     clean_text_overhead,
