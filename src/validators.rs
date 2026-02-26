@@ -1091,9 +1091,42 @@ mod tests {
         assert!(nir_check("284112B03345741"));
     }
 
+    // Real-world verified examples from superindep.fr and compteassurance.com
+    #[test]
+    fn nir_valid_lyon_example() {
+        // From superindep.fr: man born March 1985 in Lyon (69123), key=32
+        assert!(nir_check("185036912304532"));
+    }
+
+    #[test]
+    fn nir_valid_corsica_2a_ajaccio() {
+        // Man born Jan 1975, Corse-du-Sud (2A), commune Ajaccio (004)
+        // 2A→19 substitution: body=1750119004032, key=88
+        assert!(nir_check("175012A00403288"));
+    }
+
+    #[test]
+    fn nir_valid_corsica_2b_example() {
+        // Woman born May 1990, Haute-Corse (2B), commune 033
+        // 2B→18 substitution: body=2900518033010, key=01
+        assert!(nir_check("290052B03301001"));
+    }
+
+    #[test]
+    fn nir_valid_with_spaces_lyon() {
+        // Same Lyon example with spaces
+        assert!(nir_check("1 85 03 69 123 045 32"));
+    }
+
     #[test]
     fn nir_invalid_checksum() {
         assert!(!nir_check("185057800608499"));
+    }
+
+    #[test]
+    fn nir_invalid_off_by_one() {
+        // Lyon example with key off by one (33 instead of 32)
+        assert!(!nir_check("185036912304533"));
     }
 
     #[test]
@@ -1110,6 +1143,46 @@ mod tests {
     #[test]
     fn fr_postal_valid_dom_tom() {
         assert!(fr_postal_check("97100"));
+    }
+
+    // Real French city postal codes
+    #[test]
+    fn fr_postal_valid_paris_1er() {
+        assert!(fr_postal_check("75001"));
+    }
+
+    #[test]
+    fn fr_postal_valid_marseille() {
+        // Marseille 1er arrondissement
+        assert!(fr_postal_check("13001"));
+    }
+
+    #[test]
+    fn fr_postal_valid_lyon() {
+        // Lyon 1er
+        assert!(fr_postal_check("69001"));
+    }
+
+    #[test]
+    fn fr_postal_valid_toulouse() {
+        assert!(fr_postal_check("31000"));
+    }
+
+    #[test]
+    fn fr_postal_valid_nice() {
+        assert!(fr_postal_check("06000"));
+    }
+
+    #[test]
+    fn fr_postal_valid_guadeloupe() {
+        // DOM-TOM: Pointe-à-Pitre, Guadeloupe
+        assert!(fr_postal_check("97110"));
+    }
+
+    #[test]
+    fn fr_postal_valid_reunion() {
+        // DOM-TOM: Saint-Denis, Réunion
+        assert!(fr_postal_check("97400"));
     }
 
     #[test]
@@ -1146,6 +1219,80 @@ mod tests {
     #[test]
     fn fr_nif_invalid_first_digit() {
         assert!(!fr_nif_check("4123456789012"));
+    }
+
+    // --- siren_luhn_check ---
+    // Real SIREN numbers from annuaire-entreprises.data.gouv.fr
+    #[test]
+    fn siren_valid_lvmh() {
+        // LVMH Moët Hennessy Louis Vuitton, Paris
+        assert!(siren_luhn_check("775670417"));
+    }
+
+    #[test]
+    fn siren_valid_totalenergies() {
+        // TotalEnergies SE, Courbevoie
+        assert!(siren_luhn_check("542051180"));
+    }
+
+    #[test]
+    fn siren_valid_renault() {
+        // Renault SA, Boulogne-Billancourt
+        assert!(siren_luhn_check("441639465"));
+    }
+
+    #[test]
+    fn siren_valid_renault_sas() {
+        // Renault SAS, Boulogne-Billancourt
+        assert!(siren_luhn_check("780129987"));
+    }
+
+    #[test]
+    fn siren_valid_essilorluxottica() {
+        // EssilorLuxottica, Charenton-le-Pont
+        assert!(siren_luhn_check("712049618"));
+    }
+
+    #[test]
+    fn siren_invalid_off_by_one() {
+        // LVMH with last digit changed
+        assert!(!siren_luhn_check("775670418"));
+    }
+
+    #[test]
+    fn siren_invalid_wrong_length() {
+        assert!(!siren_luhn_check("77567041"));
+    }
+
+    // --- siret_luhn_check ---
+    // Real SIRET numbers from annuaire-entreprises.data.gouv.fr
+    #[test]
+    fn siret_valid_lvmh_hq() {
+        // LVMH siège social, 22 avenue Montaigne, 75008 Paris
+        assert!(siret_luhn_check("77567041700051"));
+    }
+
+    #[test]
+    fn siret_valid_totalenergies_hq() {
+        // TotalEnergies SE siège social, 92400 Courbevoie
+        assert!(siret_luhn_check("54205118000066"));
+    }
+
+    #[test]
+    fn siret_valid_essilorluxottica_hq() {
+        // EssilorLuxottica siège social, 94220 Charenton-le-Pont
+        assert!(siret_luhn_check("71204961800739"));
+    }
+
+    #[test]
+    fn siret_invalid_off_by_one() {
+        // LVMH SIRET with last digit changed
+        assert!(!siret_luhn_check("77567041700052"));
+    }
+
+    #[test]
+    fn siret_invalid_wrong_length() {
+        assert!(!siret_luhn_check("7756704170005"));
     }
 
     // --- de_steuer_id_check ---

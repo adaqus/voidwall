@@ -273,7 +273,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::FrNir,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro de s[eé]curit[eé] sociale|num[eé]ro s[eé]curit[eé] sociale|n° de s[eé]curit[eé] sociale|n° s[eé]curit[eé] sociale|num[eé]ro de s[eé]cu|num[eé]ro s[eé]cu|n° s[eé]cu|s[eé]curit[eé] sociale|num[eé]ro SS|n° SS|code s[eé]cu|NIR|s[eé]cu)[\s:.#/\-\x22]*?(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?\d{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
+                r"(?i)(?:num[eé]ro de s[eé]curit[eé] sociale|num[eé]ro s[eé]curit[eé] sociale|n° de s[eé]curit[eé] sociale|n° s[eé]curit[eé] sociale|num[eé]ro de s[eé]cu|num[eé]ro s[eé]cu|n° s[eé]cu|s[eé]curit[eé] sociale|num[eé]ro SS|n° SS|code s[eé]cu|NIR|s[eé]cu)[\s:.#/\-\x22]*?(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
                 nir_check,
             ),
             (
@@ -723,6 +723,31 @@ mod tests {
     #[test_case("téléphone: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr phone")]
     #[test_case("code postal: 75008", PiiKind::FrPostalCode, "75008" ; "fr postal code")]
     #[test_case("numéro fiscal: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif")]
+    // Real-world French PII examples from public sources
+    // NIR — from superindep.fr and compteassurance.com (verified with mod-97)
+    #[test_case("sécurité sociale: 185036912304532", PiiKind::FrNir, "185036912304532" ; "fr nir lyon superindep")]
+    #[test_case("numéro SS: 1 85 03 69 123 045 32", PiiKind::FrNir, "1 85 03 69 123 045 32" ; "fr nir lyon with spaces")]
+    #[test_case("n° sécu: 175012A00403288", PiiKind::FrNir, "175012A00403288" ; "fr nir corsica 2a ajaccio")]
+    #[test_case("code sécu: 290052B03301001", PiiKind::FrNir, "290052B03301001" ; "fr nir corsica 2b")]
+    // SIREN — from annuaire-entreprises.data.gouv.fr (verified with Luhn)
+    #[test_case("SIREN: 775670417", PiiKind::FrSiren, "775670417" ; "fr siren lvmh")]
+    #[test_case("numéro SIREN: 542051180", PiiKind::FrSiren, "542051180" ; "fr siren totalenergies")]
+    #[test_case("entreprise SIREN: 441639465", PiiKind::FrSiren, "441639465" ; "fr siren renault")]
+    #[test_case("n° SIREN: 780129987", PiiKind::FrSiren, "780129987" ; "fr siren renault sas")]
+    // SIRET — from annuaire-entreprises.data.gouv.fr (verified with Luhn)
+    #[test_case("numéro SIRET: 77567041700051", PiiKind::FrSiret, "77567041700051" ; "fr siret lvmh hq")]
+    #[test_case("n° SIRET: 54205118000066", PiiKind::FrSiret, "54205118000066" ; "fr siret totalenergies hq")]
+    #[test_case("établissement SIRET: 71204961800739", PiiKind::FrSiret, "71204961800739" ; "fr siret essilorluxottica")]
+    // French postal codes — real cities
+    #[test_case("code postal: 75001", PiiKind::FrPostalCode, "75001" ; "fr postal paris 1er")]
+    #[test_case("CP: 13001", PiiKind::FrPostalCode, "13001" ; "fr postal marseille")]
+    #[test_case("code postal: 69001", PiiKind::FrPostalCode, "69001" ; "fr postal lyon")]
+    #[test_case("code postal: 31000", PiiKind::FrPostalCode, "31000" ; "fr postal toulouse")]
+    #[test_case("CP: 97110", PiiKind::FrPostalCode, "97110" ; "fr postal guadeloupe")]
+    // French phone — various formats
+    #[test_case("portable: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone intl mobile")]
+    #[test_case("fixe: 01 23 45 67 89", PiiKind::FrPhoneNumber, "01 23 45 67 89" ; "fr phone paris landline")]
+    #[test_case("contact: 09 12 34 56 78", PiiKind::FrPhoneNumber, "09 12 34 56 78" ; "fr phone voip")]
     // French keywords for existing international types
     #[test_case("date de naissance: 15 mars 1990", PiiKind::DateOfBirth, "15 mars 1990" ; "fr dob")]
     #[test_case("rappel: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "fr keyword us phone")]
@@ -1189,11 +1214,14 @@ mod tests {
     #[test_case("dob: 00/00/0000", PiiKind::DateOfBirth ; "dob all zeros")]
     // France
     #[test_case("numéro de sécu: 1 85 05 78 006 084 99", PiiKind::FrNir ; "fr nir bad checksum")]
+    #[test_case("n° sécu: 185036912304533", PiiKind::FrNir ; "fr nir lyon off by one")]
     #[test_case("code postal: 00100", PiiKind::FrPostalCode ; "fr postal below range")]
     #[test_case("code postal: 99999", PiiKind::FrPostalCode ; "fr postal above range")]
     #[test_case("numéro fiscal: 4123456789012", PiiKind::FrNif ; "fr nif invalid first digit")]
     #[test_case("SIRET: 73282932000075", PiiKind::FrSiret ; "fr siret bad luhn")]
+    #[test_case("SIRET: 77567041700052", PiiKind::FrSiret ; "fr siret lvmh off by one")]
     #[test_case("SIREN: 732829321", PiiKind::FrSiren ; "fr siren bad luhn")]
+    #[test_case("SIREN: 775670418", PiiKind::FrSiren ; "fr siren lvmh off by one")]
     // Germany/Austria/Switzerland
     #[test_case("Steuer-ID: 65929970480", PiiKind::DeSteuerId ; "de steuer id bad checksum")]
     #[test_case("Steuer-ID: 26954371820", PiiKind::DeSteuerId ; "de steuer id bad checksum 2")]
