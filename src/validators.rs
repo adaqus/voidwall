@@ -157,12 +157,20 @@ pub(crate) fn ppsn_check(s: &str) -> bool {
     if digit_count != 7 {
         return false;
     }
+    // Old format: 7 digits + 1 check letter (+ optional 'W')
+    // New format: 7 digits + 1 check letter + 1 letter (A-Z, not W)
+    // The 9th character (if present and not 'W') contributes to the checksum
+    // with weight 9 × (alphabetic position).
     let weights = [8, 7, 6, 5, 4, 3, 2];
-    let sum: u32 = bytes[..7]
+    let mut sum: u32 = bytes[..7]
         .iter()
         .zip(weights.iter())
         .map(|(&b, &w)| (b - b'0') as u32 * w)
         .sum();
+    // New format: 9th character modifies the check digit
+    if bytes.len() >= 9 && bytes[8].is_ascii_uppercase() && bytes[8] != b'W' {
+        sum += 9 * (bytes[8] - b'A' + 1) as u32;
+    }
     let expected = sum % 23;
     let check_letter = if expected == 0 {
         b'W'
@@ -1609,5 +1617,535 @@ mod tests {
     #[test]
     fn ch_postal_invalid_below_range() {
         assert!(!ch_postal_check("0999"));
+    }
+
+    // ===================================================================
+    // Real-world verified examples for English-speaking countries
+    // ===================================================================
+
+    // --- ssn_check ---
+    // 078-05-1120: Woolworth wallet SSN (voided), from ssa.gov/history/ssn/misused.html
+    #[test]
+    fn ssn_valid_woolworth() {
+        assert!(ssn_check("078-05-1120"));
+    }
+
+    // 219-09-9999: SSA pamphlet fabricated number, from ssa.gov/history/ssn/misused.html
+    #[test]
+    fn ssn_valid_ssa_pamphlet() {
+        assert!(ssn_check("219-09-9999"));
+    }
+
+    // 457-55-5462: LifeLock CEO Todd Davis (publicly advertised)
+    #[test]
+    fn ssn_valid_lifelock_ceo() {
+        assert!(ssn_check("457-55-5462"));
+    }
+
+    #[test]
+    fn ssn_invalid_area_zero() {
+        assert!(!ssn_check("000-12-3456"));
+    }
+
+    #[test]
+    fn ssn_invalid_area_666() {
+        assert!(!ssn_check("666-12-3456"));
+    }
+
+    #[test]
+    fn ssn_invalid_area_900() {
+        assert!(!ssn_check("901-12-3456"));
+    }
+
+    // --- ein_check ---
+    // 53-0196605: American National Red Cross, from ProPublica Nonprofit Explorer
+    #[test]
+    fn ein_valid_red_cross() {
+        assert!(ein_check("53-0196605"));
+    }
+
+    // 20-0049703: Wikimedia Foundation, from donate.wikimedia.org
+    #[test]
+    fn ein_valid_wikimedia() {
+        assert!(ein_check("20-0049703"));
+    }
+
+    // 20-0097189: Mozilla Foundation, from Charity Navigator
+    #[test]
+    fn ein_valid_mozilla() {
+        assert!(ein_check("20-0097189"));
+    }
+
+    #[test]
+    fn ein_invalid_prefix_07() {
+        assert!(!ein_check("07-1234567"));
+    }
+
+    // --- aba_check ---
+    // 021000021: JPMorgan Chase (New York), from chase.com
+    #[test]
+    fn aba_valid_jpmorgan_chase() {
+        assert!(aba_check("021000021"));
+    }
+
+    // 026009593: Bank of America (wire transfers), from bankofamerica.com
+    #[test]
+    fn aba_valid_bank_of_america() {
+        assert!(aba_check("026009593"));
+    }
+
+    // 121000248: Wells Fargo, from wise.com
+    #[test]
+    fn aba_valid_wells_fargo() {
+        assert!(aba_check("121000248"));
+    }
+
+    // 021000089: Citibank (New York), from wise.com
+    #[test]
+    fn aba_valid_citibank() {
+        assert!(aba_check("021000089"));
+    }
+
+    // 111000025: Bank of America (Virginia), from Wikipedia ABA article
+    #[test]
+    fn aba_valid_bofa_virginia() {
+        assert!(aba_check("111000025"));
+    }
+
+    #[test]
+    fn aba_invalid_checksum() {
+        assert!(!aba_check("021000022"));
+    }
+
+    // --- nino_check ---
+    // AA, CE, JY are all valid NINO prefixes (no invalid letters)
+    #[test]
+    fn nino_valid_aa_prefix() {
+        assert!(nino_check("AA123456C"));
+    }
+
+    #[test]
+    fn nino_valid_ce_prefix() {
+        assert!(nino_check("CE987654B"));
+    }
+
+    #[test]
+    fn nino_valid_jy_with_spaces() {
+        assert!(nino_check("JY 55 55 55 D"));
+    }
+
+    #[test]
+    fn nino_invalid_prefix_bg() {
+        assert!(!nino_check("BG123456C"));
+    }
+
+    #[test]
+    fn nino_invalid_prefix_gb() {
+        assert!(!nino_check("GB123456C"));
+    }
+
+    #[test]
+    fn nino_invalid_first_letter_d() {
+        assert!(!nino_check("DA123456C"));
+    }
+
+    // Note: QQ123456C (GOV.UK Design System example) fails our validator
+    // because Q is in the invalid first-letter list (D,F,I,Q,U,V).
+    // GOV.UK recommends it for user-facing forms, not as a real NINO.
+    #[test]
+    fn nino_invalid_govuk_q_prefix() {
+        assert!(!nino_check("QQ123456C"));
+    }
+
+    // --- nhs_check ---
+    // 9434765919: Wikipedia worked example
+    #[test]
+    fn nhs_valid_wikipedia_example() {
+        assert!(nhs_check("9434765919"));
+    }
+
+    // 9278462608: From pfwd/NHSNumber-Validation GitHub repo
+    #[test]
+    fn nhs_valid_github_example() {
+        assert!(nhs_check("9278462608"));
+    }
+
+    // 4010232137: Independently verified with mod-11
+    #[test]
+    fn nhs_valid_computed() {
+        assert!(nhs_check("4010232137"));
+    }
+
+    // 9990000018: NHS test range (999 xxx xxxx), verified with mod-11
+    #[test]
+    fn nhs_valid_test_range() {
+        assert!(nhs_check("9990000018"));
+    }
+
+    #[test]
+    fn nhs_invalid_checksum() {
+        assert!(!nhs_check("9434765910"));
+    }
+
+    // --- utr_check ---
+    // UTR algorithm from HMRC reference-checker on GitHub
+    // 5555555555: Verified with HMRC algorithm (existing test value)
+    #[test]
+    fn utr_valid_fives() {
+        assert!(utr_check("5555555555"));
+    }
+
+    // 9987654321: Computed using HMRC weights and lookup table
+    #[test]
+    fn utr_valid_descending() {
+        assert!(utr_check("9987654321"));
+    }
+
+    // 7999888777: Computed using actual algorithm (11-remainder)
+    #[test]
+    fn utr_valid_nines_and_eights() {
+        assert!(utr_check("7999888777"));
+    }
+
+    // 1123456789: Computed (check=1, base=123456789)
+    #[test]
+    fn utr_valid_sequential() {
+        assert!(utr_check("1123456789"));
+    }
+
+    #[test]
+    fn utr_invalid_checksum() {
+        assert!(!utr_check("1555555555"));
+    }
+
+    // --- uk_dl_check ---
+    // JONES901157A99Y1: Existing test value (male born 15 Nov 197x)
+    #[test]
+    fn uk_dl_valid_jones() {
+        assert!(uk_dl_check("JONES901157A99Y1"));
+    }
+
+    #[test]
+    fn uk_dl_invalid_month() {
+        assert!(!uk_dl_check("JONES900057A99Y1"));
+    }
+
+    #[test]
+    fn uk_dl_invalid_day() {
+        assert!(!uk_dl_check("JONES901007A99Y1"));
+    }
+
+    // --- sort_code_check ---
+    // 20-26-86: Barclays Bank UK PLC (Leicester), from wise.com
+    #[test]
+    fn sort_code_valid_barclays_leicester() {
+        assert!(sort_code_check("20-26-86"));
+    }
+
+    // 40-05-30: HSBC Bank PLC (London), from wise.com
+    #[test]
+    fn sort_code_valid_hsbc_london() {
+        assert!(sort_code_check("40-05-30"));
+    }
+
+    // 60-00-01: NatWest City of London Office
+    #[test]
+    fn sort_code_valid_natwest_london() {
+        assert!(sort_code_check("60-00-01"));
+    }
+
+    // 30-96-26: Lloyds Bank PLC
+    #[test]
+    fn sort_code_valid_lloyds() {
+        assert!(sort_code_check("30-96-26"));
+    }
+
+    // --- tfn_check ---
+    // 123456782: Canonical example from clearwater.com.au and Wikipedia
+    #[test]
+    fn tfn_valid_canonical() {
+        assert!(tfn_check("123 456 782"));
+    }
+
+    // 100000001: Generated, verified with weights [1,4,3,7,5,8,6,9,10]
+    #[test]
+    fn tfn_valid_generated_1() {
+        assert!(tfn_check("100 000 001"));
+    }
+
+    // 100000028: Generated, verified with weights
+    #[test]
+    fn tfn_valid_generated_2() {
+        assert!(tfn_check("100 000 028"));
+    }
+
+    #[test]
+    fn tfn_invalid_checksum() {
+        assert!(!tfn_check("123 456 789"));
+    }
+
+    // --- medicare_check ---
+    // 2123456701: Canonical example from clearwater.com.au
+    #[test]
+    fn medicare_valid_canonical() {
+        assert!(medicare_check("2123 45670 1"));
+    }
+
+    // 3189977021: Derived from clearwater.com.au worked calculation
+    #[test]
+    fn medicare_valid_clearwater_calc() {
+        assert!(medicare_check("3189 97702 1"));
+    }
+
+    // 6950507391: From medipass/validate-medicare-number on GitHub
+    #[test]
+    fn medicare_valid_medipass() {
+        assert!(medicare_check("6950 50739 1"));
+    }
+
+    #[test]
+    fn medicare_invalid_first_digit_1() {
+        assert!(!medicare_check("1123 45670 1"));
+    }
+
+    #[test]
+    fn medicare_invalid_first_digit_7() {
+        assert!(!medicare_check("7123 45670 1"));
+    }
+
+    // --- ird_check ---
+    // 49-091-857: Existing test value (8-digit IRD)
+    #[test]
+    fn ird_valid_existing() {
+        assert!(ird_check("49-091-857"));
+    }
+
+    // 10-000-008: Generated 8-digit IRD, verified with primary weights
+    #[test]
+    fn ird_valid_generated_8digit() {
+        assert!(ird_check("10-000-008"));
+    }
+
+    // 100-000-148: Generated 9-digit IRD, verified with primary weights
+    #[test]
+    fn ird_valid_generated_9digit() {
+        assert!(ird_check("100-000-148"));
+    }
+
+    #[test]
+    fn ird_invalid_below_range() {
+        assert!(!ird_check("01-000-000"));
+    }
+
+    // --- nhi_check ---
+    // JBX3656: Wikipedia canonical worked example
+    #[test]
+    fn nhi_valid_wikipedia() {
+        assert!(nhi_check("JBX3656"));
+    }
+
+    // ZAC5361: From rapidrehita.health.nz and rust-nhi GitHub
+    #[test]
+    fn nhi_valid_zac() {
+        assert!(nhi_check("ZAC5361"));
+    }
+
+    // CGC2720: From Wikipedia NHI Number article
+    #[test]
+    fn nhi_valid_cgc() {
+        assert!(nhi_check("CGC2720"));
+    }
+
+    // EPT6335: From Wikipedia NHI Number article
+    #[test]
+    fn nhi_valid_ept() {
+        assert!(nhi_check("EPT6335"));
+    }
+
+    // WLD9413: From elilambnz/nhi-validator npm package
+    #[test]
+    fn nhi_valid_wld() {
+        assert!(nhi_check("WLD9413"));
+    }
+
+    // DAB8745: Existing test value
+    #[test]
+    fn nhi_valid_dab() {
+        assert!(nhi_check("DAB8745"));
+    }
+
+    #[test]
+    fn nhi_invalid_letter_i() {
+        assert!(!nhi_check("DAI5765"));
+    }
+
+    #[test]
+    fn nhi_invalid_letter_o() {
+        assert!(!nhi_check("DAO5765"));
+    }
+
+    #[test]
+    fn nhi_invalid_check_digit() {
+        assert!(!nhi_check("DAB8740"));
+    }
+
+    // --- sin_check ---
+    // 130-692-544: Documented example from Straight Line International
+    #[test]
+    fn sin_valid_straightline() {
+        assert!(sin_check("130-692-544"));
+    }
+
+    // 810-620-716: From TNAADO Canadian SIN Validator
+    #[test]
+    fn sin_valid_tnaado() {
+        assert!(sin_check("810-620-716"));
+    }
+
+    #[test]
+    fn sin_invalid_first_digit_zero() {
+        // 046-454-286 passes Luhn but first digit is 0
+        assert!(!sin_check("046-454-286"));
+    }
+
+    #[test]
+    fn sin_invalid_luhn() {
+        assert!(!sin_check("123-456-789"));
+    }
+
+    // --- ppsn_check ---
+    // 1234567T: Wikipedia canonical example (old format)
+    #[test]
+    fn ppsn_valid_wikipedia_old() {
+        assert!(ppsn_check("1234567T"));
+    }
+
+    // 1234567TW: Old format with W suffix
+    #[test]
+    fn ppsn_valid_wikipedia_old_w() {
+        assert!(ppsn_check("1234567TW"));
+    }
+
+    // 1234567FA: Wikipedia new format (9th char A modifies checksum)
+    // sum = 112 + 9*1 = 121, 121%23 = 6, check = 'F'
+    #[test]
+    fn ppsn_valid_wikipedia_new_format() {
+        assert!(ppsn_check("1234567FA"));
+    }
+
+    // 7654321G: Computed from algorithm (sum=168, 168%23=7, 'G')
+    #[test]
+    fn ppsn_valid_computed_1() {
+        assert!(ppsn_check("7654321G"));
+    }
+
+    // 5555555N: Computed from algorithm
+    #[test]
+    fn ppsn_valid_computed_2() {
+        assert!(ppsn_check("5555555N"));
+    }
+
+    #[test]
+    fn ppsn_invalid_check_letter() {
+        assert!(!ppsn_check("1234567A"));
+    }
+
+    // --- sa_id_check ---
+    // 8001015009087: Existing test value (born 1980-01-01, male, citizen)
+    #[test]
+    fn sa_id_valid_existing() {
+        assert!(sa_id_check("8001015009087"));
+    }
+
+    // 9506150089081: Existing test value (born 1995-06-15, female, citizen)
+    #[test]
+    fn sa_id_valid_existing_2() {
+        assert!(sa_id_check("9506150089081"));
+    }
+
+    // 9001245289086: From za-id-number PyPI library
+    #[test]
+    fn sa_id_valid_pypi() {
+        assert!(sa_id_check("9001245289086"));
+    }
+
+    // 8801235111088: From Medium article, verified with Luhn
+    #[test]
+    fn sa_id_valid_medium() {
+        assert!(sa_id_check("8801235111088"));
+    }
+
+    // 9501015000084: Generated, verified with Luhn
+    #[test]
+    fn sa_id_valid_generated() {
+        assert!(sa_id_check("9501015000084"));
+    }
+
+    #[test]
+    fn sa_id_invalid_month() {
+        assert!(!sa_id_check("8013015009087"));
+    }
+
+    #[test]
+    fn sa_id_invalid_day() {
+        assert!(!sa_id_check("8001325009087"));
+    }
+
+    #[test]
+    fn sa_id_invalid_luhn() {
+        assert!(!sa_id_check("8001015009086"));
+    }
+
+    // --- za_trn_check ---
+    #[test]
+    fn za_trn_valid_prefix_0() {
+        assert!(za_trn_check("0123456789"));
+    }
+
+    #[test]
+    fn za_trn_valid_prefix_1() {
+        assert!(za_trn_check("1234567890"));
+    }
+
+    #[test]
+    fn za_trn_valid_prefix_9() {
+        assert!(za_trn_check("9876543210"));
+    }
+
+    #[test]
+    fn za_trn_invalid_prefix_4() {
+        assert!(!za_trn_check("4123456789"));
+    }
+
+    #[test]
+    fn za_trn_invalid_prefix_5() {
+        assert!(!za_trn_check("5123456789"));
+    }
+
+    // --- ohip_check ---
+    #[test]
+    fn ohip_valid_existing() {
+        assert!(ohip_check("1234567897"));
+    }
+
+    #[test]
+    fn ohip_invalid_luhn() {
+        assert!(!ohip_check("1234567898"));
+    }
+
+    // --- ie_driver_check ---
+    #[test]
+    fn ie_driver_valid_9_digits() {
+        assert!(ie_driver_check("123456789"));
+    }
+
+    #[test]
+    fn ie_driver_invalid_8_digits() {
+        assert!(!ie_driver_check("12345678"));
+    }
+
+    #[test]
+    fn ie_driver_invalid_10_digits() {
+        assert!(!ie_driver_check("1234567890"));
     }
 }

@@ -755,6 +755,49 @@ mod tests {
     #[test_case("géolocalisation: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "fr keyword geolocation")]
     #[test_case("identifiant bancaire: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "fr keyword swift")]
     #[test_case("identifiant appareil: 490154203237518", PiiKind::Imei, "490154203237518" ; "fr keyword imei")]
+    // Real-world examples for English-speaking countries
+    // US EIN: 53-0196605 (American National Red Cross, ProPublica), 20-0049703 (Wikimedia Foundation)
+    #[test_case("employer identification number: 53-0196605", PiiKind::UsEin, "53-0196605" ; "ein red cross")]
+    #[test_case("EIN: 20-0049703", PiiKind::UsEin, "20-0049703" ; "ein wikimedia")]
+    #[test_case("federal ein: 20-0097189", PiiKind::UsEin, "20-0097189" ; "ein mozilla")]
+    // US ABA: 026009593 (BofA wire), 121000248 (Wells Fargo), 021000089 (Citibank)
+    #[test_case("routing number: 026009593", PiiKind::UsAbaRouting, "026009593" ; "aba bank of america")]
+    #[test_case("ABA routing number: 121000248", PiiKind::UsAbaRouting, "121000248" ; "aba wells fargo")]
+    #[test_case("wire routing: 021000089", PiiKind::UsAbaRouting, "021000089" ; "aba citibank")]
+    #[test_case("ach routing: 111000025", PiiKind::UsAbaRouting, "111000025" ; "aba bofa virginia")]
+    // GB NHS: 9278462608 (pfwd/NHSNumber-Validation), 4010232137 (verified mod-11), 9990000018 (NHS test range)
+    #[test_case("NHS number: 927 846 2608", PiiKind::GbNhsNumber, "927 846 2608" ; "nhs github example")]
+    #[test_case("patient number: 401 023 2137", PiiKind::GbNhsNumber, "401 023 2137" ; "nhs computed example")]
+    #[test_case("NHS: 999 000 0018", PiiKind::GbNhsNumber, "999 000 0018" ; "nhs test range")]
+    // GB UTR: 9987654321 and 1123456789 (computed using HMRC reference-checker algorithm)
+    #[test_case("unique taxpayer reference: 9987654321", PiiKind::GbUtr, "9987654321" ; "utr descending")]
+    #[test_case("hmrc utr: 7999888777", PiiKind::GbUtr, "7999888777" ; "utr nines and eights")]
+    #[test_case("self assessment utr: 1123456789", PiiKind::GbUtr, "1123456789" ; "utr sequential")]
+    // GB Sort code: 20-26-86 (Barclays Leicester), 40-05-30 (HSBC London), 60-00-01 (NatWest London)
+    #[test_case("sort code: 20-26-86", PiiKind::GbSortCode, "20-26-86" ; "sort code barclays leicester")]
+    #[test_case("branch code: 40-05-30", PiiKind::GbSortCode, "40-05-30" ; "sort code hsbc london")]
+    #[test_case("bank sort code: 60-00-01", PiiKind::GbSortCode, "60-00-01" ; "sort code natwest london")]
+    #[test_case("sort code: 30-96-26", PiiKind::GbSortCode, "30-96-26" ; "sort code lloyds")]
+    // AU TFN: 100000001 and 100000028 (generated, verified with weights)
+    #[test_case("tax file number: 100 000 001", PiiKind::AuTfn, "100 000 001" ; "tfn generated 1")]
+    #[test_case("TFN: 100 000 028", PiiKind::AuTfn, "100 000 028" ; "tfn generated 2")]
+    // AU Medicare: 3189977021 (clearwater.com.au worked calc), 6950507391 (medipass/validate-medicare-number)
+    #[test_case("medicare number: 3189 97702 1", PiiKind::AuMedicare, "3189 97702 1" ; "medicare clearwater")]
+    #[test_case("australian medicare: 6950 50739 1", PiiKind::AuMedicare, "6950 50739 1" ; "medicare medipass")]
+    // NZ NHI: JBX3656 (Wikipedia), ZAC5361 (rapidrehita.health.nz), CGC2720, EPT6335 (Wikipedia), WLD9413 (nhi-validator npm)
+    #[test_case("NHI: JBX3656", PiiKind::NzNhiNumber, "JBX3656" ; "nz nhi wikipedia")]
+    #[test_case("national health index: ZAC5361", PiiKind::NzNhiNumber, "ZAC5361" ; "nz nhi rapidrehita")]
+    #[test_case("NHI number: CGC2720", PiiKind::NzNhiNumber, "CGC2720" ; "nz nhi wikipedia cgc")]
+    #[test_case("patient nhi: EPT6335", PiiKind::NzNhiNumber, "EPT6335" ; "nz nhi wikipedia ept")]
+    #[test_case("NHI: WLD9413", PiiKind::NzNhiNumber, "WLD9413" ; "nz nhi validator npm")]
+    // NZ IRD: 10-000-008 (generated 8-digit), 100-000-148 (generated 9-digit)
+    #[test_case("IRD: 10-000-008", PiiKind::NzIrdNumber, "10-000-008" ; "ird generated 8digit")]
+    #[test_case("IRD number: 100-000-148", PiiKind::NzIrdNumber, "100-000-148" ; "ird generated 9digit")]
+    // Note: CA SIN and IE PPSN are detected by HyperscanDetector, not KeywordContextDetector
+    // ZA ID: 9001245289086 (za-id-number PyPI), 8801235111088 (Medium article), 9501015000084 (generated)
+    #[test_case("SA ID: 9001245289086", PiiKind::ZaId, "9001245289086" ; "sa id pypi")]
+    #[test_case("identity number: 8801235111088", PiiKind::ZaId, "8801235111088" ; "sa id medium")]
+    #[test_case("south african id: 9501015000084", PiiKind::ZaId, "9501015000084" ; "sa id generated")]
     // Germany-specific PII types
     // Germany-specific PII types — values from kryptografie.de and rechtlogisch/steuer-id
     #[test_case("Steuer-ID: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id")]

@@ -447,20 +447,36 @@ mod tests {
     #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
     #[test_case("SSN: 123%2D45%2D6789", PiiKind::UsSsn, "123%2D45%2D6789" ; "ssn percent encoded")]
     #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
-    #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span")]
+    #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span woolworth")]
+    // 219-09-9999: SSA pamphlet fabricated number, from ssa.gov/history/ssn/misused.html
+    #[test_case("SSN: 219-09-9999", PiiKind::UsSsn, "219-09-9999" ; "ssn ssa pamphlet")]
+    // 457-55-5462: LifeLock CEO Todd Davis (publicly advertised)
+    #[test_case("SSN: 457-55-5462", PiiKind::UsSsn, "457-55-5462" ; "ssn lifelock ceo")]
     #[test_case("NINO: AB 12 34 56 C", PiiKind::GbNino, "AB 12 34 56 C" ; "nino with spaces")]
     #[test_case("NINO: AB123456C", PiiKind::GbNino, "AB123456C" ; "nino no spaces")]
     #[test_case("nino: ab 12 34 56 c", PiiKind::GbNino, "ab 12 34 56 c" ; "nino lowercase")]
+    // CE987654B: Valid prefix CE (no invalid letters)
+    #[test_case("NINO: CE 98 76 54 B", PiiKind::GbNino, "CE 98 76 54 B" ; "nino ce prefix spaces")]
+    #[test_case("NINO: CE987654B", PiiKind::GbNino, "CE987654B" ; "nino ce prefix no spaces")]
+    // JY555555D: Valid prefix JY
+    #[test_case("NINO: JY555555D", PiiKind::GbNino, "JY555555D" ; "nino jy prefix")]
     #[test_case("IBAN: GB29 NWBK 6016 1331 9268 19", PiiKind::Iban, "GB29 NWBK 6016 1331 9268 19" ; "iban gb")]
     #[test_case("IBAN: DE89 3704 0044 0532 0130 00", PiiKind::Iban, "DE89 3704 0044 0532 0130 00" ; "iban de")]
     #[test_case("server at 192.168.1.1 is down", PiiKind::IpAddress, "192.168.1.1" ; "ipv4")]
     #[test_case("IP: 10.0.0.255 ok", PiiKind::IpAddress, "10.0.0.255" ; "ipv4 span")]
     #[test_case("ITIN: 912-70-1234", PiiKind::UsItin, "912-70-1234" ; "itin")]
     #[test_case("my ITIN is 900-94-5678 ok", PiiKind::UsItin, "900-94-5678" ; "itin span")]
-    #[test_case("SIN: 130-692-544", PiiKind::CaSin, "130-692-544" ; "sin hyphens")]
-    #[test_case("SIN: 130 692 544", PiiKind::CaSin, "130 692 544" ; "sin spaces")]
-    #[test_case("PPSN: 1234567T", PiiKind::IePpsn, "1234567T" ; "ppsn 8char")]
-    #[test_case("PPSN: 1234567TW", PiiKind::IePpsn, "1234567TW" ; "ppsn 9char")]
+    // CA SIN: 130-692-544 from Straight Line International, 810-620-716 from TNAADO
+    #[test_case("SIN: 130-692-544", PiiKind::CaSin, "130-692-544" ; "sin hyphens straightline")]
+    #[test_case("SIN: 130 692 544", PiiKind::CaSin, "130 692 544" ; "sin spaces straightline")]
+    #[test_case("SIN: 810-620-716", PiiKind::CaSin, "810-620-716" ; "sin tnaado")]
+    #[test_case("SIN: 810 620 716", PiiKind::CaSin, "810 620 716" ; "sin tnaado spaces")]
+    // IE PPSN: 1234567T from Wikipedia, 1234567FA new format, 7654321G and 5555555N computed
+    #[test_case("PPSN: 1234567T", PiiKind::IePpsn, "1234567T" ; "ppsn wikipedia old")]
+    #[test_case("PPSN: 1234567TW", PiiKind::IePpsn, "1234567TW" ; "ppsn wikipedia old w")]
+    #[test_case("PPSN: 1234567FA", PiiKind::IePpsn, "1234567FA" ; "ppsn wikipedia new format")]
+    #[test_case("PPSN: 7654321G", PiiKind::IePpsn, "7654321G" ; "ppsn computed 1")]
+    #[test_case("PPSN: 5555555N", PiiKind::IePpsn, "5555555N" ; "ppsn computed 2")]
     #[test_case("MAC: 00:1A:2B:3C:4D:5E", PiiKind::MacAddress, "00:1A:2B:3C:4D:5E" ; "mac colon")]
     #[test_case("MAC: 00-1A-2B-3C-4D-5E", PiiKind::MacAddress, "00-1A-2B-3C-4D-5E" ; "mac hyphen")]
     #[test_case("MAC: 001A.2B3C.4D5E", PiiKind::MacAddress, "001A.2B3C.4D5E" ; "mac cisco dot")]
@@ -472,8 +488,17 @@ mod tests {
     #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE" ; "aws access key")]
     #[test_case("token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github oauth token")]
     #[test_case("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github pat token")]
-    #[test_case("postcode: SW1A 1AA", PiiKind::GbPostcode, "SW1A 1AA" ; "gb postcode with space")]
-    #[test_case("postcode: EC1A1BB", PiiKind::GbPostcode, "EC1A1BB" ; "gb postcode no space")]
+    // GB postcodes: real landmarks
+    #[test_case("postcode: SW1A 1AA", PiiKind::GbPostcode, "SW1A 1AA" ; "gb postcode buckingham palace")]
+    #[test_case("postcode: EC1A1BB", PiiKind::GbPostcode, "EC1A1BB" ; "gb postcode barbican")]
+    // SW1A 2AA: Houses of Parliament
+    #[test_case("postcode: SW1A 2AA", PiiKind::GbPostcode, "SW1A 2AA" ; "gb postcode parliament")]
+    // W1A 1AB: BBC Broadcasting House
+    #[test_case("postcode: W1A 1AB", PiiKind::GbPostcode, "W1A 1AB" ; "gb postcode bbc")]
+    // M1 1AE: Manchester city centre
+    #[test_case("postcode: M1 1AE", PiiKind::GbPostcode, "M1 1AE" ; "gb postcode manchester")]
+    // EH1 1YZ: Edinburgh
+    #[test_case("postcode: EH1 1YZ", PiiKind::GbPostcode, "EH1 1YZ" ; "gb postcode edinburgh")]
     #[test_case("postal code: M5V 3L9", PiiKind::CaPostalCode, "M5V 3L9" ; "ca postal code with space")]
     #[test_case("postal code: K1A0B1", PiiKind::CaPostalCode, "K1A0B1" ; "ca postal code no space")]
     #[test_case("send to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na", PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf" ; "bitcoin legacy p2pkh")]
