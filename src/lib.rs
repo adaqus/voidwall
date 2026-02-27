@@ -184,6 +184,7 @@ pub enum PiiKind {
     ChAhv,
     ChPhoneNumber,
     ChPostalCode,
+    PersonName,
 }
 
 impl RedactWith {
@@ -273,6 +274,7 @@ impl PiiKind {
             PiiKind::ChAhv => "CH_AHV",
             PiiKind::ChPhoneNumber => "CH_PHONE_NUMBER",
             PiiKind::ChPostalCode => "CH_POSTAL_CODE",
+            PiiKind::PersonName => "PERSON_NAME",
         }
     }
 
@@ -288,7 +290,8 @@ impl PiiKind {
             | PiiKind::PassportNumber
             | PiiKind::SwiftBic
             | PiiKind::Imei
-            | PiiKind::PreciseGeolocation => Country::International,
+            | PiiKind::PreciseGeolocation
+            | PiiKind::PersonName => Country::International,
 
             PiiKind::UsSsn
             | PiiKind::UsItin
@@ -436,6 +439,7 @@ impl PiiKind {
         PiiKind::ChAhv,
         PiiKind::ChPhoneNumber,
         PiiKind::ChPostalCode,
+        PiiKind::PersonName,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

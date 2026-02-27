@@ -1072,6 +1072,13 @@ pub(crate) fn ohip_check(s: &str) -> bool {
     checksum % 10 == 0
 }
 
+pub(crate) fn person_name_check(s: &str) -> bool {
+    if s.len() < 2 {
+        return false;
+    }
+    s.chars().any(|c| c.is_alphabetic())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2147,5 +2154,42 @@ mod tests {
     #[test]
     fn ie_driver_invalid_10_digits() {
         assert!(!ie_driver_check("1234567890"));
+    }
+
+    // --- person_name_check ---
+
+    #[test]
+    fn person_name_valid_simple() {
+        assert!(person_name_check("John Smith"));
+    }
+
+    #[test]
+    fn person_name_valid_accented() {
+        assert!(person_name_check("Jean-Pierre Müller"));
+    }
+
+    #[test]
+    fn person_name_valid_apostrophe() {
+        assert!(person_name_check("O'Brien"));
+    }
+
+    #[test]
+    fn person_name_valid_single_word() {
+        assert!(person_name_check("Madonna"));
+    }
+
+    #[test]
+    fn person_name_reject_digits_only() {
+        assert!(!person_name_check("12345"));
+    }
+
+    #[test]
+    fn person_name_reject_single_char() {
+        assert!(!person_name_check("A"));
+    }
+
+    #[test]
+    fn person_name_reject_empty() {
+        assert!(!person_name_check(""));
     }
 }

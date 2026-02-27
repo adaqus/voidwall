@@ -12,8 +12,8 @@ use crate::validators::{
     ch_postal_check, de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check,
     ein_check, fr_nif_check, fr_postal_check, geolocation_check, ie_driver_check, imei_check,
     ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check,
-    passport_check, passport_new_check, phone_check, sa_id_check, siren_luhn_check,
-    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
+    passport_check, passport_new_check, person_name_check, phone_check, sa_id_check,
+    siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
     uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
@@ -461,6 +461,25 @@ impl KeywordContextDetector {
                 r"(?i)(?:Ger[aä]tekennung|Ger[aä]te-IMEI)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
+            // --- PersonName (International) ---
+            (
+                PiiKind::PersonName,
+                Language::En,
+                r"(?i)(?:full name|first name|last name|given name|family name|surname|forename|maiden name|middle name|patient name|client name|customer name|employee name|applicant name|cardholder name|account holder|account name|beneficiary name|recipient name|sender name|passenger name|insured name)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                person_name_check,
+            ),
+            (
+                PiiKind::PersonName,
+                Language::Fr,
+                r"(?i)(?:nom complet|nom de famille|nom de naissance|nom de jeune fille|nom d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                person_name_check,
+            ),
+            (
+                PiiKind::PersonName,
+                Language::De,
+                r"(?i)(?:vollst[aä]ndiger Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                person_name_check,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -861,6 +880,27 @@ mod tests {
     #[test_case("Bankleitzahl: COBADEFFXXX", PiiKind::SwiftBic, "COBADEFFXXX" ; "de keyword swift commerzbank")]
     #[test_case("Gerätekennung: 490154203237518", PiiKind::Imei, "490154203237518" ; "de keyword imei")]
     #[test_case("Gerätekennung: 35-209900-176148-1", PiiKind::Imei, "35-209900-176148-1" ; "de keyword imei hyphenated")]
+    // PersonName — English
+    #[test_case("full name: John Smith", PiiKind::PersonName, "John Smith" ; "person name en full name")]
+    #[test_case("first name: Alice", PiiKind::PersonName, "Alice" ; "person name en first name")]
+    #[test_case("last name: O'Brien", PiiKind::PersonName, "O'Brien" ; "person name en last name apostrophe")]
+    #[test_case("patient name: Maria Garcia-Lopez", PiiKind::PersonName, "Maria Garcia-Lopez" ; "person name en patient hyphen")]
+    #[test_case("cardholder name: Jean-Pierre Müller", PiiKind::PersonName, "Jean-Pierre Müller" ; "person name en cardholder accented")]
+    #[test_case("employee name: Maria de Los Santos Garcia", PiiKind::PersonName, "Maria de Los Santos Garcia" ; "person name en employee multi word")]
+    #[test_case("surname: Thompson", PiiKind::PersonName, "Thompson" ; "person name en surname")]
+    #[test_case("beneficiary name: André Lefèvre", PiiKind::PersonName, "André Lefèvre" ; "person name en beneficiary accented")]
+    // PersonName — French
+    #[test_case("nom complet: Jacques Dupont", PiiKind::PersonName, "Jacques Dupont" ; "person name fr nom complet")]
+    #[test_case("prénom: François", PiiKind::PersonName, "François" ; "person name fr prenom")]
+    #[test_case("nom de famille: Beaumont", PiiKind::PersonName, "Beaumont" ; "person name fr nom de famille")]
+    #[test_case("titulaire: Marie-Claire Dubois", PiiKind::PersonName, "Marie-Claire Dubois" ; "person name fr titulaire")]
+    #[test_case("destinataire: Émile Zola", PiiKind::PersonName, "Émile Zola" ; "person name fr destinataire")]
+    // PersonName — German
+    #[test_case("Nachname: Schmidt", PiiKind::PersonName, "Schmidt" ; "person name de nachname")]
+    #[test_case("Vorname: Hans", PiiKind::PersonName, "Hans" ; "person name de vorname")]
+    #[test_case("Familienname: Von Trapp", PiiKind::PersonName, "Von Trapp" ; "person name de familienname")]
+    #[test_case("Kontoinhaber: Günther Müller", PiiKind::PersonName, "Günther Müller" ; "person name de kontoinhaber")]
+    #[test_case("Empfänger: Björk Sigurdsson", PiiKind::PersonName, "Björk Sigurdsson" ; "person name de empfaenger")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -1281,6 +1321,9 @@ mod tests {
     #[test_case("AHV-Nummer: 1231234567897", PiiKind::ChAhv ; "ch ahv wrong prefix")]
     #[test_case("PLZ: 9999", PiiKind::ChPostalCode ; "ch postal above range")]
     #[test_case("PLZ: 0999", PiiKind::ChPostalCode ; "ch postal below range")]
+    // PersonName — rejects non-name values
+    #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
+    #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -1346,6 +1389,8 @@ mod tests {
     #[test_case("7561234567897", PiiKind::ChAhv ; "ch ahv no keyword")]
     #[test_case("+41 44 123 45 67", PiiKind::ChPhoneNumber ; "ch phone no keyword")]
     #[test_case("8001", PiiKind::ChPostalCode ; "ch postal no keyword")]
+    #[test_case("John Smith", PiiKind::PersonName ; "person name no keyword")]
+    #[test_case("Maria Garcia-Lopez", PiiKind::PersonName ; "person name hyphenated no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

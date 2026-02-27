@@ -579,6 +579,16 @@ Agent assigned: sarah.jones@support.example.com\n\
 Escalation email: fraud-team@bank.example.com\n\n\
 Case Status: Open — awaiting customer callback at (555) 867-5309.";
 
+const PERSON_NAME_TEXT: &str = "\
+Hospital Admissions — Patient Registry\n\n\
+Patients admitted this week:\n\
+- Patient A: Patient name: John Smith\n\
+- Patient B: Full name: María García-López\n\
+- Patient C: Nom complet: Jean-Pierre Dubois\n\
+- Patient D: Nachname: Müller, Vorname: Hans\n\
+All patient names must be verified against identity documents.\n\
+Contact the admissions desk for corrections.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -688,6 +698,10 @@ Tier 7 Germany/Austria/Switzerland Verification Records:\n\
   AHV-Nummer: 756.1234.5678.97\n\
   Geburtsdatum: 15 März 1990\n\
   Reisepass: 123456789\n\n\
+Tier 8 Person Names:\n\
+  Full name: Jane Doe\n\
+  Nom complet: Jean-Pierre Dupont\n\
+  Nachname: Müller\n\n\
 End of ticket notes.\n";
 
 const DE_STEUER_ID_TEXT: &str = "\
@@ -1174,6 +1188,11 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("de_mixed", |b| {
         b.iter(|| scanner.mark_piis(DE_MIXED_TEXT));
+    });
+
+    // Person names
+    group.bench_function("person_name", |b| {
+        b.iter(|| scanner.mark_piis(PERSON_NAME_TEXT));
     });
 
     group.finish();
