@@ -1072,6 +1072,75 @@ pub(crate) fn ohip_check(s: &str) -> bool {
     checksum % 10 == 0
 }
 
+/// German street address check: validates the captured span from a keyword-context match.
+/// Expects a string like "Musterstraße 42, 10115 Berlin" or "Am Markt 3a, 01067 Dresden".
+/// Checks: ends with 5-digit German PLZ + city, has at least 3 tokens, reasonable length.
+pub(crate) fn de_address_check(s: &str) -> bool {
+    let trimmed = s.trim();
+    let len = trimmed.len();
+    if !(10..=200).contains(&len) {
+        return false;
+    }
+    // Must contain at least one digit (house number or PLZ)
+    if !trimmed.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    // Must have at least 3 whitespace-separated tokens
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return false;
+    }
+    // Find the PLZ: scan tokens for a 5-digit number that passes de_postal_check
+    tokens.iter().any(|t| {
+        let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
+        clean.len() == 5 && clean.chars().all(|c| c.is_ascii_digit()) && de_postal_check(clean)
+    })
+}
+
+/// German Postfach (PO box) check: validates "NNNNN, PLZ Stadt" captured span.
+/// Postfach number is 1-6 digits, followed by 5-digit PLZ + city.
+pub(crate) fn de_postfach_check(s: &str) -> bool {
+    let trimmed = s.trim();
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.len() < 2 {
+        return false;
+    }
+    // First token(s) should be the Postfach number (1-6 digits, possibly with spaces)
+    let first_clean = tokens[0].trim_matches(|c: char| c == ',' || c.is_whitespace());
+    let digits_only: String = first_clean.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits_only.is_empty() || digits_only.len() > 6 {
+        return false;
+    }
+    // Must contain a valid 5-digit PLZ somewhere
+    tokens.iter().any(|t| {
+        let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
+        clean.len() == 5 && clean.chars().all(|c| c.is_ascii_digit()) && de_postal_check(clean)
+    })
+}
+
+/// German Packstation/Postfiliale check: validates "NNN, PLZ Stadt" captured span.
+/// Station number is 3-4 digits, followed by 5-digit PLZ + city.
+pub(crate) fn de_packstation_check(s: &str) -> bool {
+    let trimmed = s.trim();
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.len() < 2 {
+        return false;
+    }
+    // First token should be the station number (3-4 digits)
+    let first_clean = tokens[0].trim_matches(|c: char| c == ',' || c.is_whitespace());
+    if first_clean.len() < 3
+        || first_clean.len() > 4
+        || !first_clean.chars().all(|c| c.is_ascii_digit())
+    {
+        return false;
+    }
+    // Must contain a valid 5-digit PLZ somewhere
+    tokens.iter().any(|t| {
+        let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
+        clean.len() == 5 && clean.chars().all(|c| c.is_ascii_digit()) && de_postal_check(clean)
+    })
+}
+
 pub(crate) fn person_name_check(s: &str) -> bool {
     if s.len() < 2 {
         return false;
@@ -1435,5 +1504,39 @@ mod tests {
     #[test_case("", false ; "reject empty")]
     fn person_name(input: &str, expected: bool) {
         assert_eq!(person_name_check(input), expected);
+    }
+
+    // --- de_address_check ---
+    #[test_case("Musterstraße 42, 10115 Berlin", true ; "valid standard address")]
+    #[test_case("Am Markt 3a, 01067 Dresden", true ; "valid with suffix")]
+    #[test_case("Hauptstraße 10-12, 80331 München", true ; "valid with range")]
+    #[test_case("Friedrichstraße 43, 10117 Berlin", true ; "valid berlin friedrichstr")]
+    #[test_case("Bahnhofstr. 1, 60311 Frankfurt", true ; "valid abbreviated street")]
+    #[test_case("Unter den Linden 77, 10117 Berlin", true ; "valid multi word street")]
+    #[test_case("Str. 42", false ; "invalid no PLZ")]
+    #[test_case("short", false ; "invalid too short")]
+    #[test_case("Musterstraße Berlin", false ; "invalid no digits")]
+    fn de_address(input: &str, expected: bool) {
+        assert_eq!(de_address_check(input), expected);
+    }
+
+    // --- de_postfach_check ---
+    #[test_case("1234, 10557 Berlin", true ; "valid postfach berlin")]
+    #[test_case("56, 80331 München", true ; "valid short postfach number")]
+    #[test_case("123456, 01067 Dresden", true ; "valid 6 digit postfach")]
+    #[test_case("12, 00000 Nowhere", false ; "invalid PLZ zeros")]
+    #[test_case("1234567, 10115 Berlin", false ; "invalid 7 digit postfach")]
+    fn de_postfach(input: &str, expected: bool) {
+        assert_eq!(de_postfach_check(input), expected);
+    }
+
+    // --- de_packstation_check ---
+    #[test_case("109, 01099 Dresden", true ; "valid packstation 3 digits")]
+    #[test_case("1234, 10115 Berlin", true ; "valid packstation 4 digits")]
+    #[test_case("12, 10115 Berlin", false ; "invalid 2 digit station")]
+    #[test_case("12345, 10115 Berlin", false ; "invalid 5 digit station")]
+    #[test_case("109, 00000 Nowhere", false ; "invalid PLZ zeros")]
+    fn de_packstation(input: &str, expected: bool) {
+        assert_eq!(de_packstation_check(input), expected);
     }
 }

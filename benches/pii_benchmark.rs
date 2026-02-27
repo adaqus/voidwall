@@ -697,7 +697,10 @@ Tier 7 Germany/Austria/Switzerland Verification Records:\n\
   SVNR: 1238150185\n\
   AHV-Nummer: 756.1234.5678.97\n\
   Geburtsdatum: 15 März 1990\n\
-  Reisepass: 123456789\n\n\
+  Reisepass: 123456789\n\
+  Anschrift: Musterstraße 42, 10115 Berlin\n\
+  Postfach: 1234, 10557 Berlin\n\
+  Packstation: 109, 01099 Dresden\n\n\
 Tier 8 Person Names:\n\
   Full name: Jane Doe\n\
   Nom complet: Jean-Pierre Dupont\n\
@@ -783,6 +786,31 @@ Die Kundin hat sich wegen einer fehlerhaften Rechnung gemeldet.\n\
 Eine Bestätigung wurde an buchhaltung@firma-beispiel.de gesendet.\n\
 Rückruf geplant an Rufnummer: +49 89 98765432.\n\n\
 Status: In Bearbeitung — warte auf Kundenrückruf.";
+
+const DE_ADDRESS_TEXT: &str = "\
+Einwohnermeldeamt — Adressverifikation\n\n\
+Die folgenden Adressen müssen überprüft werden:\n\
+- Mieter A: Anschrift: Musterstraße 42, 10115 Berlin\n\
+- Mieter B: Wohnadresse: Hauptstraße 10-12, 80331 München\n\
+- Mieter C: Meldeadresse: Bahnhofstr. 1, 60311 Frankfurt\n\
+Alle Adressen müssen im Melderegister verifiziert werden.\n\
+Kontaktieren Sie das Einwohnermeldeamt bei Fragen.";
+
+const DE_POSTFACH_TEXT: &str = "\
+Deutsche Post — Postfachzustellung\n\n\
+Postfächer zur Überprüfung:\n\
+- Kunde A: Postfach: 1234, 10557 Berlin\n\
+- Kunde B: PF: 56, 80331 München\n\
+Alle Postfächer müssen im System registriert sein.\n\
+Kontaktieren Sie die Deutsche Post bei Fragen.";
+
+const DE_PACKSTATION_TEXT: &str = "\
+DHL — Packstation-Verwaltung\n\n\
+Packstationen zur Überprüfung:\n\
+- Kunde A: Packstation: 109, 01099 Dresden\n\
+- Kunde B: Postfiliale: 502, 10115 Berlin\n\
+Alle Packstationen müssen registriert sein.\n\
+Kontaktieren Sie DHL bei Fragen.";
 
 fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
@@ -1188,6 +1216,18 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("de_mixed", |b| {
         b.iter(|| scanner.mark_piis(DE_MIXED_TEXT));
+    });
+
+    group.bench_function("de_address", |b| {
+        b.iter(|| scanner.mark_piis(DE_ADDRESS_TEXT));
+    });
+
+    group.bench_function("de_postfach", |b| {
+        b.iter(|| scanner.mark_piis(DE_POSTFACH_TEXT));
+    });
+
+    group.bench_function("de_packstation", |b| {
+        b.iter(|| scanner.mark_piis(DE_PACKSTATION_TEXT));
     });
 
     // Person names

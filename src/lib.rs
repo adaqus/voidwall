@@ -185,6 +185,9 @@ pub enum PiiKind {
     ChPhoneNumber,
     ChPostalCode,
     PersonName,
+    DeAddress,
+    DePostfach,
+    DePackstation,
 }
 
 impl RedactWith {
@@ -275,6 +278,9 @@ impl PiiKind {
             PiiKind::ChPhoneNumber => "CH_PHONE_NUMBER",
             PiiKind::ChPostalCode => "CH_POSTAL_CODE",
             PiiKind::PersonName => "PERSON_NAME",
+            PiiKind::DeAddress => "DE_ADDRESS",
+            PiiKind::DePostfach => "DE_POSTFACH",
+            PiiKind::DePackstation => "DE_PACKSTATION",
         }
     }
 
@@ -349,7 +355,10 @@ impl PiiKind {
             PiiKind::DeSteuerId
             | PiiKind::DePersonalausweis
             | PiiKind::DePhoneNumber
-            | PiiKind::DePostalCode => Country::De,
+            | PiiKind::DePostalCode
+            | PiiKind::DeAddress
+            | PiiKind::DePostfach
+            | PiiKind::DePackstation => Country::De,
 
             PiiKind::AtSvnr | PiiKind::AtPhoneNumber | PiiKind::AtPostalCode => Country::At,
 
@@ -440,6 +449,9 @@ impl PiiKind {
         PiiKind::ChPhoneNumber,
         PiiKind::ChPostalCode,
         PiiKind::PersonName,
+        PiiKind::DeAddress,
+        PiiKind::DePostfach,
+        PiiKind::DePackstation,
     ];
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.

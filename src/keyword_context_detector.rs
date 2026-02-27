@@ -9,12 +9,13 @@ use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, ch_ahv_check,
-    ch_postal_check, de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check,
-    ein_check, fr_nif_check, fr_postal_check, geolocation_check, ie_driver_check, imei_check,
-    ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check,
-    passport_check, passport_new_check, person_name_check, phone_check, sa_id_check,
-    siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    uscis_receipt_check, utr_check, za_trn_check,
+    ch_postal_check, de_address_check, de_packstation_check, de_personalausweis_check,
+    de_postal_check, de_postfach_check, de_steuer_id_check, dob_check, ein_check, fr_nif_check,
+    fr_postal_check, geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check,
+    nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
+    person_name_check, phone_check, sa_id_check, siren_luhn_check, siret_luhn_check,
+    sort_code_check, swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check,
+    za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -480,6 +481,25 @@ impl KeywordContextDetector {
                 r"(?i)(?:vollst[aä]ndiger Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
+            // --- German physical address types (Language::De) ---
+            (
+                PiiKind::DeAddress,
+                Language::De,
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?)?[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                de_address_check,
+            ),
+            (
+                PiiKind::DePostfach,
+                Language::De,
+                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                de_postfach_check,
+            ),
+            (
+                PiiKind::DePackstation,
+                Language::De,
+                r"(?i)(?:Packstation|Postfiliale|Paketshop)[\s:.#/\-\x22]*?(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                de_packstation_check,
+            ),
         ];
 
         let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
@@ -901,6 +921,19 @@ mod tests {
     #[test_case("Familienname: Von Trapp", PiiKind::PersonName, "Von Trapp" ; "person name de familienname")]
     #[test_case("Kontoinhaber: Günther Müller", PiiKind::PersonName, "Günther Müller" ; "person name de kontoinhaber")]
     #[test_case("Empfänger: Björk Sigurdsson", PiiKind::PersonName, "Björk Sigurdsson" ; "person name de empfaenger")]
+    // German address types
+    #[test_case("Anschrift: Musterstraße 42, 10115 Berlin", PiiKind::DeAddress, "Musterstraße 42, 10115 Berlin" ; "de address standard")]
+    #[test_case("Wohnadresse: Am Markt 3a, 01067 Dresden", PiiKind::DeAddress, "Am Markt 3a, 01067 Dresden" ; "de address with suffix")]
+    #[test_case("Rechnungsadresse: Hauptstraße 10-12, 80331 München", PiiKind::DeAddress, "Hauptstraße 10-12, 80331 München" ; "de address with range")]
+    #[test_case("Lieferadresse: Unter den Linden 77, 10117 Berlin", PiiKind::DeAddress, "Unter den Linden 77, 10117 Berlin" ; "de address multi word street")]
+    #[test_case("Meldeadresse: Bahnhofstr. 1, 60311 Frankfurt", PiiKind::DeAddress, "Bahnhofstr. 1, 60311 Frankfurt" ; "de address abbreviated")]
+    #[test_case("Adresse: Friedrichstraße 43, 10117 Berlin", PiiKind::DeAddress, "Friedrichstraße 43, 10117 Berlin" ; "de address keyword adresse")]
+    #[test_case("Postfach: 1234, 10557 Berlin", PiiKind::DePostfach, "1234, 10557 Berlin" ; "de postfach berlin")]
+    #[test_case("PF: 56, 80331 München", PiiKind::DePostfach, "56, 80331 München" ; "de postfach short keyword")]
+    #[test_case("Postfach: 123456, 01067 Dresden", PiiKind::DePostfach, "123456, 01067 Dresden" ; "de postfach 6 digits")]
+    #[test_case("Packstation: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation 3 digits")]
+    #[test_case("Postfiliale: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de postfiliale")]
+    #[test_case("Paketshop: 1234, 20095 Hamburg", PiiKind::DePackstation, "1234, 20095 Hamburg" ; "de paketshop 4 digits")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -1126,6 +1159,18 @@ mod tests {
     #[test_case("health insurance number: 1234567897" ; "ca ohip keyword variant 2")]
     #[test_case("OHIP 1234567897" ; "ca ohip sep space")]
     #[test_case("OHIP:1234567897" ; "ca ohip sep colon")]
+    // German address
+    #[test_case("Anschrift: Musterstraße 42, 10115 Berlin" ; "de address keyword anschrift")]
+    #[test_case("Wohnsitz: Hauptstraße 1, 80331 München" ; "de address keyword wohnsitz")]
+    #[test_case("Adresse: Friedrichstraße 43, 10117 Berlin" ; "de address keyword adresse")]
+    #[test_case("Privatadresse: Bahnhofstr. 1, 60311 Frankfurt" ; "de address keyword privatadresse")]
+    // German Postfach
+    #[test_case("Postfach: 1234, 10557 Berlin" ; "de postfach keyword postfach")]
+    #[test_case("PF: 56, 80331 München" ; "de postfach keyword pf")]
+    // German Packstation
+    #[test_case("Packstation: 109, 01099 Dresden" ; "de packstation keyword packstation")]
+    #[test_case("Postfiliale: 502, 10115 Berlin" ; "de packstation keyword postfiliale")]
+    #[test_case("Paketshop: 1234, 20095 Hamburg" ; "de packstation keyword paketshop")]
     fn has_piis_with_keyword(input: &str) {
         let detector = &*DETECTOR;
         assert!(detector.has_piis(input), "should detect PII in: {input}");
@@ -1324,6 +1369,10 @@ mod tests {
     // PersonName — rejects non-name values
     #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
     #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]
+    // German address — invalid PLZ
+    #[test_case("Anschrift: Musterstraße 42, 00000 Berlin", PiiKind::DeAddress ; "de address invalid plz zeros")]
+    #[test_case("Postfach: 1234567, 10115 Berlin", PiiKind::DePostfach ; "de postfach too many digits")]
+    #[test_case("Packstation: 12, 10115 Berlin", PiiKind::DePackstation ; "de packstation too few digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -1391,6 +1440,10 @@ mod tests {
     #[test_case("8001", PiiKind::ChPostalCode ; "ch postal no keyword")]
     #[test_case("John Smith", PiiKind::PersonName ; "person name no keyword")]
     #[test_case("Maria Garcia-Lopez", PiiKind::PersonName ; "person name hyphenated no keyword")]
+    // German address types — no keyword
+    #[test_case("Musterstraße 42, 10115 Berlin", PiiKind::DeAddress ; "de address no keyword")]
+    #[test_case("1234, 10557 Berlin", PiiKind::DePostfach ; "de postfach no keyword")]
+    #[test_case("109, 01099 Dresden", PiiKind::DePackstation ; "de packstation no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
