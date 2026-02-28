@@ -185,8 +185,8 @@ pub enum PiiKind {
     ChPhoneNumber,
     ChPostalCode,
     PersonName,
-    DeAddress,
-    DePostfach,
+    DeAtAddress,
+    DeAtPostfach,
     DePackstation,
 }
 
@@ -278,8 +278,8 @@ impl PiiKind {
             PiiKind::ChPhoneNumber => "CH_PHONE_NUMBER",
             PiiKind::ChPostalCode => "CH_POSTAL_CODE",
             PiiKind::PersonName => "PERSON_NAME",
-            PiiKind::DeAddress => "DE_ADDRESS",
-            PiiKind::DePostfach => "DE_POSTFACH",
+            PiiKind::DeAtAddress => "DE_AT_ADDRESS",
+            PiiKind::DeAtPostfach => "DE_AT_POSTFACH",
             PiiKind::DePackstation => "DE_PACKSTATION",
         }
     }
@@ -356,8 +356,8 @@ impl PiiKind {
             | PiiKind::DePersonalausweis
             | PiiKind::DePhoneNumber
             | PiiKind::DePostalCode
-            | PiiKind::DeAddress
-            | PiiKind::DePostfach
+            | PiiKind::DeAtAddress
+            | PiiKind::DeAtPostfach
             | PiiKind::DePackstation => Country::De,
 
             PiiKind::AtSvnr | PiiKind::AtPhoneNumber | PiiKind::AtPostalCode => Country::At,
@@ -449,17 +449,45 @@ impl PiiKind {
         PiiKind::ChPhoneNumber,
         PiiKind::ChPostalCode,
         PiiKind::PersonName,
-        PiiKind::DeAddress,
-        PiiKind::DePostfach,
+        PiiKind::DeAtAddress,
+        PiiKind::DeAtPostfach,
         PiiKind::DePackstation,
     ];
+
+    /// Returns all countries this PII kind applies to.
+    ///
+    /// Most variants map to a single country, but combined variants like
+    /// `DeAtAddress` apply to multiple countries.
+    pub const fn applicable_countries(&self) -> &'static [Country] {
+        match self {
+            PiiKind::DeAtAddress | PiiKind::DeAtPostfach => &[Country::De, Country::At],
+            _ => match self.country() {
+                Country::International => &[Country::International],
+                Country::Us => &[Country::Us],
+                Country::Gb => &[Country::Gb],
+                Country::Au => &[Country::Au],
+                Country::Nz => &[Country::Nz],
+                Country::Ca => &[Country::Ca],
+                Country::Ie => &[Country::Ie],
+                Country::Za => &[Country::Za],
+                Country::Fr => &[Country::Fr],
+                Country::De => &[Country::De],
+                Country::At => &[Country::At],
+                Country::Ch => &[Country::Ch],
+            },
+        }
+    }
 
     /// Returns the set of `PiiKind` variants belonging to the given countries.
     pub(crate) fn enabled_for_countries(countries: &HashSet<Country>) -> HashSet<PiiKind> {
         PiiKind::ALL
             .iter()
             .copied()
-            .filter(|k| countries.contains(&k.country()))
+            .filter(|k| {
+                k.applicable_countries()
+                    .iter()
+                    .any(|c| countries.contains(c))
+            })
             .collect()
     }
 }
