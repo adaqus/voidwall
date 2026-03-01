@@ -174,8 +174,8 @@ pub enum PiiKind {
     FrPhoneNumber,
     FrPostalCode,
     FrNif,
-    FrAddress,
-    FrBoitePostale,
+    FrChAddress,
+    FrChBoitePostale,
     DeSteuerId,
     DePersonalausweis,
     DePhoneNumber,
@@ -269,8 +269,8 @@ impl PiiKind {
             PiiKind::FrPhoneNumber => "FR_PHONE_NUMBER",
             PiiKind::FrPostalCode => "FR_POSTAL_CODE",
             PiiKind::FrNif => "FR_NIF",
-            PiiKind::FrAddress => "FR_ADDRESS",
-            PiiKind::FrBoitePostale => "FR_BOITE_POSTALE",
+            PiiKind::FrChAddress => "FR_CH_ADDRESS",
+            PiiKind::FrChBoitePostale => "FR_CH_BOITE_CASE_POSTALE",
             PiiKind::DeSteuerId => "DE_STEUER_ID",
             PiiKind::DePersonalausweis => "DE_PERSONALAUSWEIS",
             PiiKind::DePhoneNumber => "DE_PHONE_NUMBER",
@@ -355,8 +355,8 @@ impl PiiKind {
             | PiiKind::FrPhoneNumber
             | PiiKind::FrPostalCode
             | PiiKind::FrNif
-            | PiiKind::FrAddress
-            | PiiKind::FrBoitePostale => Country::Fr,
+            | PiiKind::FrChAddress
+            | PiiKind::FrChBoitePostale => Country::Fr,
 
             PiiKind::DeSteuerId
             | PiiKind::DePersonalausweis
@@ -444,8 +444,8 @@ impl PiiKind {
         PiiKind::FrPhoneNumber,
         PiiKind::FrPostalCode,
         PiiKind::FrNif,
-        PiiKind::FrAddress,
-        PiiKind::FrBoitePostale,
+        PiiKind::FrChAddress,
+        PiiKind::FrChBoitePostale,
         PiiKind::DeSteuerId,
         PiiKind::DePersonalausweis,
         PiiKind::DePhoneNumber,
@@ -471,6 +471,7 @@ impl PiiKind {
             PiiKind::DeAtChAddress | PiiKind::DeAtChPostfach => {
                 &[Country::De, Country::At, Country::Ch]
             }
+            PiiKind::FrChAddress | PiiKind::FrChBoitePostale => &[Country::Fr, Country::Ch],
             _ => match self.country() {
                 Country::International => &[Country::International],
                 Country::Us => &[Country::Us],

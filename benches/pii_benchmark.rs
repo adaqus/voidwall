@@ -824,7 +824,7 @@ Packstationen zur Überprüfung:\n\
 Alle Packstationen müssen registriert sein.\n\
 Kontaktieren Sie DHL bei Fragen.";
 
-const FR_ADDRESS_TEXT: &str = "\
+const FR_CH_ADDRESS_TEXT: &str = "\
 La Poste — Vérification des adresses\n\n\
 Les adresses suivantes doivent être vérifiées :\n\
 - Client A: adresse: 15 rue de la Paix, 75002 Paris\n\
@@ -832,15 +832,19 @@ Les adresses suivantes doivent être vérifiées :\n\
 - Client C: résidence: 3 place Bellecour, 69002 Lyon\n\
 - Client D: habitation: 7 allée des Pins, 13008 Marseille\n\
 - Client E: adresse de livraison: 25 cours de l'Intendance, 33000 Bordeaux\n\
+- Client F: domicile: rue du Général-Dufour 24, 1211 Genève\n\
+- Client G: résidence: avenue Nestlé 55, 1800 Vevey\n\
 Toutes les adresses doivent être vérifiées dans le système.\n\
 Contactez La Poste en cas de questions.";
 
-const FR_BOITE_POSTALE_TEXT: &str = "\
-La Poste — Gestion des boîtes postales\n\n\
-Boîtes postales à vérifier :\n\
+const FR_CH_BOITE_POSTALE_TEXT: &str = "\
+La Poste — Gestion des boîtes postales et cases postales\n\n\
+Boîtes et cases postales à vérifier :\n\
 - Client A: BP: 1234, 75008 Paris\n\
 - Client B: boîte postale: 56, 69001 Lyon\n\
 - Client C: BP: 789, 97100 Basse-Terre\n\
+- Client D: case postale: 2272, 1950 Sion\n\
+- Client E: CP: 440, 1211 Genève\n\
 Toutes les boîtes postales doivent être enregistrées.\n\
 Contactez La Poste en cas de questions.";
 
@@ -1229,12 +1233,12 @@ fn per_pii_kind(c: &mut Criterion) {
         b.iter(|| scanner.mark_piis(FR_MIXED_TEXT));
     });
 
-    group.bench_function("fr_address", |b| {
-        b.iter(|| scanner.mark_piis(FR_ADDRESS_TEXT));
+    group.bench_function("fr_ch_address", |b| {
+        b.iter(|| scanner.mark_piis(FR_CH_ADDRESS_TEXT));
     });
 
-    group.bench_function("fr_boite_postale", |b| {
-        b.iter(|| scanner.mark_piis(FR_BOITE_POSTALE_TEXT));
+    group.bench_function("fr_ch_boite_postale", |b| {
+        b.iter(|| scanner.mark_piis(FR_CH_BOITE_POSTALE_TEXT));
     });
 
     // Germany/Austria/Switzerland

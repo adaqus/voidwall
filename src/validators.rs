@@ -1151,9 +1151,9 @@ pub(crate) fn de_packstation_check(s: &str) -> bool {
     })
 }
 
-/// French street address check: validates "StreetType StreetName, PLZ City" captured span.
-/// Length 10–200, ≥3 tokens, must contain a valid 5-digit French postal code.
-pub(crate) fn fr_address_check(s: &str) -> bool {
+/// French/Swiss French street address check: validates captured span.
+/// Length 10–200, ≥3 tokens, must contain a valid postal code (5-digit FR or 4-digit CH).
+pub(crate) fn fr_ch_address_check(s: &str) -> bool {
     let trimmed = s.trim();
     let len = trimmed.len();
     if !(10..=200).contains(&len) {
@@ -1168,13 +1168,21 @@ pub(crate) fn fr_address_check(s: &str) -> bool {
     }
     tokens.iter().any(|t| {
         let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
-        clean.len() == 5 && clean.chars().all(|c| c.is_ascii_digit()) && fr_postal_check(clean)
+        if clean.chars().all(|c| c.is_ascii_digit()) {
+            match clean.len() {
+                5 => fr_postal_check(clean),
+                4 => ch_postal_check(clean),
+                _ => false,
+            }
+        } else {
+            false
+        }
     })
 }
 
-/// French PO box (Boîte Postale) check: validates "NNNNN, PLZ City" captured span.
-/// First token is 1–6 digits (BP number), must contain a valid 5-digit French postal code.
-pub(crate) fn fr_boite_postale_check(s: &str) -> bool {
+/// French/Swiss PO box (Boîte Postale / Case Postale) check.
+/// First token is 1–6 digits (BP/CP number), must contain a valid postal code (5-digit FR or 4-digit CH).
+pub(crate) fn fr_ch_boite_postale_check(s: &str) -> bool {
     let trimmed = s.trim();
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
     if tokens.len() < 2 {
@@ -1185,9 +1193,18 @@ pub(crate) fn fr_boite_postale_check(s: &str) -> bool {
     if digits_only.is_empty() || digits_only.len() > 6 {
         return false;
     }
-    tokens.iter().any(|t| {
+    // Skip first token (BP/CP number) when looking for postal code
+    tokens[1..].iter().any(|t| {
         let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
-        clean.len() == 5 && clean.chars().all(|c| c.is_ascii_digit()) && fr_postal_check(clean)
+        if clean.chars().all(|c| c.is_ascii_digit()) {
+            match clean.len() {
+                5 => fr_postal_check(clean),
+                4 => ch_postal_check(clean),
+                _ => false,
+            }
+        } else {
+            false
+        }
     })
 }
 
@@ -1605,7 +1622,7 @@ mod tests {
         assert_eq!(de_packstation_check(input), expected);
     }
 
-    // --- fr_address_check ---
+    // --- fr_ch_address_check ---
     #[test_case("15 Rue de la Paix, 75002 Paris", true ; "valid paris street")]
     #[test_case("1 Avenue des Champs-Élysées, 75008 Paris", true ; "valid champs elysees")]
     #[test_case("42 Boulevard Haussmann, 75009 Paris", true ; "valid boulevard haussmann")]
@@ -1615,7 +1632,7 @@ mod tests {
     #[test_case("10 Impasse du Moulin, 97100 Basse-Terre", true ; "valid overseas guadeloupe")]
     #[test_case("5 Rue du Port, 97400 Saint-Denis", true ; "valid overseas reunion")]
     #[test_case("8bis Rue Victor Hugo, 75016 Paris", true ; "valid with bis")]
-    // Real-world addresses from official sources
+    // Real-world FR addresses from official sources
     #[test_case("55 rue du Faubourg Saint-Honoré, 75008 Paris", true ; "valid elysee palace")] // From elysee.fr
     #[test_case("5 avenue Anatole France, 75007 Paris", true ; "valid tour eiffel")] // From toureiffel.paris
     #[test_case("1 rue de la Légion d'Honneur, 75007 Paris", true ; "valid musee orsay")] // From musee-orsay.fr
@@ -1624,25 +1641,36 @@ mod tests {
     #[test_case("37 promenade des Anglais, 06000 Nice", true ; "valid negresco nice")] // From lenegresco.com
     #[test_case("1 boulevard de la Croisette, 06400 Cannes", true ; "valid palais festivals cannes")] // From palaisdesfestivals.com
     #[test_case("151 bis rue de Rennes, 75006 Paris", true ; "valid bis suffix rennes")] // From connexionfrance.com
+    // Real-world Swiss French addresses
+    #[test_case("Rue du Général-Dufour 24, 1211 Genève", true ; "valid ch geneve unige")] // Université de Genève
+    #[test_case("Quai d'Ouchy 1, 1006 Lausanne", true ; "valid ch lausanne olympic")] // Musée Olympique
+    #[test_case("Avenue de Cour 135, 1007 Lausanne", true ; "valid ch lausanne cour")] // CIO Lausanne
+    #[test_case("Avenue de Chillon 21, 1820 Veytaux", true ; "valid ch veytaux chateau")] // Château de Chillon
+    #[test_case("Avenue Nestlé 55, 1800 Vevey", true ; "valid ch vevey nestle")] // Nestlé HQ
     #[test_case("Rue, 00000 Nowhere", false ; "invalid plz zeros")]
     #[test_case("short, 75001", false ; "too short")]
     #[test_case("ab cd", false ; "too few tokens")]
-    fn fr_address(input: &str, expected: bool) {
-        assert_eq!(fr_address_check(input), expected);
+    #[test_case("Rue du Port 5, 0999 Nowhere", false ; "invalid ch plz below range")]
+    fn fr_ch_address(input: &str, expected: bool) {
+        assert_eq!(fr_ch_address_check(input), expected);
     }
 
-    // --- fr_boite_postale_check ---
+    // --- fr_ch_boite_postale_check ---
     #[test_case("1234, 75008 Paris", true ; "valid bp paris")]
     #[test_case("56, 69001 Lyon", true ; "valid bp lyon")]
     #[test_case("123456, 13001 Marseille", true ; "valid bp 6 digits")]
     #[test_case("1, 33000 Bordeaux", true ; "valid bp single digit")]
     #[test_case("789, 97100 Basse-Terre", true ; "valid bp overseas")]
-    // Real-world BP addresses
+    // Real-world FR BP addresses
     #[test_case("7008, 97307 Cayenne", true ; "valid bp cayenne guyane")] // From guyane.gouv.fr
     #[test_case("523, 98000 Monaco", true ; "valid bp monaco")] // From mairie.mc
+    // Real-world Swiss Case Postale addresses
+    #[test_case("2272, 1950 Sion", true ; "valid cp sion")] // Ville de Sion
+    #[test_case("440, 1211 Genève", true ; "valid cp geneve")] // From ge.ch
     #[test_case("1234567, 75008 Paris", false ; "invalid bp 7 digits")]
     #[test_case("1234, 00000 Nowhere", false ; "invalid plz zeros")]
-    fn fr_boite_postale(input: &str, expected: bool) {
-        assert_eq!(fr_boite_postale_check(input), expected);
+    #[test_case("1234, 0999 Nowhere", false ; "invalid ch plz below range")]
+    fn fr_ch_boite_postale(input: &str, expected: bool) {
+        assert_eq!(fr_ch_boite_postale_check(input), expected);
     }
 }
