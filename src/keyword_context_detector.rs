@@ -11,11 +11,11 @@ use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, ch_ahv_check,
     ch_postal_check, de_at_address_check, de_at_postfach_check, de_packstation_check,
     de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check, ein_check,
-    fr_nif_check, fr_postal_check, geolocation_check, ie_driver_check, imei_check, ird_check,
-    medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check, passport_check,
-    passport_new_check, person_name_check, phone_check, sa_id_check, siren_luhn_check,
-    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    uscis_receipt_check, utr_check, za_trn_check,
+    fr_address_check, fr_boite_postale_check, fr_nif_check, fr_postal_check, geolocation_check,
+    ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check,
+    nz_dl_check, ohip_check, passport_check, passport_new_check, person_name_check, phone_check,
+    sa_id_check, siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check,
+    us_dl_check, uscis_receipt_check, utr_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -481,6 +481,19 @@ impl KeywordContextDetector {
                 r"(?i)(?:vollst[aä]ndiger Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
+            // --- French physical address types (Language::Fr) ---
+            (
+                PiiKind::FrAddress,
+                Language::Fr,
+                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)[\s:.#/\-\x22]*?(\d{1,4}\s?(?:bis|ter)?\s*,?\s*(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                fr_address_check,
+            ),
+            (
+                PiiKind::FrBoitePostale,
+                Language::Fr,
+                r"(?i)(?:bo[iî]te\s+postale|BP)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                fr_boite_postale_check,
+            ),
             // --- German/Austrian physical address types (Language::De) ---
             (
                 PiiKind::DeAtChAddress,
@@ -942,6 +955,34 @@ mod tests {
     #[test_case("Familienname: Von Trapp", PiiKind::PersonName, "Von Trapp" ; "person name de familienname")]
     #[test_case("Kontoinhaber: Günther Müller", PiiKind::PersonName, "Günther Müller" ; "person name de kontoinhaber")]
     #[test_case("Empfänger: Björk Sigurdsson", PiiKind::PersonName, "Björk Sigurdsson" ; "person name de empfaenger")]
+    // French address types
+    #[test_case("adresse: 15 rue de la Paix, 75002 Paris", PiiKind::FrAddress, "15 rue de la Paix, 75002 Paris" ; "fr address rue de la paix")]
+    #[test_case("domicile: 42 boulevard Haussmann, 75009 Paris", PiiKind::FrAddress, "42 boulevard Haussmann, 75009 Paris" ; "fr address boulevard")]
+    #[test_case("résidence: 3 place Bellecour, 69002 Lyon", PiiKind::FrAddress, "3 place Bellecour, 69002 Lyon" ; "fr address place lyon")]
+    #[test_case("habitation: 7 allée des Pins, 13008 Marseille", PiiKind::FrAddress, "7 allée des Pins, 13008 Marseille" ; "fr address allee marseille")]
+    #[test_case("adresse de livraison: 25 cours de l'Intendance, 33000 Bordeaux", PiiKind::FrAddress, "25 cours de l'Intendance, 33000 Bordeaux" ; "fr address cours bordeaux")]
+    #[test_case("siège social: 1 avenue des Champs, 75008 Paris", PiiKind::FrAddress, "1 avenue des Champs, 75008 Paris" ; "fr address siege social")]
+    #[test_case("adresse du domicile: 10 impasse du Moulin, 97100 Basse-Terre", PiiKind::FrAddress, "10 impasse du Moulin, 97100 Basse-Terre" ; "fr address overseas guadeloupe")]
+    #[test_case("adresse de facturation: 8 chemin des Vignes, 31000 Toulouse", PiiKind::FrAddress, "8 chemin des Vignes, 31000 Toulouse" ; "fr address chemin toulouse")]
+    // Real-world French addresses — verified from official sources
+    #[test_case("adresse: 55 rue du Faubourg Saint-Honoré, 75008 Paris", PiiKind::FrAddress, "55 rue du Faubourg Saint-Honoré, 75008 Paris" ; "fr address elysee palace")] // From elysee.fr
+    #[test_case("domicile: 5 avenue Anatole France, 75007 Paris", PiiKind::FrAddress, "5 avenue Anatole France, 75007 Paris" ; "fr address tour eiffel")] // From toureiffel.paris
+    #[test_case("adresse: 1 rue de la Légion d'Honneur, 75007 Paris", PiiKind::FrAddress, "1 rue de la Légion d'Honneur, 75007 Paris" ; "fr address musee orsay")] // From musee-orsay.fr
+    #[test_case("résidence: 36 quai des Orfèvres, 75001 Paris", PiiKind::FrAddress, "36 quai des Orfèvres, 75001 Paris" ; "fr address quai des orfevres")] // From Wikipedia
+    #[test_case("adresse: 35 rue du Chevalier de la Barre, 75018 Paris", PiiKind::FrAddress, "35 rue du Chevalier de la Barre, 75018 Paris" ; "fr address sacre coeur")] // From Yelp
+    #[test_case("adresse: 129 rue de Grenelle, 75007 Paris", PiiKind::FrAddress, "129 rue de Grenelle, 75007 Paris" ; "fr address invalides")] // From musee-armee.fr
+    #[test_case("siège social: 2 boulevard du Général Martial-Valin, 75015 Paris", PiiKind::FrAddress, "2 boulevard du Général Martial-Valin, 75015 Paris" ; "fr address safran hq")] // From safran-group.com
+    #[test_case("adresse: 86 quai Perrache, 69002 Lyon", PiiKind::FrAddress, "86 quai Perrache, 69002 Lyon" ; "fr address musee confluences lyon")] // From museedesconfluences.fr
+    #[test_case("domicile: 37 promenade des Anglais, 06000 Nice", PiiKind::FrAddress, "37 promenade des Anglais, 06000 Nice" ; "fr address negresco nice")] // From lenegresco.com
+    #[test_case("adresse: 1 boulevard de la Croisette, 06400 Cannes", PiiKind::FrAddress, "1 boulevard de la Croisette, 06400 Cannes" ; "fr address palais festivals cannes")] // From palaisdesfestivals.com
+    #[test_case("adresse: 151 bis rue de Rennes, 75006 Paris", PiiKind::FrAddress, "151 bis rue de Rennes, 75006 Paris" ; "fr address bis suffix")] // From connexionfrance.com
+    #[test_case("BP: 1234, 75008 Paris", PiiKind::FrBoitePostale, "1234, 75008 Paris" ; "fr bp paris")]
+    #[test_case("boîte postale: 56, 69001 Lyon", PiiKind::FrBoitePostale, "56, 69001 Lyon" ; "fr bp lyon")]
+    #[test_case("BP: 789, 97100 Basse-Terre", PiiKind::FrBoitePostale, "789, 97100 Basse-Terre" ; "fr bp overseas")]
+    #[test_case("boîte postale: 123456, 13001 Marseille", PiiKind::FrBoitePostale, "123456, 13001 Marseille" ; "fr bp 6 digits")]
+    // Real-world BP addresses
+    #[test_case("BP: 7008, 97307 Cayenne", PiiKind::FrBoitePostale, "7008, 97307 Cayenne" ; "fr bp cayenne guyane")] // From guyane.gouv.fr
+    #[test_case("boîte postale: 523, 98000 Monaco", PiiKind::FrBoitePostale, "523, 98000 Monaco" ; "fr bp monaco")] // From mairie.mc
     // German/Austrian address types
     #[test_case("Anschrift: Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress, "Musterstraße 42, 10115 Berlin" ; "de address standard")]
     #[test_case("Wohnadresse: Am Markt 3a, 01067 Dresden", PiiKind::DeAtChAddress, "Am Markt 3a, 01067 Dresden" ; "de address with suffix")]
@@ -1191,6 +1232,11 @@ mod tests {
     #[test_case("health insurance number: 1234567897" ; "ca ohip keyword variant 2")]
     #[test_case("OHIP 1234567897" ; "ca ohip sep space")]
     #[test_case("OHIP:1234567897" ; "ca ohip sep colon")]
+    // French address
+    #[test_case("adresse: 15 rue de la Paix, 75002 Paris" ; "fr address keyword adresse")]
+    #[test_case("domicile: 42 boulevard Haussmann, 75009 Paris" ; "fr address keyword domicile")]
+    #[test_case("BP: 1234, 75008 Paris" ; "fr bp keyword bp")]
+    #[test_case("boîte postale: 56, 69001 Lyon" ; "fr bp keyword boite postale")]
     // German address
     #[test_case("Anschrift: Musterstraße 42, 10115 Berlin" ; "de address keyword anschrift")]
     #[test_case("Wohnsitz: Hauptstraße 1, 80331 München" ; "de address keyword wohnsitz")]
@@ -1401,6 +1447,9 @@ mod tests {
     // PersonName — rejects non-name values
     #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
     #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]
+    // French address — invalid PLZ
+    #[test_case("adresse: 15 rue de la Paix, 00000 Paris", PiiKind::FrAddress ; "fr address invalid plz zeros")]
+    #[test_case("BP: 1234567, 75008 Paris", PiiKind::FrBoitePostale ; "fr bp too many digits")]
     // German/Austrian address — invalid PLZ
     #[test_case("Anschrift: Musterstraße 42, 00000 Berlin", PiiKind::DeAtChAddress ; "de address invalid plz zeros")]
     #[test_case("Anschrift: Schillerstraße 10, 0999 Wien", PiiKind::DeAtChAddress ; "at address plz below 1010")]
@@ -1474,6 +1523,9 @@ mod tests {
     #[test_case("8001", PiiKind::ChPostalCode ; "ch postal no keyword")]
     #[test_case("John Smith", PiiKind::PersonName ; "person name no keyword")]
     #[test_case("Maria Garcia-Lopez", PiiKind::PersonName ; "person name hyphenated no keyword")]
+    // French address types — no keyword
+    #[test_case("15 rue de la Paix, 75002 Paris", PiiKind::FrAddress ; "fr address no keyword")]
+    #[test_case("1234, 75008 Paris", PiiKind::FrBoitePostale ; "fr bp no keyword")]
     // German/Austrian address types — no keyword
     #[test_case("Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress ; "de address no keyword")]
     #[test_case("Schillerstraße 10, 1010 Wien", PiiKind::DeAtChAddress ; "at address no keyword")]

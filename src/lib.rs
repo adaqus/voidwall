@@ -174,6 +174,8 @@ pub enum PiiKind {
     FrPhoneNumber,
     FrPostalCode,
     FrNif,
+    FrAddress,
+    FrBoitePostale,
     DeSteuerId,
     DePersonalausweis,
     DePhoneNumber,
@@ -267,6 +269,8 @@ impl PiiKind {
             PiiKind::FrPhoneNumber => "FR_PHONE_NUMBER",
             PiiKind::FrPostalCode => "FR_POSTAL_CODE",
             PiiKind::FrNif => "FR_NIF",
+            PiiKind::FrAddress => "FR_ADDRESS",
+            PiiKind::FrBoitePostale => "FR_BOITE_POSTALE",
             PiiKind::DeSteuerId => "DE_STEUER_ID",
             PiiKind::DePersonalausweis => "DE_PERSONALAUSWEIS",
             PiiKind::DePhoneNumber => "DE_PHONE_NUMBER",
@@ -350,7 +354,9 @@ impl PiiKind {
             | PiiKind::FrDriversLicense
             | PiiKind::FrPhoneNumber
             | PiiKind::FrPostalCode
-            | PiiKind::FrNif => Country::Fr,
+            | PiiKind::FrNif
+            | PiiKind::FrAddress
+            | PiiKind::FrBoitePostale => Country::Fr,
 
             PiiKind::DeSteuerId
             | PiiKind::DePersonalausweis
@@ -438,6 +444,8 @@ impl PiiKind {
         PiiKind::FrPhoneNumber,
         PiiKind::FrPostalCode,
         PiiKind::FrNif,
+        PiiKind::FrAddress,
+        PiiKind::FrBoitePostale,
         PiiKind::DeSteuerId,
         PiiKind::DePersonalausweis,
         PiiKind::DePhoneNumber,
@@ -457,7 +465,7 @@ impl PiiKind {
     /// Returns all countries this PII kind applies to.
     ///
     /// Most variants map to a single country, but combined variants like
-    /// `DeAtChAddress` apply to multiple countries.
+    /// `DeAtAddress` apply to multiple countries.
     pub const fn applicable_countries(&self) -> &'static [Country] {
         match self {
             PiiKind::DeAtChAddress | PiiKind::DeAtChPostfach => {

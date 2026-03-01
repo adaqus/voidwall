@@ -688,7 +688,9 @@ Tier 6 France Verification Records:\n\
   Permis de conduire: 987654321012\n\
   Téléphone: 06 12 34 56 78\n\
   Code postal: 75008\n\
-  Numéro fiscal: 0123456789012\n\n\
+  Numéro fiscal: 0123456789012\n\
+  Adresse: 15 rue de la Paix, 75002 Paris\n\
+  BP: 1234, 75008 Paris\n\n\
 Tier 7 Germany/Austria/Switzerland Verification Records:\n\
   Steuer-ID: 65929970489\n\
   Personalausweis: L01X00T471\n\
@@ -821,6 +823,26 @@ Packstationen zur Überprüfung:\n\
 - Kunde B: Postfiliale: 502, 10115 Berlin\n\
 Alle Packstationen müssen registriert sein.\n\
 Kontaktieren Sie DHL bei Fragen.";
+
+const FR_ADDRESS_TEXT: &str = "\
+La Poste — Vérification des adresses\n\n\
+Les adresses suivantes doivent être vérifiées :\n\
+- Client A: adresse: 15 rue de la Paix, 75002 Paris\n\
+- Client B: domicile: 42 boulevard Haussmann, 75009 Paris\n\
+- Client C: résidence: 3 place Bellecour, 69002 Lyon\n\
+- Client D: habitation: 7 allée des Pins, 13008 Marseille\n\
+- Client E: adresse de livraison: 25 cours de l'Intendance, 33000 Bordeaux\n\
+Toutes les adresses doivent être vérifiées dans le système.\n\
+Contactez La Poste en cas de questions.";
+
+const FR_BOITE_POSTALE_TEXT: &str = "\
+La Poste — Gestion des boîtes postales\n\n\
+Boîtes postales à vérifier :\n\
+- Client A: BP: 1234, 75008 Paris\n\
+- Client B: boîte postale: 56, 69001 Lyon\n\
+- Client C: BP: 789, 97100 Basse-Terre\n\
+Toutes les boîtes postales doivent être enregistrées.\n\
+Contactez La Poste en cas de questions.";
 
 fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
@@ -1205,6 +1227,14 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("fr_mixed", |b| {
         b.iter(|| scanner.mark_piis(FR_MIXED_TEXT));
+    });
+
+    group.bench_function("fr_address", |b| {
+        b.iter(|| scanner.mark_piis(FR_ADDRESS_TEXT));
+    });
+
+    group.bench_function("fr_boite_postale", |b| {
+        b.iter(|| scanner.mark_piis(FR_BOITE_POSTALE_TEXT));
     });
 
     // Germany/Austria/Switzerland
