@@ -185,8 +185,8 @@ pub enum PiiKind {
     ChPhoneNumber,
     ChPostalCode,
     PersonName,
-    DeAtAddress,
-    DeAtPostfach,
+    DeAtChAddress,
+    DeAtChPostfach,
     DePackstation,
 }
 
@@ -278,8 +278,8 @@ impl PiiKind {
             PiiKind::ChPhoneNumber => "CH_PHONE_NUMBER",
             PiiKind::ChPostalCode => "CH_POSTAL_CODE",
             PiiKind::PersonName => "PERSON_NAME",
-            PiiKind::DeAtAddress => "DE_AT_ADDRESS",
-            PiiKind::DeAtPostfach => "DE_AT_POSTFACH",
+            PiiKind::DeAtChAddress => "DE_AT_CH_ADDRESS",
+            PiiKind::DeAtChPostfach => "DE_AT_CH_POSTFACH",
             PiiKind::DePackstation => "DE_PACKSTATION",
         }
     }
@@ -356,8 +356,8 @@ impl PiiKind {
             | PiiKind::DePersonalausweis
             | PiiKind::DePhoneNumber
             | PiiKind::DePostalCode
-            | PiiKind::DeAtAddress
-            | PiiKind::DeAtPostfach
+            | PiiKind::DeAtChAddress
+            | PiiKind::DeAtChPostfach
             | PiiKind::DePackstation => Country::De,
 
             PiiKind::AtSvnr | PiiKind::AtPhoneNumber | PiiKind::AtPostalCode => Country::At,
@@ -449,18 +449,20 @@ impl PiiKind {
         PiiKind::ChPhoneNumber,
         PiiKind::ChPostalCode,
         PiiKind::PersonName,
-        PiiKind::DeAtAddress,
-        PiiKind::DeAtPostfach,
+        PiiKind::DeAtChAddress,
+        PiiKind::DeAtChPostfach,
         PiiKind::DePackstation,
     ];
 
     /// Returns all countries this PII kind applies to.
     ///
     /// Most variants map to a single country, but combined variants like
-    /// `DeAtAddress` apply to multiple countries.
+    /// `DeAtChAddress` apply to multiple countries.
     pub const fn applicable_countries(&self) -> &'static [Country] {
         match self {
-            PiiKind::DeAtAddress | PiiKind::DeAtPostfach => &[Country::De, Country::At],
+            PiiKind::DeAtChAddress | PiiKind::DeAtChPostfach => {
+                &[Country::De, Country::At, Country::Ch]
+            }
             _ => match self.country() {
                 Country::International => &[Country::International],
                 Country::Us => &[Country::Us],

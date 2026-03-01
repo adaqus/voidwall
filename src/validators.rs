@@ -1090,20 +1090,20 @@ pub(crate) fn de_at_address_check(s: &str) -> bool {
     if tokens.len() < 3 {
         return false;
     }
-    // Find the PLZ: scan tokens for a 4-digit AT or 5-digit DE PLZ
+    // Find the PLZ: scan tokens for a 4-digit AT/CH or 5-digit DE PLZ
     tokens.iter().any(|t| {
         let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
         if clean.chars().all(|c| c.is_ascii_digit()) {
             (clean.len() == 5 && de_postal_check(clean))
-                || (clean.len() == 4 && at_postal_check(clean))
+                || (clean.len() == 4 && (at_postal_check(clean) || ch_postal_check(clean)))
         } else {
             false
         }
     })
 }
 
-/// German/Austrian Postfach (PO box) check: validates "NNNNN, PLZ Stadt" captured span.
-/// Postfach number is 1-6 digits, followed by 4-digit AT or 5-digit DE PLZ + city.
+/// German/Austrian/Swiss Postfach (PO box) check: validates "NNNNN, PLZ Stadt" captured span.
+/// Postfach number is 1-6 digits, followed by 4-digit AT/CH or 5-digit DE PLZ + city.
 pub(crate) fn de_at_postfach_check(s: &str) -> bool {
     let trimmed = s.trim();
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
@@ -1116,12 +1116,12 @@ pub(crate) fn de_at_postfach_check(s: &str) -> bool {
     if digits_only.is_empty() || digits_only.len() > 6 {
         return false;
     }
-    // Must contain a valid 4-digit AT or 5-digit DE PLZ somewhere
+    // Must contain a valid 4-digit AT/CH or 5-digit DE PLZ somewhere
     tokens.iter().any(|t| {
         let clean = t.trim_matches(|c: char| c == ',' || c.is_whitespace());
         if clean.chars().all(|c| c.is_ascii_digit()) {
             (clean.len() == 5 && de_postal_check(clean))
-                || (clean.len() == 4 && at_postal_check(clean))
+                || (clean.len() == 4 && (at_postal_check(clean) || ch_postal_check(clean)))
         } else {
             false
         }
@@ -1527,6 +1527,12 @@ mod tests {
     #[test_case("Josefstädterstraße 21/5, 1080 Wien", true ; "valid at address slash notation")]
     #[test_case("Mariahilfer Straße 45/2/14, 1060 Wien", true ; "valid at address multi slash")]
     #[test_case("Landstraßer Hauptstraße 5a, 1030 Wien", true ; "valid at address letter suffix")]
+    // CH addresses — verified real locations
+    #[test_case("Bahnhofstrasse 1, 8001 Zürich", true ; "valid ch address zurich")] // Hauser & Wirth gallery
+    #[test_case("Bundesplatz 3, 3003 Bern", true ; "valid ch address bern")] // Federal Palace
+    #[test_case("Pilatusstrasse 15, 6003 Luzern", true ; "valid ch address luzern")] // From Yelp
+    #[test_case("Marktgasse 46, 3011 Bern", true ; "valid ch address bern marktgasse")] // Swiss Post location
+    #[test_case("Bahnhofstrasse 1, 0500 Zürich", false ; "invalid ch plz below 1000")]
     #[test_case("Str. 42", false ; "invalid no PLZ")]
     #[test_case("short", false ; "invalid too short")]
     #[test_case("Musterstraße Berlin", false ; "invalid no digits")]
@@ -1541,6 +1547,8 @@ mod tests {
     #[test_case("123456, 01067 Dresden", true ; "valid 6 digit postfach")]
     #[test_case("789, 5020 Salzburg", true ; "valid at postfach salzburg")]
     #[test_case("56, 4020 Linz", true ; "valid at postfach linz")]
+    #[test_case("567, 6000 Luzern", true ; "valid ch postfach luzern")]
+    #[test_case("1234, 8001 Zürich", true ; "valid ch postfach zurich")]
     #[test_case("12, 00000 Nowhere", false ; "invalid PLZ zeros")]
     #[test_case("1234567, 10115 Berlin", false ; "invalid 7 digit postfach")]
     fn de_at_postfach(input: &str, expected: bool) {

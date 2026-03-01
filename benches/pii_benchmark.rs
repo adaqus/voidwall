@@ -702,7 +702,9 @@ Tier 7 Germany/Austria/Switzerland Verification Records:\n\
   Postfach: 1234, 10557 Berlin\n\
   Packstation: 109, 01099 Dresden\n\
   Wohnadresse: Schillerstraße 10, 1010 Wien\n\
-  Postfach: 789, 5020 Salzburg\n\n\
+  Postfach: 789, 5020 Salzburg\n\
+  Lieferadresse: Bahnhofstrasse 1, 8001 Zürich\n\
+  Postfach: 567, 6000 Luzern\n\n\
 Tier 8 Person Names:\n\
   Full name: Jane Doe\n\
   Nom complet: Jean-Pierre Dupont\n\
@@ -789,7 +791,7 @@ Eine Bestätigung wurde an buchhaltung@firma-beispiel.de gesendet.\n\
 Rückruf geplant an Rufnummer: +49 89 98765432.\n\n\
 Status: In Bearbeitung — warte auf Kundenrückruf.";
 
-const DE_AT_ADDRESS_TEXT: &str = "\
+const DE_AT_CH_ADDRESS_TEXT: &str = "\
 Einwohnermeldeamt — Adressverifikation\n\n\
 Die folgenden Adressen müssen überprüft werden:\n\
 - Mieter A: Anschrift: Musterstraße 42, 10115 Berlin\n\
@@ -797,15 +799,18 @@ Die folgenden Adressen müssen überprüft werden:\n\
 - Mieter C: Meldeadresse: Bahnhofstr. 1, 60311 Frankfurt\n\
 - Mieter D: Anschrift: Schillerstraße 10, 1010 Wien\n\
 - Mieter E: Wohnadresse: Josefstädterstraße 21/5, 1080 Wien\n\
+- Mieter F: Anschrift: Bahnhofstrasse 1, 8001 Zürich\n\
+- Mieter G: Wohnadresse: Bundesplatz 3, 3003 Bern\n\
 Alle Adressen müssen im Melderegister verifiziert werden.\n\
 Kontaktieren Sie das Einwohnermeldeamt bei Fragen.";
 
-const DE_AT_POSTFACH_TEXT: &str = "\
+const DE_AT_CH_POSTFACH_TEXT: &str = "\
 Deutsche Post — Postfachzustellung\n\n\
 Postfächer zur Überprüfung:\n\
 - Kunde A: Postfach: 1234, 10557 Berlin\n\
 - Kunde B: PF: 56, 80331 München\n\
 - Kunde C: Postfach: 789, 5020 Salzburg\n\
+- Kunde D: Postfach: 567, 6000 Luzern\n\
 Alle Postfächer müssen im System registriert sein.\n\
 Kontaktieren Sie die Deutsche Post bei Fragen.";
 
@@ -1223,12 +1228,12 @@ fn per_pii_kind(c: &mut Criterion) {
         b.iter(|| scanner.mark_piis(DE_MIXED_TEXT));
     });
 
-    group.bench_function("de_at_address", |b| {
-        b.iter(|| scanner.mark_piis(DE_AT_ADDRESS_TEXT));
+    group.bench_function("de_at_ch_address", |b| {
+        b.iter(|| scanner.mark_piis(DE_AT_CH_ADDRESS_TEXT));
     });
 
-    group.bench_function("de_at_postfach", |b| {
-        b.iter(|| scanner.mark_piis(DE_AT_POSTFACH_TEXT));
+    group.bench_function("de_at_ch_postfach", |b| {
+        b.iter(|| scanner.mark_piis(DE_AT_CH_POSTFACH_TEXT));
     });
 
     group.bench_function("de_packstation", |b| {

@@ -12,13 +12,10 @@ The library supports English and French. More countries and languages will be ad
 
 ## Build Commands
 
-- **Build:** `cargo build | tail -n 100`
-- **Test all:** `cargo test | tail -n 100`
+- **Build:** `cargo build | tail -n 20`
+- **Test all:** `cargo test | tail -n 20`
 - **Test single:** `cargo test <test_name>`
-- **Check (fast compile check):** `cargo check | tail -n 100`
-- **Lint:** `cargo clippy`
-- **Format:** `cargo fmt`
-- **Benchmarks:** `cargo bench --bench pii_benchmark --quiet`
+- **Check (fast compile check):** `cargo check | tail -n 20`
 
 ## Architecture
 

@@ -483,13 +483,13 @@ impl KeywordContextDetector {
             ),
             // --- German/Austrian physical address types (Language::De) ---
             (
-                PiiKind::DeAtAddress,
+                PiiKind::DeAtChAddress,
                 Language::De,
                 r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
                 de_at_address_check,
             ),
             (
-                PiiKind::DeAtPostfach,
+                PiiKind::DeAtChPostfach,
                 Language::De,
                 r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
                 de_at_postfach_check,
@@ -506,18 +506,15 @@ impl KeywordContextDetector {
         // extraction regex when the latter would cause DFA bloat. The extraction
         // regex (used by the regex crate for capture groups) can be wider/more
         // complex since it only runs on inputs vectorscan already confirmed.
-        // These patterns mirror the original DE-only patterns to keep the
-        // vectorscan DFA identical to pre-AT-support baseline.
+        // PLZ uses \d{4,5} to cover DE (5-digit), AT (4-digit), and CH (4-digit).
         let detection_overrides: &[(PiiKind, &str)] = &[
             (
-                PiiKind::DeAtAddress,
-                // Original DE pattern: \d{5} (not \d{4,5}), ? (not {0,3})
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?)?[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                PiiKind::DeAtChAddress,
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
             ),
             (
-                PiiKind::DeAtPostfach,
-                // Original DE pattern: \d{5} (not \d{4,5})
-                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                PiiKind::DeAtChPostfach,
+                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
             ),
         ];
 
@@ -946,21 +943,26 @@ mod tests {
     #[test_case("Kontoinhaber: Günther Müller", PiiKind::PersonName, "Günther Müller" ; "person name de kontoinhaber")]
     #[test_case("Empfänger: Björk Sigurdsson", PiiKind::PersonName, "Björk Sigurdsson" ; "person name de empfaenger")]
     // German/Austrian address types
-    #[test_case("Anschrift: Musterstraße 42, 10115 Berlin", PiiKind::DeAtAddress, "Musterstraße 42, 10115 Berlin" ; "de address standard")]
-    #[test_case("Wohnadresse: Am Markt 3a, 01067 Dresden", PiiKind::DeAtAddress, "Am Markt 3a, 01067 Dresden" ; "de address with suffix")]
-    #[test_case("Rechnungsadresse: Hauptstraße 10-12, 80331 München", PiiKind::DeAtAddress, "Hauptstraße 10-12, 80331 München" ; "de address with range")]
-    #[test_case("Lieferadresse: Unter den Linden 77, 10117 Berlin", PiiKind::DeAtAddress, "Unter den Linden 77, 10117 Berlin" ; "de address multi word street")]
-    #[test_case("Meldeadresse: Bahnhofstr. 1, 60311 Frankfurt", PiiKind::DeAtAddress, "Bahnhofstr. 1, 60311 Frankfurt" ; "de address abbreviated")]
-    #[test_case("Adresse: Friedrichstraße 43, 10117 Berlin", PiiKind::DeAtAddress, "Friedrichstraße 43, 10117 Berlin" ; "de address keyword adresse")]
-    #[test_case("Anschrift: Schillerstraße 10, 1010 Wien", PiiKind::DeAtAddress, "Schillerstraße 10, 1010 Wien" ; "at address vienna")]
-    #[test_case("Wohnadresse: Josefstädterstraße 21/5, 1080 Wien", PiiKind::DeAtAddress, "Josefstädterstraße 21/5, 1080 Wien" ; "at address slash notation")]
-    #[test_case("Adresse: Mariahilfer Straße 45/2/14, 1060 Wien", PiiKind::DeAtAddress, "Mariahilfer Straße 45/2/14, 1060 Wien" ; "at address multi slash")]
-    #[test_case("Lieferadresse: Landstraßer Hauptstraße 5a, 1030 Wien", PiiKind::DeAtAddress, "Landstraßer Hauptstraße 5a, 1030 Wien" ; "at address letter suffix")]
-    #[test_case("Postfach: 1234, 10557 Berlin", PiiKind::DeAtPostfach, "1234, 10557 Berlin" ; "de postfach berlin")]
-    #[test_case("PF: 56, 80331 München", PiiKind::DeAtPostfach, "56, 80331 München" ; "de postfach short keyword")]
-    #[test_case("Postfach: 123456, 01067 Dresden", PiiKind::DeAtPostfach, "123456, 01067 Dresden" ; "de postfach 6 digits")]
-    #[test_case("Postfach: 789, 5020 Salzburg", PiiKind::DeAtPostfach, "789, 5020 Salzburg" ; "at postfach salzburg")]
-    #[test_case("PF: 56, 4020 Linz", PiiKind::DeAtPostfach, "56, 4020 Linz" ; "at postfach linz")]
+    #[test_case("Anschrift: Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress, "Musterstraße 42, 10115 Berlin" ; "de address standard")]
+    #[test_case("Wohnadresse: Am Markt 3a, 01067 Dresden", PiiKind::DeAtChAddress, "Am Markt 3a, 01067 Dresden" ; "de address with suffix")]
+    #[test_case("Rechnungsadresse: Hauptstraße 10-12, 80331 München", PiiKind::DeAtChAddress, "Hauptstraße 10-12, 80331 München" ; "de address with range")]
+    #[test_case("Lieferadresse: Unter den Linden 77, 10117 Berlin", PiiKind::DeAtChAddress, "Unter den Linden 77, 10117 Berlin" ; "de address multi word street")]
+    #[test_case("Meldeadresse: Bahnhofstr. 1, 60311 Frankfurt", PiiKind::DeAtChAddress, "Bahnhofstr. 1, 60311 Frankfurt" ; "de address abbreviated")]
+    #[test_case("Adresse: Friedrichstraße 43, 10117 Berlin", PiiKind::DeAtChAddress, "Friedrichstraße 43, 10117 Berlin" ; "de address keyword adresse")]
+    #[test_case("Anschrift: Schillerstraße 10, 1010 Wien", PiiKind::DeAtChAddress, "Schillerstraße 10, 1010 Wien" ; "at address vienna")]
+    #[test_case("Wohnadresse: Josefstädterstraße 21/5, 1080 Wien", PiiKind::DeAtChAddress, "Josefstädterstraße 21/5, 1080 Wien" ; "at address slash notation")]
+    #[test_case("Adresse: Mariahilfer Straße 45/2/14, 1060 Wien", PiiKind::DeAtChAddress, "Mariahilfer Straße 45/2/14, 1060 Wien" ; "at address multi slash")]
+    #[test_case("Lieferadresse: Landstraßer Hauptstraße 5a, 1030 Wien", PiiKind::DeAtChAddress, "Landstraßer Hauptstraße 5a, 1030 Wien" ; "at address letter suffix")]
+    // CH addresses — verified real locations
+    #[test_case("Anschrift: Bahnhofstrasse 1, 8001 Zürich", PiiKind::DeAtChAddress, "Bahnhofstrasse 1, 8001 Zürich" ; "ch address zurich")] // Hauser & Wirth gallery
+    #[test_case("Wohnadresse: Bundesplatz 3, 3003 Bern", PiiKind::DeAtChAddress, "Bundesplatz 3, 3003 Bern" ; "ch address bern")] // Federal Palace
+    #[test_case("Adresse: Pilatusstrasse 15, 6003 Luzern", PiiKind::DeAtChAddress, "Pilatusstrasse 15, 6003 Luzern" ; "ch address luzern")] // From Yelp
+    #[test_case("Postfach: 1234, 10557 Berlin", PiiKind::DeAtChPostfach, "1234, 10557 Berlin" ; "de postfach berlin")]
+    #[test_case("PF: 56, 80331 München", PiiKind::DeAtChPostfach, "56, 80331 München" ; "de postfach short keyword")]
+    #[test_case("Postfach: 123456, 01067 Dresden", PiiKind::DeAtChPostfach, "123456, 01067 Dresden" ; "de postfach 6 digits")]
+    #[test_case("Postfach: 789, 5020 Salzburg", PiiKind::DeAtChPostfach, "789, 5020 Salzburg" ; "at postfach salzburg")]
+    #[test_case("PF: 56, 4020 Linz", PiiKind::DeAtChPostfach, "56, 4020 Linz" ; "at postfach linz")]
+    #[test_case("Postfach: 567, 6000 Luzern", PiiKind::DeAtChPostfach, "567, 6000 Luzern" ; "ch postfach luzern")]
     #[test_case("Packstation: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation 3 digits")]
     #[test_case("Postfiliale: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de postfiliale")]
     #[test_case("Paketshop: 1234, 20095 Hamburg", PiiKind::DePackstation, "1234, 20095 Hamburg" ; "de paketshop 4 digits")]
@@ -1400,9 +1402,10 @@ mod tests {
     #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
     #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]
     // German/Austrian address — invalid PLZ
-    #[test_case("Anschrift: Musterstraße 42, 00000 Berlin", PiiKind::DeAtAddress ; "de address invalid plz zeros")]
-    #[test_case("Anschrift: Schillerstraße 10, 0999 Wien", PiiKind::DeAtAddress ; "at address plz below 1010")]
-    #[test_case("Postfach: 1234567, 10115 Berlin", PiiKind::DeAtPostfach ; "de postfach too many digits")]
+    #[test_case("Anschrift: Musterstraße 42, 00000 Berlin", PiiKind::DeAtChAddress ; "de address invalid plz zeros")]
+    #[test_case("Anschrift: Schillerstraße 10, 0999 Wien", PiiKind::DeAtChAddress ; "at address plz below 1010")]
+    #[test_case("Anschrift: Bahnhofstrasse 1, 0500 Zürich", PiiKind::DeAtChAddress ; "ch address plz below 1000")]
+    #[test_case("Postfach: 1234567, 10115 Berlin", PiiKind::DeAtChPostfach ; "de postfach too many digits")]
     #[test_case("Packstation: 12, 10115 Berlin", PiiKind::DePackstation ; "de packstation too few digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
@@ -1472,9 +1475,10 @@ mod tests {
     #[test_case("John Smith", PiiKind::PersonName ; "person name no keyword")]
     #[test_case("Maria Garcia-Lopez", PiiKind::PersonName ; "person name hyphenated no keyword")]
     // German/Austrian address types — no keyword
-    #[test_case("Musterstraße 42, 10115 Berlin", PiiKind::DeAtAddress ; "de address no keyword")]
-    #[test_case("Schillerstraße 10, 1010 Wien", PiiKind::DeAtAddress ; "at address no keyword")]
-    #[test_case("1234, 10557 Berlin", PiiKind::DeAtPostfach ; "de postfach no keyword")]
+    #[test_case("Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress ; "de address no keyword")]
+    #[test_case("Schillerstraße 10, 1010 Wien", PiiKind::DeAtChAddress ; "at address no keyword")]
+    #[test_case("Bahnhofstrasse 1, 8001 Zürich", PiiKind::DeAtChAddress ; "ch address no keyword")]
+    #[test_case("1234, 10557 Berlin", PiiKind::DeAtChPostfach ; "de postfach no keyword")]
     #[test_case("109, 01099 Dresden", PiiKind::DePackstation ; "de packstation no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
