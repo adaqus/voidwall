@@ -28,6 +28,9 @@ pub enum PiiError {
     RegexCompilation(regex::Error),
     /// A Hyperscan/Vectorscan pattern failed to compile.
     HyperscanCompilation(String),
+    /// Builder configuration is inconsistent (e.g. PII kinds unreachable from
+    /// the selected countries, or countries that contribute no enabled PII kinds).
+    InvalidConfiguration(String),
 }
 
 impl std::fmt::Display for PiiError {
@@ -37,6 +40,9 @@ impl std::fmt::Display for PiiError {
             PiiError::HyperscanCompilation(e) => {
                 write!(f, "hyperscan compilation failed: {e}")
             }
+            PiiError::InvalidConfiguration(e) => {
+                write!(f, "invalid scanner configuration: {e}")
+            }
         }
     }
 }
@@ -45,7 +51,7 @@ impl std::error::Error for PiiError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PiiError::RegexCompilation(e) => Some(e),
-            PiiError::HyperscanCompilation(_) => None,
+            PiiError::HyperscanCompilation(_) | PiiError::InvalidConfiguration(_) => None,
         }
     }
 }

@@ -28,10 +28,10 @@ pub struct HyperscanDetector {
     entries: Vec<PatternEntry>,
     // SAFETY: Prototypes are declared before databases so they are dropped first.
     // Cloned into thread-local cache on first use per thread via hs_clone_scratch.
-    extraction_prototype: BlockScanner<'static>,
+    extraction_prototype: Option<BlockScanner<'static>>,
     // Box'd for stable heap address — the &BlockDatabase refs inside the
     // prototypes (and all clones) point into these Boxes.
-    extraction_db: Box<BlockDatabase>,
+    extraction_db: Option<Box<BlockDatabase>>,
 }
 
 struct PatternDef {
@@ -248,6 +248,14 @@ impl HyperscanDetector {
             }
         }
 
+        if extraction_patterns.is_empty() {
+            return Ok(Self {
+                entries,
+                extraction_prototype: None,
+                extraction_db: None,
+            });
+        }
+
         let extraction_db = Box::new(
             BlockDatabase::new(extraction_patterns)
                 .map_err(|e| PiiError::HyperscanCompilation(format!("extraction db: {e}")))?,
@@ -260,8 +268,8 @@ impl HyperscanDetector {
 
         Ok(Self {
             entries,
-            extraction_prototype,
-            extraction_db,
+            extraction_prototype: Some(extraction_prototype),
+            extraction_db: Some(extraction_db),
         })
     }
 
@@ -272,18 +280,20 @@ impl HyperscanDetector {
         Self::new(&enabled)
     }
 
-    fn with_extraction_scanner<F, R>(&self, f: F) -> R
+    fn with_extraction_scanner<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&mut BlockScanner<'static>) -> R,
     {
-        let db_key = &*self.extraction_db as *const BlockDatabase as usize;
-        EXTRACTION_CACHE.with(|cell| {
+        let db = self.extraction_db.as_ref()?;
+        let proto = self.extraction_prototype.as_ref()?;
+        let db_key = &**db as *const BlockDatabase as usize;
+        Some(EXTRACTION_CACHE.with(|cell| {
             let mut opt = cell.borrow_mut();
             if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
-                *opt = Some((db_key, self.extraction_prototype.clone()));
+                *opt = Some((db_key, proto.clone()));
             }
             f(&mut opt.as_mut().unwrap().1)
-        })
+        }))
     }
 }
 
@@ -297,7 +307,7 @@ impl Detector for HyperscanDetector {
 
         // Phase 1: SOM_LEFTMOST extraction patterns — validate before accepting
         let mut found = false;
-        self.with_extraction_scanner(|scanner| {
+        self.with_extraction_scanner(|scanner: &mut BlockScanner<'static>| {
             let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
                 let entry = &self.entries[id as usize];
                 let start = from as usize;
@@ -354,7 +364,7 @@ impl Detector for HyperscanDetector {
 
         // Phase 1: SOM_LEFTMOST extraction for patterns in the extraction DB
         let mut raw: Vec<(u32, u64, u64)> = Vec::new();
-        self.with_extraction_scanner(|scanner| {
+        self.with_extraction_scanner(|scanner: &mut BlockScanner<'static>| {
             let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
                 raw.push((id, from, to));
                 Scan::Continue

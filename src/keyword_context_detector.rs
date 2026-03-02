@@ -32,8 +32,8 @@ struct KeywordPattern {
 }
 
 pub struct KeywordContextDetector {
-    detection_db: Box<BlockDatabase>,
-    detection_prototype: BlockScanner<'static>,
+    detection_db: Option<Box<BlockDatabase>>,
+    detection_prototype: Option<BlockScanner<'static>>,
     patterns: Vec<KeywordPattern>,
 }
 
@@ -553,6 +553,14 @@ impl KeywordContextDetector {
             ));
         }
 
+        if vs_patterns.is_empty() {
+            return Ok(Self {
+                detection_db: None,
+                detection_prototype: None,
+                patterns: Vec::new(),
+            });
+        }
+
         let detection_db =
             Box::new(BlockDatabase::new(vs_patterns).map_err(|e| {
                 PiiError::HyperscanCompilation(format!("keyword detection db: {e}"))
@@ -581,8 +589,8 @@ impl KeywordContextDetector {
             .collect::<Result<Vec<_>, PiiError>>()?;
 
         Ok(Self {
-            detection_db,
-            detection_prototype,
+            detection_db: Some(detection_db),
+            detection_prototype: Some(detection_prototype),
             patterns,
         })
     }
@@ -597,23 +605,25 @@ impl KeywordContextDetector {
 }
 
 impl KeywordContextDetector {
-    fn with_detection_scanner<F, R>(&self, f: F) -> R
+    fn with_detection_scanner<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&mut BlockScanner<'static>) -> R,
     {
-        let db_key = &*self.detection_db as *const BlockDatabase as usize;
-        KW_DETECTION_CACHE.with(|cell| {
+        let db = self.detection_db.as_ref()?;
+        let proto = self.detection_prototype.as_ref()?;
+        let db_key = &**db as *const BlockDatabase as usize;
+        Some(KW_DETECTION_CACHE.with(|cell| {
             let mut opt = cell.borrow_mut();
             if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
-                *opt = Some((db_key, self.detection_prototype.clone()));
+                *opt = Some((db_key, proto.clone()));
             }
             f(&mut opt.as_mut().unwrap().1)
-        })
+        }))
     }
 
     fn scan_matched_ids(&self, input: &str) -> Vec<usize> {
         let mut matched = Vec::new();
-        self.with_detection_scanner(|scanner| {
+        self.with_detection_scanner(|scanner: &mut BlockScanner<'static>| {
             let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
                 matched.push(id as usize);
                 Scan::Continue
@@ -639,6 +649,7 @@ impl KeywordContextDetector {
             });
             found
         })
+        .unwrap_or(false)
     }
 
     fn mark_piis_on(&self, input: &str) -> Vec<PiiMatch> {
