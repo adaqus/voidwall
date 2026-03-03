@@ -159,7 +159,7 @@ pub enum PiiKind {
     AwsAccessKey,
     GithubToken,
     AwsSecretKey,
-    GbPassportNumber,
+    GbZaPassportNumber,
     AuPassportNumber,
     CaPassportNumber,
     NzPassportNumber,
@@ -196,6 +196,8 @@ pub enum PiiKind {
     DeAtChAddress,
     DeAtChPostfach,
     DePackstation,
+    ZaDriversLicense,
+    ZaPostalCode,
 }
 
 impl RedactWith {
@@ -254,7 +256,7 @@ impl PiiKind {
             PiiKind::AwsAccessKey => "AWS_ACCESS_KEY",
             PiiKind::GithubToken => "GITHUB_TOKEN",
             PiiKind::AwsSecretKey => "AWS_SECRET_KEY",
-            PiiKind::GbPassportNumber => "GB_PASSPORT_NUMBER",
+            PiiKind::GbZaPassportNumber => "GB_ZA_PASSPORT_NUMBER",
             PiiKind::AuPassportNumber => "AU_PASSPORT_NUMBER",
             PiiKind::CaPassportNumber => "CA_PASSPORT_NUMBER",
             PiiKind::NzPassportNumber => "NZ_PASSPORT_NUMBER",
@@ -291,6 +293,8 @@ impl PiiKind {
             PiiKind::DeAtChAddress => "DE_AT_CH_ADDRESS",
             PiiKind::DeAtChPostfach => "DE_AT_CH_POSTFACH",
             PiiKind::DePackstation => "DE_PACKSTATION",
+            PiiKind::ZaDriversLicense => "ZA_DRIVERS_LICENSE",
+            PiiKind::ZaPostalCode => "ZA_POSTAL_CODE",
         }
     }
 
@@ -324,7 +328,7 @@ impl PiiKind {
             | PiiKind::GbUtr
             | PiiKind::GbSortCode
             | PiiKind::GbPhoneNumber
-            | PiiKind::GbPassportNumber
+            | PiiKind::GbZaPassportNumber
             | PiiKind::GbPostcode => Country::Gb,
 
             PiiKind::AuTfn
@@ -350,7 +354,11 @@ impl PiiKind {
             | PiiKind::IePhoneNumber
             | PiiKind::IePassportNumber => Country::Ie,
 
-            PiiKind::ZaId | PiiKind::ZaTaxReference | PiiKind::ZaPhoneNumber => Country::Za,
+            PiiKind::ZaId
+            | PiiKind::ZaTaxReference
+            | PiiKind::ZaPhoneNumber
+            | PiiKind::ZaDriversLicense
+            | PiiKind::ZaPostalCode => Country::Za,
 
             PiiKind::FrNir
             | PiiKind::FrSiret
@@ -429,7 +437,7 @@ impl PiiKind {
         PiiKind::AwsAccessKey,
         PiiKind::GithubToken,
         PiiKind::AwsSecretKey,
-        PiiKind::GbPassportNumber,
+        PiiKind::GbZaPassportNumber,
         PiiKind::AuPassportNumber,
         PiiKind::CaPassportNumber,
         PiiKind::NzPassportNumber,
@@ -466,6 +474,8 @@ impl PiiKind {
         PiiKind::DeAtChAddress,
         PiiKind::DeAtChPostfach,
         PiiKind::DePackstation,
+        PiiKind::ZaDriversLicense,
+        PiiKind::ZaPostalCode,
     ];
 
     /// Returns all countries this PII kind applies to.
@@ -478,6 +488,7 @@ impl PiiKind {
                 &[Country::De, Country::At, Country::Ch]
             }
             PiiKind::FrChAddress | PiiKind::FrChBoitePostale => &[Country::Fr, Country::Ch],
+            PiiKind::GbZaPassportNumber => &[Country::Gb, Country::Za],
             _ => match self.country() {
                 Country::International => &[Country::International],
                 Country::Us => &[Country::Us],

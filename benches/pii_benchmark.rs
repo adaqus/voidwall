@@ -355,6 +355,30 @@ Alternate: 082 987 6543\n\
 Customer queried account statement.\n\
 Escalation contact: tel 011 234 5678.";
 
+const ZA_PASSPORT_TEXT: &str = "\
+South Africa Home Affairs — Passport Verification\n\n\
+Travellers requiring passport verification:\n\
+- Traveller A: South African passport: 123456789\n\
+- Traveller B: SA passport: 987654321\n\
+All passports must be verified against Home Affairs records.\n\
+Contact the nearest office for discrepancies.";
+
+const ZA_DL_TEXT: &str = "\
+South Africa Road Traffic — Driver's Licence Verification\n\n\
+Drivers requiring licence verification:\n\
+- Driver A: Driver's licence: 8001015009087\n\
+- Driver B: Driving licence: 9506150089081\n\
+All driver's licences must be verified before renewal.\n\
+Contact the licensing department for corrections.";
+
+const ZA_POSTAL_TEXT: &str = "\
+South Africa Postal Service — Address Verification\n\n\
+Addresses requiring postal code verification:\n\
+- Address A: Postal code: 0001\n\
+- Address B: Zip code: 8001\n\
+All postal codes must be verified against SAPO records.\n\
+Contact the post office for any issues.";
+
 const AWS_ACCESS_KEY_TEXT: &str = "\
 AWS Infrastructure Audit — Q1 2025\n\n\
 Rotated credentials detected in CI pipeline logs:\n\
@@ -667,6 +691,9 @@ Tier 5 Verification Records:\n\
   AWS access key: AKIAIOSFODNN7EXAMPLE\n\
   GitHub token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12\n\
   AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\
+  South African passport: 123456789\n\
+  Driver's licence: 8001015009087\n\
+  Postal code: 0001\n\
   British passport: 123456789\n\
   Australian passport: A1234567\n\
   Canadian passport: AB123456\n\
@@ -1148,6 +1175,18 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("za_phone", |b| {
         b.iter(|| scanner.mark_piis(ZA_PHONE_TEXT));
+    });
+
+    group.bench_function("za_passport", |b| {
+        b.iter(|| scanner.mark_piis(ZA_PASSPORT_TEXT));
+    });
+
+    group.bench_function("za_drivers_license", |b| {
+        b.iter(|| scanner.mark_piis(ZA_DL_TEXT));
+    });
+
+    group.bench_function("za_postal_code", |b| {
+        b.iter(|| scanner.mark_piis(ZA_POSTAL_TEXT));
     });
 
     // API secrets

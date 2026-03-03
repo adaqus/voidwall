@@ -552,7 +552,7 @@ pub(crate) fn uscis_receipt_check(s: &str) -> bool {
     USCIS_CENTER_CODES.binary_search(&prefix.as_str()).is_ok()
 }
 
-pub(crate) fn sa_id_check(s: &str) -> bool {
+pub(crate) fn za_luhn13_check(s: &str) -> bool {
     if s.len() != 13 || !s.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
@@ -583,6 +583,14 @@ pub(crate) fn sa_id_check(s: &str) -> bool {
         })
         .sum();
     checksum % 10 == 0
+}
+
+pub(crate) fn za_postal_check(s: &str) -> bool {
+    if s.len() != 4 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let n: u32 = s.parse().unwrap_or(0);
+    (1..=9999).contains(&n)
 }
 
 pub(crate) fn us_dl_check(s: &str) -> bool {
@@ -1523,7 +1531,7 @@ mod tests {
         assert_eq!(ppsn_check(input), expected);
     }
 
-    // --- sa_id_check ---
+    // --- za_luhn13_check ---
     #[test_case("8001015009087", true ; "valid born 1980-01-01 male citizen")]
     #[test_case("9506150089081", true ; "valid born 1995-06-15 female citizen")]
     #[test_case("9001245289086", true ; "valid from za-id-number PyPI")]
@@ -1533,7 +1541,18 @@ mod tests {
     #[test_case("8001325009087", false ; "invalid day 32")]
     #[test_case("8001015009086", false ; "invalid luhn")]
     fn sa_id(input: &str, expected: bool) {
-        assert_eq!(sa_id_check(input), expected);
+        assert_eq!(za_luhn13_check(input), expected);
+    }
+
+    // --- za_postal_check ---
+    #[test_case("0001", true ; "valid lower bound")]
+    #[test_case("9999", true ; "valid upper bound")]
+    #[test_case("8001", true ; "valid cape town")]
+    #[test_case("0000", false ; "invalid zero")]
+    #[test_case("10000", false ; "invalid five digits")]
+    #[test_case("abcd", false ; "invalid letters")]
+    fn za_postal(input: &str, expected: bool) {
+        assert_eq!(za_postal_check(input), expected);
     }
 
     // --- za_trn_check ---

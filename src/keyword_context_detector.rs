@@ -14,9 +14,9 @@ use crate::validators::{
     fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
     geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check, nhi_check,
     nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
-    person_name_check, phone_check, sa_id_check, siren_luhn_check, siret_luhn_check,
-    sort_code_check, swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check,
-    za_trn_check,
+    person_name_check, phone_check, siren_luhn_check, siret_luhn_check, sort_code_check,
+    swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check, za_luhn13_check,
+    za_postal_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -144,7 +144,7 @@ impl KeywordContextDetector {
                 PiiKind::ZaId,
                 Language::En,
                 r"(?i)(?:south african id number|south african id no\.?|south african id|south african identity number|south african identity|sa id number|sa id no\.?|sa id|sa identity number|sa identity|national id number|national id no\.?|national identity number|national identity|id number|id no\.?|id book|id card|identity number|identity no\.?|identity document|identity card|home affairs number|home affairs no\.?|home affairs id|citizen id|citizen number|applicant id|my id|your id)[\s:.#/\-\x22]*?(\d{13})\b",
-                sa_id_check,
+                za_luhn13_check,
             ),
             (
                 PiiKind::UsDriversLicense,
@@ -175,6 +175,18 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:south african tax ref(?:erence)?|south african tax number|sa tax ref(?:erence)?|sa tax number|sars ref(?:erence)?|sars number|sars tax|tax ref(?:erence)?|tax number|tax ref|SARS)[\s:.#/\-\x22]*?([0-3,9]\d{9})\b",
                 za_trn_check,
+            ),
+            (
+                PiiKind::ZaDriversLicense,
+                Language::En,
+                r"(?i)(?:south african driver'?s? licen[cs]e|sa driver'?s? licen[cs]e|driver'?s? licen[cs]e number|driver'?s? licen[cs]e no\.?|driver'?s? licen[cs]e|driving licen[cs]e number|driving licen[cs]e no\.?|driving licen[cs]e|learner'?s? licen[cs]e)[\s:.#/\-\x22]*?(\d{13})\b",
+                za_luhn13_check,
+            ),
+            (
+                PiiKind::ZaPostalCode,
+                Language::En,
+                r"(?i)(?:postal code|post code|postcode|zip code|zip)[\s:.#/\-\x22]*?(\d{4})\b",
+                za_postal_check,
             ),
             (
                 PiiKind::CaOhip,
@@ -222,9 +234,9 @@ impl KeywordContextDetector {
             ),
             // Country-specific passport numbers
             (
-                PiiKind::GbPassportNumber,
+                PiiKind::GbZaPassportNumber,
                 Language::En,
-                r"(?i)(?:british passport|uk passport|united kingdom passport|hmpo)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:british passport|uk passport|united kingdom passport|hmpo|south african passport|sa passport)[\s:.#/\-\x22]*?(\d{9})\b",
                 always_valid,
             ),
             (
@@ -779,8 +791,14 @@ mod tests {
     #[test_case("phone: 087 123 4567", PiiKind::IePhoneNumber, "087 123 4567" ; "ie phone mobile local")]
     #[test_case("phone: +27 71 123 4567", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone mobile intl")]
     #[test_case("phone: 071 123 4567", PiiKind::ZaPhoneNumber, "071 123 4567" ; "za phone mobile local")]
-    #[test_case("british passport: 123456789", PiiKind::GbPassportNumber, "123456789" ; "gb passport")]
-    #[test_case("uk passport: 987654321", PiiKind::GbPassportNumber, "987654321" ; "gb passport uk keyword")]
+    #[test_case("british passport: 123456789", PiiKind::GbZaPassportNumber, "123456789" ; "gb passport")]
+    #[test_case("uk passport: 987654321", PiiKind::GbZaPassportNumber, "987654321" ; "gb passport uk keyword")]
+    #[test_case("south african passport: 123456789", PiiKind::GbZaPassportNumber, "123456789" ; "za passport")]
+    #[test_case("sa passport: 987654321", PiiKind::GbZaPassportNumber, "987654321" ; "za passport sa keyword")]
+    #[test_case("driver's licence: 8001015009087", PiiKind::ZaDriversLicense, "8001015009087" ; "za drivers licence")]
+    #[test_case("driving licence number: 9506150089081", PiiKind::ZaDriversLicense, "9506150089081" ; "za driving licence")]
+    #[test_case("postal code: 0001", PiiKind::ZaPostalCode, "0001" ; "za postal code lower")]
+    #[test_case("zip code: 8001", PiiKind::ZaPostalCode, "8001" ; "za postal code cape town")]
     #[test_case("australian passport: A1234567", PiiKind::AuPassportNumber, "A1234567" ; "au passport")]
     #[test_case("passport number: B7654321", PiiKind::AuPassportNumber, "B7654321" ; "au passport generic keyword")]
     #[test_case("canadian passport: AB123456", PiiKind::CaPassportNumber, "AB123456" ; "ca passport")]
@@ -1480,6 +1498,9 @@ mod tests {
     #[test_case("Anschrift: Bahnhofstrasse 1, 0500 Zürich", PiiKind::DeAtChAddress ; "ch address plz below 1000")]
     #[test_case("Postfach: 1234567, 10115 Berlin", PiiKind::DeAtChPostfach ; "de postfach too many digits")]
     #[test_case("Packstation: 12, 10115 Berlin", PiiKind::DePackstation ; "de packstation too few digits")]
+    #[test_case("driver's licence: 8013015009087", PiiKind::ZaDriversLicense ; "za dl invalid month")]
+    #[test_case("driver's licence: 8001015009086", PiiKind::ZaDriversLicense ; "za dl bad luhn")]
+    #[test_case("postal code: 0000", PiiKind::ZaPostalCode ; "za postal code zero")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -1520,7 +1541,7 @@ mod tests {
     #[test_case("087 123 4567", PiiKind::IePhoneNumber ; "ie phone no keyword")]
     #[test_case("071 123 4567", PiiKind::ZaPhoneNumber ; "za phone no keyword")]
     #[test_case("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey ; "aws secret no keyword")]
-    #[test_case("123456789", PiiKind::GbPassportNumber ; "gb passport no keyword")]
+    #[test_case("123456789", PiiKind::GbZaPassportNumber ; "gb passport no keyword")]
     #[test_case("A1234567", PiiKind::AuPassportNumber ; "au passport no keyword")]
     #[test_case("AB123456", PiiKind::CaPassportNumber ; "ca passport no keyword")]
     #[test_case("NZ123456", PiiKind::NzPassportNumber ; "nz passport no keyword")]
@@ -1558,6 +1579,8 @@ mod tests {
     #[test_case("Bahnhofstrasse 1, 8001 Zürich", PiiKind::DeAtChAddress ; "ch address no keyword")]
     #[test_case("1234, 10557 Berlin", PiiKind::DeAtChPostfach ; "de postfach no keyword")]
     #[test_case("109, 01099 Dresden", PiiKind::DePackstation ; "de packstation no keyword")]
+    #[test_case("8001015009087", PiiKind::ZaDriversLicense ; "za dl no keyword")]
+    #[test_case("0001", PiiKind::ZaPostalCode ; "za postal no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
