@@ -1216,6 +1216,54 @@ pub(crate) fn fr_ch_boite_postale_check(s: &str) -> bool {
     })
 }
 
+/// AU Drivers License: 6-10 digits, or letter + 5-9 digits.
+/// No checksum — just format validation.
+pub(crate) fn au_dl_check(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    if bytes.iter().all(|b| b.is_ascii_digit()) {
+        // Pure digits: 6-10
+        (6..=10).contains(&len) && bytes.iter().any(|&b| b != b'0')
+    } else if (6..=10).contains(&len)
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1..].iter().all(|b| b.is_ascii_digit())
+    {
+        // Letter + 5-9 digits
+        bytes[1..].iter().any(|&b| b != b'0')
+    } else {
+        false
+    }
+}
+
+/// AU ABN (Australian Business Number): 11 digits, mod-89 weighted checksum.
+/// Algorithm from abr.business.gov.au:
+/// 1. Subtract 1 from first digit
+/// 2. Multiply each digit by weight [10,1,3,5,7,9,11,13,15,17,19]
+/// 3. Sum products; valid if sum % 89 == 0
+pub(crate) fn au_abn_check(s: &str) -> bool {
+    let digits: Vec<u32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+    if digits.len() != 11 {
+        return false;
+    }
+    if digits[0] == 0 {
+        return false;
+    }
+    const WEIGHTS: [u32; 11] = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+    let sum: u32 = digits
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| {
+            let d = if i == 0 { d - 1 } else { d };
+            d * WEIGHTS[i]
+        })
+        .sum();
+    sum % 89 == 0
+}
+
 pub(crate) fn person_name_check(s: &str) -> bool {
     if s.len() < 2 {
         return false;
@@ -1691,5 +1739,36 @@ mod tests {
     #[test_case("1234, 0999 Nowhere", false ; "invalid ch plz below range")]
     fn fr_ch_boite_postale(input: &str, expected: bool) {
         assert_eq!(fr_ch_boite_postale_check(input), expected);
+    }
+
+    // --- au_dl_check ---
+    #[test_case("12345678", true ; "valid nsw 8 digits")]
+    #[test_case("1234567890", true ; "valid vic 10 digits")]
+    #[test_case("01234567", true ; "valid qld 8 digits starting 0")]
+    #[test_case("1234567", true ; "valid wa 7 digits")]
+    #[test_case("123456", true ; "valid act 6 digits")]
+    #[test_case("A12345", true ; "valid tas letter plus 5")]
+    #[test_case("B123456789", true ; "valid letter plus 9")]
+    #[test_case("12345", false ; "invalid too short 5 digits")]
+    #[test_case("12345678901", false ; "invalid too long 11 digits")]
+    #[test_case("0000000", false ; "invalid all zeros")]
+    #[test_case("A00000", false ; "invalid letter all zeros")]
+    #[test_case("AB12345", false ; "invalid two letters")]
+    fn au_dl(input: &str, expected: bool) {
+        assert_eq!(au_dl_check(input), expected);
+    }
+
+    // --- au_abn_check ---
+    #[test_case("51824753556", true ; "valid ato abn")] // ATO — from abr.business.gov.au
+    #[test_case("53004085616", true ; "valid bp australia")] // BP Australia — from abr.business.gov.au
+    #[test_case("33051775556", true ; "valid telstra")] // Telstra — from abr.business.gov.au
+    #[test_case("49004028077", true ; "valid bhp")] // BHP — from abr.business.gov.au
+    #[test_case("88000014675", true ; "valid woolworths")] // Woolworths — from abr.business.gov.au
+    #[test_case("51824753557", false ; "invalid bad checksum")]
+    #[test_case("00000000000", false ; "invalid all zeros")]
+    #[test_case("1234567890", false ; "invalid 10 digits")]
+    #[test_case("123456789012", false ; "invalid 12 digits")]
+    fn au_abn(input: &str, expected: bool) {
+        assert_eq!(au_abn_check(input), expected);
     }
 }

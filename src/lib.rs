@@ -198,6 +198,8 @@ pub enum PiiKind {
     DePackstation,
     ZaDriversLicense,
     ZaPostalCode,
+    AuDriversLicense,
+    AuAbn,
 }
 
 impl RedactWith {
@@ -295,6 +297,8 @@ impl PiiKind {
             PiiKind::DePackstation => "DE_PACKSTATION",
             PiiKind::ZaDriversLicense => "ZA_DRIVERS_LICENSE",
             PiiKind::ZaPostalCode => "ZA_POSTAL_CODE",
+            PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
+            PiiKind::AuAbn => "AU_ABN",
         }
     }
 
@@ -335,7 +339,9 @@ impl PiiKind {
             | PiiKind::AuMedicare
             | PiiKind::AuPhoneNumber
             | PiiKind::AuPassportNumber
-            | PiiKind::AuBankAccount => Country::Au,
+            | PiiKind::AuBankAccount
+            | PiiKind::AuDriversLicense
+            | PiiKind::AuAbn => Country::Au,
 
             PiiKind::NzIrdNumber
             | PiiKind::NzNhiNumber
@@ -476,6 +482,8 @@ impl PiiKind {
         PiiKind::DePackstation,
         PiiKind::ZaDriversLicense,
         PiiKind::ZaPostalCode,
+        PiiKind::AuDriversLicense,
+        PiiKind::AuAbn,
     ];
 
     /// Returns all countries this PII kind applies to.

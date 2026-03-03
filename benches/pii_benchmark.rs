@@ -613,6 +613,22 @@ Patients admitted this week:\n\
 All patient names must be verified against identity documents.\n\
 Contact the admissions desk for corrections.";
 
+const AU_DL_TEXT: &str = "\
+Transport for NSW — Driver Licence Verification\n\n\
+Drivers requiring licence verification:\n\
+- Driver A: Australian driver's licence: 12345678\n\
+- Driver B: Aus driver's license: 1234567890\n\
+All driver's licences must be verified before renewal.\n\
+Contact the licensing department for corrections.";
+
+const AU_ABN_TEXT: &str = "\
+Australian Business Register — ABN Verification\n\n\
+Businesses requiring ABN verification:\n\
+- Business A: ABN: 51 824 753 556\n\
+- Business B: Australian business number: 33 051 775 556\n\
+All ABNs must be verified before registration.\n\
+Contact the ABR for corrections.";
+
 const MIXED_PII_TEXT: &str = "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
@@ -705,7 +721,9 @@ Tier 5 Verification Records:\n\
   Bitcoin wallet: 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa\n\
   Ethereum wallet: 0x1234567890abcdef1234567890abcdef12345678\n\
   BSB: 012-345\n\
-  Transit number: 00100 001 1234567\n\n\
+  Transit number: 00100 001 1234567\n\
+  Australian driver's licence: 12345678\n\
+  ABN: 51 824 753 556\n\n\
 Tier 6 France Verification Records:\n\
   Numéro de sécurité sociale: 1 85 05 78 006 084 91\n\
   SIRET: 73282932000074\n\
@@ -1187,6 +1205,14 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("za_postal_code", |b| {
         b.iter(|| scanner.mark_piis(ZA_POSTAL_TEXT));
+    });
+
+    group.bench_function("au_drivers_license", |b| {
+        b.iter(|| scanner.mark_piis(AU_DL_TEXT));
+    });
+
+    group.bench_function("au_abn", |b| {
+        b.iter(|| scanner.mark_piis(AU_ABN_TEXT));
     });
 
     // API secrets

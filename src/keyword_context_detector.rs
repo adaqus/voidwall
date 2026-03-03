@@ -8,10 +8,10 @@ use crate::Language;
 use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
-    a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, ch_ahv_check,
-    ch_postal_check, de_at_address_check, de_at_postfach_check, de_packstation_check,
-    de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check, ein_check,
-    fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
+    a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
+    au_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check, de_at_postfach_check,
+    de_packstation_check, de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check,
+    ein_check, fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
     geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check, nhi_check,
     nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
     person_name_check, phone_check, siren_luhn_check, siret_luhn_check, sort_code_check,
@@ -187,6 +187,18 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:postal code|post code|postcode|zip code|zip)[\s:.#/\-\x22]*?(\d{4})\b",
                 za_postal_check,
+            ),
+            (
+                PiiKind::AuDriversLicense,
+                Language::En,
+                r"(?i)(?:australian driver'?s? licen[cs]e|aus driver'?s? licen[cs]e|nsw licen[cs]e|vic licen[cs]e|qld licen[cs]e|wa licen[cs]e|act licen[cs]e|sa licen[cs]e|tas licen[cs]e|nt licen[cs]e|australian dl|aus dl)[\s:.#/\-\x22]*?(\d{6,10}|[A-Za-z]\d{5,9})\b",
+                au_dl_check,
+            ),
+            (
+                PiiKind::AuAbn,
+                Language::En,
+                r"(?i)(?:australian business number|australian business no\.?|aus business number|abn number|abn no\.?|abn #|abn)[\s:.#/\-\x22]*?(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
+                au_abn_check,
             ),
             (
                 PiiKind::CaOhip,
@@ -799,6 +811,15 @@ mod tests {
     #[test_case("driving licence number: 9506150089081", PiiKind::ZaDriversLicense, "9506150089081" ; "za driving licence")]
     #[test_case("postal code: 0001", PiiKind::ZaPostalCode, "0001" ; "za postal code lower")]
     #[test_case("zip code: 8001", PiiKind::ZaPostalCode, "8001" ; "za postal code cape town")]
+    #[test_case("australian driver's licence: 12345678", PiiKind::AuDriversLicense, "12345678" ; "au dl nsw 8 digit")]
+    #[test_case("aus driver's license: 1234567890", PiiKind::AuDriversLicense, "1234567890" ; "au dl vic 10 digit")]
+    #[test_case("nsw licence: 01234567", PiiKind::AuDriversLicense, "01234567" ; "au dl qld starting 0")]
+    #[test_case("vic licence: 1234567", PiiKind::AuDriversLicense, "1234567" ; "au dl wa 7 digit")]
+    #[test_case("tas licence: A12345", PiiKind::AuDriversLicense, "A12345" ; "au dl tas letter plus 5")]
+    #[test_case("australian dl: 123456", PiiKind::AuDriversLicense, "123456" ; "au dl act 6 digit")]
+    #[test_case("ABN: 51 824 753 556", PiiKind::AuAbn, "51 824 753 556" ; "au abn ato")] // ATO — from abr.business.gov.au
+    #[test_case("australian business number: 33 051 775 556", PiiKind::AuAbn, "33 051 775 556" ; "au abn telstra")] // Telstra — from abr.business.gov.au
+    #[test_case("abn number: 49004028077", PiiKind::AuAbn, "49004028077" ; "au abn bhp no spaces")] // BHP — from abr.business.gov.au
     #[test_case("australian passport: A1234567", PiiKind::AuPassportNumber, "A1234567" ; "au passport")]
     #[test_case("passport number: B7654321", PiiKind::AuPassportNumber, "B7654321" ; "au passport generic keyword")]
     #[test_case("canadian passport: AB123456", PiiKind::CaPassportNumber, "AB123456" ; "ca passport")]
@@ -1501,6 +1522,10 @@ mod tests {
     #[test_case("driver's licence: 8013015009087", PiiKind::ZaDriversLicense ; "za dl invalid month")]
     #[test_case("driver's licence: 8001015009086", PiiKind::ZaDriversLicense ; "za dl bad luhn")]
     #[test_case("postal code: 0000", PiiKind::ZaPostalCode ; "za postal code zero")]
+    #[test_case("australian driver's licence: 12345", PiiKind::AuDriversLicense ; "au dl too short")]
+    #[test_case("australian driver's licence: 0000000", PiiKind::AuDriversLicense ; "au dl all zeros")]
+    #[test_case("ABN: 51824753557", PiiKind::AuAbn ; "au abn bad checksum")]
+    #[test_case("ABN: 1234567890", PiiKind::AuAbn ; "au abn 10 digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -1581,6 +1606,8 @@ mod tests {
     #[test_case("109, 01099 Dresden", PiiKind::DePackstation ; "de packstation no keyword")]
     #[test_case("8001015009087", PiiKind::ZaDriversLicense ; "za dl no keyword")]
     #[test_case("0001", PiiKind::ZaPostalCode ; "za postal no keyword")]
+    #[test_case("12345678", PiiKind::AuDriversLicense ; "au dl no keyword")]
+    #[test_case("51824753556", PiiKind::AuAbn ; "au abn no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
