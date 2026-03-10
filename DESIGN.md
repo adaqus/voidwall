@@ -233,6 +233,11 @@ start if it is not.
 [pii]
 countries = ["International", "Us", "Gb"]
 languages = ["En"]
+# Number of dedicated scanner threads. Each thread owns its own Scanner
+# instance to avoid synchronization overhead. Defaults to the number of
+# available CPU cores (capped at 4 when total cores <= 8, half of cores
+# otherwise).
+# scanner_threads = 4
 # Allowlist (mutually exclusive with exclude_pii_kinds)
 # pii_kinds = ["Email", "UsSsn", "CreditCard"]
 # Blocklist (mutually exclusive with pii_kinds)
@@ -323,6 +328,7 @@ error message if any rule is violated.
 | No port conflicts | All enabled listeners must bind to different `host:port` combinations |
 | PII scanner valid | `pii_kinds` and `exclude_pii_kinds` are mutually exclusive (enforced by `pii` crate) |
 | Countries/PII kinds consistent | All specified PII kinds must be reachable from specified countries (enforced by `pii` crate) |
+| Scanner threads valid | `scanner_threads` must be >= 1 if specified |
 
 #### Per-mode action validation
 
