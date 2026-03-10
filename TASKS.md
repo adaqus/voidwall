@@ -26,6 +26,7 @@ Decisions applied:
 - [ ] Define `error.rs` with a unified `Error` enum (config errors, scanner errors,
   proxy errors, I/O errors)
 - [ ] Implement `From` conversions and `IntoResponse` for HTTP error responses
+- [ ] Unit tests for error conversions
 
 ### 1.3 Configuration
 - [ ] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
@@ -56,6 +57,7 @@ Decisions applied:
   - `pii_proxy_request_duration_seconds` (histogram, labels: `mode`, `route`)
   - `pii_proxy_errors_total` (counter, labels: `outcome`, `reason`)
 - [ ] Helper functions to increment metrics from action/proxy code
+- [ ] Unit tests for metric helper functions
 
 ---
 
@@ -108,29 +110,13 @@ Decisions applied:
   - `GET /readyz` — return 200 once all listeners are bound (accept an
     `Arc<AtomicBool>` or similar readiness signal)
 - [ ] Bind to configured `admin.listen` address
-- [ ] Integration test: health and readiness endpoints
+- [ ] Integration test: health and readiness endpoints, metrics rendering
 
 ---
 
-## Phase 5 — REST API Mode
+## Phase 5 — Reverse Proxy Mode
 
-### 5.1 REST API endpoints
-- [ ] Implement `api.rs` axum router:
-  - `POST /v1/scan` — accept JSON `{ "text": "..." }`, scan via `ScannerPool`,
-    return `{ "detected": bool, "matches_count": N, "kinds": [...] }`
-  - `POST /v1/redact` — accept JSON `{ "text": "..." }`, scan+redact via
-    `ScannerPool`, return `{ "text": "...", "redacted_count": N, "kinds": [...] }`
-  - `GET /v1/health` — 200
-  - `GET /v1/config` — return current PII scanner config as JSON
-- [ ] Respect `max_body_size` / `on_error` for incoming requests
-- [ ] Increment `pii_proxy_requests_total` with `mode=rest_api`
-- [ ] Integration tests: scan detection, redaction, oversized body, health
-
----
-
-## Phase 6 — Reverse Proxy Mode
-
-### 6.1 Request handling pipeline
+### 5.1 Request handling pipeline
 - [ ] Implement `reverse_proxy.rs` axum router:
   - Route matching by `path_prefix` (longest-prefix wins)
   - For each incoming request:
@@ -149,23 +135,71 @@ Decisions applied:
 - [ ] Stream upstream response back to client
 - [ ] Increment all relevant metrics
 
-### 6.2 TLS termination (reverse proxy)
+### 5.2 TLS termination (reverse proxy)
 - [ ] In `tls.rs`: build `tokio_rustls::TlsAcceptor` from cert/key paths
 - [ ] If `reverse_proxy.tls.enabled`, wrap the TCP listener with TLS acceptor
-- [ ] Integration tests: plain HTTP proxying, route matching, block/redact actions
+
+### 5.3 Integration tests
+- [ ] Plain HTTP proxying end-to-end (proxy → echo upstream)
+- [ ] Route matching: longest-prefix wins, unknown prefix returns 404
+- [ ] Block action: request with PII returns 403, not forwarded
+- [ ] Redact action: PII replaced in forwarded request body/headers
+- [ ] Header action: `X-PII-Detected` header added to forwarded request
+- [ ] Warn action: metrics incremented, request forwarded unchanged
+- [ ] `on_error` fail-open and fail-close paths
+- [ ] Oversized body handling
 
 ---
 
-## Phase 7 — Forward Proxy Mode
+## Phase 6 — Load Testing
 
-### 7.1 Forward proxy handler
+Setup and infrastructure per `docs/load-testing.md`.
+
+### 6.1 Test infrastructure
+- [ ] Echo server binary (`benches/echo_server.rs`)
+- [ ] Payload generation script — clean and PII-containing payloads at 100 B,
+  1 KB, 10 KB, 100 KB, 1 MB
+- [ ] Test TOML configs in `benches/configs/` (one per scenario variant)
+
+### 6.2 k6 test scenarios
+- [ ] Baseline — proxy overhead vs direct-to-upstream, clean payloads
+- [ ] Action comparison — warn vs block vs redact cost
+- [ ] Body size scaling — throughput degradation from 100 B to 1 MB
+- [ ] Concurrency scaling — saturation point and tail latency (1 to 500 connections)
+- [ ] Scanner thread scaling — effect of `scanner_threads` 1/2/4/8
+
+### 6.3 Automation
+- [ ] `benches/run_all.sh` — builds, starts servers, runs all scenarios,
+  collects JSON results, prints summary table
+
+---
+
+## Phase 7 — REST API Mode
+
+### 7.1 REST API endpoints
+- [ ] Implement `api.rs` axum router:
+  - `POST /v1/scan` — accept JSON `{ "text": "..." }`, scan via `ScannerPool`,
+    return `{ "detected": bool, "matches_count": N, "kinds": [...] }`
+  - `POST /v1/redact` — accept JSON `{ "text": "..." }`, scan+redact via
+    `ScannerPool`, return `{ "text": "...", "redacted_count": N, "kinds": [...] }`
+  - `GET /v1/health` — 200
+  - `GET /v1/config` — return current PII scanner config as JSON
+- [ ] Respect `max_body_size` / `on_error` for incoming requests
+- [ ] Increment `pii_proxy_requests_total` with `mode=rest_api`
+- [ ] Integration tests: scan detection, redaction, oversized body, health
+
+---
+
+## Phase 8 — Forward Proxy Mode
+
+### 8.1 Forward proxy handler
 - [ ] Implement `forward_proxy.rs`:
   - Parse absolute-form URI from request line (standard forward proxy behavior)
   - Same pipeline as reverse proxy: buffer → scan → action → forward
   - Single global `hyper-util` pooling client for all destinations
 - [ ] No CONNECT support — return 405 for CONNECT method
 
-### 7.2 Forward proxy TLS (MITM)
+### 8.2 Forward proxy TLS (MITM)
 - [ ] Client-facing: TLS termination using configured CA cert/key
 - [ ] Dynamic per-host certificate generation via `rcgen`, signed by the CA
 - [ ] Cache generated certs (bounded LRU cache keyed by hostname)
@@ -174,9 +208,19 @@ Decisions applied:
 
 ---
 
-## Phase 8 — Main Entrypoint & Lifecycle
+## Phase 9 — Load Testing (Full Suite)
 
-### 8.1 Startup orchestration
+Extend load testing from Phase 6 to cover all modes.
+
+### 9.1 Additional scenarios
+- [ ] Mode comparison — reverse proxy vs forward proxy vs REST API
+- [ ] Soak test — 30 min at 80% max rate, monitor memory, file descriptors, p99 drift
+
+---
+
+## Phase 10 — Main Entrypoint & Lifecycle
+
+### 10.1 Startup orchestration
 - [ ] `main.rs`:
   1. Parse CLI args, load and validate config
   2. Initialize `tracing` subscriber
@@ -191,7 +235,7 @@ Decisions applied:
   7. Set readiness flag once all listeners are bound
   8. Await shutdown signal
 
-### 8.2 Graceful shutdown
+### 10.2 Graceful shutdown
 - [ ] `tokio::signal::ctrl_c()` + SIGTERM handler → trigger `CancellationToken`
 - [ ] Each listener: stop accepting new connections, drain in-flight with timeout
 - [ ] `ScannerPool::shutdown()` — drain channel, join threads
@@ -199,16 +243,9 @@ Decisions applied:
 
 ---
 
-## Phase 9 — Testing & Hardening
+## Phase 11 — End-to-End Testing
 
-### 9.1 Integration tests
+### 11.1 Cross-mode integration tests
 - [ ] Full integration test: start binary with test config, send requests through
   each mode, verify scan/block/redact/header behavior end-to-end
-- [ ] Test `on_error` fail-open and fail-close paths
-- [ ] Test oversized body handling in each mode
 - [ ] Test config validation rejects all invalid cases at startup
-
-### 9.2 Performance baseline
-- [ ] Benchmark scanner throughput: requests/sec at various `scanner_threads` values
-- [ ] Verify async runtime is not blocked (tokio metrics or `tokio-console`)
-- [ ] Check memory usage under sustained load (body buffer lifecycle)
