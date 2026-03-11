@@ -395,6 +395,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "regex",
+ "serde",
  "test-case",
  "vectorscan-rs",
 ]

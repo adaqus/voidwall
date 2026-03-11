@@ -60,7 +60,7 @@ impl std::error::Error for PiiError {
 ///
 /// Each PII variant maps to exactly one country (or `International` for
 /// types that are not country-specific).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
 pub enum Country {
     International,
     Us,
@@ -96,7 +96,7 @@ impl Country {
 }
 
 /// Language for keyword-context patterns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
 pub enum Language {
     En,
     Fr,
@@ -114,7 +114,7 @@ impl Language {
 /// Country-specific variants are prefixed with an ISO 3166-1 alpha-2 code
 /// (e.g. `Us`, `Gb`, `Au`). Variants without a country prefix are
 /// internationally applicable or not tied to a specific country.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
 pub enum PiiKind {
     Email,
     PhoneNumber,
