@@ -70,6 +70,10 @@ When multiple actions are configured: block → redact → header → warn.
 Block short-circuits (no forwarding). All actions that execute increment their
 respective metrics — including block (it still counts detections).
 
+## Implementation verification
+
+After implementing a task from TASKS.md, verify the implementation with DESIGN.md file.
+
 ## Commiting
 
 Do not ask for commiting finished task.

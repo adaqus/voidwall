@@ -29,13 +29,13 @@ Decisions applied:
 - [x] Unit tests for error conversions
 
 ### 1.3 Configuration
-- [ ] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
+- [x] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
   `AppConfig`, `PiiConfig`, `ScanConfig`, `ReverseProxyConfig`, `Route`,
   `ForwardProxyConfig`, `RestApiConfig`, `AdminConfig`, `TlsConfig`
-- [ ] Derive `serde::Deserialize` for all config structs
-- [ ] Implement `scanner_threads` default logic: auto-detect via
+- [x] Derive `serde::Deserialize` for all config structs
+- [x] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
-- [ ] Implement all validation rules from DESIGN.md:
+- [x] Implement all validation rules from DESIGN.md:
   - At least one mode enabled
   - No port conflicts across enabled listeners
   - `header` requires `warn` or `redact`
@@ -44,8 +44,8 @@ Decisions applied:
   - `scanner_threads` >= 1
   - Reverse proxy: no overlapping `path_prefix`, valid upstream URLs
   - REST API: no `block`/`header` actions
-- [ ] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
-- [ ] Unit tests for validation (valid config, each invalid case)
+- [x] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
+- [x] Unit tests for validation (valid config, each invalid case)
 
 ### 1.4 Metrics
 - [ ] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
