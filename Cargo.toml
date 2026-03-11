@@ -39,3 +39,6 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # PII scanning
 pii = { path = "../pii" }
+
+[dev-dependencies]
+test-case = "3.3.1"

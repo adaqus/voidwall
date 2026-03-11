@@ -23,10 +23,10 @@ Decisions applied:
 - [x] Wire up `mod` declarations in `main.rs`
 
 ### 1.2 Error types
-- [ ] Define `error.rs` with a unified `Error` enum (config errors, scanner errors,
+- [x] Define `error.rs` with a unified `Error` enum (config errors, scanner errors,
   proxy errors, I/O errors)
-- [ ] Implement `From` conversions and `IntoResponse` for HTTP error responses
-- [ ] Unit tests for error conversions
+- [x] Implement `From` conversions and `IntoResponse` for HTTP error responses
+- [x] Unit tests for error conversions
 
 ### 1.3 Configuration
 - [ ] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
