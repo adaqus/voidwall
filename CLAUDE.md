@@ -10,11 +10,10 @@ Design: `DESIGN.md`. Tasks: `TASKS.md`. Load testing: `docs/load-testing.md`.
 ## Build
 
 ```bash
-cargo build
-cargo test
-cargo test <name>        # single test
-cargo clippy             # lint — treat warnings as errors
-cargo fmt --check        # formatting check
+cargo check 2>&1 | tail -n 20m
+cargo test 2>&1 | tail -n 20m
+cargo test <name> 2>&1 | tail -n 20m        # single test
+cargo clippy 2>&1 | tail -n 20m             # lint — treat warnings as errors
 ```
 
 Rust edition: 2024.
@@ -70,6 +69,10 @@ for responses. Never call `pii::Scanner` from an async context.
 When multiple actions are configured: block → redact → header → warn.
 Block short-circuits (no forwarding). All actions that execute increment their
 respective metrics — including block (it still counts detections).
+
+## Commiting
+
+Do not ask for commiting finished task.
 
 ## Task Tracking
 

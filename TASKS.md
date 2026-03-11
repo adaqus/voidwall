@@ -13,14 +13,14 @@ Decisions applied:
 ## Phase 1 — Foundation
 
 ### 1.1 Project skeleton & dependencies
-- [ ] Set up `Cargo.toml` with all expected dependencies: `tokio`, `axum`, `hyper`,
+- [x] Set up `Cargo.toml` with all expected dependencies: `tokio`, `axum`, `hyper`,
   `hyper-util`, `http-body-util`, `tokio-rustls`, `rustls`, `rcgen`, `serde`,
   `toml`, `prometheus`, `bytes`, `tracing`, `tracing-subscriber`, `clap`
-- [ ] Add `pii` crate dependency (determine exact crate name / git source)
-- [ ] Create empty module files: `config.rs`, `scanner.rs`, `action.rs`,
+- [x] Add `pii` crate dependency (determine exact crate name / git source)
+- [x] Create empty module files: `config.rs`, `scanner.rs`, `action.rs`,
   `reverse_proxy.rs`, `forward_proxy.rs`, `api.rs`, `admin.rs`, `metrics.rs`,
   `tls.rs`, `error.rs`
-- [ ] Wire up `mod` declarations in `main.rs`
+- [x] Wire up `mod` declarations in `main.rs`
 
 ### 1.2 Error types
 - [ ] Define `error.rs` with a unified `Error` enum (config errors, scanner errors,
