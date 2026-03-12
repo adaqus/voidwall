@@ -10,9 +10,7 @@ use crate::validators::*;
 use crate::{PiiError, PiiKind, PiiMatch};
 
 thread_local! {
-    static DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
-        = const { RefCell::new(None) };
-    static EXTRACTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
+    static V_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
         = const { RefCell::new(None) };
 }
 
@@ -280,14 +278,14 @@ impl HyperscanDetector {
         Self::new(&enabled)
     }
 
-    fn with_extraction_scanner<F, R>(&self, f: F) -> Option<R>
+    fn with_detection_scanner<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&mut BlockScanner<'static>) -> R,
     {
         let db = self.extraction_db.as_ref()?;
         let proto = self.extraction_prototype.as_ref()?;
         let db_key = &**db as *const BlockDatabase as usize;
-        Some(EXTRACTION_CACHE.with(|cell| {
+        Some(V_DETECTION_CACHE.with(|cell| {
             let mut opt = cell.borrow_mut();
             if opt.as_ref().is_none_or(|(k, _)| *k != db_key) {
                 *opt = Some((db_key, proto.clone()));
@@ -307,7 +305,7 @@ impl Detector for HyperscanDetector {
 
         // Phase 1: SOM_LEFTMOST extraction patterns — validate before accepting
         let mut found = false;
-        self.with_extraction_scanner(|scanner: &mut BlockScanner<'static>| {
+        self.with_detection_scanner(|scanner: &mut BlockScanner<'static>| {
             let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
                 let entry = &self.entries[id as usize];
                 let start = from as usize;
@@ -364,7 +362,7 @@ impl Detector for HyperscanDetector {
 
         // Phase 1: SOM_LEFTMOST extraction for patterns in the extraction DB
         let mut raw: Vec<(u32, u64, u64)> = Vec::new();
-        self.with_extraction_scanner(|scanner: &mut BlockScanner<'static>| {
+        self.with_detection_scanner(|scanner: &mut BlockScanner<'static>| {
             let _ = scanner.scan(input.as_bytes(), |id, from, to, _flags| {
                 raw.push((id, from, to));
                 Scan::Continue
