@@ -48,7 +48,7 @@ Decisions applied:
 - [x] Unit tests for validation (valid config, each invalid case)
 
 ### 1.4 Metrics
-- [ ] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
+- [x] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
   `lazy_static`:
   - `pii_proxy_detections_total` (counter, labels: `pii_kind`, `mode`, `route`)
   - `pii_proxy_blocked_total` (counter, labels: `mode`, `route`)
@@ -56,8 +56,8 @@ Decisions applied:
   - `pii_proxy_requests_total` (counter, labels: `mode`, `route`, `method`, `status`)
   - `pii_proxy_request_duration_seconds` (histogram, labels: `mode`, `route`)
   - `pii_proxy_errors_total` (counter, labels: `outcome`, `reason`)
-- [ ] Helper functions to increment metrics from action/proxy code
-- [ ] Unit tests for metric helper functions
+- [x] Helper functions to increment metrics from action/proxy code
+- [x] Unit tests for metric helper functions
 
 ---
 

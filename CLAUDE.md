@@ -72,7 +72,7 @@ respective metrics — including block (it still counts detections).
 
 ## Implementation verification
 
-After implementing a task from TASKS.md, verify the implementation with DESIGN.md file.
+After implementing a task from TASKS.md, always verify the implementation with DESIGN.md file.
 
 ## Commiting
 
