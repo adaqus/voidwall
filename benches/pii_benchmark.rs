@@ -1427,10 +1427,10 @@ fn throughput_redaction(c: &mut Criterion) {
     group.finish();
 }
 
-// Benchmarks the HyperscanDetector in isolation on 5 common structurally-unique PIIs
-// (Email, CreditCard, UsSsn, Iban, IpAddress). Shows detector cost without
-// KeywordContextDetector overhead.
-fn hyperscan_detector_5_piis(c: &mut Criterion) {
+// Measures bytes/second throughput of HyperscanDetector in isolation on 5 common
+// structurally-unique PIIs (Email, CreditCard, UsSsn, Iban, IpAddress).
+// Shows detector cost without KeywordContextDetector overhead.
+fn throughput_hyperscan_detector(c: &mut Criterion) {
     let kinds: HashSet<PiiKind> = [
         PiiKind::Email,
         PiiKind::CreditCard,
@@ -1441,33 +1441,31 @@ fn hyperscan_detector_5_piis(c: &mut Criterion) {
     .into_iter()
     .collect();
     let detector = HyperscanDetector::new(&kinds).unwrap();
+    let long_clean = make_long_clean_text();
 
-    let mut group = c.benchmark_group("hyperscan_detector_5_piis");
-    group.throughput(Throughput::Bytes(HYPERSCAN_5_TEXT.len() as u64));
+    let inputs: &[(&str, &str)] = &[
+        ("clean_500b", CLEAN_TEXT),
+        ("pii_5types", HYPERSCAN_5_TEXT),
+        ("clean_10kb", &long_clean),
+    ];
 
-    group.bench_function("has_piis", |b| {
-        b.iter(|| detector.has_piis(HYPERSCAN_5_TEXT));
-    });
-
-    group.bench_function("mark_piis", |b| {
-        b.iter(|| detector.mark_piis(HYPERSCAN_5_TEXT));
-    });
-
-    group.bench_function("has_piis_clean", |b| {
-        b.iter(|| detector.has_piis(CLEAN_TEXT));
-    });
-
-    group.bench_function("mark_piis_clean", |b| {
-        b.iter(|| detector.mark_piis(CLEAN_TEXT));
-    });
-
+    let mut group = c.benchmark_group("throughput_hyperscan_detector");
+    for (name, text) in inputs {
+        group.throughput(Throughput::Bytes(text.len() as u64));
+        group.bench_with_input(BenchmarkId::new("has_piis", name), text, |b, input| {
+            b.iter(|| detector.has_piis(input));
+        });
+        group.bench_with_input(BenchmarkId::new("mark_piis", name), text, |b, input| {
+            b.iter(|| detector.mark_piis(input));
+        });
+    }
     group.finish();
 }
 
-// Benchmarks the KeywordContextDetector in isolation on 5 common keyword-based PIIs
-// (PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation). Shows
-// keyword-detection + regex-extraction cost without HyperscanDetector overhead.
-fn keyword_detector_5_piis(c: &mut Criterion) {
+// Measures bytes/second throughput of KeywordContextDetector in isolation on 5 common
+// keyword-based PIIs (PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation).
+// Shows keyword-detection + regex-extraction cost without HyperscanDetector overhead.
+fn throughput_keyword_detector(c: &mut Criterion) {
     let kinds: HashSet<PiiKind> = [
         PiiKind::PhoneNumber,
         PiiKind::PassportNumber,
@@ -1479,26 +1477,24 @@ fn keyword_detector_5_piis(c: &mut Criterion) {
     .collect();
     let languages: HashSet<Language> = Language::all().iter().copied().collect();
     let detector = KeywordContextDetector::new(&kinds, &languages).unwrap();
+    let long_clean = make_long_clean_text();
 
-    let mut group = c.benchmark_group("keyword_detector_5_piis");
-    group.throughput(Throughput::Bytes(KEYWORD_5_TEXT.len() as u64));
+    let inputs: &[(&str, &str)] = &[
+        ("clean_500b", CLEAN_TEXT),
+        ("pii_5types", KEYWORD_5_TEXT),
+        ("clean_10kb", &long_clean),
+    ];
 
-    group.bench_function("has_piis", |b| {
-        b.iter(|| detector.has_piis(KEYWORD_5_TEXT));
-    });
-
-    group.bench_function("mark_piis", |b| {
-        b.iter(|| detector.mark_piis(KEYWORD_5_TEXT));
-    });
-
-    group.bench_function("has_piis_clean", |b| {
-        b.iter(|| detector.has_piis(CLEAN_TEXT));
-    });
-
-    group.bench_function("mark_piis_clean", |b| {
-        b.iter(|| detector.mark_piis(CLEAN_TEXT));
-    });
-
+    let mut group = c.benchmark_group("throughput_keyword_detector");
+    for (name, text) in inputs {
+        group.throughput(Throughput::Bytes(text.len() as u64));
+        group.bench_with_input(BenchmarkId::new("has_piis", name), text, |b, input| {
+            b.iter(|| detector.has_piis(input));
+        });
+        group.bench_with_input(BenchmarkId::new("mark_piis", name), text, |b, input| {
+            b.iter(|| detector.mark_piis(input));
+        });
+    }
     group.finish();
 }
 
@@ -1513,7 +1509,7 @@ criterion_group!(
     per_pii_kind,
     clean_text_overhead,
     throughput_redaction,
-    hyperscan_detector_5_piis,
-    keyword_detector_5_piis
+    throughput_hyperscan_detector,
+    throughput_keyword_detector
 );
 criterion_main!(benches);
