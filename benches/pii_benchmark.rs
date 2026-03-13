@@ -1,5 +1,9 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use pii::{RedactWith, Scanner};
+use pii::detector::Detector;
+use pii::hyperscan_detector::HyperscanDetector;
+use pii::keyword_context_detector::KeywordContextDetector;
+use pii::{Language, PiiKind, RedactWith, Scanner};
+use std::collections::HashSet;
 
 const CLEAN_TEXT: &str = "\
 The quick brown fox jumps over the lazy dog. In a world filled with wonders, \
@@ -893,6 +897,41 @@ Boîtes et cases postales à vérifier :\n\
 Toutes les boîtes postales doivent être enregistrées.\n\
 Contactez La Poste en cas de questions.";
 
+// Text with 5 PIIs handled by HyperscanDetector (structurally unique, no keywords needed):
+// Email, CreditCard, UsSsn, Iban, IpAddress
+const HYPERSCAN_5_TEXT: &str = "\
+FRAUD INVESTIGATION — CASE #FI-2025-0442\n\
+Date: 2025-02-20\n\n\
+Subject contacted us via j.doe@example.com regarding unauthorized access.\n\
+The compromised card number is 4111 1111 1111 1111, used in two transactions.\n\
+A second card 5500 0000 0000 0004 was also flagged.\n\n\
+Identity verification on file: SSN 078-05-1120.\n\
+Wire transfer traced to IBAN DE89 3704 0044 0532 0130 00.\n\
+A second IBAN GB29 NWBK 6016 1331 9268 19 was linked to the account.\n\n\
+Login originated from IP 203.0.113.55. Secondary access from 2001:0db8:85a3:0000:0000:8a2e:0370:7334.\n\
+Notifications sent to alert-team@bank.example.com.\n\n\
+Case Status: Under Review.";
+
+// Text with 5 PIIs handled by KeywordContextDetector (keyword + value):
+// PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation
+const KEYWORD_5_TEXT: &str = "\
+COMPLIANCE AUDIT — RECORD #CA-2025-0891\n\
+Date: 2025-03-10\n\n\
+Primary contact phone: (555) 867-5309. Alternate telephone: 555-234-7890.\n\n\
+Travel document verification:\n\
+  Passport number: 123456789\n\
+  Second passport: 987654321\n\n\
+Banking details:\n\
+  SWIFT code: DEUTDEFF\n\
+  Backup BIC: BNPAFRPP\n\n\
+Corporate registration:\n\
+  EIN: 12-3456789\n\
+  Secondary EIN: 20-1234567\n\n\
+Site inspection coordinates:\n\
+  GPS location: 40.7128,-74.0060\n\
+  Secondary coordinates: 51.5074,-0.1278\n\n\
+Audit Status: Pending Review.";
+
 fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
 }
@@ -1365,7 +1404,7 @@ fn clean_text_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-fn redaction_throughput(c: &mut Criterion) {
+fn throughput_redaction(c: &mut Criterion) {
     let scanner = Scanner::new().unwrap();
 
     let mut group = c.benchmark_group("redaction");
@@ -1388,6 +1427,81 @@ fn redaction_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+// Benchmarks the HyperscanDetector in isolation on 5 common structurally-unique PIIs
+// (Email, CreditCard, UsSsn, Iban, IpAddress). Shows detector cost without
+// KeywordContextDetector overhead.
+fn hyperscan_detector_5_piis(c: &mut Criterion) {
+    let kinds: HashSet<PiiKind> = [
+        PiiKind::Email,
+        PiiKind::CreditCard,
+        PiiKind::UsSsn,
+        PiiKind::Iban,
+        PiiKind::IpAddress,
+    ]
+    .into_iter()
+    .collect();
+    let detector = HyperscanDetector::new(&kinds).unwrap();
+
+    let mut group = c.benchmark_group("hyperscan_detector_5_piis");
+    group.throughput(Throughput::Bytes(HYPERSCAN_5_TEXT.len() as u64));
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| detector.has_piis(HYPERSCAN_5_TEXT));
+    });
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| detector.mark_piis(HYPERSCAN_5_TEXT));
+    });
+
+    group.bench_function("has_piis_clean", |b| {
+        b.iter(|| detector.has_piis(CLEAN_TEXT));
+    });
+
+    group.bench_function("mark_piis_clean", |b| {
+        b.iter(|| detector.mark_piis(CLEAN_TEXT));
+    });
+
+    group.finish();
+}
+
+// Benchmarks the KeywordContextDetector in isolation on 5 common keyword-based PIIs
+// (PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation). Shows
+// keyword-detection + regex-extraction cost without HyperscanDetector overhead.
+fn keyword_detector_5_piis(c: &mut Criterion) {
+    let kinds: HashSet<PiiKind> = [
+        PiiKind::PhoneNumber,
+        PiiKind::PassportNumber,
+        PiiKind::SwiftBic,
+        PiiKind::UsEin,
+        PiiKind::PreciseGeolocation,
+    ]
+    .into_iter()
+    .collect();
+    let languages: HashSet<Language> = Language::all().iter().copied().collect();
+    let detector = KeywordContextDetector::new(&kinds, &languages).unwrap();
+
+    let mut group = c.benchmark_group("keyword_detector_5_piis");
+    group.throughput(Throughput::Bytes(KEYWORD_5_TEXT.len() as u64));
+
+    group.bench_function("has_piis", |b| {
+        b.iter(|| detector.has_piis(KEYWORD_5_TEXT));
+    });
+
+    group.bench_function("mark_piis", |b| {
+        b.iter(|| detector.mark_piis(KEYWORD_5_TEXT));
+    });
+
+    group.bench_function("has_piis_clean", |b| {
+        b.iter(|| detector.has_piis(CLEAN_TEXT));
+    });
+
+    group.bench_function("mark_piis_clean", |b| {
+        b.iter(|| detector.mark_piis(CLEAN_TEXT));
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     throughput_mark_piis,
@@ -1398,6 +1512,8 @@ criterion_group!(
     has_piis_vs_mark_piis,
     per_pii_kind,
     clean_text_overhead,
-    redaction_throughput
+    throughput_redaction,
+    hyperscan_detector_5_piis,
+    keyword_detector_5_piis
 );
 criterion_main!(benches);
