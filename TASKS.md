@@ -64,23 +64,23 @@ Decisions applied:
 ## Phase 2 — Scanner Thread Pool
 
 ### 2.1 Scanner service
-- [ ] Define `ScanRequest` and `ScanResult` types in `scanner.rs`:
+- [x] Define `ScanRequest` and `ScanResult` types in `scanner.rs`:
   - `ScanRequest`: contains text fragments to scan (body, URL, query, headers),
     action config (whether to redact), redact strategy
   - `ScanResult`: `detected: bool`, `kinds: Vec<PiiKind>`, `matches_count: usize`,
     optionally `redacted_body: Option<Bytes>`, `redacted_url: Option<String>`,
     `redacted_headers: Option<Vec<(String, String)>>`
-- [ ] Implement `ScannerPool` struct:
+- [x] Implement `ScannerPool` struct:
   - On `new()`: spawn `scanner_threads` OS threads via `std::thread::spawn`
   - Each thread creates its own `pii::Scanner` instance from config
   - Bounded `crossbeam-channel` or `std::sync::mpsc` for receiving work
   - Each message: `(ScanRequest, tokio::sync::oneshot::Sender<ScanResult>)`
   - Thread loop: `recv()` → scan (and optionally redact) → send result via oneshot
-- [ ] Implement async `ScannerPool::process(&self, req: ScanRequest) -> Result<ScanResult>`
+- [x] Implement async `ScannerPool::process(&self, req: ScanRequest) -> Result<ScanResult>`
   that sends request to channel and awaits the oneshot
-- [ ] Handle channel-full / thread-dead scenarios according to `on_error` policy
-- [ ] Implement `ScannerPool::shutdown()` — drop sender, join threads
-- [ ] Unit tests: basic scan, redact, pool exhaustion behavior
+- [x] Handle channel-full / thread-dead scenarios according to `on_error` policy
+- [x] Implement `ScannerPool::shutdown()` — drop sender, join threads
+- [x] Unit tests: basic scan, redact, pool exhaustion behavior
 
 ---
 
