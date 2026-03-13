@@ -1407,7 +1407,7 @@ fn clean_text_overhead(c: &mut Criterion) {
 fn throughput_redaction(c: &mut Criterion) {
     let scanner = Scanner::new().unwrap();
 
-    let mut group = c.benchmark_group("redaction");
+    let mut group = c.benchmark_group("throughput_redaction");
     group.throughput(Throughput::Bytes(MIXED_PII_TEXT.len() as u64));
 
     group.bench_function("char_mask_mixed", |b| {
@@ -1417,9 +1417,23 @@ fn throughput_redaction(c: &mut Criterion) {
         });
     });
 
+    group.bench_function("char_mask_top5", |b| {
+        b.iter(|| {
+            let mut input = format!("{HYPERSCAN_5_TEXT}\n{KEYWORD_5_TEXT}");
+            scanner.redact(&mut input, &RedactWith::Char('*'));
+        });
+    });
+
     group.bench_function("type_label_mixed", |b| {
         b.iter(|| {
             let mut input = String::from(MIXED_PII_TEXT);
+            scanner.redact(&mut input, &RedactWith::TypeLabel);
+        });
+    });
+
+    group.bench_function("type_label_top5", |b| {
+        b.iter(|| {
+            let mut input = format!("{HYPERSCAN_5_TEXT}\n{KEYWORD_5_TEXT}");
             scanner.redact(&mut input, &RedactWith::TypeLabel);
         });
     });
