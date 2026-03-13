@@ -27,8 +27,46 @@ thread_local! {
 
 struct KeywordPattern {
     kind: PiiKind,
-    full_regex: Regex,
+    value_regex: Regex,
     validate: fn(&str) -> bool,
+}
+
+/// Extract the capture-group content from a keyword pattern string.
+/// Most patterns follow `(?i)(?:keywords)SEPARATOR(value)\b?`.
+/// Returns just the inner `value` portion (without outer parens).
+fn extract_value_expr(pattern: &str) -> &str {
+    // Find the last top-level capturing group: `(` not followed by `?`.
+    let bytes = pattern.as_bytes();
+    let mut group_start = None;
+    let mut depth = 0i32;
+    for (i, &b) in bytes.iter().enumerate() {
+        let escaped = i > 0 && bytes[i - 1] == b'\\';
+        if b == b'(' && !escaped {
+            if depth == 0 && bytes.get(i + 1) != Some(&b'?') {
+                group_start = Some(i);
+            }
+            depth += 1;
+        } else if b == b')' && !escaped {
+            depth -= 1;
+        }
+    }
+    let start = group_start.expect("pattern has no capture group");
+    // Find matching close paren from `start`.
+    let mut depth = 0i32;
+    let mut close = 0;
+    for (i, &b) in bytes[start..].iter().enumerate() {
+        let escaped = i > 0 && bytes[start + i - 1] == b'\\';
+        if b == b'(' && !escaped {
+            depth += 1;
+        } else if b == b')' && !escaped {
+            depth -= 1;
+            if depth == 0 {
+                close = start + i;
+                break;
+            }
+        }
+    }
+    &pattern[start + 1..close]
 }
 
 pub struct KeywordContextDetector {
@@ -572,7 +610,7 @@ impl KeywordContextDetector {
                 .unwrap_or(pat);
             vs_patterns.push(Pattern::new(
                 detection_pat.as_bytes().to_vec(),
-                Flag::UTF8 | Flag::SINGLEMATCH,
+                Flag::UTF8,
                 Some(id as u32),
             ));
         }
@@ -604,9 +642,11 @@ impl KeywordContextDetector {
         let patterns = raw_patterns
             .into_iter()
             .map(|(kind, _, pat, validate)| {
+                let value_expr = extract_value_expr(pat);
                 Ok(KeywordPattern {
                     kind,
-                    full_regex: Regex::new(pat).map_err(PiiError::RegexCompilation)?,
+                    value_regex: Regex::new(&format!("(?i)({value_expr})$"))
+                        .map_err(PiiError::RegexCompilation)?,
                     validate,
                 })
             })
@@ -645,24 +685,32 @@ impl KeywordContextDetector {
         }))
     }
 
-    fn scan_matched_ids(&self, input: &str) -> Vec<usize> {
-        let mut matched = Vec::new();
-        self.with_detection_scanner(|scanner: &mut BlockScanner<'static>| {
-            let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
-                matched.push(id as usize);
-                Scan::Continue
-            });
-        });
-        matched
+    /// Maximum byte lookback from vectorscan's `to` position. Covers the
+    /// longest keyword (~40 bytes) + separator (~20 bytes) + value (~100 bytes
+    /// for addresses with multi-byte UTF-8). 512 gives a comfortable 3× margin.
+    const MATCH_LOOKBACK: usize = 512;
+
+    /// Given vectorscan's `to` (end-of-match byte offset), return the start
+    /// of a substring that is guaranteed to contain the full match, aligned
+    /// to a UTF-8 character boundary.
+    fn region_start(input: &str, to: usize) -> usize {
+        let mut start = to.saturating_sub(Self::MATCH_LOOKBACK);
+        // Align forward to a UTF-8 char boundary.
+        while !input.is_char_boundary(start) {
+            start += 1;
+        }
+        start
     }
 
     fn has_piis_on(&self, input: &str) -> bool {
         let patterns = &self.patterns;
         self.with_detection_scanner(|scanner| {
             let mut found = false;
-            let _ = scanner.scan(input.as_bytes(), |id, _from, _to, _flags| {
+            let _ = scanner.scan(input.as_bytes(), |id, _from, to, _flags| {
                 let pattern = &patterns[id as usize];
-                if let Some(caps) = pattern.full_regex.captures(input)
+                let start = Self::region_start(input, to as usize);
+                let region = &input[start..to as usize];
+                if let Some(caps) = pattern.value_regex.captures(region)
                     && let Some(value_match) = caps.get(1)
                     && (pattern.validate)(value_match.as_str())
                 {
@@ -677,20 +725,42 @@ impl KeywordContextDetector {
     }
 
     fn mark_piis_on(&self, input: &str) -> Vec<PiiMatch> {
+        let mut match_regions: Vec<(usize, usize)> = Vec::new();
+        self.with_detection_scanner(|scanner| {
+            let _ = scanner.scan(input.as_bytes(), |id, _from, to, _flags| {
+                match_regions.push((id as usize, to as usize));
+                Scan::Continue
+            });
+        });
+        // Without SINGLEMATCH, vectorscan fires at every end position where
+        // the DFA reaches a match state. For patterns with variable-length
+        // endings (e.g. addresses with [A-Za-z]+), this produces many hits
+        // per logical match. Sort by (id, to) descending so we process the
+        // longest region first, then skip shorter overlapping regions.
+        match_regions.sort_unstable();
         let mut matches = Vec::new();
-        let matched_indices = self.scan_matched_ids(input);
-        for idx in matched_indices {
+        let mut prev_to: usize = 0;
+        let mut prev_id: usize = usize::MAX;
+        for &(idx, to) in match_regions.iter().rev() {
+            // Skip if this is the same pattern close to an already-processed
+            // `to` (overlapping vectorscan hit for the same logical match).
+            if idx == prev_id && prev_to.saturating_sub(to) < Self::MATCH_LOOKBACK {
+                continue;
+            }
+            prev_id = idx;
+            prev_to = to;
             let pattern = &self.patterns[idx];
-            for caps in pattern.full_regex.captures_iter(input) {
-                if let Some(value_match) = caps.get(1)
-                    && (pattern.validate)(value_match.as_str())
-                {
-                    matches.push(PiiMatch {
-                        kind: pattern.kind,
-                        start: value_match.start(),
-                        end: value_match.end(),
-                    });
-                }
+            let start = Self::region_start(input, to);
+            let region = &input[start..to];
+            if let Some(caps) = pattern.value_regex.captures(region)
+                && let Some(value_match) = caps.get(1)
+                && (pattern.validate)(value_match.as_str())
+            {
+                matches.push(PiiMatch {
+                    kind: pattern.kind,
+                    start: start + value_match.start(),
+                    end: start + value_match.end(),
+                });
             }
         }
         matches
