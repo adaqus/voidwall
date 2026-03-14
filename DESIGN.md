@@ -3,9 +3,9 @@
 ## Overview
 
 A multi-mode HTTP proxy that inspects HTTP traffic for sensitive data (PII) using
-the `pii` crate. Depending on configuration, the proxy can warn, block, or redact
-detected PII. When warn or redaction is enabled, the proxy can add a custom HTTP
-header informing what PII types were detected.
+the `pii` crate. Depending on configuration, the proxy can block, redact, or add
+headers for detected PII. Prometheus metrics are always updated when PII is
+detected, regardless of action configuration.
 
 It is not an ingress controller. It may integrate with existing ingress controllers
 (NGINX, HAProxy, Envoy/Istio) and can also operate as a standalone reverse/forward
@@ -30,7 +30,7 @@ The proxy accepts HTTP requests directly, inspects them, and forwards to configu
 upstream backends based on path prefix and Host header matching. TLS termination is
 supported.
 
-- Capabilities: **block, warn, header, redact**
+- Capabilities: **block, header, redact**
 - Use case: non-Kubernetes deployments, or when no ingress controller is present
 
 ### 3. Standalone Forward Proxy Mode
@@ -42,7 +42,7 @@ The proxy does not support CONNECT tunneling. For HTTPS destinations, it termina
 the client's TLS connection and establishes a new TLS connection to the destination
 server. This gives the proxy full visibility into the request content.
 
-- Capabilities: **block, warn, header, redact**
+- Capabilities: **block, header, redact**
 - Use case: containers or services making outbound HTTP/HTTPS requests
 
 ### 4. REST API Mode
@@ -75,7 +75,7 @@ services in the cluster call it to check or sanitize text.
   │                  │                                      │
   │          ┌───────▼────────┐                             │
   │          │ Action Engine  │                             │
-  │          │ (warn/block/   │                             │
+  │          │ (block/        │                             │
   │          │  header/redact)│                             │
   │          └───────┬────────┘                             │
   │                  │                                      │
@@ -102,14 +102,18 @@ services in the cluster call it to check or sanitize text.
 
 ### Scan Targets
 
-Configurable per mode/route. Not all targets apply to all modes.
+Configurable per mode/route. Not all targets apply to all modes. In reverse
+proxy and forward proxy modes, both requests and responses are scannable
+(controlled by `request_actions` and `response_actions`).
 
 | Scan target         | Reverse Proxy | Forward Proxy | REST API |
 |----------------------|:---:|:---:|:---:|
-| URL path             | yes | yes | n/a |
-| Query parameters     | yes | yes | n/a |
-| Request headers      | yes | yes | n/a |
-| Request body         | yes | yes | yes (text field) |
+| URL path             | request | request | n/a |
+| Query parameters     | request | request | n/a |
+| Request headers      | request | request | n/a |
+| Request body         | request | request | yes (text field) |
+| Response headers     | response | response | n/a |
+| Response body        | response | response | n/a |
 
 ### Body Scanning Constraints
 
@@ -123,39 +127,95 @@ Configurable per mode/route. Not all targets apply to all modes.
 
 ---
 
+## Metrics
+
+Prometheus metrics are **always** updated when PII is detected, regardless of
+which actions are configured or which mode is active. There is no separate "warn"
+action — observability is built-in and unconditional.
+
 ## Actions
 
-Actions define what happens when PII is detected. They are configured per route
-(reverse proxy mode) or globally (forward proxy mode).
+Actions define what happens when PII is detected. In reverse proxy and forward
+proxy modes, actions are configured **separately for requests and responses**.
 
 | Action     | Behavior                                                                 |
 |------------|--------------------------------------------------------------------------|
-| **warn**   | Increment Prometheus counter. Request proceeds unmodified.               |
-| **block**  | Return 403 with JSON body listing detected PII kinds. Request not forwarded. |
-| **header** | Add `X-PII-Detected: EMAIL,US_SSN,...` header to the forwarded request.  |
+| **block**  | Return a configurable error response. The request/response is not forwarded. |
+| **header** | Add `X-PII-Detected: EMAIL,US_SSN,...` header to the forwarded request/response. |
 | **redact** | Replace PII in-place before forwarding. Strategy is configurable.        |
 
-The **header** action is available when **warn** or **redact** is enabled. It is
-not a standalone action — it augments warn or redact by adding detection metadata
-to the forwarded request.
+### Request vs Response Actions
+
+In reverse proxy and forward proxy modes, scanning and actions apply to both
+directions independently:
+
+- **Request actions**: applied to the incoming request before forwarding upstream.
+- **Response actions**: applied to the upstream response before sending to the client.
+
+Each direction has its own `actions` list. An **empty action list disables PII
+scanning and actions for that direction entirely**. This allows turning off
+inspection for a direction without disabling the mode.
+
+### Default Action Sets
+
+When no actions are explicitly configured, the following defaults apply. These
+defaults are also used in the default configuration file.
+
+| Mode / Direction       | Default Actions     |
+|------------------------|---------------------|
+| Reverse Proxy (request)  | `redact`, `header` |
+| Reverse Proxy (response) | `redact`           |
+| Forward Proxy (request)  | `redact`           |
+| Forward Proxy (response) | `redact`, `header` |
+
+### Block Action
+
+When PII is detected and block is enabled:
+
+- **Blocking a request**: the proxy returns a configurable error response to the
+  client. The request is not forwarded to the upstream.
+- **Blocking a response**: the proxy discards the upstream response and returns
+  a configurable error response to the client instead.
+
+The block response is configurable per direction:
+
+- `block_status` — HTTP status code (default: 403)
+- `block_body` — JSON body template. Default: `{"error": "PII detected", "kinds": [...]}`
+- `block_headers` — additional headers to include in the block response
+
+### Header Action
+
+The header action adds an `X-PII-Detected` header listing detected PII kinds.
+It is applicable for:
+
+- **Reverse proxy requests** — adding PII metadata to forwarded requests so
+  upstream services can react to it.
+- **Forward proxy responses** — adding PII metadata to responses returned to
+  the client so the calling service knows what was detected.
+
+### Action Constraints
+
+- **`block` and `header` are mutually exclusive**: when a request/response is
+  blocked, it is not forwarded, so adding a header serves no purpose.
+- **`header` can be combined with `redact` or used alone**.
+- **`header` is only valid for reverse proxy requests and forward proxy responses.**
 
 ### Action Applicability by Mode
 
-| Action     | Reverse Proxy | Forward Proxy | REST API |
-|------------|:---:|:---:|:---:|
-| **warn**   | yes | yes | yes (via metrics) |
-| **block**  | yes | yes | n/a (scan just reports) |
-| **header** | yes | yes | n/a |
-| **redact** | yes | yes | yes (via /v1/redact) |
+| Action     | Reverse Proxy (req) | Reverse Proxy (resp) | Forward Proxy (req) | Forward Proxy (resp) | REST API |
+|------------|:---:|:---:|:---:|:---:|:---:|
+| **block**  | yes | yes | yes | yes | n/a |
+| **header** | yes | n/a | n/a | yes | n/a |
+| **redact** | yes | yes | yes | yes | yes (via /v1/redact) |
 
 ### Action Precedence
 
-When multiple actions are configured, they are evaluated in this order:
+When multiple actions are configured for a direction, they are evaluated in
+this order:
 
-1. **block** — if enabled and PII detected, short-circuit with 403. No further actions.
-2. **redact** — mutate request body/URL/headers in-place.
-3. **header** — add detection header to the (possibly redacted) request.
-4. **warn** — always runs last, increments metrics regardless of other actions.
+1. **block** — if enabled and PII detected, short-circuit with error response. No further actions.
+2. **redact** — mutate body/URL/headers in-place.
+3. **header** — add detection header to the (possibly redacted) request/response.
 
 ### Redaction Strategies
 
@@ -273,7 +333,10 @@ key_path = "/tls/tls.key"
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://backend-api:8080"
-actions = ["warn", "header", "redact"]
+# Actions for requests (before forwarding upstream)
+request_actions = ["redact", "header"]
+# Actions for responses (before sending to client)
+response_actions = ["redact"]
 redact_strategy = "type_label"
 # Per-route scan overrides (fully replaces defaults, no merging)
 # [reverse_proxy.routes.scan]
@@ -283,7 +346,13 @@ redact_strategy = "type_label"
 [[reverse_proxy.routes]]
 path_prefix = "/payments"
 upstream = "http://payments-svc:9090"
-actions = ["block"]
+# Block requests containing PII
+request_actions = ["block"]
+# Empty response_actions disables response scanning
+response_actions = []
+# Block response configuration
+# block_status = 403
+# block_headers = { "X-Blocked-Reason" = "PII detected in request" }
 # [reverse_proxy.routes.scan]
 # body = true
 
@@ -291,10 +360,16 @@ actions = ["block"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn", "redact"]
+# Actions for outgoing requests
+request_actions = ["redact"]
+# Actions for incoming responses
+response_actions = ["redact", "header"]
 redact_strategy = "type_label"
 # redact_strategy = "char"
 # mask_char = "*"
+# Block response configuration (when block is in request_actions or response_actions)
+# block_status = 403
+# block_headers = { "X-Blocked-Reason" = "PII detected" }
 
 [forward_proxy.tls]
 # TLS certificate used when terminating client HTTPS connections
@@ -335,7 +410,8 @@ error message if any rule is violated.
 | Rule | Description |
 |------|-------------|
 | REST API: no `block`/`header` | `block` and `header` actions have no meaning in REST API mode — it always returns scan/redact results |
-| `header` requires `warn` or `redact` | `header` is not a standalone action, it augments `warn` or `redact` |
+| `block` and `header` mutually exclusive | `block` and `header` cannot both appear in the same direction's action list |
+| `header` direction restriction | `header` is only valid in reverse proxy request actions and forward proxy response actions |
 | `redact` requires strategy | If `redact` is in actions, `redact_strategy` must be specified |
 | `char` strategy requires `mask_char` | If `redact_strategy` is `char`, `mask_char` must be specified |
 
@@ -354,8 +430,11 @@ error message if any rule is violated.
 | `pii.*` | yes | yes | yes | n/a |
 | `scan.*` (defaults) | yes (overridable per route) | yes | body only | n/a |
 | `on_error` | yes | yes | yes | n/a |
-| `actions` | yes (per route) | yes | n/a | n/a |
+| `request_actions` | yes (per route) | yes | n/a | n/a |
+| `response_actions` | yes (per route) | yes | n/a | n/a |
 | `redact_strategy` | yes (per route) | yes | yes | n/a |
+| `block_status` | yes (per route) | yes | n/a | n/a |
+| `block_headers` | yes (per route) | yes | n/a | n/a |
 | `routes` | yes | n/a | n/a | n/a |
 | `tls` | yes | yes | no | no |
 | `metrics_path` | n/a | n/a | n/a | yes |
@@ -366,15 +445,16 @@ error message if any rule is violated.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `pii_proxy_detections_total` | counter | `pii_kind`, `mode`, `route` | PII detections |
-| `pii_proxy_blocked_total` | counter | `mode`, `route` | Blocked requests |
-| `pii_proxy_redacted_total` | counter | `pii_kind`, `mode`, `route` | Redacted PII instances |
+| `pii_proxy_detections_total` | counter | `pii_kind`, `mode`, `route`, `direction` | PII detections (always incremented, regardless of actions) |
+| `pii_proxy_blocked_total` | counter | `mode`, `route`, `direction` | Blocked requests/responses |
+| `pii_proxy_redacted_total` | counter | `pii_kind`, `mode`, `route`, `direction` | Redacted PII instances |
 | `pii_proxy_requests_total` | counter | `mode`, `route`, `method`, `status` | Total requests |
 | `pii_proxy_request_duration_seconds` | histogram | `mode`, `route` | Processing time |
 | `pii_proxy_errors_total` | counter | `outcome` (`passed`, `blocked`), `reason` | Scanner failures, body size exceeded, and other errors with fail-open/close outcome |
 
 The `mode` label is one of: `reverse_proxy`, `forward_proxy`, `rest_api`.
 The `route` label is the path prefix for reverse proxy, or `global` for other modes.
+The `direction` label is `request` or `response`.
 
 ---
 

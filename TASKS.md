@@ -29,35 +29,46 @@ Decisions applied:
 - [x] Unit tests for error conversions
 
 ### 1.3 Configuration
-- [x] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
+- [ ] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
   `AppConfig`, `PiiConfig`, `ScanConfig`, `ReverseProxyConfig`, `Route`,
   `ForwardProxyConfig`, `RestApiConfig`, `AdminConfig`, `TlsConfig`
-- [x] Derive `serde::Deserialize` for all config structs
-- [x] Implement `scanner_threads` default logic: auto-detect via
+- [ ] Derive `serde::Deserialize` for all config structs
+- [ ] Config changes for request/response action split:
+  - Remove `Action::Warn` variant
+  - `Route`: replace `actions` with `request_actions` and `response_actions`
+  - `Route`: add `block_status`, `block_headers` for block response customization
+  - `ForwardProxyConfig`: replace `actions` with `request_actions` and `response_actions`
+  - `ForwardProxyConfig`: add `block_status`, `block_headers`
+  - Default action sets: reverse proxy request `["redact", "header"]`,
+    reverse proxy response `["redact"]`, forward proxy request `["redact"]`,
+    forward proxy response `["redact", "header"]`
+- [ ] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
-- [x] Implement all validation rules from DESIGN.md:
+- [ ] Implement all validation rules from DESIGN.md:
   - At least one mode enabled
   - No port conflicts across enabled listeners
-  - `header` requires `warn` or `redact`
+  - `block` and `header` mutually exclusive in same direction
+  - `header` only valid for reverse proxy request actions and forward proxy response actions
   - `redact` requires `redact_strategy`
   - `char` strategy requires `mask_char`
   - `scanner_threads` >= 1
   - Reverse proxy: no overlapping `path_prefix`, valid upstream URLs
   - REST API: no `block`/`header` actions
-- [x] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
-- [x] Unit tests for validation (valid config, each invalid case)
+- [ ] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
+- [ ] Unit tests for validation (valid config, each invalid case)
 
 ### 1.4 Metrics
-- [x] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
+- [ ] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
   `lazy_static`:
-  - `pii_proxy_detections_total` (counter, labels: `pii_kind`, `mode`, `route`)
-  - `pii_proxy_blocked_total` (counter, labels: `mode`, `route`)
-  - `pii_proxy_redacted_total` (counter, labels: `pii_kind`, `mode`, `route`)
+  - `pii_proxy_detections_total` (counter, labels: `pii_kind`, `mode`, `route`, `direction`)
+  - `pii_proxy_blocked_total` (counter, labels: `mode`, `route`, `direction`)
+  - `pii_proxy_redacted_total` (counter, labels: `pii_kind`, `mode`, `route`, `direction`)
   - `pii_proxy_requests_total` (counter, labels: `mode`, `route`, `method`, `status`)
   - `pii_proxy_request_duration_seconds` (histogram, labels: `mode`, `route`)
   - `pii_proxy_errors_total` (counter, labels: `outcome`, `reason`)
-- [x] Helper functions to increment metrics from action/proxy code
-- [x] Unit tests for metric helper functions
+- [ ] Helper functions to increment metrics from action/proxy code
+  - All detection/blocked/redacted helpers take a `direction` parameter (`"request"` or `"response"`)
+- [ ] Unit tests for metric helper functions
 
 ---
 
@@ -87,17 +98,21 @@ Decisions applied:
 ## Phase 3 — Action Engine
 
 ### 3.1 Action pipeline
-- [ ] Define action types in `action.rs`: `Action` enum (`Block`, `Warn`, `Header`,
-  `Redact`), `ActionSet` (parsed and validated set of actions for a route)
-- [ ] Implement `ActionEngine::execute()`:
-  - Input: `ScanResult`, action config, request parts
-  - Applies precedence: block → redact → header → warn
+- [ ] Define action types in `action.rs`: `ActionSet` (parsed and validated set
+  of actions for a direction). Uses `Action` enum (`Block`, `Header`, `Redact`)
+  from `config.rs` (no `Warn` — metrics are always updated unconditionally).
+- [ ] Implement `execute()`:
+  - Input: `ScanResult`, `ActionSet`, `ActionContext` (mode, route, direction)
+  - Applies precedence: block → redact → header
   - Returns `ActionOutcome`:
-    - `Block { response: Response }` — 403 with JSON body listing PII kinds
-    - `Forward { body: Bytes, extra_headers: HeaderMap, scan_result: ScanResult }`
+    - `Block { status: u16, body: Bytes, headers: HeaderMap }` — configurable
+      error response with PII kinds
+    - `Forward { body: Option<Bytes>, extra_headers: HeaderMap, scan_result: ScanResult }`
     - `Pass` — no PII detected, forward unchanged
-- [ ] Wire metrics increments into each action path (detections, blocked, redacted)
-- [ ] Unit tests for each action combination and precedence
+- [ ] Metrics are always incremented when PII is detected (detections), regardless
+  of action config. Block and redact metrics are incremented when those actions fire.
+  All metrics include the `direction` label.
+- [ ] Unit tests for each action combination, precedence, and direction constraints
 
 ---
 
@@ -120,20 +135,25 @@ Decisions applied:
 - [ ] Implement `reverse_proxy.rs` axum router:
   - Route matching by `path_prefix` (longest-prefix wins)
   - For each incoming request:
-    1. Check content-type against allowed list; check body size
-    2. Buffer body up to `max_body_size`
-    3. Collect scan targets (URL, query, headers, body) per route scan config
-    4. Submit to `ScannerPool`
-    5. Run `ActionEngine::execute()` on result
-    6. On `Block` → return 403
-    7. On `Forward` → proxy to upstream with possibly mutated body/headers
-    8. On `Pass` → proxy unchanged
+    1. **Request scanning** (if `request_actions` is non-empty):
+       a. Check content-type against allowed list; check body size
+       b. Buffer body up to `max_body_size`
+       c. Collect scan targets (URL, query, headers, body) per route scan config
+       d. Submit to `ScannerPool`
+       e. Run `execute()` with request action set
+       f. On `Block` → return configurable error response
+       g. On `Forward` → continue with possibly mutated body/headers
+    2. Proxy to upstream (preserving method, path suffix, headers minus hop-by-hop)
+    3. **Response scanning** (if `response_actions` is non-empty):
+       a. Buffer upstream response body
+       b. Submit response body/headers to `ScannerPool`
+       c. Run `execute()` with response action set
+       d. On `Block` → return configurable error response (discard upstream response)
+       e. On `Forward` → return possibly mutated response to client
+    4. On `Pass` (either direction) → forward unchanged
 - [ ] Upstream connection pooling: one `hyper-util` pooling client per upstream URL,
   stored in a `HashMap<String, Client>` built at startup
-- [ ] Forward request preserving method, path suffix (strip prefix, append remainder),
-  headers (minus hop-by-hop)
-- [ ] Stream upstream response back to client
-- [ ] Increment all relevant metrics
+- [ ] Increment all relevant metrics with `direction` label
 
 ### 5.2 TLS termination (reverse proxy)
 - [ ] In `tls.rs`: build `tokio_rustls::TlsAcceptor` from cert/key paths
@@ -142,10 +162,13 @@ Decisions applied:
 ### 5.3 Integration tests
 - [ ] Plain HTTP proxying end-to-end (proxy → echo upstream)
 - [ ] Route matching: longest-prefix wins, unknown prefix returns 404
-- [ ] Block action: request with PII returns 403, not forwarded
-- [ ] Redact action: PII replaced in forwarded request body/headers
-- [ ] Header action: `X-PII-Detected` header added to forwarded request
-- [ ] Warn action: metrics incremented, request forwarded unchanged
+- [ ] Request block action: request with PII returns configurable error response, not forwarded
+- [ ] Response block action: response with PII returns error response, upstream response discarded
+- [ ] Request redact action: PII replaced in forwarded request body/headers
+- [ ] Response redact action: PII replaced in response body before sending to client
+- [ ] Header action: `X-PII-Detected` header added to forwarded request (reverse proxy)
+- [ ] Empty action list disables scanning for that direction
+- [ ] Metrics always incremented when PII detected (no warn action needed)
 - [ ] `on_error` fail-open and fail-close paths
 - [ ] Oversized body handling
 
@@ -163,7 +186,7 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ### 6.2 k6 test scenarios
 - [ ] Baseline — proxy overhead vs direct-to-upstream, clean payloads
-- [ ] Action comparison — warn vs block vs redact cost
+- [ ] Action comparison — block vs redact vs header cost
 - [ ] Body size scaling — throughput degradation from 100 B to 1 MB
 - [ ] Concurrency scaling — saturation point and tail latency (1 to 500 connections)
 - [ ] Scanner thread scaling — effect of `scanner_threads` 1/2/4/8
@@ -195,7 +218,10 @@ Setup and infrastructure per `docs/load-testing.md`.
 ### 8.1 Forward proxy handler
 - [ ] Implement `forward_proxy.rs`:
   - Parse absolute-form URI from request line (standard forward proxy behavior)
-  - Same pipeline as reverse proxy: buffer → scan → action → forward
+  - Same pipeline as reverse proxy with request/response scanning:
+    1. Request scanning (if `request_actions` non-empty): buffer → scan → action
+    2. Forward to destination
+    3. Response scanning (if `response_actions` non-empty): buffer → scan → action
   - Single global `hyper-util` pooling client for all destinations
 - [ ] No CONNECT support — return 405 for CONNECT method
 
@@ -226,7 +252,7 @@ Extend load testing from Phase 6 to cover all modes.
   2. Initialize `tracing` subscriber
   3. Initialize Prometheus metrics registry
   4. Create `ScannerPool`
-  5. Create `ActionEngine` (stateless, config-driven)
+  5. Build `ActionSet` instances from config (per route/direction)
   6. Spawn enabled listeners as tokio tasks:
      - Admin server (always on)
      - Reverse proxy (if enabled)

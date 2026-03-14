@@ -66,9 +66,11 @@ for responses. Never call `pii::Scanner` from an async context.
 
 ## Action Precedence
 
-When multiple actions are configured: block → redact → header → warn.
-Block short-circuits (no forwarding). All actions that execute increment their
-respective metrics — including block (it still counts detections).
+When multiple actions are configured: block → redact → header.
+Block short-circuits (no forwarding). There is no `warn` action — Prometheus
+metrics (detections, blocked, redacted) are always incremented unconditionally
+when PII is detected. Actions are configured separately for requests and
+responses in reverse proxy and forward proxy modes.
 
 ## Implementation verification
 
