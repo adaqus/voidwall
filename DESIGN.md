@@ -316,8 +316,6 @@ url = true
 query_params = true
 headers = ["Authorization", "Cookie", "X-Api-Key"]
 body = true
-
-# --- Fail behavior (shared across all modes) ---
 on_error = "fail_open"  # "fail_open" | "fail_close"
 
 # --- Standalone Reverse Proxy mode ---
@@ -325,51 +323,58 @@ on_error = "fail_open"  # "fail_open" | "fail_close"
 enabled = false
 listen = "0.0.0.0:8082"
 
+# Default request/response actions for all routes (overridable per route)
+[reverse_proxy.request]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
+
+[reverse_proxy.response]
+actions = ["redact"]
+redact_strategy = "type_label"
+
 [reverse_proxy.tls]
 enabled = false
 cert_path = "/tls/tls.crt"
 key_path = "/tls/tls.key"
 
+# This route inherits defaults from [reverse_proxy.request] and [reverse_proxy.response]
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://backend-api:8080"
-# Actions for requests (before forwarding upstream)
-request_actions = ["redact", "header"]
-# Actions for responses (before sending to client)
-response_actions = ["redact"]
-redact_strategy = "type_label"
 # Per-route scan overrides (fully replaces defaults, no merging)
 # [reverse_proxy.routes.scan]
 # body = true
 # headers = ["Authorization"]
 
+# This route overrides both directions
 [[reverse_proxy.routes]]
 path_prefix = "/payments"
 upstream = "http://payments-svc:9090"
-# Block requests containing PII
-request_actions = ["block"]
-# Empty response_actions disables response scanning
-response_actions = []
-# Block response configuration
-# block_status = 403
-# block_headers = { "X-Blocked-Reason" = "PII detected in request" }
-# [reverse_proxy.routes.scan]
-# body = true
+
+[reverse_proxy.routes.request]
+actions = ["block"]
+block_status = 403
+block_body = '{"error": "PII detected", "kinds": ${kinds}}'
+block_headers = { "X-Blocked-Reason" = "PII detected in request" }
+
+# Empty actions disables response scanning for this route
+[reverse_proxy.routes.response]
+actions = []
 
 # --- Standalone Forward Proxy mode ---
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-# Actions for outgoing requests
-request_actions = ["redact"]
-# Actions for incoming responses
-response_actions = ["redact", "header"]
+
+[forward_proxy.request]
+actions = ["redact"]
 redact_strategy = "type_label"
 # redact_strategy = "char"
 # mask_char = "*"
-# Block response configuration (when block is in request_actions or response_actions)
-# block_status = 403
-# block_headers = { "X-Blocked-Reason" = "PII detected" }
+
+[forward_proxy.response]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
 
 [forward_proxy.tls]
 # TLS certificate used when terminating client HTTPS connections
@@ -430,11 +435,9 @@ error message if any rule is violated.
 | `pii.*` | yes | yes | yes | n/a |
 | `scan.*` (defaults) | yes (overridable per route) | yes | body only | n/a |
 | `on_error` | yes | yes | yes | n/a |
-| `request_actions` | yes (per route) | yes | n/a | n/a |
-| `response_actions` | yes (per route) | yes | n/a | n/a |
-| `redact_strategy` | yes (per route) | yes | yes | n/a |
-| `block_status` | yes (per route) | yes | n/a | n/a |
-| `block_headers` | yes (per route) | yes | n/a | n/a |
+| `request.*` | yes (mode default + per route override) | yes | n/a | n/a |
+| `response.*` | yes (mode default + per route override) | yes | n/a | n/a |
+| `redact_strategy` | yes (in direction sub-tables) | yes (in direction sub-tables) | yes | n/a |
 | `routes` | yes | n/a | n/a | n/a |
 | `tls` | yes | yes | no | no |
 | `metrics_path` | n/a | n/a | n/a | yes |

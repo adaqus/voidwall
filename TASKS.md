@@ -35,20 +35,25 @@ Decisions applied:
 - [ ] Derive `serde::Deserialize` for all config structs
 - [ ] Config changes for request/response action split:
   - Remove `Action::Warn` variant
-  - `Route`: replace `actions` with `request_actions` and `response_actions`
-  - `Route`: add `block_status`, `block_headers` for block response customization
-  - `ForwardProxyConfig`: replace `actions` with `request_actions` and `response_actions`
-  - `ForwardProxyConfig`: add `block_status`, `block_headers`
+  - Add `DirectionConfig` struct with `actions`, `redact_strategy`, `mask_char`,
+    `block_status`, `block_body`, `block_headers`
+  - `ReverseProxyConfig`: add `request: DirectionConfig` and `response: DirectionConfig`
+    as mode-level defaults for all routes
+  - `Route`: add optional `request: DirectionConfig` and `response: DirectionConfig`
+    that fully replace the mode-level defaults (no merging)
+  - `ForwardProxyConfig`: add `request: DirectionConfig` and `response: DirectionConfig`
+  - Remove flat `redact_strategy`, `mask_char` from `Route` and `ForwardProxyConfig`
   - Default action sets: reverse proxy request `["redact", "header"]`,
     reverse proxy response `["redact"]`, forward proxy request `["redact"]`,
     forward proxy response `["redact", "header"]`
+  - Move `on_error` into `ScanConfig`
 - [ ] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
 - [ ] Implement all validation rules from DESIGN.md:
   - At least one mode enabled
   - No port conflicts across enabled listeners
-  - `block` and `header` mutually exclusive in same direction
-  - `header` only valid for reverse proxy request actions and forward proxy response actions
+  - `block` and `header` mutually exclusive in same direction's `actions` list
+  - `header` only valid in `reverse_proxy.*.request` and `forward_proxy.response`
   - `redact` requires `redact_strategy`
   - `char` strategy requires `mask_char`
   - `scanner_threads` >= 1
