@@ -38,15 +38,17 @@ Decisions applied:
   - Add `DirectionConfig` struct with `actions`, `redact_strategy`, `mask_char`,
     `block_status`, `block_body`, `block_headers`
   - `ReverseProxyConfig`: add `request: DirectionConfig` and `response: DirectionConfig`
-    as mode-level defaults for all routes
-  - `Route`: add optional `request: DirectionConfig` and `response: DirectionConfig`
-    that fully replace the mode-level defaults (no merging)
+    (mode-level only, not overridable per route)
+  - `Route`: only `path_prefix`, `upstream`, and optional `scan` override — no
+    `request`/`response` action overrides (for different action policies, deploy
+    separate proxy instances)
   - `ForwardProxyConfig`: add `request: DirectionConfig` and `response: DirectionConfig`
   - Remove flat `redact_strategy`, `mask_char` from `Route` and `ForwardProxyConfig`
   - Default action sets: reverse proxy request `["redact", "header"]`,
     reverse proxy response `["redact"]`, forward proxy request `["redact"]`,
     forward proxy response `["redact", "header"]`
   - Move `on_error` into `ScanConfig`
+  - Rename `pii_kinds` → `detect`, `exclude_pii_kinds` → `ignore` in `PiiConfig`
 - [ ] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
 - [ ] Implement all validation rules from DESIGN.md:
@@ -58,6 +60,7 @@ Decisions applied:
   - `char` strategy requires `mask_char`
   - `scanner_threads` >= 1
   - Reverse proxy: no overlapping `path_prefix`, valid upstream URLs
+  - Reverse proxy: routes must not define `request`/`response` action overrides
   - REST API: no `block`/`header` actions
 - [ ] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
 - [ ] Unit tests for validation (valid config, each invalid case)
@@ -257,7 +260,7 @@ Extend load testing from Phase 6 to cover all modes.
   2. Initialize `tracing` subscriber
   3. Initialize Prometheus metrics registry
   4. Create `ScannerPool`
-  5. Build `ActionSet` instances from config (per route/direction)
+  5. Build `ActionSet` instances from config (per mode/direction)
   6. Spawn enabled listeners as tokio tasks:
      - Admin server (always on)
      - Reverse proxy (if enabled)

@@ -102,7 +102,7 @@ services in the cluster call it to check or sanitize text.
 
 ### Scan Targets
 
-Configurable per mode/route. Not all targets apply to all modes. In reverse
+Configurable per mode. Not all targets apply to all modes. In reverse
 proxy and forward proxy modes, both requests and responses are scannable
 (controlled by `request_actions` and `response_actions`).
 
@@ -298,10 +298,56 @@ languages = ["En"]
 # available CPU cores (capped at 4 when total cores <= 8, half of cores
 # otherwise).
 # scanner_threads = 4
-# Allowlist (mutually exclusive with exclude_pii_kinds)
-# pii_kinds = ["Email", "UsSsn", "CreditCard"]
-# Blocklist (mutually exclusive with pii_kinds)
-# exclude_pii_kinds = ["IpAddress"]
+#
+# Which PII kinds to detect. Two mutually exclusive options:
+#
+# detect — closed set: only these PII kinds are detected. All other kinds
+#   are ignored. Use this when the proxy should act on a known, fixed set of
+#   PII types (e.g. blocking mode). This prevents proxy upgrades that add
+#   new PII kinds from unintentionally triggering actions on data that was
+#   previously allowed through.
+# detect = [
+#   # International
+#   "Email", "PhoneNumber", "CreditCard", "Iban", "PassportNumber",
+#   "IpAddress", "MacAddress", "Vin", "SwiftBic", "Imei",
+#   "PreciseGeolocation", "PersonName", "AwsAccessKey", "GithubToken",
+#   "AwsSecretKey", "DateOfBirth", "BitcoinAddress", "EthereumAddress",
+#   # US
+#   "UsSsn", "UsItin", "UsPassportNew", "UsEin", "UsAbaRouting",
+#   "UsDriversLicense", "UsAlienNumber", "UsUscisReceiptNumber",
+#   # GB
+#   "GbNino", "GbDrivingLicence", "GbNhsNumber", "GbUtr", "GbSortCode",
+#   "GbPhoneNumber", "GbZaPassportNumber", "GbPostcode",
+#   # AU
+#   "AuTfn", "AuMedicare", "AuPhoneNumber", "AuPassportNumber",
+#   "AuBankAccount", "AuDriversLicense", "AuAbn",
+#   # NZ
+#   "NzIrdNumber", "NzNhiNumber", "NzDriverLicence", "NzPhoneNumber",
+#   "NzPassportNumber",
+#   # CA
+#   "CaSin", "CaOhip", "CaPassportNumber", "CaPostalCode", "CaBankAccount",
+#   # IE
+#   "IePpsn", "IeDriverNumber", "IePhoneNumber", "IePassportNumber",
+#   # ZA
+#   "ZaId", "ZaTaxReference", "ZaPhoneNumber", "ZaDriversLicense",
+#   "ZaPostalCode",
+#   # FR
+#   "FrNir", "FrSiret", "FrSiren", "FrPassportNumber", "FrCni",
+#   "FrDriversLicense", "FrPhoneNumber", "FrPostalCode", "FrNif",
+#   "FrChAddress", "FrChBoitePostale",
+#   # DE
+#   "DeSteuerId", "DePersonalausweis", "DePhoneNumber", "DePostalCode",
+#   "DeAtChAddress", "DeAtChPostfach", "DePackstation",
+#   # AT
+#   "AtSvnr", "AtPhoneNumber", "AtPostalCode",
+#   # CH
+#   "ChAhv", "ChPhoneNumber", "ChPostalCode",
+# ]
+#
+# ignore — open set: all PII kinds are detected except those listed. Use
+#   this when you want broad coverage and are comfortable with new PII kinds
+#   being automatically detected after a proxy upgrade.
+# ignore = ["IpAddress"]
 
 # --- Scan settings (shared defaults, overridable per route in reverse proxy) ---
 [scan]
@@ -323,7 +369,8 @@ on_error = "fail_open"  # "fail_open" | "fail_close"
 enabled = false
 listen = "0.0.0.0:8082"
 
-# Default request/response actions for all routes (overridable per route)
+# Request/response actions for all routes (not overridable per route — use
+# separate proxy instances for different action policies)
 [reverse_proxy.request]
 actions = ["redact", "header"]
 redact_strategy = "type_label"
@@ -337,7 +384,9 @@ enabled = false
 cert_path = "/tls/tls.crt"
 key_path = "/tls/tls.key"
 
-# This route inherits defaults from [reverse_proxy.request] and [reverse_proxy.response]
+# Routes only define routing and optional scan overrides. Actions are set at
+# the mode level above and apply uniformly to all routes. For different action
+# policies, deploy separate proxy instances.
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://backend-api:8080"
@@ -346,20 +395,9 @@ upstream = "http://backend-api:8080"
 # body = true
 # headers = ["Authorization"]
 
-# This route overrides both directions
 [[reverse_proxy.routes]]
 path_prefix = "/payments"
 upstream = "http://payments-svc:9090"
-
-[reverse_proxy.routes.request]
-actions = ["block"]
-block_status = 403
-block_body = '{"error": "PII detected", "kinds": ${kinds}}'
-block_headers = { "X-Blocked-Reason" = "PII detected in request" }
-
-# Empty actions disables response scanning for this route
-[reverse_proxy.routes.response]
-actions = []
 
 # --- Standalone Forward Proxy mode ---
 [forward_proxy]
@@ -406,8 +444,8 @@ error message if any rule is violated.
 |------|-------------|
 | At least one mode enabled | At least one of `reverse_proxy`, `forward_proxy`, `rest_api` must be enabled |
 | No port conflicts | All enabled listeners must bind to different `host:port` combinations |
-| PII scanner valid | `pii_kinds` and `exclude_pii_kinds` are mutually exclusive (enforced by `pii` crate) |
-| Countries/PII kinds consistent | All specified PII kinds must be reachable from specified countries (enforced by `pii` crate) |
+| PII scanner valid | `detect` and `ignore` are mutually exclusive (enforced by `pii` crate) |
+| Countries/PII kinds consistent | All PII kinds in `detect` must be reachable from specified countries (enforced by `pii` crate) |
 | Scanner threads valid | `scanner_threads` must be >= 1 if specified |
 
 #### Per-mode action validation
@@ -426,7 +464,8 @@ error message if any rule is violated.
 |------|-------------|
 | No overlapping path prefixes | Two routes must not have the same `path_prefix` |
 | Valid upstream URLs | Each `upstream` must be a valid URL |
-| Per-route scan/actions override | If a route specifies `scan` or `actions`, they fully replace the defaults (no merging) |
+| Per-route scan override | If a route specifies `scan`, it fully replaces the defaults (no merging) |
+| No per-route actions | Routes must not define `request` or `response` action overrides — actions are set at the mode level only |
 
 ### Configuration by Mode — What Applies Where
 
@@ -435,8 +474,8 @@ error message if any rule is violated.
 | `pii.*` | yes | yes | yes | n/a |
 | `scan.*` (defaults) | yes (overridable per route) | yes | body only | n/a |
 | `on_error` | yes | yes | yes | n/a |
-| `request.*` | yes (mode default + per route override) | yes | n/a | n/a |
-| `response.*` | yes (mode default + per route override) | yes | n/a | n/a |
+| `request.*` | yes (mode level only) | yes | n/a | n/a |
+| `response.*` | yes (mode level only) | yes | n/a | n/a |
 | `redact_strategy` | yes (in direction sub-tables) | yes (in direction sub-tables) | yes | n/a |
 | `routes` | yes | n/a | n/a | n/a |
 | `tls` | yes | yes | no | no |
