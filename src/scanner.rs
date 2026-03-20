@@ -161,10 +161,10 @@ fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
     if !config.languages.is_empty() {
         builder = builder.languages(config.languages.iter().copied());
     }
-    if let Some(ref kinds) = config.pii_kinds {
+    if let Some(ref kinds) = config.detect {
         builder = builder.pii_kinds(kinds.iter().copied());
     }
-    if let Some(ref exclude) = config.exclude_pii_kinds {
+    if let Some(ref exclude) = config.ignore {
         builder = builder.exclude_pii_kinds(exclude.iter().copied());
     }
 
@@ -288,8 +288,8 @@ mod tests {
             countries: vec![pii::Country::International, pii::Country::Us],
             languages: vec![pii::Language::En],
             scanner_threads: Some(1),
-            pii_kinds: None,
-            exclude_pii_kinds: None,
+            detect: None,
+            ignore: None,
         }
     }
 
@@ -450,8 +450,8 @@ mod tests {
             countries: vec![pii::Country::International],
             languages: vec![pii::Language::En],
             scanner_threads: Some(1),
-            pii_kinds: Some(vec![pii::PiiKind::Email]),
-            exclude_pii_kinds: None,
+            detect: Some(vec![pii::PiiKind::Email]),
+            ignore: None,
         };
         assert!(build_scanner(&config).is_ok());
     }
@@ -480,8 +480,8 @@ mod tests {
             countries: vec![pii::Country::International],
             languages: vec![pii::Language::En],
             scanner_threads: Some(3),
-            pii_kinds: None,
-            exclude_pii_kinds: None,
+            detect: None,
+            ignore: None,
         };
         let pool = ScannerPool::new(&config).expect("pool should start");
 

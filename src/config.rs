@@ -29,9 +29,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub scan: ScanConfig,
 
-    #[serde(default = "default_on_error")]
-    pub on_error: OnError,
-
     #[serde(default)]
     pub reverse_proxy: ReverseProxyConfig,
 
@@ -61,10 +58,10 @@ pub struct PiiConfig {
     pub scanner_threads: Option<usize>,
 
     #[serde(default)]
-    pub pii_kinds: Option<Vec<pii::PiiKind>>,
+    pub detect: Option<Vec<pii::PiiKind>>,
 
     #[serde(default)]
-    pub exclude_pii_kinds: Option<Vec<pii::PiiKind>>,
+    pub ignore: Option<Vec<pii::PiiKind>>,
 }
 
 impl PiiConfig {
@@ -103,6 +100,9 @@ pub struct ScanConfig {
 
     #[serde(default = "default_true")]
     pub body: bool,
+
+    #[serde(default = "default_on_error")]
+    pub on_error: OnError,
 }
 
 impl Default for ScanConfig {
@@ -114,6 +114,7 @@ impl Default for ScanConfig {
             query_params: true,
             headers: Vec::new(),
             body: true,
+            on_error: OnError::FailOpen,
         }
     }
 }
@@ -157,7 +158,6 @@ fn default_on_error() -> OnError {
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
-    Warn,
     Block,
     Header,
     Redact,
@@ -171,16 +171,60 @@ pub enum RedactStrategy {
 }
 
 // ---------------------------------------------------------------------------
+// Direction config (request/response action settings)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DirectionConfig {
+    #[serde(default)]
+    pub actions: Vec<Action>,
+
+    pub redact_strategy: Option<RedactStrategy>,
+    pub mask_char: Option<char>,
+
+    #[serde(default = "default_block_status")]
+    pub block_status: u16,
+
+    pub block_body: Option<String>,
+
+    #[serde(default)]
+    pub block_headers: Vec<(String, String)>,
+}
+
+fn default_block_status() -> u16 {
+    403
+}
+
+impl DirectionConfig {
+    fn with_actions(actions: Vec<Action>, redact_strategy: Option<RedactStrategy>) -> Self {
+        Self {
+            actions,
+            redact_strategy,
+            mask_char: None,
+            block_status: default_block_status(),
+            block_body: None,
+            block_headers: Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Reverse proxy
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct ReverseProxyConfig {
     #[serde(default)]
     pub enabled: bool,
 
     #[serde(default = "default_reverse_proxy_listen")]
     pub listen: String,
+
+    #[serde(default = "default_reverse_proxy_request")]
+    pub request: DirectionConfig,
+
+    #[serde(default = "default_reverse_proxy_response")]
+    pub response: DirectionConfig,
 
     #[serde(default)]
     pub tls: TlsConfig,
@@ -189,18 +233,38 @@ pub struct ReverseProxyConfig {
     pub routes: Vec<Route>,
 }
 
+impl Default for ReverseProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: default_reverse_proxy_listen(),
+            request: default_reverse_proxy_request(),
+            response: default_reverse_proxy_response(),
+            tls: TlsConfig::default(),
+            routes: Vec::new(),
+        }
+    }
+}
+
 fn default_reverse_proxy_listen() -> String {
     "0.0.0.0:8082".into()
+}
+
+fn default_reverse_proxy_request() -> DirectionConfig {
+    DirectionConfig::with_actions(
+        vec![Action::Redact, Action::Header],
+        Some(RedactStrategy::TypeLabel),
+    )
+}
+
+fn default_reverse_proxy_response() -> DirectionConfig {
+    DirectionConfig::with_actions(vec![Action::Redact], Some(RedactStrategy::TypeLabel))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Route {
     pub path_prefix: String,
     pub upstream: String,
-    #[serde(default)]
-    pub actions: Vec<Action>,
-    pub redact_strategy: Option<RedactStrategy>,
-    pub mask_char: Option<char>,
     pub scan: Option<ScanConfig>,
 }
 
@@ -208,7 +272,7 @@ pub struct Route {
 // Forward proxy
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct ForwardProxyConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -216,18 +280,41 @@ pub struct ForwardProxyConfig {
     #[serde(default = "default_forward_proxy_listen")]
     pub listen: String,
 
-    #[serde(default)]
-    pub actions: Vec<Action>,
+    #[serde(default = "default_forward_proxy_request")]
+    pub request: DirectionConfig,
 
-    pub redact_strategy: Option<RedactStrategy>,
-    pub mask_char: Option<char>,
+    #[serde(default = "default_forward_proxy_response")]
+    pub response: DirectionConfig,
 
     #[serde(default)]
     pub tls: TlsConfig,
 }
 
+impl Default for ForwardProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: default_forward_proxy_listen(),
+            request: default_forward_proxy_request(),
+            response: default_forward_proxy_response(),
+            tls: TlsConfig::default(),
+        }
+    }
+}
+
 fn default_forward_proxy_listen() -> String {
     "0.0.0.0:8084".into()
+}
+
+fn default_forward_proxy_request() -> DirectionConfig {
+    DirectionConfig::with_actions(vec![Action::Redact], Some(RedactStrategy::TypeLabel))
+}
+
+fn default_forward_proxy_response() -> DirectionConfig {
+    DirectionConfig::with_actions(
+        vec![Action::Redact, Action::Header],
+        Some(RedactStrategy::TypeLabel),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -327,15 +414,23 @@ impl AppConfig {
 // Validation
 // ---------------------------------------------------------------------------
 
+/// Allowed positions for the `header` action.
+enum DirectionKind {
+    ReverseProxyRequest,
+    ReverseProxyResponse,
+    ForwardProxyRequest,
+    ForwardProxyResponse,
+}
+
 impl AppConfig {
     pub fn validate(&self) -> Result<(), Error> {
         self.validate_at_least_one_mode()?;
         self.validate_no_port_conflicts()?;
         self.validate_scanner_threads()?;
         self.validate_pii_kinds_exclusivity()?;
-        self.validate_forward_proxy_actions()?;
-        self.validate_rest_api_actions()?;
-        self.validate_reverse_proxy_routes()?;
+        self.validate_reverse_proxy()?;
+        self.validate_forward_proxy()?;
+        self.validate_rest_api()?;
         Ok(())
     }
 
@@ -390,42 +485,29 @@ impl AppConfig {
     }
 
     fn validate_pii_kinds_exclusivity(&self) -> Result<(), Error> {
-        if self.pii.pii_kinds.is_some() && self.pii.exclude_pii_kinds.is_some() {
+        if self.pii.detect.is_some() && self.pii.ignore.is_some() {
             return Err(Error::Config(
-                "pii_kinds and exclude_pii_kinds are mutually exclusive".into(),
+                "detect and ignore are mutually exclusive".into(),
             ));
         }
         Ok(())
     }
 
-    fn validate_forward_proxy_actions(&self) -> Result<(), Error> {
-        if self.forward_proxy.enabled {
-            validate_actions(
-                &self.forward_proxy.actions,
-                self.forward_proxy.redact_strategy,
-                self.forward_proxy.mask_char,
-                "forward_proxy",
-            )?;
-        }
-        Ok(())
-    }
-
-    fn validate_rest_api_actions(&self) -> Result<(), Error> {
-        if self.rest_api.enabled
-            && let Some(RedactStrategy::Char) = self.rest_api.redact_strategy
-            && self.rest_api.mask_char.is_none()
-        {
-            return Err(Error::Config(
-                "rest_api: char redact strategy requires mask_char".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_reverse_proxy_routes(&self) -> Result<(), Error> {
+    fn validate_reverse_proxy(&self) -> Result<(), Error> {
         if !self.reverse_proxy.enabled {
             return Ok(());
         }
+
+        validate_direction_config(
+            &self.reverse_proxy.request,
+            DirectionKind::ReverseProxyRequest,
+            "reverse_proxy.request",
+        )?;
+        validate_direction_config(
+            &self.reverse_proxy.response,
+            DirectionKind::ReverseProxyResponse,
+            "reverse_proxy.response",
+        )?;
 
         let mut prefixes = HashSet::new();
         for route in &self.reverse_proxy.routes {
@@ -454,43 +536,80 @@ impl AppConfig {
                     route.upstream,
                 )));
             }
+        }
+        Ok(())
+    }
 
-            validate_actions(
-                &route.actions,
-                route.redact_strategy,
-                route.mask_char,
-                &format!("reverse_proxy route '{}'", route.path_prefix),
-            )?;
+    fn validate_forward_proxy(&self) -> Result<(), Error> {
+        if !self.forward_proxy.enabled {
+            return Ok(());
+        }
+
+        validate_direction_config(
+            &self.forward_proxy.request,
+            DirectionKind::ForwardProxyRequest,
+            "forward_proxy.request",
+        )?;
+        validate_direction_config(
+            &self.forward_proxy.response,
+            DirectionKind::ForwardProxyResponse,
+            "forward_proxy.response",
+        )?;
+        Ok(())
+    }
+
+    fn validate_rest_api(&self) -> Result<(), Error> {
+        if !self.rest_api.enabled {
+            return Ok(());
+        }
+
+        if let Some(RedactStrategy::Char) = self.rest_api.redact_strategy
+            && self.rest_api.mask_char.is_none()
+        {
+            return Err(Error::Config(
+                "rest_api: char redact strategy requires mask_char".into(),
+            ));
         }
         Ok(())
     }
 }
 
-/// Validate action combination rules shared by forward proxy and reverse proxy routes.
-fn validate_actions(
-    actions: &[Action],
-    redact_strategy: Option<RedactStrategy>,
-    mask_char: Option<char>,
+/// Validate a direction config (request or response action set).
+fn validate_direction_config(
+    config: &DirectionConfig,
+    kind: DirectionKind,
     context: &str,
 ) -> Result<(), Error> {
-    let set: HashSet<&Action> = actions.iter().collect();
+    let set: HashSet<&Action> = config.actions.iter().collect();
 
-    if set.contains(&Action::Header)
-        && !set.contains(&Action::Warn)
-        && !set.contains(&Action::Redact)
-    {
+    // block and header are mutually exclusive
+    if set.contains(&Action::Block) && set.contains(&Action::Header) {
         return Err(Error::Config(format!(
-            "{context}: header action requires warn or redact",
+            "{context}: block and header are mutually exclusive",
         )));
     }
 
-    if set.contains(&Action::Redact) && redact_strategy.is_none() {
+    // header is only valid in reverse_proxy.request and forward_proxy.response
+    if set.contains(&Action::Header) {
+        match kind {
+            DirectionKind::ReverseProxyRequest | DirectionKind::ForwardProxyResponse => {}
+            _ => {
+                return Err(Error::Config(format!(
+                    "{context}: header action is not valid in this direction",
+                )));
+            }
+        }
+    }
+
+    // redact requires redact_strategy
+    if set.contains(&Action::Redact) && config.redact_strategy.is_none() {
         return Err(Error::Config(format!(
             "{context}: redact action requires redact_strategy",
         )));
     }
 
-    if redact_strategy == Some(RedactStrategy::Char) && mask_char.is_none() {
+    // char strategy requires mask_char
+    if config.redact_strategy == Some(RedactStrategy::Char) && config.mask_char.is_none() {
         return Err(Error::Config(format!(
             "{context}: char redact strategy requires mask_char",
         )));
@@ -516,7 +635,14 @@ languages = ["En"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[forward_proxy.response]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
 "#
         .into()
     }
@@ -545,15 +671,29 @@ languages = ["En"]
 enabled = true
 listen = "0.0.0.0:8082"
 
+[reverse_proxy.request]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
+
+[reverse_proxy.response]
+actions = ["redact"]
+redact_strategy = "type_label"
+
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://localhost:8080"
-actions = ["warn"]
 
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[forward_proxy.response]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
 
 [rest_api]
 enabled = true
@@ -571,6 +711,12 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[forward_proxy.response]
 actions = ["redact"]
 redact_strategy = "type_label"
 "#;
@@ -586,25 +732,18 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "char"
+mask_char = "*"
+
+[forward_proxy.response]
 actions = ["redact"]
 redact_strategy = "char"
 mask_char = "*"
 "#;
         parse(toml).expect("redact with char+mask should be valid");
-    }
-
-    #[test]
-    fn valid_header_with_warn() {
-        let toml = r#"
-[pii]
-countries = ["Us"]
-
-[forward_proxy]
-enabled = true
-listen = "0.0.0.0:8084"
-actions = ["warn", "header"]
-"#;
-        parse(toml).expect("header with warn should be valid");
     }
 
     #[test]
@@ -616,10 +755,117 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[forward_proxy.response]
 actions = ["redact", "header"]
 redact_strategy = "type_label"
 "#;
         parse(toml).expect("header with redact should be valid");
+    }
+
+    #[test]
+    fn valid_header_alone_in_allowed_direction() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = ["header"]
+"#;
+        parse(toml).expect("header alone in forward_proxy.response should be valid");
+    }
+
+    #[test]
+    fn valid_block_action() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = ["block"]
+
+[reverse_proxy.response]
+actions = ["block"]
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        parse(toml).expect("block action should be valid");
+    }
+
+    #[test]
+    fn valid_empty_actions_disables_scanning() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
+"#;
+        parse(toml).expect("empty actions should be valid");
+    }
+
+    #[test]
+    fn valid_defaults_used_when_direction_omitted() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        let config = parse(toml).expect("defaults should apply");
+        assert_eq!(
+            config.reverse_proxy.request.actions,
+            vec![Action::Redact, Action::Header]
+        );
+        assert_eq!(config.reverse_proxy.response.actions, vec![Action::Redact]);
+    }
+
+    #[test]
+    fn valid_forward_proxy_defaults() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+"#;
+        let config = parse(toml).expect("forward proxy defaults should apply");
+        assert_eq!(config.forward_proxy.request.actions, vec![Action::Redact]);
+        assert_eq!(
+            config.forward_proxy.response.actions,
+            vec![Action::Redact, Action::Header]
+        );
     }
 
     // --- Invalid: at least one mode ---
@@ -645,7 +891,12 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:9090"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
 
 [admin]
 listen = "0.0.0.0:9090"
@@ -666,35 +917,95 @@ scanner_threads = 0
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("scanner_threads"));
     }
 
-    // --- Invalid: pii_kinds exclusivity ---
+    // --- Invalid: detect/ignore exclusivity ---
 
     #[test]
-    fn invalid_pii_kinds_and_exclude() {
+    fn invalid_detect_and_ignore() {
         let toml = r#"
 [pii]
 countries = ["Us"]
-pii_kinds = ["Email"]
-exclude_pii_kinds = ["IpAddress"]
+detect = ["Email"]
+ignore = ["IpAddress"]
 
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
     }
 
-    // --- Invalid: header requires warn or redact ---
+    // --- Invalid: block and header mutually exclusive ---
 
     #[test]
-    fn invalid_header_standalone() {
+    fn invalid_block_and_header() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = ["block", "header"]
+
+[reverse_proxy.response]
+actions = []
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        let err = parse(toml).unwrap_err();
+        assert!(err.to_string().contains("block and header are mutually exclusive"));
+    }
+
+    // --- Invalid: header in wrong direction ---
+
+    #[test]
+    fn invalid_header_in_reverse_proxy_response() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = ["header"]
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        let err = parse(toml).unwrap_err();
+        assert!(err.to_string().contains("header action is not valid in this direction"));
+    }
+
+    #[test]
+    fn invalid_header_in_forward_proxy_request() {
         let toml = r#"
 [pii]
 countries = ["Us"]
@@ -702,10 +1013,15 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
 actions = ["header"]
+
+[forward_proxy.response]
+actions = []
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("header action requires warn or redact"));
+        assert!(err.to_string().contains("header action is not valid in this direction"));
     }
 
     // --- Invalid: redact requires strategy ---
@@ -719,7 +1035,12 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
 actions = ["redact"]
+
+[forward_proxy.response]
+actions = []
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("redact action requires redact_strategy"));
@@ -736,8 +1057,13 @@ countries = ["Us"]
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
 actions = ["redact"]
 redact_strategy = "char"
+
+[forward_proxy.response]
+actions = []
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("char redact strategy requires mask_char"));
@@ -755,15 +1081,19 @@ countries = ["Us"]
 enabled = true
 listen = "0.0.0.0:8082"
 
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://localhost:8080"
-actions = ["warn"]
 
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://localhost:9090"
-actions = ["warn"]
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("duplicate path_prefix"));
@@ -781,10 +1111,15 @@ countries = ["Us"]
 enabled = true
 listen = "0.0.0.0:8082"
 
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "://broken"
-actions = ["warn"]
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("invalid upstream URL"));
@@ -807,46 +1142,6 @@ redact_strategy = "char"
         assert!(err.to_string().contains("char redact strategy requires mask_char"));
     }
 
-    // --- Invalid: reverse proxy route actions ---
-
-    #[test]
-    fn invalid_route_header_standalone() {
-        let toml = r#"
-[pii]
-countries = ["Us"]
-
-[reverse_proxy]
-enabled = true
-listen = "0.0.0.0:8082"
-
-[[reverse_proxy.routes]]
-path_prefix = "/api"
-upstream = "http://localhost:8080"
-actions = ["header"]
-"#;
-        let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("header action requires warn or redact"));
-    }
-
-    #[test]
-    fn invalid_route_redact_without_strategy() {
-        let toml = r#"
-[pii]
-countries = ["Us"]
-
-[reverse_proxy]
-enabled = true
-listen = "0.0.0.0:8082"
-
-[[reverse_proxy.routes]]
-path_prefix = "/api"
-upstream = "http://localhost:8080"
-actions = ["redact"]
-"#;
-        let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("redact action requires redact_strategy"));
-    }
-
     // --- Default values ---
 
     #[test]
@@ -857,6 +1152,7 @@ actions = ["redact"]
         assert!(scan.query_params);
         assert!(scan.body);
         assert_eq!(scan.content_types.len(), 4);
+        assert_eq!(scan.on_error, OnError::FailOpen);
     }
 
     #[test]
@@ -869,9 +1165,9 @@ actions = ["redact"]
     }
 
     #[test]
-    fn defaults_on_error() {
+    fn defaults_on_error_in_scan() {
         let config = parse(&minimal_toml()).unwrap();
-        assert_eq!(config.on_error, OnError::FailOpen);
+        assert_eq!(config.scan.on_error, OnError::FailOpen);
     }
 
     #[test]
@@ -880,8 +1176,8 @@ actions = ["redact"]
             countries: vec![],
             languages: vec![],
             scanner_threads: Some(7),
-            pii_kinds: None,
-            exclude_pii_kinds: None,
+            detect: None,
+            ignore: None,
         };
         assert_eq!(pii.effective_scanner_threads(), 7);
     }
@@ -892,8 +1188,8 @@ actions = ["redact"]
             countries: vec![],
             languages: vec![],
             scanner_threads: None,
-            pii_kinds: None,
-            exclude_pii_kinds: None,
+            detect: None,
+            ignore: None,
         };
         let n = pii.effective_scanner_threads();
         assert!(n >= 1);
@@ -904,18 +1200,24 @@ actions = ["redact"]
     #[test]
     fn on_error_fail_close() {
         let toml = r#"
-on_error = "fail_close"
-
 [pii]
 countries = ["Us"]
+
+[scan]
+on_error = "fail_close"
 
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn"]
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
 "#;
         let config = parse(toml).unwrap();
-        assert_eq!(config.on_error, OnError::FailClose);
+        assert_eq!(config.scan.on_error, OnError::FailClose);
     }
 
     #[test]
@@ -928,10 +1230,15 @@ countries = ["Us"]
 enabled = true
 listen = "0.0.0.0:8082"
 
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://localhost:8080"
-actions = ["warn"]
 
 [reverse_proxy.routes.scan]
 body = true
@@ -960,28 +1267,38 @@ url = true
 query_params = true
 headers = ["Authorization", "Cookie"]
 body = true
-
 on_error = "fail_open"
 
 [reverse_proxy]
 enabled = true
 listen = "0.0.0.0:8082"
 
+[reverse_proxy.request]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
+
+[reverse_proxy.response]
+actions = ["redact"]
+redact_strategy = "type_label"
+
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://backend-api:8080"
-actions = ["warn", "header", "redact"]
-redact_strategy = "type_label"
 
 [[reverse_proxy.routes]]
 path_prefix = "/payments"
 upstream = "http://payments-svc:9090"
-actions = ["block"]
 
 [forward_proxy]
 enabled = true
 listen = "0.0.0.0:8084"
-actions = ["warn", "redact"]
+
+[forward_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[forward_proxy.response]
+actions = ["redact", "header"]
 redact_strategy = "type_label"
 
 [rest_api]
@@ -998,5 +1315,79 @@ listen = "127.0.0.1:9090"
         assert!(config.rest_api.enabled);
         assert_eq!(config.reverse_proxy.routes.len(), 2);
         assert_eq!(config.pii.effective_scanner_threads(), 4);
+    }
+
+    #[test]
+    fn block_response_configurable() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = ["block"]
+block_status = 451
+block_body = '{"error": "Blocked by policy"}'
+
+[reverse_proxy.response]
+actions = []
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        let config = parse(toml).unwrap();
+        assert_eq!(config.reverse_proxy.request.block_status, 451);
+        assert_eq!(
+            config.reverse_proxy.request.block_body.as_deref(),
+            Some(r#"{"error": "Blocked by policy"}"#)
+        );
+    }
+
+    #[test]
+    fn detect_field_deserialization() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+detect = ["Email", "UsSsn"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
+"#;
+        let config = parse(toml).unwrap();
+        let detect = config.pii.detect.as_ref().unwrap();
+        assert_eq!(detect.len(), 2);
+    }
+
+    #[test]
+    fn ignore_field_deserialization() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+ignore = ["IpAddress"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
+"#;
+        let config = parse(toml).unwrap();
+        let ignore = config.pii.ignore.as_ref().unwrap();
+        assert_eq!(ignore.len(), 1);
     }
 }

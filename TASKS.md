@@ -29,11 +29,11 @@ Decisions applied:
 - [x] Unit tests for error conversions
 
 ### 1.3 Configuration
-- [ ] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
+- [x] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
   `AppConfig`, `PiiConfig`, `ScanConfig`, `ReverseProxyConfig`, `Route`,
   `ForwardProxyConfig`, `RestApiConfig`, `AdminConfig`, `TlsConfig`
-- [ ] Derive `serde::Deserialize` for all config structs
-- [ ] Config changes for request/response action split:
+- [x] Derive `serde::Deserialize` for all config structs
+- [x] Config changes for request/response action split:
   - Remove `Action::Warn` variant
   - Add `DirectionConfig` struct with `actions`, `redact_strategy`, `mask_char`,
     `block_status`, `block_body`, `block_headers`
@@ -49,9 +49,9 @@ Decisions applied:
     forward proxy response `["redact", "header"]`
   - Move `on_error` into `ScanConfig`
   - Rename `pii_kinds` → `detect`, `exclude_pii_kinds` → `ignore` in `PiiConfig`
-- [ ] Implement `scanner_threads` default logic: auto-detect via
+- [x] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
-- [ ] Implement all validation rules from DESIGN.md:
+- [x] Implement all validation rules from DESIGN.md:
   - At least one mode enabled
   - No port conflicts across enabled listeners
   - `block` and `header` mutually exclusive in same direction's `actions` list
@@ -62,8 +62,8 @@ Decisions applied:
   - Reverse proxy: no overlapping `path_prefix`, valid upstream URLs
   - Reverse proxy: routes must not define `request`/`response` action overrides
   - REST API: no `block`/`header` actions
-- [ ] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
-- [ ] Unit tests for validation (valid config, each invalid case)
+- [x] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
+- [x] Unit tests for validation (valid config, each invalid case)
 
 ### 1.4 Metrics
 - [ ] Define all Prometheus metrics in `metrics.rs` using `prometheus` crate macros /
