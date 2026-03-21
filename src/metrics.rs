@@ -5,24 +5,24 @@ use prometheus::{
 };
 
 lazy_static! {
-    /// PII detections by kind, mode, and route.
+    /// PII detections by kind, mode, route, and direction.
     pub static ref DETECTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("pii_proxy_detections_total", "Total PII detections"),
-        &["pii_kind", "mode", "route"]
+        &["pii_kind", "mode", "route", "direction"]
     )
     .unwrap();
 
-    /// Requests blocked due to PII detection.
+    /// Requests/responses blocked due to PII detection.
     pub static ref BLOCKED_TOTAL: IntCounterVec = register_int_counter_vec!(
-        opts!("pii_proxy_blocked_total", "Total blocked requests"),
-        &["mode", "route"]
+        opts!("pii_proxy_blocked_total", "Total blocked requests/responses"),
+        &["mode", "route", "direction"]
     )
     .unwrap();
 
     /// PII instances redacted.
     pub static ref REDACTED_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("pii_proxy_redacted_total", "Total redacted PII instances"),
-        &["pii_kind", "mode", "route"]
+        &["pii_kind", "mode", "route", "direction"]
     )
     .unwrap();
 
@@ -51,22 +51,24 @@ lazy_static! {
     .unwrap();
 }
 
-/// Record a PII detection for the given kind, mode, and route.
-pub fn inc_detection(pii_kind: &str, mode: &str, route: &str) {
+/// Record a PII detection for the given kind, mode, route, and direction.
+pub fn inc_detection(pii_kind: &str, mode: &str, route: &str, direction: &str) {
     DETECTIONS_TOTAL
-        .with_label_values(&[pii_kind, mode, route])
+        .with_label_values(&[pii_kind, mode, route, direction])
         .inc();
 }
 
-/// Record a blocked request.
-pub fn inc_blocked(mode: &str, route: &str) {
-    BLOCKED_TOTAL.with_label_values(&[mode, route]).inc();
+/// Record a blocked request or response.
+pub fn inc_blocked(mode: &str, route: &str, direction: &str) {
+    BLOCKED_TOTAL
+        .with_label_values(&[mode, route, direction])
+        .inc();
 }
 
 /// Record a redacted PII instance.
-pub fn inc_redacted(pii_kind: &str, mode: &str, route: &str) {
+pub fn inc_redacted(pii_kind: &str, mode: &str, route: &str, direction: &str) {
     REDACTED_TOTAL
-        .with_label_values(&[pii_kind, mode, route])
+        .with_label_values(&[pii_kind, mode, route, direction])
         .inc();
 }
 
@@ -96,42 +98,42 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[test_case("Email", "reverse_proxy", "/api" ; "email on reverse proxy")]
-    #[test_case("PhoneNumber", "forward_proxy", "global" ; "phone on forward proxy")]
-    #[test_case("IpAddress", "rest_api", "global" ; "ip on rest api")]
-    fn inc_detection_increments(pii_kind: &str, mode: &str, route: &str) {
+    #[test_case("Email", "reverse_proxy", "/api", "request" ; "email on reverse proxy request")]
+    #[test_case("PhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]
+    #[test_case("IpAddress", "rest_api", "global", "request" ; "ip on rest api request")]
+    fn inc_detection_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = DETECTIONS_TOTAL
-            .with_label_values(&[pii_kind, mode, route])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
-        inc_detection(pii_kind, mode, route);
+        inc_detection(pii_kind, mode, route, direction);
         let after = DETECTIONS_TOTAL
-            .with_label_values(&[pii_kind, mode, route])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("forward_proxy", "global" ; "forward proxy")]
-    #[test_case("reverse_proxy", "/payments" ; "reverse proxy route")]
-    fn inc_blocked_increments(mode: &str, route: &str) {
+    #[test_case("forward_proxy", "global", "request" ; "forward proxy request")]
+    #[test_case("reverse_proxy", "/payments", "response" ; "reverse proxy response")]
+    fn inc_blocked_increments(mode: &str, route: &str, direction: &str) {
         let before = BLOCKED_TOTAL
-            .with_label_values(&[mode, route])
+            .with_label_values(&[mode, route, direction])
             .get();
-        inc_blocked(mode, route);
+        inc_blocked(mode, route, direction);
         let after = BLOCKED_TOTAL
-            .with_label_values(&[mode, route])
+            .with_label_values(&[mode, route, direction])
             .get();
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("Email", "reverse_proxy", "/api" ; "email redacted")]
-    #[test_case("PhoneNumber", "forward_proxy", "global" ; "phone redacted")]
-    fn inc_redacted_increments(pii_kind: &str, mode: &str, route: &str) {
+    #[test_case("Email", "reverse_proxy", "/api", "request" ; "email redacted request")]
+    #[test_case("PhoneNumber", "forward_proxy", "global", "response" ; "phone redacted response")]
+    fn inc_redacted_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
-        inc_redacted(pii_kind, mode, route);
+        inc_redacted(pii_kind, mode, route, direction);
         let after = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
         assert_eq!(after, before + 1);
     }
@@ -178,22 +180,44 @@ mod tests {
     #[test]
     fn different_labels_are_independent() {
         let email_before = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-independent"])
+            .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_before = DETECTIONS_TOTAL
-            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent"])
+            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent", "request"])
             .get();
 
-        inc_detection("Email", "reverse_proxy", "/test-independent");
+        inc_detection("Email", "reverse_proxy", "/test-independent", "request");
 
         let email_after = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-independent"])
+            .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_after = DETECTIONS_TOTAL
-            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent"])
+            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent", "request"])
             .get();
 
         assert_eq!(email_after, email_before + 1);
         assert_eq!(phone_after, phone_before);
+    }
+
+    #[test]
+    fn direction_labels_are_independent() {
+        let req_before = DETECTIONS_TOTAL
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "request"])
+            .get();
+        let resp_before = DETECTIONS_TOTAL
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "response"])
+            .get();
+
+        inc_detection("Email", "reverse_proxy", "/test-direction", "request");
+
+        let req_after = DETECTIONS_TOTAL
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "request"])
+            .get();
+        let resp_after = DETECTIONS_TOTAL
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "response"])
+            .get();
+
+        assert_eq!(req_after, req_before + 1);
+        assert_eq!(resp_after, resp_before);
     }
 }
