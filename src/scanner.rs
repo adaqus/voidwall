@@ -30,6 +30,7 @@ pub struct ScanResult {
     pub matches_count: usize,
     pub redacted_body: Option<Bytes>,
     pub redacted_url: Option<String>,
+    pub redacted_query: Option<String>,
     pub redacted_headers: Option<Vec<(String, String)>>,
 }
 
@@ -186,6 +187,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
 
     let mut redacted_body = None;
     let mut redacted_url = None;
+    let mut redacted_query = None;
     let mut redacted_headers = None;
 
     // Scan body
@@ -231,6 +233,14 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         for m in &matches {
             all_kinds.insert(m.kind.label().to_string());
         }
+
+        if request.redact && !matches.is_empty()
+            && let Some(ref strategy) = request.redact_strategy
+        {
+            let mut owned = query.clone();
+            scanner.redact(&mut owned, strategy);
+            redacted_query = Some(owned);
+        }
     }
 
     // Scan headers
@@ -271,6 +281,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         matches_count,
         redacted_body,
         redacted_url,
+        redacted_query,
         redacted_headers,
     }
 }
@@ -386,6 +397,24 @@ mod tests {
         assert!(result.detected);
         let url = result.redacted_url.expect("url should be redacted");
         assert!(url.contains("[EMAIL]"), "expected [EMAIL] in '{url}'");
+    }
+
+    #[tokio::test]
+    async fn scan_query_with_pii() {
+        let pool = make_pool();
+        let req = ScanRequest {
+            body: None,
+            url: None,
+            query: Some("user=user@example.com&action=login".into()),
+            headers: None,
+            redact: true,
+            redact_strategy: Some(pii::RedactWith::TypeLabel),
+        };
+        let result = pool.process(req, OnError::FailOpen).await.unwrap();
+        assert!(result.detected);
+        let query = result.redacted_query.expect("query should be redacted");
+        assert!(query.contains("[EMAIL]"), "expected [EMAIL] in '{query}'");
+        assert!(!query.contains("user@example.com"));
     }
 
     #[tokio::test]

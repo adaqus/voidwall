@@ -86,9 +86,9 @@ Decisions applied:
 - [x] Define `ScanRequest` and `ScanResult` types in `scanner.rs`:
   - `ScanRequest`: contains text fragments to scan (body, URL, query, headers),
     action config (whether to redact), redact strategy
-  - `ScanResult`: `detected: bool`, `kinds: Vec<PiiKind>`, `matches_count: usize`,
+  - `ScanResult`: `detected: bool`, `kinds: Vec<String>`, `matches_count: usize`,
     optionally `redacted_body: Option<Bytes>`, `redacted_url: Option<String>`,
-    `redacted_headers: Option<Vec<(String, String)>>`
+    `redacted_query: Option<String>`, `redacted_headers: Option<Vec<(String, String)>>`
 - [x] Implement `ScannerPool` struct:
   - On `new()`: spawn `scanner_threads` OS threads via `std::thread::spawn`
   - Each thread creates its own `pii::Scanner` instance from config
