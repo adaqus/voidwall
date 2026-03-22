@@ -199,7 +199,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
                 all_kinds.insert(m.kind.label().to_string());
             }
 
-            if request.redact && !matches.is_empty()
+            if request.redact
+                && !matches.is_empty()
                 && let Some(ref strategy) = request.redact_strategy
             {
                 let mut owned = text.to_string();
@@ -217,7 +218,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             all_kinds.insert(m.kind.label().to_string());
         }
 
-        if request.redact && !matches.is_empty()
+        if request.redact
+            && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
             let mut owned = url.clone();
@@ -234,7 +236,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             all_kinds.insert(m.kind.label().to_string());
         }
 
-        if request.redact && !matches.is_empty()
+        if request.redact
+            && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
             let mut owned = query.clone();
@@ -255,7 +258,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
                 all_kinds.insert(m.kind.label().to_string());
             }
 
-            if request.redact && !matches.is_empty()
+            if request.redact
+                && !matches.is_empty()
                 && let Some(ref strategy) = request.redact_strategy
             {
                 let mut owned = value.clone();
@@ -434,7 +438,11 @@ mod tests {
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
         let headers = result.redacted_headers.expect("headers should be redacted");
-        let auth = &headers.iter().find(|(n, _)| n == "Authorization").unwrap().1;
+        let auth = &headers
+            .iter()
+            .find(|(n, _)| n == "Authorization")
+            .unwrap()
+            .1;
         assert!(auth.contains("[EMAIL]"), "expected [EMAIL] in '{auth}'");
         let safe = &headers.iter().find(|(n, _)| n == "X-Safe").unwrap().1;
         assert_eq!(safe, "nothing here");

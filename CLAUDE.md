@@ -62,6 +62,7 @@ for responses. Never call `pii::Scanner` from an async context.
 - Unit tests go in the same file as the code they test (`#[cfg(test)] mod tests`).
 - Integration tests (in `tests/`) start from Phase 4 (Admin server) onward.
   They spin up actual servers and make real HTTP requests.
+- use #[test_case()] wherever applicable to reduce amount of testing code and save tokens
 - Load tests live in `benches/` — see `docs/load-testing.md` for scenario design.
 
 ## Action Precedence

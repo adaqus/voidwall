@@ -435,10 +435,7 @@ impl AppConfig {
     }
 
     fn validate_at_least_one_mode(&self) -> Result<(), Error> {
-        if !self.reverse_proxy.enabled
-            && !self.forward_proxy.enabled
-            && !self.rest_api.enabled
-        {
+        if !self.reverse_proxy.enabled && !self.forward_proxy.enabled && !self.rest_api.enabled {
             return Err(Error::Config(
                 "at least one mode must be enabled (reverse_proxy, forward_proxy, or rest_api)"
                     .into(),
@@ -477,9 +474,7 @@ impl AppConfig {
         if let Some(n) = self.pii.scanner_threads
             && n < 1
         {
-            return Err(Error::Config(
-                "scanner_threads must be >= 1".into(),
-            ));
+            return Err(Error::Config("scanner_threads must be >= 1".into()));
         }
         Ok(())
     }
@@ -518,15 +513,12 @@ impl AppConfig {
                 )));
             }
 
-            let uri = route
-                .upstream
-                .parse::<hyper::Uri>()
-                .map_err(|_| {
-                    Error::Config(format!(
-                        "reverse_proxy: invalid upstream URL '{}'",
-                        route.upstream,
-                    ))
-                })?;
+            let uri = route.upstream.parse::<hyper::Uri>().map_err(|_| {
+                Error::Config(format!(
+                    "reverse_proxy: invalid upstream URL '{}'",
+                    route.upstream,
+                ))
+            })?;
             let valid_scheme = uri
                 .scheme_str()
                 .is_some_and(|s| s == "http" || s == "https");
@@ -975,7 +967,10 @@ path_prefix = "/api"
 upstream = "http://localhost:8080"
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("block and header are mutually exclusive"));
+        assert!(
+            err.to_string()
+                .contains("block and header are mutually exclusive")
+        );
     }
 
     // --- Invalid: header in wrong direction ---
@@ -1001,7 +996,10 @@ path_prefix = "/api"
 upstream = "http://localhost:8080"
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("header action is not valid in this direction"));
+        assert!(
+            err.to_string()
+                .contains("header action is not valid in this direction")
+        );
     }
 
     #[test]
@@ -1021,7 +1019,10 @@ actions = ["header"]
 actions = []
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("header action is not valid in this direction"));
+        assert!(
+            err.to_string()
+                .contains("header action is not valid in this direction")
+        );
     }
 
     // --- Invalid: redact requires strategy ---
@@ -1043,7 +1044,10 @@ actions = ["redact"]
 actions = []
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("redact action requires redact_strategy"));
+        assert!(
+            err.to_string()
+                .contains("redact action requires redact_strategy")
+        );
     }
 
     // --- Invalid: char strategy requires mask_char ---
@@ -1066,7 +1070,10 @@ redact_strategy = "char"
 actions = []
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("char redact strategy requires mask_char"));
+        assert!(
+            err.to_string()
+                .contains("char redact strategy requires mask_char")
+        );
     }
 
     // --- Invalid: duplicate path prefix ---
@@ -1139,7 +1146,10 @@ listen = "0.0.0.0:8083"
 redact_strategy = "char"
 "#;
         let err = parse(toml).unwrap_err();
-        assert!(err.to_string().contains("char redact strategy requires mask_char"));
+        assert!(
+            err.to_string()
+                .contains("char redact strategy requires mask_char")
+        );
     }
 
     // --- Default values ---

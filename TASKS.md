@@ -106,10 +106,10 @@ Decisions applied:
 ## Phase 3 — Action Engine
 
 ### 3.1 Action pipeline
-- [ ] Define action types in `action.rs`: `ActionSet` (parsed and validated set
+- [x] Define action types in `action.rs`: `ActionSet` (parsed and validated set
   of actions for a direction). Uses `Action` enum (`Block`, `Header`, `Redact`)
   from `config.rs` (no `Warn` — metrics are always updated unconditionally).
-- [ ] Implement `execute()`:
+- [x] Implement `execute()`:
   - Input: `ScanResult`, `ActionSet`, `ActionContext` (mode, route, direction)
   - Applies precedence: block → redact → header
   - Returns `ActionOutcome`:
@@ -117,10 +117,10 @@ Decisions applied:
       error response with PII kinds
     - `Forward { body: Option<Bytes>, extra_headers: HeaderMap, scan_result: ScanResult }`
     - `Pass` — no PII detected, forward unchanged
-- [ ] Metrics are always incremented when PII is detected (detections), regardless
+- [x] Metrics are always incremented when PII is detected (detections), regardless
   of action config. Block and redact metrics are incremented when those actions fire.
   All metrics include the `direction` label.
-- [ ] Unit tests for each action combination, precedence, and direction constraints
+- [x] Unit tests for each action combination, precedence, and direction constraints
 
 ---
 

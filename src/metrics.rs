@@ -88,9 +88,7 @@ pub fn observe_duration(mode: &str, route: &str, duration_secs: f64) {
 
 /// Record an error with its outcome (passed/blocked) and reason.
 pub fn inc_error(outcome: &str, reason: &str) {
-    ERRORS_TOTAL
-        .with_label_values(&[outcome, reason])
-        .inc();
+    ERRORS_TOTAL.with_label_values(&[outcome, reason]).inc();
 }
 
 #[cfg(test)]
@@ -167,13 +165,9 @@ mod tests {
     #[test_case("passed", "scanner_failure" ; "fail open scanner")]
     #[test_case("blocked", "body_too_large" ; "fail close body size")]
     fn inc_error_increments(outcome: &str, reason: &str) {
-        let before = ERRORS_TOTAL
-            .with_label_values(&[outcome, reason])
-            .get();
+        let before = ERRORS_TOTAL.with_label_values(&[outcome, reason]).get();
         inc_error(outcome, reason);
-        let after = ERRORS_TOTAL
-            .with_label_values(&[outcome, reason])
-            .get();
+        let after = ERRORS_TOTAL.with_label_values(&[outcome, reason]).get();
         assert_eq!(after, before + 1);
     }
 
@@ -183,7 +177,12 @@ mod tests {
             .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_before = DETECTIONS_TOTAL
-            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent", "request"])
+            .with_label_values(&[
+                "PhoneNumber",
+                "reverse_proxy",
+                "/test-independent",
+                "request",
+            ])
             .get();
 
         inc_detection("Email", "reverse_proxy", "/test-independent", "request");
@@ -192,7 +191,12 @@ mod tests {
             .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_after = DETECTIONS_TOTAL
-            .with_label_values(&["PhoneNumber", "reverse_proxy", "/test-independent", "request"])
+            .with_label_values(&[
+                "PhoneNumber",
+                "reverse_proxy",
+                "/test-independent",
+                "request",
+            ])
             .get();
 
         assert_eq!(email_after, email_before + 1);

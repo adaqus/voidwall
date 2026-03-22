@@ -517,7 +517,7 @@ pods directly for liveness/readiness probes, so this works without exposing the
 admin service externally. Override to `0.0.0.0` only when Prometheus needs to
 scrape from a separate pod (in which case NetworkPolicy restricts access to the
 monitoring namespace).
-
+Fa
 ### PII Data Handling
 
 | Rule | Detail |
