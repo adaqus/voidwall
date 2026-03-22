@@ -127,13 +127,13 @@ Decisions applied:
 ## Phase 4 — Admin Server
 
 ### 4.1 Admin endpoints
-- [ ] Implement `admin.rs` axum router:
+- [x] Implement `admin.rs` axum router:
   - `GET /metrics` — render Prometheus metrics
   - `GET /healthz` — return 200
   - `GET /readyz` — return 200 once all listeners are bound (accept an
     `Arc<AtomicBool>` or similar readiness signal)
-- [ ] Bind to configured `admin.listen` address
-- [ ] Integration test: health and readiness endpoints, metrics rendering
+- [x] Bind to configured `admin.listen` address
+- [x] Integration test: health and readiness endpoints, metrics rendering
 
 ---
 

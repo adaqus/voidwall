@@ -30,6 +30,7 @@ lazy_static = "1"
 # Utilities
 bytes = "1"
 crossbeam-channel = "0.5"
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # Logging
 tracing = "0.1"
@@ -43,3 +44,5 @@ pii = { path = "../pii" }
 
 [dev-dependencies]
 test-case = "3.3.1"
+tower = { version = "0.5", features = ["util"] }
+reqwest = { version = "0.12", features = ["json"] }
