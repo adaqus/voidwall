@@ -255,7 +255,7 @@ Extend load testing from Phase 6 to cover all modes.
 ## Phase 10 — Main Entrypoint & Lifecycle
 
 ### 10.1 Startup orchestration
-- [ ] `main.rs`:
+- [x] `main.rs`:
   1. Parse CLI args, load and validate config
   2. Initialize `tracing` subscriber
   3. Initialize Prometheus metrics registry

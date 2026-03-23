@@ -22,7 +22,7 @@ pub struct Cli {
 // Top-level config
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub pii: PiiConfig,
 
@@ -46,7 +46,7 @@ pub struct AppConfig {
 // PII scanner config
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct PiiConfig {
     #[serde(default)]
     pub countries: Vec<pii::Country>,
@@ -212,7 +212,7 @@ impl DirectionConfig {
 // Reverse proxy
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ReverseProxyConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -261,7 +261,7 @@ fn default_reverse_proxy_response() -> DirectionConfig {
     DirectionConfig::with_actions(vec![Action::Redact], Some(RedactStrategy::TypeLabel))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Route {
     pub path_prefix: String,
     pub upstream: String,
@@ -272,7 +272,7 @@ pub struct Route {
 // Forward proxy
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ForwardProxyConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -321,7 +321,7 @@ fn default_forward_proxy_response() -> DirectionConfig {
 // REST API
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct RestApiConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -341,7 +341,7 @@ fn default_rest_api_listen() -> String {
 // Admin
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AdminConfig {
     #[serde(default = "default_admin_listen")]
     pub listen: String,
@@ -387,7 +387,7 @@ fn default_ready_path() -> String {
 // TLS
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct TlsConfig {
     #[serde(default)]
     pub enabled: bool,

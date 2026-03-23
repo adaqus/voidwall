@@ -1,3 +1,133 @@
-fn main() {
-    println!("Hello, world!");
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use clap::Parser;
+use pii_proxy::admin::{self, AdminState};
+use pii_proxy::config::{AppConfig, Cli};
+use pii_proxy::reverse_proxy;
+use pii_proxy::scanner::ScannerPool;
+use tokio_util::sync::CancellationToken;
+
+#[tokio::main]
+async fn main() {
+    // 1. Parse CLI args
+    let cli = Cli::parse();
+
+    // 2. Initialize tracing subscriber
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    // 3. Load and validate config
+    let config = match AppConfig::load(&cli.config) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to load configuration");
+            std::process::exit(1);
+        }
+    };
+
+    tracing::info!(config_path = %cli.config.display(), "configuration loaded");
+
+    // 4. Create ScannerPool
+    let scanner = match ScannerPool::new(&config.pii) {
+        Ok(s) => Arc::new(s),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to initialize scanner pool");
+            std::process::exit(1);
+        }
+    };
+
+    tracing::info!(
+        threads = config.pii.effective_scanner_threads(),
+        "scanner pool initialized"
+    );
+
+    // 5. Set up cancellation token and readiness signal
+    let cancel = CancellationToken::new();
+    let ready = Arc::new(AtomicBool::new(false));
+
+    // 6. Spawn enabled listeners as tokio tasks
+    let mut task_handles = Vec::new();
+
+    // Admin server (always on)
+    {
+        let admin_config = config.admin.clone();
+        let state = AdminState {
+            ready: Arc::clone(&ready),
+        };
+        let cancel = cancel.clone();
+        task_handles.push(tokio::spawn(async move {
+            if let Err(e) = admin::serve(&admin_config, state, cancel).await {
+                tracing::error!(error = %e, "admin server failed");
+            }
+        }));
+        tracing::info!("admin server task spawned");
+    }
+
+    // Reverse proxy (if enabled)
+    if config.reverse_proxy.enabled {
+        let config = config.clone();
+        let scanner = Arc::clone(&scanner);
+        let cancel = cancel.clone();
+        task_handles.push(tokio::spawn(async move {
+            if let Err(e) = reverse_proxy::serve(&config, scanner, cancel).await {
+                tracing::error!(error = %e, "reverse proxy failed");
+            }
+        }));
+        tracing::info!("reverse proxy task spawned");
+    }
+
+    // Forward proxy (if enabled) — not yet implemented
+    if config.forward_proxy.enabled {
+        tracing::warn!("forward proxy mode is enabled but not yet implemented");
+    }
+
+    // REST API (if enabled) — not yet implemented
+    if config.rest_api.enabled {
+        tracing::warn!("REST API mode is enabled but not yet implemented");
+    }
+
+    // 7. Set readiness flag once all listeners are bound
+    //    The listeners bind inside their serve() calls. We give a brief moment
+    //    for them to bind, then set readiness. A more robust approach would use
+    //    per-listener readiness signals, but the current serve() functions bind
+    //    immediately on start.
+    {
+        let ready = Arc::clone(&ready);
+        tokio::spawn(async move {
+            // Small yield to let listener tasks bind their ports
+            tokio::task::yield_now().await;
+            ready.store(true, Ordering::Release);
+            tracing::info!("readiness flag set");
+        });
+    }
+
+    // 8. Await shutdown signal
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to listen for ctrl-c");
+    tracing::info!("shutdown signal received, initiating graceful shutdown");
+
+    // 9. Trigger cancellation for all listeners
+    cancel.cancel();
+
+    // Wait for all tasks to complete
+    for handle in task_handles {
+        let _ = handle.await;
+    }
+
+    // Shutdown scanner pool
+    // Arc::try_unwrap will succeed since all tasks have completed and dropped their clones
+    match Arc::try_unwrap(scanner) {
+        Ok(mut pool) => pool.shutdown(),
+        Err(_) => {
+            tracing::warn!("scanner pool still referenced, dropping without explicit shutdown")
+        }
+    }
+
+    tracing::info!("shutdown complete");
 }
