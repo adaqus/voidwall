@@ -82,9 +82,7 @@ async fn pii_response_headers_handler() -> impl IntoResponse {
 async fn echo_with_pii_handler(req: Request) -> impl IntoResponse {
     let body = req.into_body().collect().await.unwrap().to_bytes();
     let request_body = String::from_utf8_lossy(&body);
-    let resp_body = format!(
-        "REQUEST_BODY:{request_body}\nRESPONSE_PII:SSN is 123-45-6789"
-    );
+    let resp_body = format!("REQUEST_BODY:{request_body}\nRESPONSE_PII:SSN is 123-45-6789");
     (StatusCode::OK, [("content-type", "text/plain")], resp_body)
 }
 
@@ -915,14 +913,26 @@ async fn both_request_and_response_redaction() {
     let body = resp.text().await.unwrap();
 
     // Original PII values must not survive
-    assert!(!body.contains("john.doe@example.com"), "request email should be redacted");
-    assert!(!body.contains("123-45-6789"), "response SSN should be redacted");
+    assert!(
+        !body.contains("john.doe@example.com"),
+        "request email should be redacted"
+    );
+    assert!(
+        !body.contains("123-45-6789"),
+        "response SSN should be redacted"
+    );
 
     // TypeLabel in the echoed request part proves request-side redaction
-    assert!(body.contains("[EMAIL]"), "request redaction should use TypeLabel strategy");
+    assert!(
+        body.contains("[EMAIL]"),
+        "request redaction should use TypeLabel strategy"
+    );
 
     // Char mask in the response part proves response-side redaction
-    assert!(body.contains("*"), "response redaction should use Char strategy");
+    assert!(
+        body.contains("*"),
+        "response redaction should use Char strategy"
+    );
 
     // Non-PII text preserved from both sides
     assert!(body.contains("Contact"));

@@ -2,6 +2,7 @@
 name = "pii-proxy"
 version = "0.1.0"
 edition = "2024"
+autobenches = false
 
 [dependencies]
 # Async runtime
@@ -41,6 +42,10 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # PII scanning
 pii = { path = "../pii" }
+
+[[bin]]
+name = "echo-server"
+path = "benches/echo_server.rs"
 
 [dev-dependencies]
 test-case = "3.3.1"

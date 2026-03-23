@@ -1,0 +1,28 @@
+# Reverse proxy with redact + header action
+
+[pii]
+countries = []
+languages = []
+scanner_threads = 4
+
+[scan]
+on_error = "fail_open"
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = ["redact", "header"]
+redact_strategy = "type_label"
+
+[reverse_proxy.response]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://127.0.0.1:8090"
+
+[admin]
+listen = "127.0.0.1:9090"

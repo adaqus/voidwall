@@ -187,10 +187,10 @@ Decisions applied:
 Setup and infrastructure per `docs/load-testing.md`.
 
 ### 6.1 Test infrastructure
-- [ ] Echo server binary (`benches/echo_server.rs`)
-- [ ] Payload generation script — clean and PII-containing payloads at 100 B,
+- [x] Echo server binary (`benches/echo_server.rs`)
+- [x] Payload generation script — clean and PII-containing payloads at 100 B,
   1 KB, 10 KB, 100 KB, 1 MB
-- [ ] Test TOML configs in `benches/configs/` (one per scenario variant)
+- [x] Test TOML configs in `benches/configs/` (one per scenario variant)
 
 ### 6.2 k6 test scenarios
 - [ ] Baseline — proxy overhead vs direct-to-upstream, clean payloads

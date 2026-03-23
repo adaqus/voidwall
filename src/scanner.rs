@@ -192,22 +192,23 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
 
     // Scan body
     if let Some(ref body) = request.body
-        && let Ok(text) = std::str::from_utf8(body) {
-            let matches = scanner.mark_piis(text);
-            matches_count += matches.len();
-            for m in &matches {
-                all_kinds.insert(m.kind.label().to_string());
-            }
-
-            if request.redact
-                && !matches.is_empty()
-                && let Some(ref strategy) = request.redact_strategy
-            {
-                let mut owned = text.to_string();
-                scanner.redact(&mut owned, strategy);
-                redacted_body = Some(Bytes::from(owned));
-            }
+        && let Ok(text) = std::str::from_utf8(body)
+    {
+        let matches = scanner.mark_piis(text);
+        matches_count += matches.len();
+        for m in &matches {
+            all_kinds.insert(m.kind.label().to_string());
         }
+
+        if request.redact
+            && !matches.is_empty()
+            && let Some(ref strategy) = request.redact_strategy
+        {
+            let mut owned = text.to_string();
+            scanner.redact(&mut owned, strategy);
+            redacted_body = Some(Bytes::from(owned));
+        }
+    }
 
     // Scan URL
     if let Some(ref url) = request.url {
