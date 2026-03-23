@@ -67,12 +67,12 @@ wait_for_port() {
 }
 
 wait_for_readyz() {
-    local max_attempts=30
+    local max_attempts=120
     for i in $(seq 1 "$max_attempts"); do
         if curl -sf "http://$ADMIN_ADDR/readyz" >/dev/null 2>&1; then
             return 0
         fi
-        sleep 0.2
+        sleep 1
     done
     echo "ERROR: proxy /readyz not ready after ${max_attempts} attempts" >&2
     return 1

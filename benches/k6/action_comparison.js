@@ -37,7 +37,8 @@ export const options = {
     },
   },
   thresholds: {
-    http_req_failed: ["rate<0.05"],
+    // No http_req_failed threshold: block action returns 403, which k6
+    // counts as "failed" even though it is the expected behaviour.
   },
 };
 

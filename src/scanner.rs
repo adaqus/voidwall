@@ -57,11 +57,12 @@ impl ScannerPool {
     /// Create a new scanner pool with the given PII configuration.
     ///
     /// Spawns `pii_config.effective_scanner_threads()` OS threads, each with
-    /// its own `pii::Scanner` instance. The bounded channel capacity equals
-    /// the number of threads.
+    /// its own `pii::Scanner` instance. The bounded channel capacity is
+    /// `4 * num_threads` to absorb short bursts while still providing backpressure.
     pub fn new(pii_config: &PiiConfig) -> Result<Self, Error> {
         let num_threads = pii_config.effective_scanner_threads();
-        let (sender, receiver) = crossbeam_channel::bounded::<WorkItem>(num_threads);
+        let channel_capacity = num_threads * 4;
+        let (sender, receiver) = crossbeam_channel::bounded::<WorkItem>(channel_capacity);
 
         let mut handles = Vec::with_capacity(num_threads);
 
