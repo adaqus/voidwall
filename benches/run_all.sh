@@ -31,7 +31,16 @@ DURATION="${DURATION:-30s}"
 ECHO_PID=""
 PROXY_PID=""
 
+PAYLOADS_DIR="$SCRIPT_DIR/payloads"
+
 mkdir -p "$RESULTS_DIR"
+
+# --- Generate payloads if missing ---
+
+if [ ! -d "$PAYLOADS_DIR" ] || [ -z "$(ls -A "$PAYLOADS_DIR" 2>/dev/null)" ]; then
+    echo "Generating test payloads..."
+    python3 "$SCRIPT_DIR/generate_payloads.py"
+fi
 
 # --- Helpers ---
 
