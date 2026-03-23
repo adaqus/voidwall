@@ -26,7 +26,8 @@ async fn start_echo_upstream() -> SocketAddr {
         .route("/echo", any(echo_handler))
         .route("/echo/{*rest}", any(echo_handler))
         .route("/pii-response", get(pii_response_handler))
-        .route("/pii-response-headers", get(pii_response_headers_handler));
+        .route("/pii-response-headers", get(pii_response_headers_handler))
+        .route("/echo-with-pii", any(echo_with_pii_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -75,6 +76,16 @@ async fn pii_response_headers_handler() -> impl IntoResponse {
         ],
         "clean response body",
     )
+}
+
+/// Echoes the request body and appends its own PII to the response.
+async fn echo_with_pii_handler(req: Request) -> impl IntoResponse {
+    let body = req.into_body().collect().await.unwrap().to_bytes();
+    let request_body = String::from_utf8_lossy(&body);
+    let resp_body = format!(
+        "REQUEST_BODY:{request_body}\nRESPONSE_PII:SSN is 123-45-6789"
+    );
+    (StatusCode::OK, [("content-type", "text/plain")], resp_body)
 }
 
 // ---------------------------------------------------------------------------
@@ -857,4 +868,63 @@ async fn per_route_scan_override() {
     assert_eq!(resp.status(), 200);
 
     cancel.cancel();
+}
+
+/// Both request and response redaction: different strategies prove which direction acted
+#[tokio::test]
+async fn both_request_and_response_redaction() {
+    let upstream = start_echo_upstream().await;
+
+    let request_dir = DirectionConfig {
+        actions: vec![Action::Redact],
+        redact_strategy: Some(RedactStrategy::TypeLabel),
+        mask_char: None,
+        block_status: 403,
+        block_body: None,
+        block_headers: vec![],
+    };
+
+    let response_dir = DirectionConfig {
+        actions: vec![Action::Redact],
+        redact_strategy: Some(RedactStrategy::Char),
+        mask_char: Some('*'),
+        block_status: 403,
+        block_body: None,
+        block_headers: vec![],
+    };
+
+    let proxy = TestProxy::start(
+        upstream,
+        vec![("/", "")],
+        request_dir,
+        response_dir,
+        ScanConfig::default(),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo-with-pii"))
+        .header("content-type", "text/plain")
+        .body("Contact john.doe@example.com for info")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+
+    // Original PII values must not survive
+    assert!(!body.contains("john.doe@example.com"), "request email should be redacted");
+    assert!(!body.contains("123-45-6789"), "response SSN should be redacted");
+
+    // TypeLabel in the echoed request part proves request-side redaction
+    assert!(body.contains("[EMAIL]"), "request redaction should use TypeLabel strategy");
+
+    // Char mask in the response part proves response-side redaction
+    assert!(body.contains("*"), "response redaction should use Char strategy");
+
+    // Non-PII text preserved from both sides
+    assert!(body.contains("Contact"));
+    assert!(body.contains("RESPONSE_PII"));
 }
