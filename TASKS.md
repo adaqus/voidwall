@@ -193,11 +193,11 @@ Setup and infrastructure per `docs/load-testing.md`.
 - [x] Test TOML configs in `benches/configs/` (one per scenario variant)
 
 ### 6.2 k6 test scenarios
-- [ ] Baseline — proxy overhead vs direct-to-upstream, clean payloads
-- [ ] Action comparison — block vs redact vs header cost
-- [ ] Body size scaling — throughput degradation from 100 B to 1 MB
-- [ ] Concurrency scaling — saturation point and tail latency (1 to 500 connections)
-- [ ] Scanner thread scaling — effect of `scanner_threads` 1/2/4/8
+- [x] Baseline — proxy overhead vs direct-to-upstream, clean payloads
+- [x] Action comparison — block vs redact vs header cost
+- [x] Body size scaling — throughput degradation from 100 B to 1 MB
+- [x] Concurrency scaling — saturation point and tail latency (1 to 500 connections)
+- [x] Scanner thread scaling — effect of `scanner_threads` 1/2/4/8
 
 ### 6.3 Automation
 - [ ] `benches/run_all.sh` — builds, starts servers, runs all scenarios,
