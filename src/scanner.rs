@@ -191,8 +191,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
     let mut redacted_headers = None;
 
     // Scan body
-    if let Some(ref body) = request.body {
-        if let Ok(text) = std::str::from_utf8(body) {
+    if let Some(ref body) = request.body
+        && let Ok(text) = std::str::from_utf8(body) {
             let matches = scanner.mark_piis(text);
             matches_count += matches.len();
             for m in &matches {
@@ -208,7 +208,6 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
                 redacted_body = Some(Bytes::from(owned));
             }
         }
-    }
 
     // Scan URL
     if let Some(ref url) = request.url {

@@ -189,32 +189,20 @@ mod tests {
 
         let resp = app
             .clone()
-            .oneshot(
-                Request::get("/custom/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::get("/custom/health").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let resp = app
             .clone()
-            .oneshot(
-                Request::get("/custom/ready")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::get("/custom/ready").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let resp = app
-            .oneshot(
-                Request::get("/custom/metrics")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::get("/custom/metrics").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);

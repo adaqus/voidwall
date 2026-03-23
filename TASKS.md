@@ -168,17 +168,17 @@ Decisions applied:
 - [ ] If `reverse_proxy.tls.enabled`, wrap the TCP listener with TLS acceptor
 
 ### 5.3 Integration tests
-- [ ] Plain HTTP proxying end-to-end (proxy → echo upstream)
-- [ ] Route matching: longest-prefix wins, unknown prefix returns 404
-- [ ] Request block action: request with PII returns configurable error response, not forwarded
-- [ ] Response block action: response with PII returns error response, upstream response discarded
-- [ ] Request redact action: PII replaced in forwarded request body/headers
-- [ ] Response redact action: PII replaced in response body before sending to client
-- [ ] Header action: `X-PII-Detected` header added to forwarded request (reverse proxy)
-- [ ] Empty action list disables scanning for that direction
-- [ ] Metrics always incremented when PII detected (no warn action needed)
-- [ ] `on_error` fail-open and fail-close paths
-- [ ] Oversized body handling
+- [x] Plain HTTP proxying end-to-end (proxy → echo upstream)
+- [x] Route matching: longest-prefix wins, unknown prefix returns 404
+- [x] Request block action: request with PII returns configurable error response, not forwarded
+- [x] Response block action: response with PII returns error response, upstream response discarded
+- [x] Request redact action: PII replaced in forwarded request body/headers
+- [x] Response redact action: PII replaced in response body before sending to client
+- [x] Header action: `X-PII-Detected` header added to forwarded request (reverse proxy)
+- [x] Empty action list disables scanning for that direction
+- [x] Metrics always incremented when PII detected (no warn action needed)
+- [x] `on_error` fail-open and fail-close paths
+- [x] Oversized body handling
 
 ---
 

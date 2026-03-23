@@ -62,17 +62,13 @@ async fn readiness_returns_503_then_200() {
     let (addr, ready_flag, cancel) = start_admin(false).await;
 
     // Not ready yet
-    let resp = reqwest::get(format!("http://{addr}/readyz"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("http://{addr}/readyz")).await.unwrap();
     assert_eq!(resp.status(), 503);
 
     // Flip to ready
     ready_flag.store(true, Ordering::Release);
 
-    let resp = reqwest::get(format!("http://{addr}/readyz"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("http://{addr}/readyz")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     cancel.cancel();

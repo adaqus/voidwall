@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::Router;
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper_util::client::legacy::Client;
@@ -125,9 +125,7 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProx
 
 /// Build the axum router for the reverse proxy.
 pub fn router(state: ReverseProxyState) -> Router {
-    Router::new()
-        .fallback(proxy_handler)
-        .with_state(state)
+    Router::new().fallback(proxy_handler).with_state(state)
 }
 
 /// Start the reverse proxy server.
@@ -262,11 +260,8 @@ async fn handle_proxied_request(
                     apply_redacted_headers(&mut forward_headers, &rh);
                 }
                 if redacted_url.is_some() || redacted_query.is_some() {
-                    forward_uri = rebuild_uri(
-                        &uri,
-                        redacted_url.as_deref(),
-                        redacted_query.as_deref(),
-                    );
+                    forward_uri =
+                        rebuild_uri(&uri, redacted_url.as_deref(), redacted_query.as_deref());
                 }
             }
             PipelineResult::Pass => {}
@@ -284,10 +279,12 @@ async fn handle_proxied_request(
         }
     };
 
-    // Strip hop-by-hop headers and host.
+    // Strip hop-by-hop headers, host, and content-length. Content-length must
+    // be removed because body redaction may change the body size; hyper will
+    // recompute it from the actual body when sending the upstream request.
     let mut upstream_headers = HeaderMap::new();
     for (name, value) in forward_headers.iter() {
-        if !is_hop_by_hop(name) && name != "host" {
+        if !is_hop_by_hop(name) && name != "host" && name != "content-length" {
             upstream_headers.insert(name.clone(), value.clone());
         }
     }
@@ -363,6 +360,9 @@ async fn handle_proxied_request(
             } => {
                 let final_body = body.unwrap_or(resp_body);
                 let mut final_headers = strip_hop_by_hop(&resp_headers);
+                // Remove stale content-length; body redaction may have changed
+                // the size, and hyper will set the correct value from the body.
+                final_headers.remove("content-length");
                 if let Some(rh) = redacted_headers {
                     apply_redacted_headers(&mut final_headers, &rh);
                 }
@@ -435,8 +435,7 @@ async fn scan_and_act(
 
     let scan_headers = collect_scan_headers(scan_config, headers);
 
-    if scan_body.is_none() && scan_url.is_none() && scan_query.is_none() && scan_headers.is_none()
-    {
+    if scan_body.is_none() && scan_url.is_none() && scan_query.is_none() && scan_headers.is_none() {
         return PipelineResult::Pass;
     }
 
@@ -497,7 +496,10 @@ async fn scan_and_act_response(
     pipeline_result_from_outcome(action::execute(scan_result, action_set, ctx))
 }
 
-fn collect_scan_headers(scan_config: &ScanConfig, headers: &HeaderMap) -> Option<Vec<(String, String)>> {
+fn collect_scan_headers(
+    scan_config: &ScanConfig,
+    headers: &HeaderMap,
+) -> Option<Vec<(String, String)>> {
     if scan_config.headers.is_empty() {
         return None;
     }
@@ -558,16 +560,11 @@ fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
 // Body buffering
 // ---------------------------------------------------------------------------
 
-async fn buffer_body(
-    req: Request,
-    max_size: usize,
-    on_error: OnError,
-) -> Result<Bytes, Response> {
-    let collected = req
-        .into_body()
-        .collect()
-        .await
-        .map_err(|e| Error::Proxy(format!("failed to read request body: {e}")).into_response())?;
+async fn buffer_body(req: Request, max_size: usize, on_error: OnError) -> Result<Bytes, Response> {
+    let collected =
+        req.into_body().collect().await.map_err(|e| {
+            Error::Proxy(format!("failed to read request body: {e}")).into_response()
+        })?;
     let bytes = collected.to_bytes();
 
     if bytes.len() > max_size {
@@ -615,10 +612,7 @@ fn strip_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
 
 fn apply_redacted_headers(headers: &mut HeaderMap, redacted: &[(String, String)]) {
     for (name, value) in redacted {
-        if let (Ok(n), Ok(v)) = (
-            name.parse::<HeaderName>(),
-            value.parse::<HeaderValue>(),
-        ) {
+        if let (Ok(n), Ok(v)) = (name.parse::<HeaderName>(), value.parse::<HeaderValue>()) {
             headers.insert(n, v);
         }
     }
@@ -754,9 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn buffer_body_within_limit() {
-        let req = Request::builder()
-            .body(Body::from("hello"))
-            .unwrap();
+        let req = Request::builder().body(Body::from("hello")).unwrap();
         let result = buffer_body(req, 1024, OnError::FailClose).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello"));
@@ -764,18 +756,14 @@ mod tests {
 
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_close() {
-        let req = Request::builder()
-            .body(Body::from("hello world"))
-            .unwrap();
+        let req = Request::builder().body(Body::from("hello world")).unwrap();
         let result = buffer_body(req, 5, OnError::FailClose).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_open() {
-        let req = Request::builder()
-            .body(Body::from("hello world"))
-            .unwrap();
+        let req = Request::builder().body(Body::from("hello world")).unwrap();
         let result = buffer_body(req, 5, OnError::FailOpen).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
@@ -844,10 +832,7 @@ mod tests {
             &mut headers,
             &[("authorization".into(), "Bearer [REDACTED]".into())],
         );
-        assert_eq!(
-            headers.get("authorization").unwrap(),
-            "Bearer [REDACTED]"
-        );
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer [REDACTED]");
     }
 
     // --- Scan header collection ---
