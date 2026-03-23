@@ -200,7 +200,7 @@ Setup and infrastructure per `docs/load-testing.md`.
 - [x] Scanner thread scaling — effect of `scanner_threads` 1/2/4/8
 
 ### 6.3 Automation
-- [ ] `benches/run_all.sh` — builds, starts servers, runs all scenarios,
+- [x] `benches/run_all.sh` — builds, starts servers, runs all scenarios,
   collects JSON results, prints summary table
 
 ---

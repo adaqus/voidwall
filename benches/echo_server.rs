@@ -23,7 +23,9 @@ async fn echo_handler(req: Request) -> impl IntoResponse {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let app = Router::new().route("/{*path}", any(echo_handler));
+    let app = Router::new()
+        .route("/", any(echo_handler))
+        .route("/{*path}", any(echo_handler));
     let listener = TcpListener::bind(&args.listen).await.unwrap();
     eprintln!("echo-server listening on {}", args.listen);
     axum::serve(listener, app).await.unwrap();
