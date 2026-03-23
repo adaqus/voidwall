@@ -140,7 +140,7 @@ Decisions applied:
 ## Phase 5 — Reverse Proxy Mode
 
 ### 5.1 Request handling pipeline
-- [ ] Implement `reverse_proxy.rs` axum router:
+- [x] Implement `reverse_proxy.rs` axum router:
   - Route matching by `path_prefix` (longest-prefix wins)
   - For each incoming request:
     1. **Request scanning** (if `request_actions` is non-empty):
@@ -159,9 +159,9 @@ Decisions applied:
        d. On `Block` → return configurable error response (discard upstream response)
        e. On `Forward` → return possibly mutated response to client
     4. On `Pass` (either direction) → forward unchanged
-- [ ] Upstream connection pooling: one `hyper-util` pooling client per upstream URL,
+- [x] Upstream connection pooling: one `hyper-util` pooling client per upstream URL,
   stored in a `HashMap<String, Client>` built at startup
-- [ ] Increment all relevant metrics with `direction` label
+- [x] Increment all relevant metrics with `direction` label
 
 ### 5.2 TLS termination (reverse proxy)
 - [ ] In `tls.rs`: build `tokio_rustls::TlsAcceptor` from cert/key paths
