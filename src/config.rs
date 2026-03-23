@@ -40,6 +40,14 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub admin: AdminConfig,
+
+    /// Seconds to wait for in-flight requests to drain during graceful shutdown.
+    #[serde(default = "default_shutdown_timeout_secs")]
+    pub shutdown_timeout_secs: u64,
+}
+
+fn default_shutdown_timeout_secs() -> u64 {
+    30
 }
 
 // ---------------------------------------------------------------------------

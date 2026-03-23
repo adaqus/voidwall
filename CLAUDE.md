@@ -7,6 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 PII Proxy — a multi-mode HTTP proxy that inspects HTTP traffic for PII using the `pii` crate.
 Design: `DESIGN.md`. Tasks: `TASKS.md`. Load testing: `docs/load-testing.md`.
 
+## Platform
+
+Only Linux is supported. Do not add platform-conditional code for other OSes.
+
 ## Build
 
 ```bash

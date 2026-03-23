@@ -270,10 +270,10 @@ Extend load testing from Phase 6 to cover all modes.
   8. Await shutdown signal
 
 ### 10.2 Graceful shutdown
-- [ ] `tokio::signal::ctrl_c()` + SIGTERM handler → trigger `CancellationToken`
-- [ ] Each listener: stop accepting new connections, drain in-flight with timeout
-- [ ] `ScannerPool::shutdown()` — drain channel, join threads
-- [ ] Exit with 0
+- [x] `tokio::signal::ctrl_c()` + SIGTERM handler → trigger `CancellationToken`
+- [x] Each listener: stop accepting new connections, drain in-flight with timeout
+- [x] `ScannerPool::shutdown()` — drain channel, join threads
+- [x] Exit with 0
 
 ---
 

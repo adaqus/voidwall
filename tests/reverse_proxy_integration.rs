@@ -237,6 +237,7 @@ fn default_app_config() -> AppConfig {
         forward_proxy: Default::default(),
         rest_api: Default::default(),
         admin: Default::default(),
+        shutdown_timeout_secs: 30,
     }
 }
 

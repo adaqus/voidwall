@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use clap::Parser;
 use pii_proxy::admin::{self, AdminState};
@@ -49,6 +50,7 @@ async fn main() {
     // 5. Set up cancellation token and readiness signal
     let cancel = CancellationToken::new();
     let ready = Arc::new(AtomicBool::new(false));
+    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
 
     // 6. Spawn enabled listeners as tokio tasks
     let mut task_handles = Vec::new();
@@ -106,22 +108,30 @@ async fn main() {
         });
     }
 
-    // 8. Await shutdown signal
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to listen for ctrl-c");
+    // 8. Await shutdown signal (ctrl-c or SIGTERM)
+    shutdown_signal().await;
     tracing::info!("shutdown signal received, initiating graceful shutdown");
 
-    // 9. Trigger cancellation for all listeners
+    // 9. Trigger cancellation — listeners stop accepting new connections
+    //    and axum drains in-flight requests via with_graceful_shutdown.
     cancel.cancel();
 
-    // Wait for all tasks to complete
-    for handle in task_handles {
-        let _ = handle.await;
+    // Wait for all tasks to complete, with a timeout to avoid hanging
+    if tokio::time::timeout(shutdown_timeout, async {
+        for handle in task_handles {
+            let _ = handle.await;
+        }
+    })
+    .await
+    .is_err()
+    {
+        tracing::warn!(
+            timeout_secs = config.shutdown_timeout_secs,
+            "shutdown timeout exceeded, some tasks may not have finished"
+        );
     }
 
-    // Shutdown scanner pool
-    // Arc::try_unwrap will succeed since all tasks have completed and dropped their clones
+    // Shutdown scanner pool — drain channel, join threads
     match Arc::try_unwrap(scanner) {
         Ok(mut pool) => pool.shutdown(),
         Err(_) => {
@@ -130,4 +140,14 @@ async fn main() {
     }
 
     tracing::info!("shutdown complete");
+}
+
+/// Wait for either ctrl-c or SIGTERM.
+async fn shutdown_signal() {
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("failed to install SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = sigterm.recv() => {}
+    }
 }
