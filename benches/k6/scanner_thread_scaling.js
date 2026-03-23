@@ -30,6 +30,7 @@ const params = {
 };
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     scanner_test: {
       executor: "constant-vus",

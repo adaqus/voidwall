@@ -19,43 +19,31 @@ const PROXY_URL = __ENV.PROXY_URL || "http://127.0.0.1:8082";
 const DURATION = __ENV.DURATION || "30s";
 const VUS = parseInt(__ENV.VUS || "50");
 
+// PAYLOAD is set via env var so run_all.sh can invoke once per size.
+const PAYLOAD = __ENV.PAYLOAD || "medium";  // small | medium | large
+
 const payloads = {
   small: open("../payloads/pii_small.json"),
   medium: open("../payloads/pii_medium.json"),
   large: open("../payloads/pii_large.json"),
 };
 
-const smallLatency = new Trend("latency_small", true);
-const mediumLatency = new Trend("latency_medium", true);
-const largeLatency = new Trend("latency_large", true);
+const latency = new Trend("latency", true);
 const errorCount = new Counter("error_count");
 
 const params = {
   headers: { "Content-Type": "application/json" },
 };
 
+const payload = payloads[PAYLOAD];
+
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
-    small: {
+    body_size: {
       executor: "constant-vus",
       vus: VUS,
       duration: DURATION,
-      exec: "testSmall",
-      startTime: "0s",
-    },
-    medium: {
-      executor: "constant-vus",
-      vus: VUS,
-      duration: DURATION,
-      exec: "testMedium",
-      startTime: DURATION,
-    },
-    large: {
-      executor: "constant-vus",
-      vus: VUS,
-      duration: DURATION,
-      exec: "testLarge",
-      startTime: `${parseInt(DURATION) * 2}s`,
     },
   },
   thresholds: {
@@ -63,29 +51,8 @@ export const options = {
   },
 };
 
-export function testSmall() {
-  const res = http.post(`${PROXY_URL}/echo`, payloads.small, {
-    ...params,
-    tags: { name: "small" },
-  });
-  smallLatency.add(res.timings.duration);
-  check(res, { "status 200": (r) => r.status === 200 }) || errorCount.add(1);
-}
-
-export function testMedium() {
-  const res = http.post(`${PROXY_URL}/echo`, payloads.medium, {
-    ...params,
-    tags: { name: "medium" },
-  });
-  mediumLatency.add(res.timings.duration);
-  check(res, { "status 200": (r) => r.status === 200 }) || errorCount.add(1);
-}
-
-export function testLarge() {
-  const res = http.post(`${PROXY_URL}/echo`, payloads.large, {
-    ...params,
-    tags: { name: "large" },
-  });
-  largeLatency.add(res.timings.duration);
+export default function () {
+  const res = http.post(`${PROXY_URL}/echo`, payload, params);
+  latency.add(res.timings.duration);
   check(res, { "status 200": (r) => r.status === 200 }) || errorCount.add(1);
 }

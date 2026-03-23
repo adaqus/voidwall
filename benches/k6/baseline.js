@@ -34,95 +34,19 @@ const params = {
   headers: { "Content-Type": "application/json" },
 };
 
+// PAYLOAD and VUS are set via env vars so run_all.sh can invoke this script
+// once per (payload, concurrency) combination — keeping each k6 process small.
+const PAYLOAD = __ENV.PAYLOAD || "medium";  // small | medium | large
+const VUS = parseInt(__ENV.VUS || "50");
+const TARGET = __ENV.TARGET || "proxy";     // proxy | direct
+
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
-    // Small payload, varying concurrency
-    small_c10: {
+    baseline: {
       executor: "constant-vus",
-      vus: 10,
+      vus: VUS,
       duration: DURATION,
-      exec: "proxySmall",
-      startTime: "0s",
-    },
-    small_c50: {
-      executor: "constant-vus",
-      vus: 50,
-      duration: DURATION,
-      exec: "proxySmall",
-      startTime: DURATION,
-    },
-    small_c200: {
-      executor: "constant-vus",
-      vus: 200,
-      duration: DURATION,
-      exec: "proxySmall",
-      startTime: `${parseInt(DURATION) * 2}s`,
-    },
-    // Medium payload
-    medium_c10: {
-      executor: "constant-vus",
-      vus: 10,
-      duration: DURATION,
-      exec: "proxyMedium",
-      startTime: `${parseInt(DURATION) * 3}s`,
-    },
-    medium_c50: {
-      executor: "constant-vus",
-      vus: 50,
-      duration: DURATION,
-      exec: "proxyMedium",
-      startTime: `${parseInt(DURATION) * 4}s`,
-    },
-    medium_c200: {
-      executor: "constant-vus",
-      vus: 200,
-      duration: DURATION,
-      exec: "proxyMedium",
-      startTime: `${parseInt(DURATION) * 5}s`,
-    },
-    // Large payload
-    large_c10: {
-      executor: "constant-vus",
-      vus: 10,
-      duration: DURATION,
-      exec: "proxyLarge",
-      startTime: `${parseInt(DURATION) * 6}s`,
-    },
-    large_c50: {
-      executor: "constant-vus",
-      vus: 50,
-      duration: DURATION,
-      exec: "proxyLarge",
-      startTime: `${parseInt(DURATION) * 7}s`,
-    },
-    large_c200: {
-      executor: "constant-vus",
-      vus: 200,
-      duration: DURATION,
-      exec: "proxyLarge",
-      startTime: `${parseInt(DURATION) * 8}s`,
-    },
-    // Direct-to-echo baselines (medium payload only)
-    direct_c10: {
-      executor: "constant-vus",
-      vus: 10,
-      duration: DURATION,
-      exec: "directMedium",
-      startTime: `${parseInt(DURATION) * 9}s`,
-    },
-    direct_c50: {
-      executor: "constant-vus",
-      vus: 50,
-      duration: DURATION,
-      exec: "directMedium",
-      startTime: `${parseInt(DURATION) * 10}s`,
-    },
-    direct_c200: {
-      executor: "constant-vus",
-      vus: 200,
-      duration: DURATION,
-      exec: "directMedium",
-      startTime: `${parseInt(DURATION) * 11}s`,
     },
   },
   thresholds: {
@@ -130,33 +54,12 @@ export const options = {
   },
 };
 
-function sendProxy(payload, tag) {
-  const res = http.post(`${PROXY_URL}/echo`, payload, {
-    ...params,
-    tags: { name: tag },
-  });
-  proxyLatency.add(res.timings.duration);
-  check(res, { "status 200": (r) => r.status === 200 }) || errorCount.add(1);
-}
+const baseUrl = TARGET === "direct" ? ECHO_URL : PROXY_URL;
+const payload = payloads[PAYLOAD];
+const latency = TARGET === "direct" ? directLatency : proxyLatency;
 
-function sendDirect(payload, tag) {
-  const res = http.post(`${ECHO_URL}/echo`, payload, {
-    ...params,
-    tags: { name: tag },
-  });
-  directLatency.add(res.timings.duration);
+export default function () {
+  const res = http.post(`${baseUrl}/echo`, payload, params);
+  latency.add(res.timings.duration);
   check(res, { "status 200": (r) => r.status === 200 }) || errorCount.add(1);
-}
-
-export function proxySmall() {
-  sendProxy(payloads.small, "proxy_small");
-}
-export function proxyMedium() {
-  sendProxy(payloads.medium, "proxy_medium");
-}
-export function proxyLarge() {
-  sendProxy(payloads.large, "proxy_large");
-}
-export function directMedium() {
-  sendDirect(payloads.medium, "direct_medium");
 }

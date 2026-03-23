@@ -29,6 +29,7 @@ const params = {
 };
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     action_test: {
       executor: "constant-vus",

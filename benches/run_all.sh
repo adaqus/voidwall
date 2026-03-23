@@ -7,7 +7,7 @@
 # 3. For each scenario config + k6 script:
 #    a. Starts proxy with the scenario's config
 #    b. Waits for /readyz
-#    c. Runs k6, saves JSON output to benches/results/
+#    c. Runs k6, saves CSV output to benches/results/
 #    d. Stops proxy
 # 4. Stops echo server
 # 5. Prints summary table (req/s and p99 for each scenario)
@@ -97,11 +97,11 @@ stop_proxy() {
 run_k6() {
     local script="$1"
     local name="$2"
-    local output="$RESULTS_DIR/${name}_${TIMESTAMP}.json"
+    local output="$RESULTS_DIR/${name}_${TIMESTAMP}.csv"
 
     echo "  Running k6: $(basename "$script") -> $(basename "$output")"
     k6 run \
-        --out "json=$output" \
+        --out "csv=$output" \
         --summary-trend-stats "avg,p(50),p(95),p(99),max" \
         -e "PROXY_URL=http://$PROXY_ADDR" \
         -e "ECHO_URL=http://$ECHO_ADDR" \
@@ -139,8 +139,44 @@ wait_for_port "$ECHO_ADDR" "echo-server"
 echo "Echo server ready."
 
 # --- Scenario 1: Baseline ---
+# Split into individual k6 runs per (payload, concurrency, target) to reduce
+# per-process memory — each run uses only one VU level instead of pre-allocating
+# for the peak.
 
-run_scenario "$CONFIGS_DIR/reverse_proxy_no_actions.toml" "$K6_DIR/baseline.js" "baseline"
+run_baseline() {
+    local payload="$1"
+    local vus="$2"
+    local target="$3"  # proxy or direct
+    local name="baseline_${target}_${payload}_c${vus}"
+
+    echo ""
+    echo "=== Scenario: $name ==="
+    start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
+
+    local output="$RESULTS_DIR/${name}_${TIMESTAMP}.csv"
+    echo "  Running k6: baseline.js ($target, $payload, ${vus} VUs) -> $(basename "$output")"
+    k6 run \
+        --out "csv=$output" \
+        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+        -e "PROXY_URL=http://$PROXY_ADDR" \
+        -e "ECHO_URL=http://$ECHO_ADDR" \
+        -e "DURATION=$DURATION" \
+        -e "PAYLOAD=$payload" \
+        -e "VUS=$vus" \
+        -e "TARGET=$target" \
+        "$K6_DIR/baseline.js" 2>&1 | tee "$RESULTS_DIR/${name}_${TIMESTAMP}.log"
+
+    stop_proxy
+}
+
+for payload in small medium large; do
+    for vus in 10 50 200; do
+        run_baseline "$payload" "$vus" "proxy"
+    done
+done
+for vus in 10 50 200; do
+    run_baseline "medium" "$vus" "direct"
+done
 
 # --- Scenario 2: Action Comparison ---
 
@@ -153,11 +189,41 @@ done
 
 # --- Scenario 3: Body Size Scaling ---
 
-run_scenario "$CONFIGS_DIR/reverse_proxy_redact.toml" "$K6_DIR/body_size_scaling.js" "body_size"
+for size in small medium large; do
+    echo ""
+    echo "=== Scenario: body_size_${size} ==="
+    start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
+
+    local_output="$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.csv"
+    k6 run \
+        --out "csv=$local_output" \
+        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+        -e "PROXY_URL=http://$PROXY_ADDR" \
+        -e "DURATION=$DURATION" \
+        -e "PAYLOAD=$size" \
+        "$K6_DIR/body_size_scaling.js" 2>&1 | tee "$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.log"
+
+    stop_proxy
+done
 
 # --- Scenario 4: Concurrency Scaling ---
 
-run_scenario "$CONFIGS_DIR/reverse_proxy_no_actions.toml" "$K6_DIR/concurrency_scaling.js" "concurrency"
+for vus in 1 10 50 100 200 500; do
+    echo ""
+    echo "=== Scenario: concurrency_c${vus} ==="
+    start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
+
+    local_output="$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.csv"
+    k6 run \
+        --out "csv=$local_output" \
+        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+        -e "PROXY_URL=http://$PROXY_ADDR" \
+        -e "DURATION=$DURATION" \
+        -e "VUS=$vus" \
+        "$K6_DIR/concurrency_scaling.js" 2>&1 | tee "$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.log"
+
+    stop_proxy
+done
 
 # --- Scenario 5: Scanner Thread Scaling ---
 
@@ -175,8 +241,8 @@ echo "============================================"
 echo "  Load Test Summary — $TIMESTAMP"
 echo "============================================"
 echo ""
-printf "%-30s %10s %10s %10s %10s\n" "Scenario" "Requests" "Avg(ms)" "p99(ms)" "Errors"
-printf "%-30s %10s %10s %10s %10s\n" "------------------------------" "----------" "----------" "----------" "----------"
+printf "%-40s %10s %10s %10s %10s\n" "Scenario" "Requests" "Avg(ms)" "p99(ms)" "Errors"
+printf "%-40s %10s %10s %10s %10s\n" "----------------------------------------" "----------" "----------" "----------" "----------"
 
 for logfile in "$RESULTS_DIR"/*_"${TIMESTAMP}".log; do
     [ -f "$logfile" ] || continue
@@ -188,7 +254,7 @@ for logfile in "$RESULTS_DIR"/*_"${TIMESTAMP}".log; do
     p99=$(grep 'http_req_duration' "$logfile" | grep -oP 'p\(99\)=\K[0-9.]+m?s?' | head -1)
     errs=$(grep -oP 'http_req_failed[^0-9]*\K[0-9]+' "$logfile" | head -1)
 
-    printf "%-30s %10s %10s %10s %10s\n" "$name" "${reqs:-?}" "${avg:-?}" "${p99:-?}" "${errs:-0}"
+    printf "%-40s %10s %10s %10s %10s\n" "$name" "${reqs:-?}" "${avg:-?}" "${p99:-?}" "${errs:-0}"
 done
 
 echo ""
