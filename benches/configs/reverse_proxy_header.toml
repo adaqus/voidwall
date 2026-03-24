@@ -1,4 +1,4 @@
-# Reverse proxy with redact + header action
+# Reverse proxy with header action only (measures header action overhead)
 
 [pii]
 countries = []
@@ -13,12 +13,10 @@ enabled = true
 listen = "0.0.0.0:8082"
 
 [reverse_proxy.request]
-actions = ["redact", "header"]
-redact_strategy = "type_label"
+actions = ["header"]
 
 [reverse_proxy.response]
-actions = ["redact"]
-redact_strategy = "type_label"
+actions = []
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

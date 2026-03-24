@@ -291,8 +291,8 @@ echo "============================================"
 echo "  Load Test Summary — $TIMESTAMP"
 echo "============================================"
 echo ""
-printf "%-40s %10s %10s %10s %10s\n" "Scenario" "Requests" "Avg(ms)" "p99(ms)" "Errors"
-printf "%-40s %10s %10s %10s %10s\n" "----------------------------------------" "----------" "----------" "----------" "----------"
+printf "%-40s %10s %10s %10s %10s %10s\n" "Scenario" "Requests" "Req/s" "p50" "p99" "Errors"
+printf "%-40s %10s %10s %10s %10s %10s\n" "----------------------------------------" "----------" "----------" "----------" "----------" "----------"
 
 for logfile in "$RESULTS_DIR"/*_"${TIMESTAMP}".log; do
     [ -f "$logfile" ] || continue
@@ -300,11 +300,21 @@ for logfile in "$RESULTS_DIR"/*_"${TIMESTAMP}".log; do
 
     # Parse k6 summary output for http_req_duration and http_reqs
     reqs=$(grep -oP 'http_reqs[^0-9]*\K[0-9]+' "$logfile" | tail -1)
-    avg=$(grep 'http_req_duration' "$logfile" | grep -oP 'avg=\K[0-9.]+m?s?' | head -1)
-    p99=$(grep 'http_req_duration' "$logfile" | grep -oP 'p\(99\)=\K[0-9.]+m?s?' | head -1)
+    rps=$(grep -oP 'http_reqs[^0-9]*[0-9]+\s+\K[0-9.]+' "$logfile" | tail -1)
+    p50=$(grep 'http_req_duration' "$logfile" | grep -oP 'p\(50\)=\K[0-9.]+(?:ms|µs|s)' | head -1)
+    p99=$(grep 'http_req_duration' "$logfile" | grep -oP 'p\(99\)=\K[0-9.]+(?:ms|µs|s)' | head -1)
     errs=$(grep -oP 'http_req_failed[^0-9]*\K[0-9]+' "$logfile" | head -1)
 
-    printf "%-40s %10s %10s %10s %10s\n" "$name" "${reqs:-?}" "${avg:-?}" "${p99:-?}" "${errs:-0}"
+    # µ is multi-byte (2 bytes) but 1 column wide; printf miscounts width.
+    # Compensate by adding an extra space to the format width for each µ.
+    p50_val="${p50:-?}"
+    p99_val="${p99:-?}"
+    rps_val="${rps:-?}"
+    # Truncate req/s to integer for readability
+    rps_val="${rps_val%%.*}"
+    p50_width=10; [[ "$p50_val" == *µ* ]] && p50_width=11
+    p99_width=10; [[ "$p99_val" == *µ* ]] && p99_width=11
+    printf "%-40s %10s %10s %${p50_width}s %${p99_width}s %10s\n" "$name" "${reqs:-?}" "$rps_val" "$p50_val" "$p99_val" "${errs:-0}"
 done
 
 echo ""
