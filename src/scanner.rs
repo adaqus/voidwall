@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use bytes::Bytes;
-use crossbeam_channel::{Sender, TrySendError};
+use crossbeam_channel::{SendTimeoutError, Sender};
 use tracing::{debug, error, info};
 
 use crate::config::{OnError, PiiConfig, RedactStrategy};
@@ -89,6 +90,9 @@ pub static SCANNER_ERROR_LIMITER: LogRateLimiter = LogRateLimiter::new(1_000);
 // Scanner pool
 // ---------------------------------------------------------------------------
 
+/// How long `process()` will wait for a free channel slot before giving up.
+const SEND_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// A pool of dedicated OS threads, each owning a `pii::Scanner` instance.
 ///
 /// Work is dispatched via a bounded crossbeam channel. Responses are sent back
@@ -139,6 +143,10 @@ impl ScannerPool {
     }
 
     /// Submit a scan request and await the result.
+    ///
+    /// If the channel is full the caller blocks (on the tokio blocking pool)
+    /// for up to [`SEND_TIMEOUT`] before giving up. This applies backpressure
+    /// to the HTTP layer instead of instantly rejecting bursts.
     pub async fn process(
         &self,
         request: ScanRequest,
@@ -147,17 +155,26 @@ impl ScannerPool {
         let sender = self
             .sender
             .as_ref()
-            .ok_or_else(|| Error::Scanner("scanner pool is shut down".into()))?;
+            .ok_or_else(|| Error::Scanner("scanner pool is shut down".into()))?
+            .clone();
 
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let item = (request, reply_tx);
 
-        match sender.try_send((request, reply_tx)) {
+        // send_timeout blocks, so run it on the tokio blocking thread pool
+        // to avoid stalling the async runtime.
+        let send_result =
+            tokio::task::spawn_blocking(move || sender.send_timeout(item, SEND_TIMEOUT))
+                .await
+                .map_err(|_| Error::Scanner("blocking send task panicked".into()))?;
+
+        match send_result {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
+            Err(SendTimeoutError::Timeout(_)) => {
                 log_channel_full("scanner pool channel full");
                 return Err(Error::Scanner("scanner pool overloaded".into()));
             }
-            Err(TrySendError::Disconnected(_)) => {
+            Err(SendTimeoutError::Disconnected(_)) => {
                 error!("all scanner threads are dead");
                 return Err(Error::Scanner("all scanner threads are dead".into()));
             }
