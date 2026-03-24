@@ -5,18 +5,22 @@
 - [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) load testing tool
 - Python 3 (for payload generation)
 
-## Running All Scenarios
+## Running Scenarios
 
 ```bash
-benches/run_all.sh
+benches/run.sh                                          # run all scenarios
+benches/run.sh baseline                                 # run only "baseline"
+benches/run.sh action_comparison body_size_scaling       # run two scenarios
 ```
+
+Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`.
 
 This generates test payloads if missing, builds release binaries, starts the echo server and proxy for each scenario, runs k6, and prints a summary table. Results are saved to `benches/results/`.
 
 Control duration per stage with the `DURATION` env var (default `30s`):
 
 ```bash
-DURATION=10s benches/run_all.sh
+DURATION=10s benches/run.sh
 ```
 
 **Note:** Requires Phase 10 (main entrypoint) to be implemented — the proxy binary must start and expose `/readyz` on the admin port.
@@ -65,7 +69,7 @@ k6 run -e DURATION=10s -e VUS=100 benches/k6/action_comparison.js
 | `concurrency_scaling.js`   | `reverse_proxy_no_actions.toml`        | Saturation point and tail latency       |
 | `scanner_thread_scaling.js`| `scanner_threads_{1,2,4,8}.toml`       | Effect of scanner thread count          |
 
-For action comparison and scanner thread scaling, `run_all.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
+For action comparison and scanner thread scaling, `run.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
 
 ## Configs
 

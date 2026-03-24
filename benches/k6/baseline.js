@@ -34,7 +34,7 @@ const params = {
   headers: { "Content-Type": "application/json" },
 };
 
-// PAYLOAD and VUS are set via env vars so run_all.sh can invoke this script
+// PAYLOAD and VUS are set via env vars so run.sh can invoke this script
 // once per (payload, concurrency) combination — keeping each k6 process small.
 const PAYLOAD = __ENV.PAYLOAD || "medium";  // small | medium | large
 const VUS = parseInt(__ENV.VUS || "50");

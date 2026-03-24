@@ -17,7 +17,7 @@ import { Counter } from "k6/metrics";
 const PROXY_URL = __ENV.PROXY_URL || "http://127.0.0.1:8082";
 const DURATION = __ENV.DURATION || "30s";
 
-// VUS is set via env var so run_all.sh can invoke once per concurrency level.
+// VUS is set via env var so run.sh can invoke once per concurrency level.
 const VUS = parseInt(__ENV.VUS || "50");
 
 const payload = open("../payloads/clean_medium.json");

@@ -18,6 +18,7 @@ use crate::action::{self, ActionContext, ActionOutcome, ActionSet};
 use crate::config::{AppConfig, OnError, ScanConfig};
 use crate::error::Error;
 use crate::metrics;
+use crate::scanner::SCANNER_ERROR_LIMITER;
 use crate::scanner::{ScanRequest, ScannerPool};
 
 // ---------------------------------------------------------------------------
@@ -451,7 +452,9 @@ async fn scan_and_act(
     let scan_result = match scanner.process(scan_req, scan_config.on_error).await {
         Ok(r) => r,
         Err(e) => {
-            warn!(error = %e, "scanner error");
+            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+                warn!(dropped, error = %e, "scanner error");
+            }
             return handle_scan_error(e, scan_config.on_error);
         }
     };
@@ -488,7 +491,9 @@ async fn scan_and_act_response(
     let scan_result = match scanner.process(scan_req, scan_config.on_error).await {
         Ok(r) => r,
         Err(e) => {
-            warn!(error = %e, "scanner error on response");
+            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+                warn!(dropped, error = %e, "scanner error on response");
+            }
             return handle_scan_error(e, scan_config.on_error);
         }
     };

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
 use bytes::Bytes;
@@ -39,6 +40,50 @@ pub struct ScanResult {
 // ---------------------------------------------------------------------------
 
 type WorkItem = (ScanRequest, tokio::sync::oneshot::Sender<ScanResult>);
+
+/// A rate limiter for log messages. Tracks a drop count and only allows
+/// emission once per `interval_ms`. Thread-safe via atomics.
+pub struct LogRateLimiter {
+    last_log_ms: AtomicU64,
+    dropped: AtomicU64,
+    interval_ms: u64,
+}
+
+impl LogRateLimiter {
+    pub const fn new(interval_ms: u64) -> Self {
+        Self {
+            last_log_ms: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+            interval_ms,
+        }
+    }
+
+    /// Record an occurrence. Returns `Some(dropped_count)` if enough time has
+    /// elapsed and this caller won the race to log, `None` otherwise.
+    pub fn should_log(&self) -> Option<u64> {
+        let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let last = self.last_log_ms.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(last) >= self.interval_ms
+            && self
+                .last_log_ms
+                .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            self.dropped.store(0, Ordering::Relaxed);
+            return Some(dropped);
+        }
+        None
+    }
+}
+
+static CHANNEL_FULL_LIMITER: LogRateLimiter = LogRateLimiter::new(1_000);
+pub static SCANNER_ERROR_LIMITER: LogRateLimiter = LogRateLimiter::new(1_000);
 
 // ---------------------------------------------------------------------------
 // Scanner pool
@@ -109,7 +154,7 @@ impl ScannerPool {
         match sender.try_send((request, reply_tx)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                error!("scanner pool channel full");
+                log_channel_full("scanner pool channel full");
                 return Err(Error::Scanner("scanner pool overloaded".into()));
             }
             Err(TrySendError::Disconnected(_)) => {
@@ -152,6 +197,13 @@ impl Drop for ScannerPool {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Log a "channel full" message, rate-limited to once per second.
+fn log_channel_full(message: &str) {
+    if let Some(dropped) = CHANNEL_FULL_LIMITER.should_log() {
+        error!(dropped, "{message}");
+    }
+}
 
 /// Build a `pii::Scanner` from the proxy's PII configuration.
 fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {

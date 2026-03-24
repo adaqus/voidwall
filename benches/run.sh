@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 #
-# Run all load-test scenarios.
+# Run load-test scenarios.
+#
+# Usage:
+#   benches/run.sh                              # run all scenarios
+#   benches/run.sh baseline                      # run only "baseline"
+#   benches/run.sh action_comparison body_size_scaling  # run two scenarios
+#
+# Available scenarios (matching k6/ file names):
+#   baseline, action_comparison, body_size_scaling,
+#   concurrency_scaling, scanner_thread_scaling
 #
 # 1. Builds release binaries
 # 2. Starts echo server, waits for healthcheck
-# 3. For each scenario config + k6 script:
+# 3. For each selected scenario config + k6 script:
 #    a. Starts proxy with the scenario's config
 #    b. Waits for /readyz
 #    c. Runs k6, saves CSV output to benches/results/
@@ -32,6 +41,37 @@ ECHO_PID=""
 PROXY_PID=""
 
 PAYLOADS_DIR="$SCRIPT_DIR/payloads"
+
+ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling"
+
+# --- Parse scenario filter ---
+
+SELECTED_SCENARIOS=("$@")
+if [ ${#SELECTED_SCENARIOS[@]} -eq 0 ]; then
+    read -ra SELECTED_SCENARIOS <<< "$ALL_SCENARIOS"
+fi
+
+# Validate scenario names
+for s in "${SELECTED_SCENARIOS[@]}"; do
+    case "$s" in
+        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling) ;;
+        *)
+            echo "ERROR: unknown scenario '$s'" >&2
+            echo "Available scenarios: $ALL_SCENARIOS" >&2
+            exit 1
+            ;;
+    esac
+done
+
+should_run() {
+    local name="$1"
+    for s in "${SELECTED_SCENARIOS[@]}"; do
+        [ "$s" = "$name" ] && return 0
+    done
+    return 1
+}
+
+echo "Scenarios to run: ${SELECTED_SCENARIOS[*]}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -169,70 +209,80 @@ run_baseline() {
     stop_proxy
 }
 
-for payload in small medium large; do
-    for vus in 10 50 200; do
-        run_baseline "$payload" "$vus" "proxy"
+if should_run baseline; then
+    for payload in small medium large; do
+        for vus in 10 50 200; do
+            run_baseline "$payload" "$vus" "proxy"
+        done
     done
-done
-for vus in 10 50 200; do
-    run_baseline "medium" "$vus" "direct"
-done
+    for vus in 10 50 200; do
+        run_baseline "medium" "$vus" "direct"
+    done
+fi
 
 # --- Scenario 2: Action Comparison ---
 
-for action in no_actions block redact header; do
-    run_scenario \
-        "$CONFIGS_DIR/reverse_proxy_${action}.toml" \
-        "$K6_DIR/action_comparison.js" \
-        "action_${action}"
-done
+if should_run action_comparison; then
+    for action in no_actions block redact header; do
+        run_scenario \
+            "$CONFIGS_DIR/reverse_proxy_${action}.toml" \
+            "$K6_DIR/action_comparison.js" \
+            "action_${action}"
+    done
+fi
 
 # --- Scenario 3: Body Size Scaling ---
 
-for size in small medium large; do
-    echo ""
-    echo "=== Scenario: body_size_${size} ==="
-    start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
+if should_run body_size_scaling; then
+    for size in small medium large; do
+        echo ""
+        echo "=== Scenario: body_size_${size} ==="
+        start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
 
-    local_output="$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.csv"
-    k6 run \
-        --out "csv=$local_output" \
-        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
-        -e "PROXY_URL=http://$PROXY_ADDR" \
-        -e "DURATION=$DURATION" \
-        -e "PAYLOAD=$size" \
-        "$K6_DIR/body_size_scaling.js" 2>&1 | tee "$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.log"
+        local_output="$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.csv"
+        k6 run \
+            --out "csv=$local_output" \
+            --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+            -e "PROXY_URL=http://$PROXY_ADDR" \
+            -e "DURATION=$DURATION" \
+            -e "PAYLOAD=$size" \
+            "$K6_DIR/body_size_scaling.js" 2>&1 | tee "$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.log"
 
-    stop_proxy
-done
+        stop_proxy
+    done
+fi
 
 # --- Scenario 4: Concurrency Scaling ---
 
-for vus in 1 10 50 100 200 500; do
-    echo ""
-    echo "=== Scenario: concurrency_c${vus} ==="
-    start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
+if should_run concurrency_scaling; then
+    for vus in 1 10 50 100 200 500; do
+        echo ""
+        echo "=== Scenario: concurrency_c${vus} ==="
+        start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
 
-    local_output="$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.csv"
-    k6 run \
-        --out "csv=$local_output" \
-        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
-        -e "PROXY_URL=http://$PROXY_ADDR" \
-        -e "DURATION=$DURATION" \
-        -e "VUS=$vus" \
-        "$K6_DIR/concurrency_scaling.js" 2>&1 | tee "$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.log"
+        local_output="$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.csv"
+        k6 run \
+            --out "csv=$local_output" \
+            --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+            -e "PROXY_URL=http://$PROXY_ADDR" \
+            -e "DURATION=$DURATION" \
+            -e "VUS=$vus" \
+            "$K6_DIR/concurrency_scaling.js" 2>&1 | tee "$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.log"
 
-    stop_proxy
-done
+        stop_proxy
+    done
+fi
 
 # --- Scenario 5: Scanner Thread Scaling ---
 
-for threads in 1 2 4 8; do
-    run_scenario \
-        "$CONFIGS_DIR/scanner_threads_${threads}.toml" \
-        "$K6_DIR/scanner_thread_scaling.js" \
-        "scanner_threads_${threads}"
-done
+if should_run scanner_thread_scaling; then
+    for threads in 1 2 4 8; do
+        run_scenario \
+            "$CONFIGS_DIR/scanner_threads_${threads}.toml" \
+            "$K6_DIR/scanner_thread_scaling.js" \
+            "scanner_threads_${threads}"
+    done
+fi
 
 # --- Summary ---
 

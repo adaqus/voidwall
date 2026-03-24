@@ -173,7 +173,7 @@ k6 run benches/k6/baseline.js
 
 ### Automated
 
-A script (`benches/run_all.sh`) that:
+A script (`benches/run.sh`) that:
 
 1. Builds release binaries
 2. Starts echo server, waits for healthcheck

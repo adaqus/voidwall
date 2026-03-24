@@ -19,7 +19,7 @@ const PROXY_URL = __ENV.PROXY_URL || "http://127.0.0.1:8082";
 const DURATION = __ENV.DURATION || "30s";
 const VUS = parseInt(__ENV.VUS || "50");
 
-// PAYLOAD is set via env var so run_all.sh can invoke once per size.
+// PAYLOAD is set via env var so run.sh can invoke once per size.
 const PAYLOAD = __ENV.PAYLOAD || "medium";  // small | medium | large
 
 const payloads = {
