@@ -250,35 +250,35 @@ pub fn to_redact_with(strategy: RedactStrategy, mask_char: Option<char>) -> pii:
     }
 }
 
-/// Apply redaction to `text` using pre-computed `matches`, avoiding a second scan.
+/// Redact PII in `text` in place using pre-computed `matches`.
 ///
-/// Matches are applied back-to-front so that byte offsets remain valid after
-/// each replacement. Overlapping matches are skipped.
-fn redact_with_matches(
-    text: &str,
-    matches: &mut [pii::PiiMatch],
-    strategy: &pii::RedactWith,
-) -> String {
-    // Sort by start descending so we can replace back-to-front.
-    matches.sort_by(|a, b| b.start.cmp(&a.start));
+/// Replacement length is fixed per PII kind (equal to the kind label length)
+/// to avoid leaking information about the original value's length.
+///
+/// For `Char` strategy the replacement is the mask char repeated `label().len()`
+/// times (e.g. EMAIL → `*****`). For `TypeLabel` the replacement is `[LABEL]`.
+///
+/// Matches are replaced back-to-front so that byte offsets stay valid.
+fn redact_in_place(text: &mut String, matches: &mut [pii::PiiMatch], strategy: &pii::RedactWith) {
+    if matches.is_empty() {
+        return;
+    }
 
-    let mut result = text.to_string();
+    // Sort by start descending so replace_range doesn't invalidate later offsets.
+    matches.sort_unstable_by(|a, b| b.start.cmp(&a.start));
     let mut prev_start = usize::MAX;
     for m in matches.iter() {
-        // Skip overlapping matches (already covered by an earlier replacement).
         if m.end > prev_start {
             continue;
         }
+        let label = m.kind.label();
         let replacement = match strategy {
-            pii::RedactWith::Char(c) => {
-                c.to_string().repeat(result[m.start..m.end].chars().count())
-            }
-            pii::RedactWith::TypeLabel => format!("[{}]", m.kind.label()),
+            pii::RedactWith::Char(c) => c.to_string().repeat(label.len()),
+            pii::RedactWith::TypeLabel => format!("[{label}]"),
         };
-        result.replace_range(m.start..m.end, &replacement);
+        text.replace_range(m.start..m.end, &replacement);
         prev_start = m.start;
     }
-    result
 }
 
 /// Execute scan (and optional redaction) synchronously on a scanner thread.
@@ -305,8 +305,9 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
-            let redacted = redact_with_matches(text, &mut matches, strategy);
-            redacted_body = Some(Bytes::from(redacted));
+            let mut owned = text.to_string();
+            redact_in_place(&mut owned, &mut matches, strategy);
+            redacted_body = Some(Bytes::from(owned));
         }
     }
 
@@ -322,7 +323,9 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
-            redacted_url = Some(redact_with_matches(url, &mut matches, strategy));
+            let mut owned = url.clone();
+            redact_in_place(&mut owned, &mut matches, strategy);
+            redacted_url = Some(owned);
         }
     }
 
@@ -338,7 +341,9 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
-            redacted_query = Some(redact_with_matches(query, &mut matches, strategy));
+            let mut owned = query.clone();
+            redact_in_place(&mut owned, &mut matches, strategy);
+            redacted_query = Some(owned);
         }
     }
 
@@ -358,8 +363,9 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
                 && !matches.is_empty()
                 && let Some(ref strategy) = request.redact_strategy
             {
-                let redacted = redact_with_matches(value, &mut matches, strategy);
-                header_results.push((name.clone(), redacted));
+                let mut owned = value.clone();
+                redact_in_place(&mut owned, &mut matches, strategy);
+                header_results.push((name.clone(), owned));
                 any_redacted = true;
             } else {
                 header_results.push((name.clone(), value.clone()));
@@ -635,32 +641,34 @@ mod tests {
         }
     }
 
-    // --- redact_with_matches: char-mask tests ---
+    // --- redact_in_place: char-mask tests ---
 
-    #[test_case("email me at test@example.com please", '*', "email me at **************** please" ; "basic email char mask")]
+    // Char-mask replacement length = kind label length (EMAIL=5, PHONE_NUMBER=12, US_SSN=6)
+    #[test_case("email me at test@example.com please", '*', "email me at ***** please" ; "basic email char mask")]
     #[test_case("nothing sensitive here", '*', "nothing sensitive here" ; "no pii preserves text char mask")]
-    #[test_case("contact user%40example.com now", '*', "contact ****************** now" ; "url encoded at char mask")]
-    #[test_case("contact user&#64;example.com now", '*', "contact ******************** now" ; "html entity at char mask")]
-    #[test_case("contact user&commat;example.com now", '*', "contact *********************** now" ; "html named entity at char mask")]
-    #[test_case("contact user\u{200B}@example.com now", '*', "contact ***************** now" ; "zwsp in email char mask")]
-    #[test_case("user@ex\u{0430}mple.com", '*', "****************" ; "cyrillic homoglyph char mask")]
+    #[test_case("contact user%40example.com now", '*', "contact ***** now" ; "url encoded at char mask")]
+    #[test_case("contact user&#64;example.com now", '*', "contact ***** now" ; "html entity at char mask")]
+    #[test_case("contact user&commat;example.com now", '*', "contact ***** now" ; "html named entity at char mask")]
+    #[test_case("contact user\u{200B}@example.com now", '*', "contact ***** now" ; "zwsp in email char mask")]
+    #[test_case("user@ex\u{0430}mple.com", '*', "*****" ; "cyrillic homoglyph char mask")]
     #[test_case("phone: 555-123-4567", '*', "phone: ************" ; "keyword context phone char mask")]
-    #[test_case("mask: test@example.com done", '#', "mask: ################ done" ; "custom mask char")]
-    #[test_case("\u{00E9}l\u{00E8}ve user@example.com fin", '*', "\u{00E9}l\u{00E8}ve **************** fin" ; "accented chars surrounding preserved")]
-    #[test_case("\u{2603} user@example.com \u{2764}", '*', "\u{2603} **************** \u{2764}" ; "emoji surrounding preserved")]
-    #[test_case("\u{00BF}hola? user@example.com \u{00A1}s\u{00ED}!", '*', "\u{00BF}hola? **************** \u{00A1}s\u{00ED}!" ; "spanish punctuation surrounding preserved")]
-    #[test_case("\u{200E}LTR user@example.com \u{200E}end", '*', "\u{200E}LTR **************** \u{200E}end" ; "ltr marks surrounding preserved")]
+    #[test_case("mask: test@example.com done", '#', "mask: ##### done" ; "custom mask char")]
+    #[test_case("\u{00E9}l\u{00E8}ve user@example.com fin", '*', "\u{00E9}l\u{00E8}ve ***** fin" ; "accented chars surrounding preserved")]
+    #[test_case("\u{2603} user@example.com \u{2764}", '*', "\u{2603} ***** \u{2764}" ; "emoji surrounding preserved")]
+    #[test_case("\u{00BF}hola? user@example.com \u{00A1}s\u{00ED}!", '*', "\u{00BF}hola? ***** \u{00A1}s\u{00ED}!" ; "spanish punctuation surrounding preserved")]
+    #[test_case("\u{200E}LTR user@example.com \u{200E}end", '*', "\u{200E}LTR ***** \u{200E}end" ; "ltr marks surrounding preserved")]
     fn redact_char_mask(input: &str, mask: char, expected: &str) {
         let scanner = &*SCANNER;
         let mut matches = scanner.mark_piis(input);
-        let result = redact_with_matches(input, &mut matches, &pii::RedactWith::Char(mask));
+        let mut text = input.to_string();
+        redact_in_place(&mut text, &mut matches, &pii::RedactWith::Char(mask));
         assert_eq!(
-            result, expected,
+            text, expected,
             "char-mask redaction mismatch for input: {input}"
         );
     }
 
-    // --- redact_with_matches: type-label tests ---
+    // --- redact_in_place: type-label tests ---
 
     #[test_case("email me at test@example.com please", "[EMAIL]" ; "basic email type label")]
     #[test_case("nothing sensitive here", "nothing sensitive here" ; "no pii preserves text type label")]
@@ -672,10 +680,11 @@ mod tests {
     fn redact_type_label_contains(input: &str, expected_label: &str) {
         let scanner = &*SCANNER;
         let mut matches = scanner.mark_piis(input);
-        let result = redact_with_matches(input, &mut matches, &pii::RedactWith::TypeLabel);
+        let mut text = input.to_string();
+        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
         assert!(
-            result.contains(expected_label),
-            "expected {expected_label} in redacted output, got: {result}"
+            text.contains(expected_label),
+            "expected {expected_label} in redacted output, got: {text}"
         );
     }
 
@@ -684,11 +693,12 @@ mod tests {
         let scanner = &*SCANNER;
         let input = "email: user@test.com, SSN: 123-45-6789";
         let mut matches = scanner.mark_piis(input);
-        let result = redact_with_matches(input, &mut matches, &pii::RedactWith::TypeLabel);
-        assert!(result.contains("[EMAIL]"));
-        assert!(result.contains("[US_SSN]"));
-        assert!(!result.contains("user@test.com"));
-        assert!(!result.contains("123-45-6789"));
+        let mut text = input.to_string();
+        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
+        assert!(text.contains("[EMAIL]"));
+        assert!(text.contains("[US_SSN]"));
+        assert!(!text.contains("user@test.com"));
+        assert!(!text.contains("123-45-6789"));
     }
 
     #[test]
@@ -696,10 +706,11 @@ mod tests {
         let scanner = &*SCANNER;
         let input = "email: user%40test.com, SSN: 123-45-6789";
         let mut matches = scanner.mark_piis(input);
-        let result = redact_with_matches(input, &mut matches, &pii::RedactWith::TypeLabel);
-        assert!(result.contains("[EMAIL]"));
-        assert!(result.contains("[US_SSN]"));
-        assert!(!result.contains("user%40test.com"));
-        assert!(!result.contains("123-45-6789"));
+        let mut text = input.to_string();
+        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
+        assert!(text.contains("[EMAIL]"));
+        assert!(text.contains("[US_SSN]"));
+        assert!(!text.contains("user%40test.com"));
+        assert!(!text.contains("123-45-6789"));
     }
 }
