@@ -8,17 +8,6 @@ pub mod hyperscan_detector;
 
 pub use scanner::{Scanner, ScannerBuilder};
 
-/// Strategy for redacting detected PII.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RedactWith {
-    /// Replace each character of the PII with the given char.
-    /// e.g. `Char('*')`: `test@example.com` → `****************`
-    Char(char),
-    /// Replace with a type label derived from the PiiKind.
-    /// e.g. `test@example.com` → `[EMAIL]`
-    TypeLabel,
-}
-
 use std::collections::HashSet;
 
 /// Errors that can occur during PII scanner initialization.
@@ -200,15 +189,6 @@ pub enum PiiKind {
     ZaPostalCode,
     AuDriversLicense,
     AuAbn,
-}
-
-impl RedactWith {
-    pub(crate) fn apply(&self, kind: PiiKind, original: &str) -> String {
-        match self {
-            RedactWith::Char(c) => c.to_string().repeat(original.chars().count()),
-            RedactWith::TypeLabel => format!("[{}]", kind.label()),
-        }
-    }
 }
 
 impl PiiKind {

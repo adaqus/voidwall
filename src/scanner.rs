@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::detector::Detector;
 use crate::hyperscan_detector::HyperscanDetector;
 use crate::keyword_context_detector::KeywordContextDetector;
-use crate::{Country, Language, PiiError, PiiKind, PiiMatch, RedactWith};
+use crate::{Country, Language, PiiError, PiiKind, PiiMatch};
 
 pub struct Scanner {
     detectors: Vec<Box<dyn Detector + Send + Sync>>,
@@ -44,28 +44,6 @@ impl Scanner {
             .iter()
             .flat_map(|d| d.mark_piis(input))
             .collect()
-    }
-
-    /// Redacts all PII found in `input` in place.
-    ///
-    /// Non-PII text is left unchanged. PII regions are replaced according to
-    /// the given `strategy`. Matches are applied back-to-front so that byte
-    /// offsets remain valid after each replacement.
-    pub fn redact(&self, input: &mut String, strategy: &RedactWith) {
-        let mut matches = self.mark_piis(input);
-        // Sort by start descending so we can replace back-to-front.
-        matches.sort_by(|a, b| b.start.cmp(&a.start));
-
-        let mut prev_start = usize::MAX;
-        for m in &matches {
-            // Skip overlapping matches (already covered by an earlier replacement).
-            if m.end > prev_start {
-                continue;
-            }
-            let replacement = strategy.apply(m.kind, &input[m.start..m.end]);
-            input.replace_range(m.start..m.end, &replacement);
-            prev_start = m.start;
-        }
     }
 }
 
@@ -581,100 +559,6 @@ mod tests {
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
         assert!(!kinds.contains(&PiiKind::CreditCard));
-    }
-
-    // --- Redaction char-mask tests ---
-
-    #[test_case("email me at test@example.com please", '*', "email me at **************** please" ; "basic email char mask")]
-    #[test_case("test@example.com", '#', "################" ; "whole string char mask")]
-    #[test_case("nothing sensitive here at all", '*', "nothing sensitive here at all" ; "no pii preserves text")]
-    // URL-encoded @ sign
-    #[test_case("contact user%40example.com now", '*', "contact ****************** now" ; "url encoded at sign char mask")]
-    // HTML decimal entity @ sign
-    #[test_case("contact user&#64;example.com now", '*', "contact ******************** now" ; "html decimal entity at char mask")]
-    // HTML hex entity @ sign
-    #[test_case("contact user&#x40;example.com now", '*', "contact ********************* now" ; "html hex entity at char mask")]
-    // HTML named entity @ sign
-    #[test_case("contact user&commat;example.com now", '*', "contact *********************** now" ; "html named entity at char mask")]
-    // URL-encoded dot in host
-    #[test_case("contact user@example%2Ecom now", '*', "contact ****************** now" ; "url encoded dot in host char mask")]
-    // Zero-width space in email — ZWSP is stripped for detection but present in output
-    #[test_case("contact user\u{200B}@example.com now", '*', "contact ***************** now" ; "zwsp in email char mask")]
-    // Zero-width space in SSN
-    #[test_case("SSN: 123\u{200B}-45-6789", '*', "SSN: ************" ; "zwsp in ssn char mask")]
-    // RTL mark surrounding email (U+200F is not stripped, but email still detected)
-    #[test_case("contact \u{200F}user@example.com\u{200F} please", '*', "contact \u{200F}****************\u{200F} please" ; "rtl marks surrounding email char mask")]
-    // Cyrillic homoglyph in domain (U+0430 looks like Latin 'a')
-    #[test_case("user@ex\u{0430}mple.com", '*', "****************" ; "cyrillic homoglyph email char mask")]
-    // Surrounding text with URL-encoded characters preserved
-    #[test_case("100%25 sure user@example.com is valid", '*', "100%25 sure **************** is valid" ; "url encoded surrounding text preserved")]
-    #[test_case("path/to%2Ffile user@example.com end", '*', "path/to%2Ffile **************** end" ; "url encoded slash surrounding preserved")]
-    // Surrounding text with HTML entities preserved
-    #[test_case("price &gt; 0 user@example.com ok", '*', "price &gt; 0 **************** ok" ; "html entity gt surrounding preserved")]
-    #[test_case("a &amp; b user@example.com end", '*', "a &amp; b **************** end" ; "html entity amp surrounding preserved")]
-    #[test_case("&#169; 2024 user@example.com end", '*', "&#169; 2024 **************** end" ; "html decimal entity surrounding preserved")]
-    // Surrounding text with ZWSP preserved
-    #[test_case("hello\u{200B}world user@example.com end", '*', "hello\u{200B}world **************** end" ; "zwsp in surrounding text preserved")]
-    #[test_case("before\u{200B}\u{200B}after user@example.com end", '*', "before\u{200B}\u{200B}after **************** end" ; "multiple zwsp in surrounding preserved")]
-    // Surrounding text with other Unicode characters preserved
-    #[test_case("\u{00E9}l\u{00E8}ve user@example.com fin", '*', "\u{00E9}l\u{00E8}ve **************** fin" ; "accented chars surrounding preserved")]
-    #[test_case("\u{2603} user@example.com \u{2764}", '*', "\u{2603} **************** \u{2764}" ; "emoji surrounding preserved")]
-    #[test_case("\u{00BF}hola? user@example.com \u{00A1}s\u{00ED}!", '*', "\u{00BF}hola? **************** \u{00A1}s\u{00ED}!" ; "spanish punctuation surrounding preserved")]
-    #[test_case("\u{200E}LTR user@example.com \u{200E}end", '*', "\u{200E}LTR **************** \u{200E}end" ; "ltr marks surrounding preserved")]
-    fn redact_char_mask(input: &str, mask: char, expected: &str) {
-        let scanner = &*SCANNER;
-        let mut text = String::from(input);
-        scanner.redact(&mut text, &crate::RedactWith::Char(mask));
-        assert_eq!(
-            text, expected,
-            "char-mask redaction mismatch for input: {input}"
-        );
-    }
-
-    // --- Redaction type-label tests ---
-
-    #[test_case("email me at test@example.com please", "[EMAIL]" ; "basic email type label")]
-    #[test_case("nothing sensitive here", "nothing sensitive here" ; "no pii preserves text type label")]
-    // URL-encoded @ sign
-    #[test_case("contact user%40example.com now", "[EMAIL]" ; "url encoded at type label")]
-    // HTML entity @ sign
-    #[test_case("contact user&#64;example.com now", "[EMAIL]" ; "html entity at type label")]
-    // HTML named entity @ sign
-    #[test_case("contact user&commat;example.com now", "[EMAIL]" ; "html named entity at type label")]
-    // Zero-width space in email
-    #[test_case("contact user\u{200B}@example.com now", "[EMAIL]" ; "zwsp in email type label")]
-    // Cyrillic homoglyph in domain
-    #[test_case("user@ex\u{0430}mple.com", "[EMAIL]" ; "cyrillic homoglyph type label")]
-    fn redact_type_label_contains(input: &str, expected_label: &str) {
-        let scanner = &*SCANNER;
-        let mut text = String::from(input);
-        scanner.redact(&mut text, &crate::RedactWith::TypeLabel);
-        assert!(
-            text.contains(expected_label),
-            "expected {expected_label} in redacted output, got: {text}"
-        );
-    }
-
-    #[test]
-    fn redact_type_label_multiple_pii_types() {
-        let scanner = &*SCANNER;
-        let mut input = String::from("email: user@test.com, SSN: 123-45-6789");
-        scanner.redact(&mut input, &crate::RedactWith::TypeLabel);
-        assert!(input.contains("[EMAIL]"));
-        assert!(input.contains("[US_SSN]"));
-        assert!(!input.contains("user@test.com"));
-        assert!(!input.contains("123-45-6789"));
-    }
-
-    #[test]
-    fn redact_type_label_multiple_encoded_piis() {
-        let scanner = &*SCANNER;
-        let mut input = String::from("email: user%40test.com, SSN: 123-45-6789");
-        scanner.redact(&mut input, &crate::RedactWith::TypeLabel);
-        assert!(input.contains("[EMAIL]"));
-        assert!(input.contains("[US_SSN]"));
-        assert!(!input.contains("user%40test.com"));
-        assert!(!input.contains("123-45-6789"));
     }
 
     // Compile-time assertion that Scanner is Send + Sync.

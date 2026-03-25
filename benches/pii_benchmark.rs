@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use pii::detector::Detector;
 use pii::hyperscan_detector::HyperscanDetector;
 use pii::keyword_context_detector::KeywordContextDetector;
-use pii::{Language, PiiKind, RedactWith, Scanner};
+use pii::{Language, PiiKind, Scanner};
 use std::collections::HashSet;
 
 const CLEAN_TEXT: &str = "\
@@ -1404,43 +1404,6 @@ fn clean_text_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-fn throughput_redaction(c: &mut Criterion) {
-    let scanner = Scanner::new().unwrap();
-
-    let mut group = c.benchmark_group("throughput_redaction");
-    group.throughput(Throughput::Bytes(MIXED_PII_TEXT.len() as u64));
-
-    group.bench_function("char_mask_mixed", |b| {
-        b.iter(|| {
-            let mut input = String::from(MIXED_PII_TEXT);
-            scanner.redact(&mut input, &RedactWith::Char('*'));
-        });
-    });
-
-    group.bench_function("char_mask_top5", |b| {
-        b.iter(|| {
-            let mut input = format!("{HYPERSCAN_5_TEXT}\n{KEYWORD_5_TEXT}");
-            scanner.redact(&mut input, &RedactWith::Char('*'));
-        });
-    });
-
-    group.bench_function("type_label_mixed", |b| {
-        b.iter(|| {
-            let mut input = String::from(MIXED_PII_TEXT);
-            scanner.redact(&mut input, &RedactWith::TypeLabel);
-        });
-    });
-
-    group.bench_function("type_label_top5", |b| {
-        b.iter(|| {
-            let mut input = format!("{HYPERSCAN_5_TEXT}\n{KEYWORD_5_TEXT}");
-            scanner.redact(&mut input, &RedactWith::TypeLabel);
-        });
-    });
-
-    group.finish();
-}
-
 // Measures bytes/second throughput of HyperscanDetector in isolation on 5 common
 // structurally-unique PIIs (Email, CreditCard, UsSsn, Iban, IpAddress).
 // Shows detector cost without KeywordContextDetector overhead.
@@ -1522,7 +1485,6 @@ criterion_group!(
     has_piis_vs_mark_piis,
     per_pii_kind,
     clean_text_overhead,
-    throughput_redaction,
     throughput_hyperscan_detector,
     throughput_keyword_detector
 );
