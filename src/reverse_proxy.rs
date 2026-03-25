@@ -61,8 +61,8 @@ pub struct ReverseProxyState {
     scanner: Arc<ScannerPool>,
     request_actions: ActionSet,
     response_actions: ActionSet,
-    request_redact_strategy: Option<pii::RedactWith>,
-    response_redact_strategy: Option<pii::RedactWith>,
+    request_redact_strategy: Option<crate::scanner::RedactWith>,
+    response_redact_strategy: Option<crate::scanner::RedactWith>,
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +414,7 @@ async fn scan_and_act(
     scanner: &ScannerPool,
     scan_config: &ScanConfig,
     action_set: &ActionSet,
-    redact_strategy: Option<pii::RedactWith>,
+    redact_strategy: Option<crate::scanner::RedactWith>,
     ctx: &ActionContext<'_>,
     uri: &Uri,
     headers: &HeaderMap,
@@ -467,7 +467,7 @@ async fn scan_and_act_response(
     scanner: &ScannerPool,
     scan_config: &ScanConfig,
     action_set: &ActionSet,
-    redact_strategy: Option<pii::RedactWith>,
+    redact_strategy: Option<crate::scanner::RedactWith>,
     ctx: &ActionContext<'_>,
     headers: &HeaderMap,
     body: Option<&Bytes>,

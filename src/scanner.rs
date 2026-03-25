@@ -11,6 +11,19 @@ use crate::config::{OnError, PiiConfig, RedactStrategy};
 use crate::error::Error;
 
 // ---------------------------------------------------------------------------
+// Redaction strategy (previously in the pii crate)
+// ---------------------------------------------------------------------------
+
+/// How to replace detected PII text.
+#[derive(Debug, Clone)]
+pub enum RedactWith {
+    /// Replace with the given character repeated for the length of the kind label.
+    Char(char),
+    /// Replace with `[KIND_LABEL]`.
+    TypeLabel,
+}
+
+// ---------------------------------------------------------------------------
 // Scan request / result types
 // ---------------------------------------------------------------------------
 
@@ -21,7 +34,7 @@ pub struct ScanRequest {
     pub query: Option<String>,
     pub headers: Option<Vec<(String, String)>>,
     pub redact: bool,
-    pub redact_strategy: Option<pii::RedactWith>,
+    pub redact_strategy: Option<RedactWith>,
 }
 
 /// Result of scanning (and optionally redacting) text fragments.
@@ -242,11 +255,11 @@ fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
     Ok(builder.build()?)
 }
 
-/// Convert a `RedactStrategy` config value to a `pii::RedactWith`.
-pub fn to_redact_with(strategy: RedactStrategy, mask_char: Option<char>) -> pii::RedactWith {
+/// Convert a `RedactStrategy` config value to a `RedactWith`.
+pub fn to_redact_with(strategy: RedactStrategy, mask_char: Option<char>) -> RedactWith {
     match strategy {
-        RedactStrategy::Char => pii::RedactWith::Char(mask_char.unwrap_or('*')),
-        RedactStrategy::TypeLabel => pii::RedactWith::TypeLabel,
+        RedactStrategy::Char => RedactWith::Char(mask_char.unwrap_or('*')),
+        RedactStrategy::TypeLabel => RedactWith::TypeLabel,
     }
 }
 
@@ -259,7 +272,7 @@ pub fn to_redact_with(strategy: RedactStrategy, mask_char: Option<char>) -> pii:
 /// times (e.g. EMAIL → `*****`). For `TypeLabel` the replacement is `[LABEL]`.
 ///
 /// Matches are replaced back-to-front so that byte offsets stay valid.
-fn redact_in_place(text: &mut String, matches: &mut [pii::PiiMatch], strategy: &pii::RedactWith) {
+fn redact_in_place(text: &mut String, matches: &mut [pii::PiiMatch], strategy: &RedactWith) {
     if matches.is_empty() {
         return;
     }
@@ -273,8 +286,8 @@ fn redact_in_place(text: &mut String, matches: &mut [pii::PiiMatch], strategy: &
         }
         let label = m.kind.label();
         let replacement = match strategy {
-            pii::RedactWith::Char(c) => c.to_string().repeat(label.len()),
-            pii::RedactWith::TypeLabel => format!("[{label}]"),
+            RedactWith::Char(c) => c.to_string().repeat(label.len()),
+            RedactWith::TypeLabel => format!("[{label}]"),
         };
         text.replace_range(m.start..m.end, &replacement);
         prev_start = m.start;
@@ -462,7 +475,7 @@ mod tests {
             query: None,
             headers: None,
             redact: true,
-            redact_strategy: Some(pii::RedactWith::TypeLabel),
+            redact_strategy: Some(RedactWith::TypeLabel),
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
@@ -481,7 +494,7 @@ mod tests {
             query: None,
             headers: None,
             redact: true,
-            redact_strategy: Some(pii::RedactWith::Char('*')),
+            redact_strategy: Some(RedactWith::Char('*')),
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
@@ -500,7 +513,7 @@ mod tests {
             query: None,
             headers: None,
             redact: true,
-            redact_strategy: Some(pii::RedactWith::TypeLabel),
+            redact_strategy: Some(RedactWith::TypeLabel),
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
@@ -517,7 +530,7 @@ mod tests {
             query: Some("user=user@example.com&action=login".into()),
             headers: None,
             redact: true,
-            redact_strategy: Some(pii::RedactWith::TypeLabel),
+            redact_strategy: Some(RedactWith::TypeLabel),
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
@@ -538,7 +551,7 @@ mod tests {
                 ("X-Safe".into(), "nothing here".into()),
             ]),
             redact: true,
-            redact_strategy: Some(pii::RedactWith::TypeLabel),
+            redact_strategy: Some(RedactWith::TypeLabel),
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
@@ -601,19 +614,19 @@ mod tests {
     #[test]
     fn to_redact_with_char() {
         let rw = to_redact_with(RedactStrategy::Char, Some('#'));
-        assert!(matches!(rw, pii::RedactWith::Char('#')));
+        assert!(matches!(rw, RedactWith::Char('#')));
     }
 
     #[test]
     fn to_redact_with_char_default() {
         let rw = to_redact_with(RedactStrategy::Char, None);
-        assert!(matches!(rw, pii::RedactWith::Char('*')));
+        assert!(matches!(rw, RedactWith::Char('*')));
     }
 
     #[test]
     fn to_redact_with_type_label() {
         let rw = to_redact_with(RedactStrategy::TypeLabel, None);
-        assert!(matches!(rw, pii::RedactWith::TypeLabel));
+        assert!(matches!(rw, RedactWith::TypeLabel));
     }
 
     #[tokio::test]
@@ -661,7 +674,7 @@ mod tests {
         let scanner = &*SCANNER;
         let mut matches = scanner.mark_piis(input);
         let mut text = input.to_string();
-        redact_in_place(&mut text, &mut matches, &pii::RedactWith::Char(mask));
+        redact_in_place(&mut text, &mut matches, &RedactWith::Char(mask));
         assert_eq!(
             text, expected,
             "char-mask redaction mismatch for input: {input}"
@@ -681,7 +694,7 @@ mod tests {
         let scanner = &*SCANNER;
         let mut matches = scanner.mark_piis(input);
         let mut text = input.to_string();
-        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
+        redact_in_place(&mut text, &mut matches, &RedactWith::TypeLabel);
         assert!(
             text.contains(expected_label),
             "expected {expected_label} in redacted output, got: {text}"
@@ -694,7 +707,7 @@ mod tests {
         let input = "email: user@test.com, SSN: 123-45-6789";
         let mut matches = scanner.mark_piis(input);
         let mut text = input.to_string();
-        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
+        redact_in_place(&mut text, &mut matches, &RedactWith::TypeLabel);
         assert!(text.contains("[EMAIL]"));
         assert!(text.contains("[US_SSN]"));
         assert!(!text.contains("user@test.com"));
@@ -707,7 +720,7 @@ mod tests {
         let input = "email: user%40test.com, SSN: 123-45-6789";
         let mut matches = scanner.mark_piis(input);
         let mut text = input.to_string();
-        redact_in_place(&mut text, &mut matches, &pii::RedactWith::TypeLabel);
+        redact_in_place(&mut text, &mut matches, &RedactWith::TypeLabel);
         assert!(text.contains("[EMAIL]"));
         assert!(text.contains("[US_SSN]"));
         assert!(!text.contains("user%40test.com"));
