@@ -220,7 +220,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use super::*;
-    use test_case::test_case;
 
     static SCANNER: LazyLock<Scanner> = LazyLock::new(|| Scanner::new().unwrap());
 

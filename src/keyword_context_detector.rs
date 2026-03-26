@@ -85,194 +85,194 @@ impl KeywordContextDetector {
             (
                 PiiKind::AuTfn,
                 Language::En,
-                r"(?i)(?:australian tax file number|australian tfn|aus tfn|ato tax file number|ato tfn|individual tax file number|tax file number|tax file no\.?|tax file num|tax file #|tax file ref(?:erence)?|tax file identifier|applicant tfn|employee tfn|client tfn|customer tfn|my tfn|your tfn|tfn number|tfn no\.?|tfn num|tfn)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{3})",
+                r"(?i)(?:australian[\s_]tax[\s_]file[\s_]number|australian[\s_]tfn|aus[\s_]tfn|ato[\s_]tax[\s_]file[\s_]number|ato[\s_]tfn|individual[\s_]tax[\s_]file[\s_]number|tax[\s_]file[\s_]number|tax[\s_]file[\s_]no\.?|tax[\s_]file[\s_]num|tax[\s_]file[\s_]#|tax[\s_]file[\s_]ref(?:erence)?|tax[\s_]file[\s_]identifier|applicant[\s_]tfn|employee[\s_]tfn|client[\s_]tfn|customer[\s_]tfn|my[\s_]tfn|your[\s_]tfn|tfn[\s_]number|tfn[\s_]no\.?|tfn[\s_]num|tfn)[\s:.#/\-\x22=]*?(\d{3}\s\d{3}\s\d{3})",
                 tfn_check,
             ),
             (
                 PiiKind::NzIrdNumber,
                 Language::En,
-                r"(?i)(?:inland revenue dep(?:artmen)?t|inland revenue number|inland revenue no\.?|new zealand ird|new zealand tax number|new zealand tax id|nz ird|nz tax number|nz tax id|ird number nz|ird number|ird no\.?|ird num|ird #|ird ref(?:erence)?|applicant ird|employee ird|client ird|customer ird|my ird|your ird|gst registration|gst number|gst no\.?|tax number nz|ird)[\s:.#/\-\x22]*?(\d{2,3}-\d{3}-\d{3})",
+                r"(?i)(?:inland[\s_]revenue[\s_]dep(?:artmen)?t|inland[\s_]revenue[\s_]number|inland[\s_]revenue[\s_]no\.?|new[\s_]zealand[\s_]ird|new[\s_]zealand[\s_]tax[\s_]number|new[\s_]zealand[\s_]tax[\s_]id|nz[\s_]ird|nz[\s_]tax[\s_]number|nz[\s_]tax[\s_]id|ird[\s_]number[\s_]nz|ird[\s_]number|ird[\s_]no\.?|ird[\s_]num|ird[\s_]#|ird[\s_]ref(?:erence)?|applicant[\s_]ird|employee[\s_]ird|client[\s_]ird|customer[\s_]ird|my[\s_]ird|your[\s_]ird|gst[\s_]registration|gst[\s_]number|gst[\s_]no\.?|tax[\s_]number[\s_]nz|ird)[\s:.#/\-\x22=]*?(\d{2,3}-\d{3}-\d{3})",
                 ird_check,
             ),
             (
                 PiiKind::GbNhsNumber,
                 Language::En,
-                r"(?i)(?:national health service number|national health service no\.?|nhs patient number|nhs patient id|nhs patient no\.?|nhs record number|nhs registration|nhs identifier|nhs number|nhs no\.?|nhs num|nhs #|nhs id|nhs ref(?:erence)?|nhs record|health service number|health service no\.?|health index number|health id|patient number|patient no\.?|patient id|my nhs number|your nhs number|chi number|h&c number|hc number|nhs)[\s:.#/\-\x22]*?(\d{3}\s\d{3}\s\d{4})",
+                r"(?i)(?:national[\s_]health[\s_]service[\s_]number|national[\s_]health[\s_]service[\s_]no\.?|nhs[\s_]patient[\s_]number|nhs[\s_]patient[\s_]id|nhs[\s_]patient[\s_]no\.?|nhs[\s_]record[\s_]number|nhs[\s_]registration|nhs[\s_]identifier|nhs[\s_]number|nhs[\s_]no\.?|nhs[\s_]num|nhs[\s_]#|nhs[\s_]id|nhs[\s_]ref(?:erence)?|nhs[\s_]record|health[\s_]service[\s_]number|health[\s_]service[\s_]no\.?|health[\s_]index[\s_]number|health[\s_]id|patient[\s_]number|patient[\s_]no\.?|patient[\s_]id|my[\s_]nhs[\s_]number|your[\s_]nhs[\s_]number|chi[\s_]number|h&c[\s_]number|hc[\s_]number|nhs)[\s:.#/\-\x22=]*?(\d{3}\s\d{3}\s\d{4})",
                 nhs_check,
             ),
             (
                 PiiKind::AuMedicare,
                 Language::En,
-                r"(?i)(?:medicare card number|medicare card no\.?|medicare card|australian medicare|medicare enrol(?:l)?ment|medicare registration|medicare identifier|medicare number|medicare no\.?|medicare num|medicare #|medicare id|medicare ref(?:erence)?|medicare patient|aus medicare|au medicare|applicant medicare|employee medicare|client medicare|customer medicare|my medicare|your medicare|medicare|irn)[\s:.#/\-\x22]*?(\d{4}\s\d{5}\s\d)",
+                r"(?i)(?:medicare[\s_]card[\s_]number|medicare[\s_]card[\s_]no\.?|medicare[\s_]card|australian[\s_]medicare|medicare[\s_]enrol(?:l)?ment|medicare[\s_]registration|medicare[\s_]identifier|medicare[\s_]number|medicare[\s_]no\.?|medicare[\s_]num|medicare[\s_]#|medicare[\s_]id|medicare[\s_]ref(?:erence)?|medicare[\s_]patient|aus[\s_]medicare|au[\s_]medicare|applicant[\s_]medicare|employee[\s_]medicare|client[\s_]medicare|customer[\s_]medicare|my[\s_]medicare|your[\s_]medicare|medicare|irn)[\s:.#/\-\x22=]*?(\d{4}\s\d{5}\s\d)",
                 medicare_check,
             ),
             (
                 PiiKind::PhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::En,
-                r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:united[\s_]states[\s_]passport|passport[\s_]book[\s_]number|passport[\s_]book[\s_]no\.?|passport[\s_]card[\s_]number|us[\s_]passport[\s_]number|us[\s_]passport[\s_]no\.?|american[\s_]passport|travel[\s_]document[\s_]number|travel[\s_]document[\s_]no\.?|travel[\s_]doc[\s_]number|travel[\s_]doc[\s_]no\.?|passport[\s_]number|passport[\s_]no\.?|passport[\s_]num|passport[\s_]#|passport[\s_]id|passport[\s_]card|us[\s_]passport|travel[\s_]doc|applicant[\s_]passport|my[\s_]passport|your[\s_]passport|document[\s_]number|document[\s_]no\.?|doc[\s_]number|doc[\s_]no\.?|passport)[\s:.#/\-\x22=]*?(\d{9})\b",
                 passport_check,
             ),
             (
                 PiiKind::UsPassportNew,
                 Language::En,
-                r"(?i)(?:united states passport|passport book number|passport book no\.?|passport card number|us passport number|us passport no\.?|american passport|travel document number|travel document no\.?|travel doc number|travel doc no\.?|passport number|passport no\.?|passport num|passport #|passport id|passport card|us passport|travel doc|applicant passport|my passport|your passport|document number|document no\.?|doc number|doc no\.?|passport)[\s:.#/\-\x22]*?([AXYZaxyz]\d{8})",
+                r"(?i)(?:united[\s_]states[\s_]passport|passport[\s_]book[\s_]number|passport[\s_]book[\s_]no\.?|passport[\s_]card[\s_]number|us[\s_]passport[\s_]number|us[\s_]passport[\s_]no\.?|american[\s_]passport|travel[\s_]document[\s_]number|travel[\s_]document[\s_]no\.?|travel[\s_]doc[\s_]number|travel[\s_]doc[\s_]no\.?|passport[\s_]number|passport[\s_]no\.?|passport[\s_]num|passport[\s_]#|passport[\s_]id|passport[\s_]card|us[\s_]passport|travel[\s_]doc|applicant[\s_]passport|my[\s_]passport|your[\s_]passport|document[\s_]number|document[\s_]no\.?|doc[\s_]number|doc[\s_]no\.?|passport)[\s:.#/\-\x22=]*?([AXYZaxyz]\d{8})",
                 passport_new_check,
             ),
             (
                 PiiKind::SwiftBic,
                 Language::En,
-                r"(?i)(?:bank identifier code|bank identifier|correspondent (?:bank )?swift|intermediary swift|intermediary bic|international bank code|beneficiary swift|beneficiary bic|swift/bic|swift bic|bic/swift|swift code|swift number|swift no\.?|swift #|swift address|swift id|bank swift|bank routing|bank bic|bic code|bic number|bic no\.?|bic #|bic id|routing code|clearing code|my swift|swift|bic)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:bank[\s_]identifier[\s_]code|bank[\s_]identifier|correspondent[\s_](?:bank[\s_])?swift|intermediary[\s_]swift|intermediary[\s_]bic|international[\s_]bank[\s_]code|beneficiary[\s_]swift|beneficiary[\s_]bic|swift/bic|swift[\s_]bic|bic/swift|swift[\s_]code|swift[\s_]number|swift[\s_]no\.?|swift[\s_]#|swift[\s_]address|swift[\s_]id|bank[\s_]swift|bank[\s_]routing|bank[\s_]bic|bic[\s_]code|bic[\s_]number|bic[\s_]no\.?|bic[\s_]#|bic[\s_]id|routing[\s_]code|clearing[\s_]code|my[\s_]swift|swift|bic)[\s:.#/\-\x22=]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
                 PiiKind::UsEin,
                 Language::En,
-                r"(?i)(?:employer identification number|employer identification no\.?|federal employer identification|employer id number|employer id no\.?|federal employer id|federal tax identification|tax identification number|federal id number|federal id no\.?|federal tax id|federal ein|tax id number|employer number|employer no\.?|business tax id|company tax id|company ein|irs employer id|applicant ein|ein number|ein no\.?|ein num|ein #|tax id|irs ein|our ein|my ein|fein|ein)[\s:.#/\-\x22]*?(\d{2}-\d{7})",
+                r"(?i)(?:employer[\s_]identification[\s_]number|employer[\s_]identification[\s_]no\.?|federal[\s_]employer[\s_]identification|employer[\s_]id[\s_]number|employer[\s_]id[\s_]no\.?|federal[\s_]employer[\s_]id|federal[\s_]tax[\s_]identification|tax[\s_]identification[\s_]number|federal[\s_]id[\s_]number|federal[\s_]id[\s_]no\.?|federal[\s_]tax[\s_]id|federal[\s_]ein|tax[\s_]id[\s_]number|employer[\s_]number|employer[\s_]no\.?|business[\s_]tax[\s_]id|company[\s_]tax[\s_]id|company[\s_]ein|irs[\s_]employer[\s_]id|applicant[\s_]ein|ein[\s_]number|ein[\s_]no\.?|ein[\s_]num|ein[\s_]#|tax[\s_]id|irs[\s_]ein|our[\s_]ein|my[\s_]ein|fein|ein)[\s:.#/\-\x22=]*?(\d{2}-\d{7})",
                 ein_check,
             ),
             (
                 PiiKind::Imei,
                 Language::En,
-                r"(?i)(?:international mobile equipment identity|mobile equipment identity|equipment identity|device identifier|device id number|device serial|device imei|handset imei|serial imei|mobile imei|tablet imei|equipment id|phone imei|imei identifier|imei number|imei no\.?|imei num|imei #|imei code|imei id|your imei|my imei|meid|imei)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:international[\s_]mobile[\s_]equipment[\s_]identity|mobile[\s_]equipment[\s_]identity|equipment[\s_]identity|device[\s_]identifier|device[\s_]id[\s_]number|device[\s_]serial|device[\s_]imei|handset[\s_]imei|serial[\s_]imei|mobile[\s_]imei|tablet[\s_]imei|equipment[\s_]id|phone[\s_]imei|imei[\s_]identifier|imei[\s_]number|imei[\s_]no\.?|imei[\s_]num|imei[\s_]#|imei[\s_]code|imei[\s_]id|your[\s_]imei|my[\s_]imei|meid|imei)[\s:.#/\-\x22=]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             (
                 PiiKind::GbUtr,
                 Language::En,
-                r"(?i)(?:unique taxpayer ref(?:erence)?|unique tax ref(?:erence)?|taxpayer ref(?:erence)?|tax ref(?:erence)?|hmrc ref(?:erence)?|hmrc utr|self assessment ref(?:erence)?|self assessment utr|self assessment number|self assessment no\.?|sa utr|sa ref(?:erence)?|sa number|sa no\.?|corporation tax ref(?:erence)?|corporation tax utr|ct utr|ct ref(?:erence)?|company utr|company tax ref(?:erence)?|partnership utr|partnership ref(?:erence)?|your utr|my utr|client utr|customer utr|applicant utr|utr number|utr no\.?|utr num|utr #|utr ref(?:erence)?|utr)[\s:.#/\-\x22]*?(\d{10})\b",
+                r"(?i)(?:unique[\s_]taxpayer[\s_]ref(?:erence)?|unique[\s_]tax[\s_]ref(?:erence)?|taxpayer[\s_]ref(?:erence)?|tax[\s_]ref(?:erence)?|hmrc[\s_]ref(?:erence)?|hmrc[\s_]utr|self[\s_]assessment[\s_]ref(?:erence)?|self[\s_]assessment[\s_]utr|self[\s_]assessment[\s_]number|self[\s_]assessment[\s_]no\.?|sa[\s_]utr|sa[\s_]ref(?:erence)?|sa[\s_]number|sa[\s_]no\.?|corporation[\s_]tax[\s_]ref(?:erence)?|corporation[\s_]tax[\s_]utr|ct[\s_]utr|ct[\s_]ref(?:erence)?|company[\s_]utr|company[\s_]tax[\s_]ref(?:erence)?|partnership[\s_]utr|partnership[\s_]ref(?:erence)?|your[\s_]utr|my[\s_]utr|client[\s_]utr|customer[\s_]utr|applicant[\s_]utr|utr[\s_]number|utr[\s_]no\.?|utr[\s_]num|utr[\s_]#|utr[\s_]ref(?:erence)?|utr)[\s:.#/\-\x22=]*?(\d{10})\b",
                 utr_check,
             ),
             (
                 PiiKind::UsAbaRouting,
                 Language::En,
-                r"(?i)(?:aba routing number|aba routing no\.?|aba routing|aba number|aba no\.?|aba #|routing transit number|routing transit no\.?|routing number|routing no\.?|routing #|bank routing number|bank routing no\.?|bank routing|transit number|transit no\.?|transit #|aba rtn|rtn number|rtn no\.?|rtn #|fed routing|fedwire routing|ach routing|wire routing|wire transfer routing|my routing number|your routing number|bank rtn|routing code|aba|rtn)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:aba[\s_]routing[\s_]number|aba[\s_]routing[\s_]no\.?|aba[\s_]routing|aba[\s_]number|aba[\s_]no\.?|aba[\s_]#|routing[\s_]transit[\s_]number|routing[\s_]transit[\s_]no\.?|routing[\s_]number|routing[\s_]no\.?|routing[\s_]#|bank[\s_]routing[\s_]number|bank[\s_]routing[\s_]no\.?|bank[\s_]routing|transit[\s_]number|transit[\s_]no\.?|transit[\s_]#|aba[\s_]rtn|rtn[\s_]number|rtn[\s_]no\.?|rtn[\s_]#|fed[\s_]routing|fedwire[\s_]routing|ach[\s_]routing|wire[\s_]routing|wire[\s_]transfer[\s_]routing|my[\s_]routing[\s_]number|your[\s_]routing[\s_]number|bank[\s_]rtn|routing[\s_]code|aba|rtn)[\s:.#/\-\x22=]*?(\d{9})\b",
                 aba_check,
             ),
             (
                 PiiKind::GbSortCode,
                 Language::En,
-                r"(?i)(?:sort code|sort-code|sortcode|sort code number|sort code no\.?|sort code #|bank sort code|bank sort|branch sort code|branch sort|branch code|branch number|branch no\.?|branch #|bank code|bank number|bank no\.?|uk sort code|uk sort|bacs sort code|bacs code|my sort code|your sort code|account sort code|account sort)[\s:.#/\-\x22]*?(\d{2}-\d{2}-\d{2})\b",
+                r"(?i)(?:sort[\s_]code|sort-code|sortcode|sort[\s_]code[\s_]number|sort[\s_]code[\s_]no\.?|sort[\s_]code[\s_]#|bank[\s_]sort[\s_]code|bank[\s_]sort|branch[\s_]sort[\s_]code|branch[\s_]sort|branch[\s_]code|branch[\s_]number|branch[\s_]no\.?|branch[\s_]#|bank[\s_]code|bank[\s_]number|bank[\s_]no\.?|uk[\s_]sort[\s_]code|uk[\s_]sort|bacs[\s_]sort[\s_]code|bacs[\s_]code|my[\s_]sort[\s_]code|your[\s_]sort[\s_]code|account[\s_]sort[\s_]code|account[\s_]sort)[\s:.#/\-\x22=]*?(\d{2}-\d{2}-\d{2})\b",
                 sort_code_check,
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::En,
-                r"(?i)(?:gps coordinates|gps coordinate|gps coords|gps location|gps position|precise location|precise coordinates|exact location|exact coordinates|location coordinates|map coordinates|position coordinates|geo coordinates|geocoordinates|geo coords|geocoords|latitude/longitude|latitude longitude|lat/long|lat/lon|lat long|lat lon|latlong|latlon|lat lng|latlng|geolocation|geo-location|geo location|geo position|geoposition|map position|map location|current location|current coordinates|current position|device location|device coordinates|device position|my location|my coordinates|my position|coordinates|coordinate|coords)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:gps[\s_]coordinates|gps[\s_]coordinate|gps[\s_]coords|gps[\s_]location|gps[\s_]position|precise[\s_]location|precise[\s_]coordinates|exact[\s_]location|exact[\s_]coordinates|location[\s_]coordinates|map[\s_]coordinates|position[\s_]coordinates|geo[\s_]coordinates|geocoordinates|geo[\s_]coords|geocoords|latitude/longitude|latitude[\s_]longitude|lat/long|lat/lon|lat[\s_]long|lat[\s_]lon|latlong|latlon|lat[\s_]lng|latlng|geolocation|geo-location|geo[\s_]location|geo[\s_]position|geoposition|map[\s_]position|map[\s_]location|current[\s_]location|current[\s_]coordinates|current[\s_]position|device[\s_]location|device[\s_]coordinates|device[\s_]position|my[\s_]location|my[\s_]coordinates|my[\s_]position|coordinates|coordinate|coords)[\s:.#/\-\x22=]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check,
             ),
             (
                 PiiKind::UsAlienNumber,
                 Language::En,
-                r"(?i)(?:alien registration number|alien registration no\.?|alien registration|alien number|alien no\.?|alien #|a-number|uscis alien number|uscis alien no\.?|uscis number|uscis no\.?|uscis id|uscis #|green card number|green card no\.?|green card #|permanent resident number|permanent resident no\.?|immigration number|immigration no\.?|immigration id|dhs number|dhs no\.?|my a-number|your a-number|applicant a-number)[\s:.#/\-\x22]*?([Aa]\d{7,9})\b",
+                r"(?i)(?:alien[\s_]registration[\s_]number|alien[\s_]registration[\s_]no\.?|alien[\s_]registration|alien[\s_]number|alien[\s_]no\.?|alien[\s_]#|a-number|uscis[\s_]alien[\s_]number|uscis[\s_]alien[\s_]no\.?|uscis[\s_]number|uscis[\s_]no\.?|uscis[\s_]id|uscis[\s_]#|green[\s_]card[\s_]number|green[\s_]card[\s_]no\.?|green[\s_]card[\s_]#|permanent[\s_]resident[\s_]number|permanent[\s_]resident[\s_]no\.?|immigration[\s_]number|immigration[\s_]no\.?|immigration[\s_]id|dhs[\s_]number|dhs[\s_]no\.?|my[\s_]a-number|your[\s_]a-number|applicant[\s_]a-number)[\s:.#/\-\x22=]*?([Aa]\d{7,9})\b",
                 a_number_check,
             ),
             (
                 PiiKind::UsUscisReceiptNumber,
                 Language::En,
-                r"(?i)(?:uscis receipt number|uscis receipt no\.?|uscis receipt|uscis case number|uscis case no\.?|uscis case|immigration case number|immigration case no\.?|immigration case|petition receipt number|petition receipt no\.?|petition receipt|application receipt number|application receipt no\.?|application receipt|i-797 receipt|i-797 number|i-797 no\.?|receipt number|receipt no\.?|receipt #|case number|case no\.?|case #|petition number|petition no\.?|petition #|my receipt number|your receipt number|beneficiary receipt|applicant receipt)[\s:.#/\-\x22]*?([A-Za-z]{3}\d{10})\b",
+                r"(?i)(?:uscis[\s_]receipt[\s_]number|uscis[\s_]receipt[\s_]no\.?|uscis[\s_]receipt|uscis[\s_]case[\s_]number|uscis[\s_]case[\s_]no\.?|uscis[\s_]case|immigration[\s_]case[\s_]number|immigration[\s_]case[\s_]no\.?|immigration[\s_]case|petition[\s_]receipt[\s_]number|petition[\s_]receipt[\s_]no\.?|petition[\s_]receipt|application[\s_]receipt[\s_]number|application[\s_]receipt[\s_]no\.?|application[\s_]receipt|i-797[\s_]receipt|i-797[\s_]number|i-797[\s_]no\.?|receipt[\s_]number|receipt[\s_]no\.?|receipt[\s_]#|case[\s_]number|case[\s_]no\.?|case[\s_]#|petition[\s_]number|petition[\s_]no\.?|petition[\s_]#|my[\s_]receipt[\s_]number|your[\s_]receipt[\s_]number|beneficiary[\s_]receipt|applicant[\s_]receipt)[\s:.#/\-\x22=]*?([A-Za-z]{3}\d{10})\b",
                 uscis_receipt_check,
             ),
             (
                 PiiKind::ZaId,
                 Language::En,
-                r"(?i)(?:south african id number|south african id no\.?|south african id|south african identity number|south african identity|sa id number|sa id no\.?|sa id|sa identity number|sa identity|national id number|national id no\.?|national identity number|national identity|id number|id no\.?|id book|id card|identity number|identity no\.?|identity document|identity card|home affairs number|home affairs no\.?|home affairs id|citizen id|citizen number|applicant id|my id|your id)[\s:.#/\-\x22]*?(\d{13})\b",
+                r"(?i)(?:south[\s_]african[\s_]id[\s_]number|south[\s_]african[\s_]id[\s_]no\.?|south[\s_]african[\s_]id|south[\s_]african[\s_]identity[\s_]number|south[\s_]african[\s_]identity|sa[\s_]id[\s_]number|sa[\s_]id[\s_]no\.?|sa[\s_]id|sa[\s_]identity[\s_]number|sa[\s_]identity|national[\s_]id[\s_]number|national[\s_]id[\s_]no\.?|national[\s_]identity[\s_]number|national[\s_]identity|id[\s_]number|id[\s_]no\.?|id[\s_]book|id[\s_]card|identity[\s_]number|identity[\s_]no\.?|identity[\s_]document|identity[\s_]card|home[\s_]affairs[\s_]number|home[\s_]affairs[\s_]no\.?|home[\s_]affairs[\s_]id|citizen[\s_]id|citizen[\s_]number|applicant[\s_]id|my[\s_]id|your[\s_]id)[\s:.#/\-\x22=]*?(\d{13})\b",
                 za_luhn13_check,
             ),
             (
                 PiiKind::UsDriversLicense,
                 Language::En,
-                r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
+                r"(?i)(?:driver'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|driving\s*licen[cs]e\s*(?:number|no\.?|num|#)?|operator'?s?\s*licen[cs]e\s*(?:number|no\.?|num|#)?|state\s*identification\s*(?:number|no\.?|num|#)?|state\s*id\s*(?:number|no\.?|num|#)?|dmv\s*(?:number|no\.?|num|#)|dl\s*(?:number|no\.?|num|#)|my\s*(?:driver'?s?\s*licen[cs]e|dl)|your\s*(?:driver'?s?\s*licen[cs]e|dl)|applicant\s*(?:driver'?s?\s*licen[cs]e|dl)|licen[cs]e\s*(?:number|no\.?|num|#)|dl)[\s:.#/\-\x22=]*?([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
             ),
             (
                 PiiKind::NzNhiNumber,
                 Language::En,
-                r"(?i)(?:national health index number|national health index no\.?|national health index|nhi number|nhi no\.?|nhi num|nhi #|nhi id|nhi ref(?:erence)?|nhi code|my nhi|your nhi|patient nhi|nhi)[\s:.#/\-\x22]*?([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
+                r"(?i)(?:national[\s_]health[\s_]index[\s_]number|national[\s_]health[\s_]index[\s_]no\.?|national[\s_]health[\s_]index|nhi[\s_]number|nhi[\s_]no\.?|nhi[\s_]num|nhi[\s_]#|nhi[\s_]id|nhi[\s_]ref(?:erence)?|nhi[\s_]code|my[\s_]nhi|your[\s_]nhi|patient[\s_]nhi|nhi)[\s:.#/\-\x22=]*?([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
                 nhi_check,
             ),
             (
                 PiiKind::NzDriverLicence,
                 Language::En,
-                r"(?i)(?:new zealand driver licen[cs]e|nz driver licen[cs]e|nz driving licen[cs]e|driver licen[cs]e|licen[cs]e number|licen[cs]e no\.?|licence num|driving licence)[\s:.#/\-\x22]*?([A-Z]{2}\d{6})\b",
+                r"(?i)(?:new[\s_]zealand[\s_]driver[\s_]licen[cs]e|nz[\s_]driver[\s_]licen[cs]e|nz[\s_]driving[\s_]licen[cs]e|driver[\s_]licen[cs]e|licen[cs]e[\s_]number|licen[cs]e[\s_]no\.?|licence[\s_]num|driving[\s_]licence)[\s:.#/\-\x22=]*?([A-Z]{2}\d{6})\b",
                 nz_dl_check,
             ),
             (
                 PiiKind::IeDriverNumber,
                 Language::En,
-                r"(?i)(?:irish driver number|irish driving licen[cs]e|ireland driver number|ireland driving licen[cs]e|ie driver number|ie driving licen[cs]e|driver number|driving licen[cs]e|licen[cs]e number|driver no\.?)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:irish[\s_]driver[\s_]number|irish[\s_]driving[\s_]licen[cs]e|ireland[\s_]driver[\s_]number|ireland[\s_]driving[\s_]licen[cs]e|ie[\s_]driver[\s_]number|ie[\s_]driving[\s_]licen[cs]e|driver[\s_]number|driving[\s_]licen[cs]e|licen[cs]e[\s_]number|driver[\s_]no\.?)[\s:.#/\-\x22=]*?(\d{9})\b",
                 ie_driver_check,
             ),
             (
                 PiiKind::ZaTaxReference,
                 Language::En,
-                r"(?i)(?:south african tax ref(?:erence)?|south african tax number|sa tax ref(?:erence)?|sa tax number|sars ref(?:erence)?|sars number|sars tax|tax ref(?:erence)?|tax number|tax ref|SARS)[\s:.#/\-\x22]*?([0-3,9]\d{9})\b",
+                r"(?i)(?:south[\s_]african[\s_]tax[\s_]ref(?:erence)?|south[\s_]african[\s_]tax[\s_]number|sa[\s_]tax[\s_]ref(?:erence)?|sa[\s_]tax[\s_]number|sars[\s_]ref(?:erence)?|sars[\s_]number|sars[\s_]tax|tax[\s_]ref(?:erence)?|tax[\s_]number|tax[\s_]ref|SARS)[\s:.#/\-\x22=]*?([0-3,9]\d{9})\b",
                 za_trn_check,
             ),
             (
                 PiiKind::ZaDriversLicense,
                 Language::En,
-                r"(?i)(?:south african driver'?s? licen[cs]e|sa driver'?s? licen[cs]e|driver'?s? licen[cs]e number|driver'?s? licen[cs]e no\.?|driver'?s? licen[cs]e|driving licen[cs]e number|driving licen[cs]e no\.?|driving licen[cs]e|learner'?s? licen[cs]e)[\s:.#/\-\x22]*?(\d{13})\b",
+                r"(?i)(?:south[\s_]african[\s_]driver'?s?[\s_]licen[cs]e|sa[\s_]driver'?s?[\s_]licen[cs]e|driver'?s?[\s_]licen[cs]e[\s_]number|driver'?s?[\s_]licen[cs]e[\s_]no\.?|driver'?s?[\s_]licen[cs]e|driving[\s_]licen[cs]e[\s_]number|driving[\s_]licen[cs]e[\s_]no\.?|driving[\s_]licen[cs]e|learner'?s?[\s_]licen[cs]e)[\s:.#/\-\x22=]*?(\d{13})\b",
                 za_luhn13_check,
             ),
             (
                 PiiKind::ZaPostalCode,
                 Language::En,
-                r"(?i)(?:postal code|post code|postcode|zip code|zip)[\s:.#/\-\x22]*?(\d{4})\b",
+                r"(?i)(?:postal[\s_]code|post[\s_]code|postcode|zip[\s_]code|zip)[\s:.#/\-\x22=]*?(\d{4})\b",
                 za_postal_check,
             ),
             (
                 PiiKind::AuDriversLicense,
                 Language::En,
-                r"(?i)(?:australian driver'?s? licen[cs]e|aus driver'?s? licen[cs]e|nsw licen[cs]e|vic licen[cs]e|qld licen[cs]e|wa licen[cs]e|act licen[cs]e|sa licen[cs]e|tas licen[cs]e|nt licen[cs]e|australian dl|aus dl)[\s:.#/\-\x22]*?(\d{6,10}|[A-Za-z]\d{5,9})\b",
+                r"(?i)(?:australian[\s_]driver'?s?[\s_]licen[cs]e|aus[\s_]driver'?s?[\s_]licen[cs]e|nsw[\s_]licen[cs]e|vic[\s_]licen[cs]e|qld[\s_]licen[cs]e|wa[\s_]licen[cs]e|act[\s_]licen[cs]e|sa[\s_]licen[cs]e|tas[\s_]licen[cs]e|nt[\s_]licen[cs]e|australian[\s_]dl|aus[\s_]dl)[\s:.#/\-\x22=]*?(\d{6,10}|[A-Za-z]\d{5,9})\b",
                 au_dl_check,
             ),
             (
                 PiiKind::AuAbn,
                 Language::En,
-                r"(?i)(?:australian business number|australian business no\.?|aus business number|abn number|abn no\.?|abn #|abn)[\s:.#/\-\x22]*?(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
+                r"(?i)(?:australian[\s_]business[\s_]number|australian[\s_]business[\s_]no\.?|aus[\s_]business[\s_]number|abn[\s_]number|abn[\s_]no\.?|abn[\s_]#|abn)[\s:.#/\-\x22=]*?(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
                 au_abn_check,
             ),
             (
                 PiiKind::CaOhip,
                 Language::En,
-                r"(?i)(?:ontario health insurance plan|ontario health card|ontario health number|health card number|health card no\.?|health card|health insurance number|health insurance no\.?|health number|carte sant[eé]|OHIP number|OHIP no\.?|OHIP card|OHIP)[\s:.#/\-\x22]*?(\d{10}(?:\s?[A-Za-z]{2})?)\b",
+                r"(?i)(?:ontario[\s_]health[\s_]insurance[\s_]plan|ontario[\s_]health[\s_]card|ontario[\s_]health[\s_]number|health[\s_]card[\s_]number|health[\s_]card[\s_]no\.?|health[\s_]card|health[\s_]insurance[\s_]number|health[\s_]insurance[\s_]no\.?|health[\s_]number|carte[\s_]sant[eé]|OHIP[\s_]number|OHIP[\s_]no\.?|OHIP[\s_]card|OHIP)[\s:.#/\-\x22=]*?(\d{10}(?:\s?[A-Za-z]{2})?)\b",
                 ohip_check,
             ),
             // International phone numbers
             (
                 PiiKind::GbPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
                 phone_check,
             ),
             (
                 PiiKind::AuPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::NzPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::IePhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::ZaPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone number|phone no\.?|phone num|phone #|telephone number|telephone no\.?|telephone|mobile number|mobile no\.?|mobile phone|mobile|cell phone|cell number|cell|contact number|contact no\.?|contact phone|callback number|callback no\.?|callback|fax number|fax no\.?|fax|tel number|tel no\.?|tel|landline|home phone|work phone|office phone|alternate phone|alt phone|my phone|your phone|customer phone|applicant phone|phone)[\s:.#/\-\x22]*?((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)[\s:.#/\-\x22=]*?((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
                 phone_check,
             ),
             // AWS Secret Key
@@ -286,294 +286,294 @@ impl KeywordContextDetector {
             (
                 PiiKind::GbZaPassportNumber,
                 Language::En,
-                r"(?i)(?:british passport|uk passport|united kingdom passport|hmpo|south african passport|sa passport)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:british[\s_]passport|uk[\s_]passport|united[\s_]kingdom[\s_]passport|hmpo|south[\s_]african[\s_]passport|sa[\s_]passport)[\s:.#/\-\x22=]*?(\d{9})\b",
                 always_valid,
             ),
             (
                 PiiKind::AuPassportNumber,
                 Language::En,
-                r"(?i)(?:australian passport|australia passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]\d{7})\b",
+                r"(?i)(?:australian[\s_]passport|australia[\s_]passport|passport[\s_]number|passport[\s_]no\.?|passport)[\s:.#/\-\x22=]*?([A-Za-z]\d{7})\b",
                 always_valid,
             ),
             (
                 PiiKind::CaPassportNumber,
                 Language::En,
-                r"(?i)(?:canadian passport|canada passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{2}\d{6})\b",
+                r"(?i)(?:canadian[\s_]passport|canada[\s_]passport|passport[\s_]number|passport[\s_]no\.?|passport)[\s:.#/\-\x22=]*?([A-Za-z]{2}\d{6})\b",
                 always_valid,
             ),
             (
                 PiiKind::NzPassportNumber,
                 Language::En,
-                r"(?i)(?:new zealand passport|nz passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{1,2}\d{6,7})\b",
+                r"(?i)(?:new[\s_]zealand[\s_]passport|nz[\s_]passport|passport[\s_]number|passport[\s_]no\.?|passport)[\s:.#/\-\x22=]*?([A-Za-z]{1,2}\d{6,7})\b",
                 always_valid,
             ),
             (
                 PiiKind::IePassportNumber,
                 Language::En,
-                r"(?i)(?:irish passport|ireland passport|passport number|passport no\.?|passport)[\s:.#/\-\x22]*?([A-Za-z]{2}\d{7})\b",
+                r"(?i)(?:irish[\s_]passport|ireland[\s_]passport|passport[\s_]number|passport[\s_]no\.?|passport)[\s:.#/\-\x22=]*?([A-Za-z]{2}\d{7})\b",
                 always_valid,
             ),
             // Date of birth
             (
                 PiiKind::DateOfBirth,
                 Language::En,
-                r"(?i)(?:date of birth|birth date|birthdate|dob|d\.o\.b\.?|born on)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})",
+                r"(?i)(?:date[\s_]of[\s_]birth|birth[\s_]date|birthdate|dob|d\.o\.b\.?|born[\s_]on)[\s:.#/\-\x22=]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})",
                 dob_check,
             ),
             // Bank accounts
             (
                 PiiKind::AuBankAccount,
                 Language::En,
-                r"(?i)(?:bsb|bank state branch|bsb number|bsb no\.?)[\s:.#/\-\x22]*?(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
+                r"(?i)(?:bsb|bank[\s_]state[\s_]branch|bsb[\s_]number|bsb[\s_]no\.?)[\s:.#/\-\x22=]*?(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
                 always_valid,
             ),
             (
                 PiiKind::CaBankAccount,
                 Language::En,
-                r"(?i)(?:transit number|transit no\.?|institution number|chequing account|savings account|canadian account|ca account)[\s:.#/\-\x22]*?(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
+                r"(?i)(?:transit[\s_]number|transit[\s_]no\.?|institution[\s_]number|chequing[\s_]account|savings[\s_]account|canadian[\s_]account|ca[\s_]account)[\s:.#/\-\x22=]*?(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
                 always_valid,
             ),
             // --- France-specific PII types (Language::Fr) ---
             (
                 PiiKind::FrNir,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro de s[eé]curit[eé] sociale|num[eé]ro s[eé]curit[eé] sociale|n° de s[eé]curit[eé] sociale|n° s[eé]curit[eé] sociale|num[eé]ro de s[eé]cu|num[eé]ro s[eé]cu|n° s[eé]cu|s[eé]curit[eé] sociale|num[eé]ro SS|n° SS|code s[eé]cu|NIR|s[eé]cu)[\s:.#/\-\x22]*?(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
+                r"(?i)(?:num[eé]ro[\s_]de[\s_]s[eé]curit[eé][\s_]sociale|num[eé]ro[\s_]s[eé]curit[eé][\s_]sociale|n°[\s_]de[\s_]s[eé]curit[eé][\s_]sociale|n°[\s_]s[eé]curit[eé][\s_]sociale|num[eé]ro[\s_]de[\s_]s[eé]cu|num[eé]ro[\s_]s[eé]cu|n°[\s_]s[eé]cu|s[eé]curit[eé][\s_]sociale|num[eé]ro[\s_]SS|n°[\s_]SS|code[\s_]s[eé]cu|NIR|s[eé]cu)[\s:.#/\-\x22=]*?(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
                 nir_check,
             ),
             (
                 PiiKind::FrSiret,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro SIRET|n° SIRET|[eé]tablissement SIRET|SIRET)[\s:.#/\-\x22]*?(\d{14})\b",
+                r"(?i)(?:num[eé]ro[\s_]SIRET|n°[\s_]SIRET|[eé]tablissement[\s_]SIRET|SIRET)[\s:.#/\-\x22=]*?(\d{14})\b",
                 siret_luhn_check,
             ),
             (
                 PiiKind::FrSiren,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro SIREN|n° SIREN|entreprise SIREN|SIREN)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:num[eé]ro[\s_]SIREN|n°[\s_]SIREN|entreprise[\s_]SIREN|SIREN)[\s:.#/\-\x22=]*?(\d{9})\b",
                 siren_luhn_check,
             ),
             (
                 PiiKind::FrPassportNumber,
                 Language::Fr,
-                r"(?i)(?:passeport fran[cç]ais|passeport france|num[eé]ro de passeport)[\s:.#/\-\x22]*?(\d{2}[A-Za-z]{2}\d{5})\b",
+                r"(?i)(?:passeport[\s_]fran[cç]ais|passeport[\s_]france|num[eé]ro[\s_]de[\s_]passeport)[\s:.#/\-\x22=]*?(\d{2}[A-Za-z]{2}\d{5})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrCni,
                 Language::Fr,
-                r"(?i)(?:carte nationale d'identit[eé]|carte d'identit[eé]|pi[eè]ce d'identit[eé]|num[eé]ro CNI|CNI)[\s:.#/\-\x22]*?(\d{12})\b",
+                r"(?i)(?:carte[\s_]nationale[\s_]d'identit[eé]|carte[\s_]d'identit[eé]|pi[eè]ce[\s_]d'identit[eé]|num[eé]ro[\s_]CNI|CNI)[\s:.#/\-\x22=]*?(\d{12})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrDriversLicense,
                 Language::Fr,
-                r"(?i)(?:permis de conduire|num[eé]ro de permis|n° permis)[\s:.#/\-\x22]*?(\d{12})\b",
+                r"(?i)(?:permis[\s_]de[\s_]conduire|num[eé]ro[\s_]de[\s_]permis|n°[\s_]permis)[\s:.#/\-\x22=]*?(\d{12})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrPhoneNumber,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro de t[eé]l[eé]phone|num[eé]ro de t[eé]l|n° de t[eé]l[eé]phone|n° de t[eé]l|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|tel|num[eé]ro t[eé]l|appeler|rappel|contact)[\s:.#/\-\x22]*?((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
+                r"(?i)(?:num[eé]ro[\s_]de[\s_]t[eé]l[eé]phone|num[eé]ro[\s_]de[\s_]t[eé]l|n°[\s_]de[\s_]t[eé]l[eé]phone|n°[\s_]de[\s_]t[eé]l|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|tel|num[eé]ro[\s_]t[eé]l|appeler|rappel|contact)[\s:.#/\-\x22=]*?((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
                 phone_check,
             ),
             (
                 PiiKind::FrPostalCode,
                 Language::Fr,
-                r"(?i)(?:code postal|CP)[\s:.#/\-\x22]*?(\d{5})\b",
+                r"(?i)(?:code[\s_]postal|CP)[\s:.#/\-\x22=]*?(\d{5})\b",
                 fr_postal_check,
             ),
             (
                 PiiKind::FrNif,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro d'identification fiscale|num[eé]ro fiscal|identifiant fiscal|avis d'imposition|NIF|SPI)[\s:.#/\-\x22]*?(\d{13})\b",
+                r"(?i)(?:num[eé]ro[\s_]d'identification[\s_]fiscale|num[eé]ro[\s_]fiscal|identifiant[\s_]fiscal|avis[\s_]d'imposition|NIF|SPI)[\s:.#/\-\x22=]*?(\d{13})\b",
                 fr_nif_check,
             ),
             // --- French keywords for existing international types ---
             (
                 PiiKind::PhoneNumber,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro de t[eé]l[eé]phone|num[eé]ro de t[eé]l|n° de t[eé]l[eé]phone|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|appeler|rappel)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:num[eé]ro[\s_]de[\s_]t[eé]l[eé]phone|num[eé]ro[\s_]de[\s_]t[eé]l|n°[\s_]de[\s_]t[eé]l[eé]phone|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|appeler|rappel)[\s:.#/\-\x22=]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::Fr,
-                r"(?i)(?:passeport|num[eé]ro de passeport|document de voyage)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:passeport|num[eé]ro[\s_]de[\s_]passeport|document[\s_]de[\s_]voyage)[\s:.#/\-\x22=]*?(\d{9})\b",
                 passport_check,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::Fr,
-                r"(?i)(?:date de naissance|n[eé]e? le|DDN|d\.d\.n\.?)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|fevrier|f[eé]vrier|mars|avril|mai|juin|juillet|aout|ao[uû]t|septembre|octobre|novembre|decembre|d[eé]cembre)\s+\d{4})",
+                r"(?i)(?:date[\s_]de[\s_]naissance|n[eé]e?[\s_]le|DDN|d\.d\.n\.?)[\s:.#/\-\x22=]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|fevrier|f[eé]vrier|mars|avril|mai|juin|juillet|aout|ao[uû]t|septembre|octobre|novembre|decembre|d[eé]cembre)\s+\d{4})",
                 dob_check,
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::Fr,
-                r"(?i)(?:coordonn[eé]es GPS|position GPS|g[eé]olocalisation|coordonn[eé]es g[eé]ographiques|latitude/longitude)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:coordonn[eé]es[\s_]GPS|position[\s_]GPS|g[eé]olocalisation|coordonn[eé]es[\s_]g[eé]ographiques|latitude/longitude)[\s:.#/\-\x22=]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check,
             ),
             (
                 PiiKind::SwiftBic,
                 Language::Fr,
-                r"(?i)(?:identifiant bancaire)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:identifiant[\s_]bancaire)[\s:.#/\-\x22=]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
                 PiiKind::Imei,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro IMEI|identifiant appareil)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:num[eé]ro[\s_]IMEI|identifiant[\s_]appareil)[\s:.#/\-\x22=]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             // --- Germany-specific PII types (Language::De) ---
             (
                 PiiKind::DeSteuerId,
                 Language::De,
-                r"(?i)(?:Steueridentifikationsnummer|Steuerliche Identifikationsnummer|Steuer-ID|IdNr|Steuernummer)[\s:.#/\-\x22]*?(\d{11})\b",
+                r"(?i)(?:Steueridentifikationsnummer|Steuerliche[\s_]Identifikationsnummer|Steuer-ID|IdNr|Steuernummer)[\s:.#/\-\x22=]*?(\d{11})\b",
                 de_steuer_id_check,
             ),
             (
                 PiiKind::DePersonalausweis,
                 Language::De,
-                r"(?i)(?:Personalausweisnummer|Personalausweis|Ausweisnummer)[\s:.#/\-\x22]*?([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
+                r"(?i)(?:Personalausweisnummer|Personalausweis|Ausweisnummer)[\s:.#/\-\x22=]*?([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
                 de_personalausweis_check,
             ),
             (
                 PiiKind::DePhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22=]*?((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::DePostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{5})\b",
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22=]*?(\d{5})\b",
                 de_postal_check,
             ),
             // --- Austria-specific PII types (Language::De) ---
             (
                 PiiKind::AtSvnr,
                 Language::De,
-                r"(?i)(?:Sozialversicherungsnummer|Versicherungsnummer|SVNR)[\s:.#/\-\x22]*?(\d{4}\s?\d{6})\b",
+                r"(?i)(?:Sozialversicherungsnummer|Versicherungsnummer|SVNR)[\s:.#/\-\x22=]*?(\d{4}\s?\d{6})\b",
                 at_svnr_check,
             ),
             (
                 PiiKind::AtPhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22=]*?((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::AtPostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{4})\b",
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22=]*?(\d{4})\b",
                 at_postal_check,
             ),
             // --- Switzerland-specific PII types (Language::De) ---
             (
                 PiiKind::ChAhv,
                 Language::De,
-                r"(?i)(?:AHV-Nummer|AHV-Nr|OASI|Versichertennummer)[\s:.#/\-\x22]*?(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
+                r"(?i)(?:AHV-Nummer|AHV-Nr|OASI|Versichertennummer)[\s:.#/\-\x22=]*?(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
                 ch_ahv_check,
             ),
             (
                 PiiKind::ChPhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22=]*?((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
                 phone_check,
             ),
             (
                 PiiKind::ChPostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22]*?(\d{4})\b",
+                r"(?i)(?:Postleitzahl|PLZ)[\s:.#/\-\x22=]*?(\d{4})\b",
                 ch_postal_check,
             ),
             // --- German keywords for existing international types ---
             (
                 PiiKind::PhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)[\s:.#/\-\x22=]*?((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::De,
-                r"(?i)(?:Reisepass|Passnummer)[\s:.#/\-\x22]*?(\d{9})\b",
+                r"(?i)(?:Reisepass|Passnummer)[\s:.#/\-\x22=]*?(\d{9})\b",
                 passport_check,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::De,
-                r"(?i)(?:Geburtsdatum|geboren am|Geb\.?datum)[\s:.#/\-\x22]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Februar|M[aä]rz|Maerz|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s+\d{4})",
+                r"(?i)(?:Geburtsdatum|geboren[\s_]am|Geb\.?datum)[\s:.#/\-\x22=]*?(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Februar|M[aä]rz|Maerz|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s+\d{4})",
                 dob_check,
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::De,
-                r"(?i)(?:GPS-Koordinaten|Standort|Geokoordinaten)[\s:.#/\-\x22]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:GPS-Koordinaten|Standort|Geokoordinaten)[\s:.#/\-\x22=]*?(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check,
             ),
             (
                 PiiKind::SwiftBic,
                 Language::De,
-                r"(?i)(?:Bankleitzahl|BIC-Code)[\s:.#/\-\x22]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:Bankleitzahl|BIC-Code)[\s:.#/\-\x22=]*?([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
                 PiiKind::Imei,
                 Language::De,
-                r"(?i)(?:Ger[aä]tekennung|Ger[aä]te-IMEI)[\s:.#/\-\x22]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:Ger[aä]tekennung|Ger[aä]te-IMEI)[\s:.#/\-\x22=]*?(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             // --- PersonName (International) ---
             (
                 PiiKind::PersonName,
                 Language::En,
-                r"(?i)(?:full name|first name|last name|given name|family name|surname|forename|maiden name|middle name|patient name|client name|customer name|employee name|applicant name|cardholder name|account holder|account name|beneficiary name|recipient name|sender name|passenger name|insured name)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:full[\s_]name|first[\s_]name|last[\s_]name|given[\s_]name|family[\s_]name|surname|forename|maiden[\s_]name|middle[\s_]name|patient[\s_]name|client[\s_]name|customer[\s_]name|employee[\s_]name|applicant[\s_]name|cardholder[\s_]name|account[\s_]holder|account[\s_]name|beneficiary[\s_]name|recipient[\s_]name|sender[\s_]name|passenger[\s_]name|insured[\s_]name)[\s:.#/\-\x22=]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
                 PiiKind::PersonName,
                 Language::Fr,
-                r"(?i)(?:nom complet|nom de famille|nom de naissance|nom de jeune fille|nom d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:nom[\s_]complet|nom[\s_]de[\s_]famille|nom[\s_]de[\s_]naissance|nom[\s_]de[\s_]jeune[\s_]fille|nom[\s_]d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])[\s:.#/\-\x22=]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
                 PiiKind::PersonName,
                 Language::De,
-                r"(?i)(?:vollst[aä]ndiger Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:vollst[aä]ndiger[\s_]Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)[\s:.#/\-\x22=]*?([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             // --- French/Swiss French physical address types (Language::Fr) ---
             (
                 PiiKind::FrChAddress,
                 Language::Fr,
-                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)[\s:.#/\-\x22]*?((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)[\s:.#/\-\x22=]*?((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
                 fr_ch_address_check,
             ),
             (
                 PiiKind::FrChBoitePostale,
                 Language::Fr,
-                r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)[\s:.#/\-\x22=]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
                 fr_ch_boite_postale_check,
             ),
             // --- German/Austrian physical address types (Language::De) ---
             (
                 PiiKind::DeAtChAddress,
                 Language::De,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22=]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
                 de_at_address_check,
             ),
             (
                 PiiKind::DeAtChPostfach,
                 Language::De,
-                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22=]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
                 de_at_postfach_check,
             ),
             (
                 PiiKind::DePackstation,
                 Language::De,
-                r"(?i)(?:Packstation|Postfiliale|Paketshop)[\s:.#/\-\x22]*?(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Packstation|Postfiliale|Paketshop)[\s:.#/\-\x22=]*?(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
                 de_packstation_check,
             ),
         ];
@@ -586,11 +586,11 @@ impl KeywordContextDetector {
         let detection_overrides: &[(PiiKind, &str)] = &[
             (
                 PiiKind::DeAtChAddress,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)[\s:.#/\-\x22=]*?([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
             ),
             (
                 PiiKind::DeAtChPostfach,
-                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Postfach|PF)[\s:.#/\-\x22=]*?(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
             ),
         ];
 
@@ -1880,6 +1880,30 @@ mod tests {
             .collect();
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "12&#45;3456789");
+    }
+
+    // --- URL query parameter format (underscore keywords, = separator) ---
+
+    #[test_case("last_name=Lopez", PiiKind::PersonName, "Lopez" ; "url qp last_name")]
+    #[test_case("first_name=Alberto", PiiKind::PersonName, "Alberto" ; "url qp first_name")]
+    #[test_case("full_name=Alberto Lopez", PiiKind::PersonName, "Alberto Lopez" ; "url qp full_name")]
+    #[test_case("phone_number=555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url qp phone_number")]
+    #[test_case("passport_number=123456789", PiiKind::PassportNumber, "123456789" ; "url qp passport_number")]
+    #[test_case("date_of_birth=15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "url qp date_of_birth")]
+    #[test_case("sort_code=20-00-00", PiiKind::GbSortCode, "20-00-00" ; "url qp sort_code")]
+    fn detects_url_query_params(input: &str, kind: PiiKind, expected_span: &str) {
+        let detector = &*DETECTOR;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
     }
 
     // --- No false positives from partial encoding ---
