@@ -11,10 +11,9 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() {
-    // 1. Parse CLI args
     let cli = Cli::parse();
 
-    // 2. Initialize tracing subscriber
+    // Initialize tracing subscriber
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -22,7 +21,7 @@ async fn main() {
         )
         .init();
 
-    // 3. Load and validate config
+    // Load and validate config
     let config = match AppConfig::load(&cli.config) {
         Ok(c) => c,
         Err(e) => {
@@ -33,7 +32,7 @@ async fn main() {
 
     tracing::info!(config_path = %cli.config.display(), "configuration loaded");
 
-    // 4. Create ScannerPool
+    // Create ScannerPool
     let scanner = match ScannerPool::new(&config.pii) {
         Ok(s) => Arc::new(s),
         Err(e) => {
@@ -47,12 +46,12 @@ async fn main() {
         "scanner pool initialized"
     );
 
-    // 5. Set up cancellation token and readiness signal
+    // Set up cancellation token and readiness signal
     let cancel = CancellationToken::new();
     let ready = Arc::new(AtomicBool::new(false));
     let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
 
-    // 6. Spawn enabled listeners as tokio tasks
+    // Spawn enabled listeners as tokio tasks
     let mut task_handles = Vec::new();
 
     // Admin server (always on)
@@ -93,11 +92,11 @@ async fn main() {
         tracing::warn!("REST API mode is enabled but not yet implemented");
     }
 
-    // 7. Set readiness flag once all listeners are bound
-    //    The listeners bind inside their serve() calls. We give a brief moment
-    //    for them to bind, then set readiness. A more robust approach would use
-    //    per-listener readiness signals, but the current serve() functions bind
-    //    immediately on start.
+    // Set readiness flag once all listeners are bound
+    // The listeners bind inside their serve() calls. We give a brief moment
+    // for them to bind, then set readiness. A more robust approach would use
+    // per-listener readiness signals, but the current serve() functions bind
+    // immediately on start.
     {
         let ready = Arc::clone(&ready);
         tokio::spawn(async move {
@@ -108,12 +107,12 @@ async fn main() {
         });
     }
 
-    // 8. Await shutdown signal (ctrl-c or SIGTERM)
+    // Await shutdown signal (ctrl-c or SIGTERM)
     shutdown_signal().await;
     tracing::info!("shutdown signal received, initiating graceful shutdown");
 
-    // 9. Trigger cancellation — listeners stop accepting new connections
-    //    and axum drains in-flight requests via with_graceful_shutdown.
+    // Trigger cancellation — listeners stop accepting new connections
+    // and axum drains in-flight requests via with_graceful_shutdown.
     cancel.cancel();
 
     // Wait for all tasks to complete, with a timeout to avoid hanging
