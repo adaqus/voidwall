@@ -220,6 +220,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use super::*;
+    use test_case::test_case;
 
     static SCANNER: LazyLock<Scanner> = LazyLock::new(|| Scanner::new().unwrap());
 
@@ -558,6 +559,200 @@ mod tests {
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
         assert!(!kinds.contains(&PiiKind::CreditCard));
+    }
+
+    // --- PII detection in URL paths ---
+
+    // Structured PII (HyperscanDetector) embedded in URL paths
+    #[test_case(
+        "/api/users/user@example.com/profile",
+        PiiKind::Email, "user@example.com"
+        ; "email in url path"
+    )]
+    #[test_case(
+        "/api/users/user%40example.com/profile",
+        PiiKind::Email, "user%40example.com"
+        ; "email percent encoded in url path"
+    )]
+    #[test_case(
+        "/lookup?ssn=123-45-6789",
+        PiiKind::UsSsn, "123-45-6789"
+        ; "ssn in query string"
+    )]
+    #[test_case(
+        "/lookup?ssn=123%2D45%2D6789",
+        PiiKind::UsSsn, "123%2D45%2D6789"
+        ; "ssn percent encoded in query string"
+    )]
+    #[test_case(
+        "/verify?card=4111111111111111",
+        PiiKind::CreditCard, "4111111111111111"
+        ; "credit card in query string"
+    )]
+    #[test_case(
+        "/v1/iban/GB29NWBK60161331926819/check",
+        PiiKind::Iban, "GB29NWBK60161331926819"
+        ; "iban in url path segment"
+    )]
+    #[test_case(
+        "/v1/nino/AB123456C/benefits",
+        PiiKind::GbNino, "AB123456C"
+        ; "nino in url path"
+    )]
+    #[test_case(
+        "/admin/ip/192.168.1.1/block",
+        PiiKind::IpAddress, "192.168.1.1"
+        ; "ipv4 in url path"
+    )]
+    #[test_case(
+        "/tax/itin/912-70-1234/verify",
+        PiiKind::UsItin, "912-70-1234"
+        ; "itin in url path"
+    )]
+    #[test_case(
+        "/ca/sin/130-692-544/status",
+        PiiKind::CaSin, "130-692-544"
+        ; "ca sin in url path"
+    )]
+    #[test_case(
+        "/ie/ppsn/1234567T/lookup",
+        PiiKind::IePpsn, "1234567T"
+        ; "ie ppsn in url path"
+    )]
+    #[test_case(
+        "/devices/mac/00:1A:2B:3C:4D:5E/info",
+        PiiKind::MacAddress, "00:1A:2B:3C:4D:5E"
+        ; "mac address in url path"
+    )]
+    #[test_case(
+        "/uk/dl/JONES901157A99Y1/check",
+        PiiKind::GbDrivingLicence, "JONES901157A99Y1"
+        ; "gb driving licence in url path"
+    )]
+    #[test_case(
+        "/vehicles/vin/1HGBH41JXMN109186/recall",
+        PiiKind::Vin, "1HGBH41JXMN109186"
+        ; "vin in url path"
+    )]
+    #[test_case(
+        "/keys/AKIAIOSFODNN7EXAMPLE/revoke",
+        PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE"
+        ; "aws access key in url path"
+    )]
+    #[test_case(
+        "/tokens/ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12/revoke",
+        PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12"
+        ; "github token in url path"
+    )]
+    #[test_case(
+        "/uk/postcode/SW1A1AA/nearby",
+        PiiKind::GbPostcode, "SW1A1AA"
+        ; "gb postcode in url path no space"
+    )]
+    #[test_case(
+        "/btc/1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf/balance",
+        PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf"
+        ; "bitcoin address in url path"
+    )]
+    #[test_case(
+        "/eth/0x1234567890abcdef1234567890abcdef12345678/balance",
+        PiiKind::EthereumAddress, "0x1234567890abcdef1234567890abcdef12345678"
+        ; "ethereum address in url path"
+    )]
+    // Keyword-context PII in URL query parameters
+    #[test_case(
+        "/api/search?phone_number=555-123-4567",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "phone in query param"
+    )]
+    #[test_case(
+        "/api/search?passport_number=123456789",
+        PiiKind::PassportNumber, "123456789"
+        ; "passport in query param"
+    )]
+    #[test_case(
+        "/api/search?date_of_birth=15/03/1990",
+        PiiKind::DateOfBirth, "15/03/1990"
+        ; "dob in query param"
+    )]
+    #[test_case(
+        "/api/search?last_name=Lopez",
+        PiiKind::PersonName, "Lopez"
+        ; "person name in query param"
+    )]
+    // Multiple query parameters
+    #[test_case(
+        "/form?first_name=John&phone_number=555-123-4567&ref=abc",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "phone among multiple query params"
+    )]
+    #[test_case(
+        "/form?first_name=John&phone_number=555-123-4567&ref=abc",
+        PiiKind::PersonName, "John"
+        ; "name among multiple query params"
+    )]
+    // Percent-encoded keyword separators in URL paths
+    #[test_case(
+        "/log?phone%3A%20555-123-4567",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "phone with encoded colon in url"
+    )]
+    #[test_case(
+        "/data?passport%3A123456789",
+        PiiKind::PassportNumber, "123456789"
+        ; "passport with encoded colon in url"
+    )]
+    // URL path with keyword as path segment
+    #[test_case(
+        "/api/phone/555-123-4567/details",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "phone as path segment with slash separator"
+    )]
+    #[test_case(
+        "/api/passport/123456789",
+        PiiKind::PassportNumber, "123456789"
+        ; "passport as path segment with slash separator"
+    )]
+    fn detects_pii_in_url(input: &str, kind: PiiKind, expected_span: &str) {
+        let scanner = &*SCANNER;
+        let matches: Vec<_> = scanner
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    #[test]
+    fn has_piis_detects_in_url_path() {
+        let scanner = &*SCANNER;
+        assert!(scanner.has_piis("/api/users/user@example.com/profile"));
+        assert!(scanner.has_piis("/lookup?ssn=123-45-6789"));
+        assert!(scanner.has_piis("/api/search?phone_number=555-123-4567"));
+    }
+
+    #[test]
+    fn url_path_no_false_positives() {
+        let scanner = &*SCANNER;
+        assert!(!scanner.has_piis("/api/users/12345/profile"));
+        assert!(!scanner.has_piis("/search?q=hello+world&page=2"));
+        assert!(!scanner.has_piis("/v1/status/healthy"));
+    }
+
+    #[test]
+    fn url_multiple_pii_in_query_string() {
+        let scanner = &*SCANNER;
+        let input = "/submit?email=user@test.com&phone_number=555-123-4567&ssn=123-45-6789";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email), "should detect email");
+        assert!(kinds.contains(&PiiKind::PhoneNumber), "should detect phone");
+        assert!(kinds.contains(&PiiKind::UsSsn), "should detect ssn");
     }
 
     // Compile-time assertion that Scanner is Send + Sync.
