@@ -30,7 +30,7 @@ pub enum RedactWith {
 /// A request to scan (and optionally redact) text fragments.
 pub struct ScanRequest {
     pub body: Option<Bytes>,
-    pub url: Option<String>,
+    pub path: Option<String>,
     pub query: Option<String>,
     pub headers: Option<Vec<(String, String)>>,
     pub redact: bool,
@@ -44,7 +44,7 @@ pub struct ScanResult {
     pub kinds: Vec<String>,
     pub matches_count: usize,
     pub redacted_body: Option<Bytes>,
-    pub redacted_url: Option<String>,
+    pub redacted_path: Option<String>,
     pub redacted_query: Option<String>,
     pub redacted_headers: Option<Vec<(String, String)>>,
 }
@@ -300,7 +300,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
     let mut matches_count: usize = 0;
 
     let mut redacted_body = None;
-    let mut redacted_url = None;
+    let mut redacted_path = None;
     let mut redacted_query = None;
     let mut redacted_headers = None;
 
@@ -325,8 +325,8 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
     }
 
     // Scan URL
-    if let Some(ref url) = request.url {
-        let mut matches = scanner.mark_piis(url);
+    if let Some(ref path) = request.path {
+        let mut matches = scanner.mark_piis(path);
         matches_count += matches.len();
         for m in &matches {
             all_kinds.insert(m.kind.label().to_string());
@@ -336,9 +336,9 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             && !matches.is_empty()
             && let Some(ref strategy) = request.redact_strategy
         {
-            let mut owned = url.clone();
+            let mut owned = path.clone();
             redact_in_place(&mut owned, &mut matches, strategy);
-            redacted_url = Some(owned);
+            redacted_path = Some(owned);
         }
     }
 
@@ -398,7 +398,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         kinds,
         matches_count,
         redacted_body,
-        redacted_url,
+        redacted_path,
         redacted_query,
         redacted_headers,
     }
@@ -435,7 +435,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: Some(Bytes::from("hello world")),
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: false,
@@ -453,7 +453,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: Some(Bytes::from("contact me at user@example.com please")),
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: false,
@@ -471,7 +471,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: Some(Bytes::from("email: user@example.com")),
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: true,
@@ -490,7 +490,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: Some(Bytes::from("email: user@example.com")),
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: true,
@@ -505,11 +505,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scan_url_with_pii() {
+    async fn scan_path_with_pii() {
         let pool = make_pool();
         let req = ScanRequest {
             body: None,
-            url: Some("/api/users/user@example.com".into()),
+            path: Some("/api/users/user@example.com".into()),
             query: None,
             headers: None,
             redact: true,
@@ -517,8 +517,8 @@ mod tests {
         };
         let result = pool.process(req, OnError::FailOpen).await.unwrap();
         assert!(result.detected);
-        let url = result.redacted_url.expect("url should be redacted");
-        assert!(url.contains("[EMAIL]"), "expected [EMAIL] in '{url}'");
+        let path = result.redacted_path.expect("path should be redacted");
+        assert!(path.contains("[EMAIL]"), "expected [EMAIL] in '{path}'");
     }
 
     #[tokio::test]
@@ -526,7 +526,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: None,
-            url: None,
+            path: None,
             query: Some("user=user@example.com&action=login".into()),
             headers: None,
             redact: true,
@@ -544,7 +544,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: None,
-            url: None,
+            path: None,
             query: None,
             headers: Some(vec![
                 ("Authorization".into(), "Bearer user@example.com".into()),
@@ -571,7 +571,7 @@ mod tests {
         let pool = make_pool();
         let req = ScanRequest {
             body: None,
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: false,
@@ -588,7 +588,7 @@ mod tests {
         pool.shutdown();
         let req = ScanRequest {
             body: Some(Bytes::from("test")),
-            url: None,
+            path: None,
             query: None,
             headers: None,
             redact: false,
@@ -643,7 +643,7 @@ mod tests {
         for _ in 0..6 {
             let req = ScanRequest {
                 body: Some(Bytes::from("email: user@example.com")),
-                url: None,
+                path: None,
                 query: None,
                 headers: None,
                 redact: false,

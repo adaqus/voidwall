@@ -98,7 +98,7 @@ pub struct ScanConfig {
     pub content_types: Vec<String>,
 
     #[serde(default = "default_true")]
-    pub url: bool,
+    pub url_path: bool,
 
     #[serde(default = "default_true")]
     pub query_params: bool,
@@ -118,7 +118,7 @@ impl Default for ScanConfig {
         Self {
             max_body_size: default_max_body_size(),
             content_types: default_content_types(),
-            url: true,
+            url_path: true,
             query_params: true,
             headers: Vec::new(),
             body: true,
@@ -1166,7 +1166,7 @@ redact_strategy = "char"
     fn defaults_scan_config() {
         let scan = ScanConfig::default();
         assert_eq!(scan.max_body_size, 1_048_576);
-        assert!(scan.url);
+        assert!(scan.url_path);
         assert!(scan.query_params);
         assert!(scan.body);
         assert_eq!(scan.content_types.len(), 4);
@@ -1260,13 +1260,13 @@ upstream = "http://localhost:8080"
 
 [reverse_proxy.routes.scan]
 body = true
-url = false
+url_path = false
 query_params = false
 "#;
         let config = parse(toml).unwrap();
         let scan = config.reverse_proxy.routes[0].scan.as_ref().unwrap();
         assert!(scan.body);
-        assert!(!scan.url);
+        assert!(!scan.url_path);
         assert!(!scan.query_params);
     }
 
@@ -1281,7 +1281,7 @@ scanner_threads = 4
 [scan]
 max_body_size = 1048576
 content_types = ["application/json", "text/plain"]
-url = true
+url_path = true
 query_params = true
 headers = ["Authorization", "Cookie"]
 body = true

@@ -196,7 +196,7 @@ mod tests {
             kinds: vec![],
             matches_count: 0,
             redacted_body: None,
-            redacted_url: None,
+            redacted_path: None,
             redacted_query: None,
             redacted_headers: None,
         }
@@ -208,7 +208,7 @@ mod tests {
             kinds: vec!["EMAIL".into(), "US_SSN".into()],
             matches_count: 2,
             redacted_body: Some(Bytes::from("email: [EMAIL], ssn: [US_SSN]")),
-            redacted_url: None,
+            redacted_path: None,
             redacted_query: None,
             redacted_headers: None,
         }
@@ -220,7 +220,7 @@ mod tests {
             kinds: vec!["EMAIL".into()],
             matches_count: 1,
             redacted_body: None,
-            redacted_url: None,
+            redacted_path: None,
             redacted_query: None,
             redacted_headers: None,
         }

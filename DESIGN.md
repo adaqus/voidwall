@@ -358,7 +358,7 @@ content_types = [
     "text/html",
     "application/x-www-form-urlencoded",
 ]
-url = true
+url_path = true
 query_params = true
 headers = ["Authorization", "Cookie", "X-Api-Key"]
 body = true

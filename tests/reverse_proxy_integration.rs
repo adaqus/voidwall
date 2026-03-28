@@ -830,7 +830,7 @@ async fn per_route_scan_override() {
                 upstream: format!("http://{upstream}"),
                 scan: Some(ScanConfig {
                     body: false, // disable body scanning
-                    url: false,
+                    url_path: false,
                     query_params: false,
                     headers: vec![],
                     ..ScanConfig::default()

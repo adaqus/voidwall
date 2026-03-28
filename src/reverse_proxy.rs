@@ -247,7 +247,7 @@ async fn handle_proxied_request(
             PipelineResult::Forward {
                 body,
                 extra_headers,
-                redacted_url,
+                redacted_path,
                 redacted_query,
                 redacted_headers,
             } => {
@@ -260,9 +260,9 @@ async fn handle_proxied_request(
                 if let Some(rh) = redacted_headers {
                     apply_redacted_headers(&mut forward_headers, &rh);
                 }
-                if redacted_url.is_some() || redacted_query.is_some() {
+                if redacted_path.is_some() || redacted_query.is_some() {
                     forward_uri =
-                        rebuild_uri(&uri, redacted_url.as_deref(), redacted_query.as_deref());
+                        rebuild_uri(&uri, redacted_path.as_deref(), redacted_query.as_deref());
                 }
             }
             PipelineResult::Pass => {}
@@ -396,7 +396,7 @@ enum PipelineResult {
     Forward {
         body: Option<Bytes>,
         extra_headers: HeaderMap,
-        redacted_url: Option<String>,
+        redacted_path: Option<String>,
         redacted_query: Option<String>,
         redacted_headers: Option<Vec<(String, String)>>,
     },
@@ -422,7 +422,13 @@ async fn scan_and_act(
 ) -> PipelineResult {
     let scan_body = body.cloned();
 
-    let scan_url = if scan_config.url {
+    // URL path and query are scanned separately (not merged into one string)
+    // because: (1) each can be independently enabled via config, (2) redaction
+    // rewrites offsets within each string — a combined string would require
+    // tracking the `?` boundary to split back into path and query for URI
+    // reconstruction, and (3) these strings are tiny so the extra scan call
+    // has negligible cost compared to body scanning.
+    let scan_path = if scan_config.url_path {
         Some(uri.path().to_string())
     } else {
         None
@@ -436,13 +442,14 @@ async fn scan_and_act(
 
     let scan_headers = collect_scan_headers(scan_config, headers);
 
-    if scan_body.is_none() && scan_url.is_none() && scan_query.is_none() && scan_headers.is_none() {
+    if scan_body.is_none() && scan_path.is_none() && scan_query.is_none() && scan_headers.is_none()
+    {
         return PipelineResult::Pass;
     }
 
     let scan_req = ScanRequest {
         body: scan_body,
-        url: scan_url,
+        path: scan_path,
         query: scan_query,
         headers: scan_headers,
         redact: action_set.redact,
@@ -481,7 +488,7 @@ async fn scan_and_act_response(
 
     let scan_req = ScanRequest {
         body: scan_body,
-        url: None,
+        path: None,
         query: None,
         headers: scan_headers,
         redact: action_set.redact,
@@ -540,7 +547,7 @@ fn pipeline_result_from_outcome(outcome: ActionOutcome) -> PipelineResult {
         } => PipelineResult::Forward {
             body,
             extra_headers,
-            redacted_url: scan_result.redacted_url,
+            redacted_path: scan_result.redacted_path,
             redacted_query: scan_result.redacted_query,
             redacted_headers: scan_result.redacted_headers,
         },
@@ -803,7 +810,7 @@ mod tests {
                 kinds: vec!["EMAIL".into()],
                 matches_count: 1,
                 redacted_body: Some(Bytes::from("redacted")),
-                redacted_url: None,
+                redacted_path: None,
                 redacted_query: None,
                 redacted_headers: None,
             },
