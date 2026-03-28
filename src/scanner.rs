@@ -755,6 +755,260 @@ mod tests {
         assert!(kinds.contains(&PiiKind::UsSsn), "should detect ssn");
     }
 
+    // --- PII in Matomo tracking requests ---
+
+    // uid param often carries an email or other user identifier
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&uid=user@example.com&action_name=Home",
+        PiiKind::Email, "user@example.com"
+        ; "matomo uid email"
+    )]
+    // PII leaked inside the tracked page URL
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&url=https://app.example.com/profile/user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "matomo url param contains email"
+    )]
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&url=https://app.example.com/search?phone_number=555-123-4567",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "matomo url param contains phone"
+    )]
+    // PII in referrer URL
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&urlref=https://site.com/account/user@example.com&action_name=Dashboard",
+        PiiKind::Email, "user@example.com"
+        ; "matomo urlref contains email"
+    )]
+    // Site search keyword containing PII
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&search=user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "matomo search keyword is email"
+    )]
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&search=123-45-6789",
+        PiiKind::UsSsn, "123-45-6789"
+        ; "matomo search keyword is ssn"
+    )]
+    // Custom variable JSON containing PII
+    #[test_case(
+        r#"/matomo.php?idsite=1&rec=1&_cvar={"1":["email","user@example.com"]}"#,
+        PiiKind::Email, "user@example.com"
+        ; "matomo cvar contains email"
+    )]
+    #[test_case(
+        r#"/matomo.php?idsite=1&rec=1&_cvar={"1":["phone_number","555-123-4567"]}"#,
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "matomo cvar contains phone"
+    )]
+    // Custom dimensions carrying PII
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&dimension1=user@example.com&dimension2=premium",
+        PiiKind::Email, "user@example.com"
+        ; "matomo custom dimension email"
+    )]
+    // PII in action_name (page title)
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&action_name=Profile%20of%20user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "matomo action name contains email"
+    )]
+    // Credit card in event value (e.g. mis-instrumented payment tracking)
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&e_c=payment&e_a=submit&e_n=4111111111111111",
+        PiiKind::CreditCard, "4111111111111111"
+        ; "matomo event name is credit card"
+    )]
+    // IP address in custom variable
+    #[test_case(
+        "/matomo.php?idsite=1&rec=1&cip=192.168.1.1",
+        PiiKind::IpAddress, "192.168.1.1"
+        ; "matomo cip override ip"
+    )]
+    fn detects_pii_in_matomo(input: &str, kind: PiiKind, expected_span: &str) {
+        let scanner = &*SCANNER;
+        let matches: Vec<_> = scanner
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    #[test]
+    fn matomo_multiple_pii_leaks() {
+        let scanner = &*SCANNER;
+        let input = "/matomo.php?idsite=1&rec=1&uid=user@example.com&url=https://app.example.com/lookup?ssn=123-45-6789&action_name=Profile";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&PiiKind::Email),
+            "should detect email in uid"
+        );
+        assert!(
+            kinds.contains(&PiiKind::UsSsn),
+            "should detect ssn in url param"
+        );
+    }
+
+    #[test]
+    fn matomo_clean_request_no_false_positives() {
+        let scanner = &*SCANNER;
+        assert!(!scanner.has_piis(
+            "/matomo.php?idsite=1&rec=1&action_name=Home&url=https://example.com/products&rand=123456"
+        ));
+    }
+
+    // --- PII in Google Analytics tracking requests ---
+
+    // UA (/collect) — uid carrying email
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&uid=user@example.com&t=pageview&dl=https://example.com/home",
+        PiiKind::Email, "user@example.com"
+        ; "ga ua uid email"
+    )]
+    // UA — PII leaked inside document location (dl)
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dl=https://app.example.com/profile/user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "ga ua dl contains email"
+    )]
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dl=https://app.example.com/search?phone_number=555-123-4567",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "ga ua dl contains phone"
+    )]
+    // UA — PII in document referrer (dr)
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dr=https://site.com/account/user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "ga ua dr contains email"
+    )]
+    // UA — PII in document title (dt)
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dt=Profile%20of%20user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "ga ua dt contains email"
+    )]
+    // UA — PII in custom dimensions (cd1, cd2, ...)
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=event&cd1=user@example.com&cd2=premium",
+        PiiKind::Email, "user@example.com"
+        ; "ga ua custom dimension email"
+    )]
+    // UA — PII in event label (el)
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=event&ec=form&ea=submit&el=4111111111111111",
+        PiiKind::CreditCard, "4111111111111111"
+        ; "ga ua event label credit card"
+    )]
+    // UA — SSN in event label
+    #[test_case(
+        "/collect?v=1&tid=UA-123456-1&cid=555&t=event&ec=lookup&ea=search&el=123-45-6789",
+        PiiKind::UsSsn, "123-45-6789"
+        ; "ga ua event label ssn"
+    )]
+    // GA4 (/g/collect) — uid carrying email
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&uid=user@example.com&en=page_view",
+        PiiKind::Email, "user@example.com"
+        ; "ga4 uid email"
+    )]
+    // GA4 — PII in document location (dl)
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=page_view&dl=https://app.example.com/users/user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "ga4 dl contains email"
+    )]
+    // GA4 — PII in event parameter (ep.xxx)
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=login&ep.phone_number=555-123-4567",
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "ga4 event param phone"
+    )]
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=purchase&ep.last_name=Lopez",
+        PiiKind::PersonName, "Lopez"
+        ; "ga4 event param person name"
+    )]
+    // GA4 — PII in user property (up.xxx)
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=page_view&up.first_name=Alberto",
+        PiiKind::PersonName, "Alberto"
+        ; "ga4 user property person name"
+    )]
+    // GA4 — PII in document referrer (dr)
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=page_view&dr=https://site.com/verify?ssn=123-45-6789",
+        PiiKind::UsSsn, "123-45-6789"
+        ; "ga4 dr contains ssn"
+    )]
+    // GA4 — PII in document title (dt)
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=page_view&dt=Order%20for%20user@example.com",
+        PiiKind::Email, "user@example.com"
+        ; "ga4 dt contains email"
+    )]
+    // GA4 — IP address in event parameter
+    #[test_case(
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=error&ep.client_ip=192.168.1.1",
+        PiiKind::IpAddress, "192.168.1.1"
+        ; "ga4 event param ip address"
+    )]
+    fn detects_pii_in_ga(input: &str, kind: PiiKind, expected_span: &str) {
+        let scanner = &*SCANNER;
+        let matches: Vec<_> = scanner
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    #[test]
+    fn ga_multiple_pii_leaks() {
+        let scanner = &*SCANNER;
+        let input = "/collect?v=1&tid=UA-123456-1&cid=555&uid=user@example.com&t=event&ec=form&ea=submit&el=123-45-6789&cd1=4111111111111111";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&PiiKind::Email),
+            "should detect email in uid"
+        );
+        assert!(
+            kinds.contains(&PiiKind::UsSsn),
+            "should detect ssn in event label"
+        );
+        assert!(
+            kinds.contains(&PiiKind::CreditCard),
+            "should detect credit card in cd1"
+        );
+    }
+
+    #[test]
+    fn ga_clean_request_no_false_positives() {
+        let scanner = &*SCANNER;
+        // UA clean hit
+        assert!(!scanner.has_piis(
+            "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dl=https://example.com/products&dt=Products"
+        ));
+        // GA4 clean hit
+        assert!(!scanner.has_piis(
+            "/g/collect?v=2&tid=G-ABC123&cid=555&en=page_view&dl=https://example.com/about&dt=About%20Us"
+        ));
+    }
+
     // Compile-time assertion that Scanner is Send + Sync.
     #[test]
     fn scanner_is_send_and_sync() {
