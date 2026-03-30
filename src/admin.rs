@@ -49,6 +49,7 @@ pub async fn serve(
 }
 
 async fn metrics_handler() -> impl IntoResponse {
+    crate::metrics::update_process_metrics();
     let encoder = prometheus::TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();

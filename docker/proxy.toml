@@ -1,0 +1,29 @@
+# Default proxy config for the Docker dev environment.
+# The echo server runs as a sibling container on the "echo-server" hostname.
+
+[pii]
+countries = []
+languages = []
+scanner_threads = 4
+
+[scan]
+on_error = "fail_open"
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[reverse_proxy.response]
+actions = ["redact"]
+redact_strategy = "type_label"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://echo-server:8090"
+
+[admin]
+listen = "0.0.0.0:9090"

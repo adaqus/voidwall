@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use prometheus::{
-    self, HistogramVec, IntCounterVec, histogram_opts, opts, register_histogram_vec,
-    register_int_counter_vec,
+    self, Gauge, HistogramVec, IntCounterVec, histogram_opts, opts, register_gauge,
+    register_histogram_vec, register_int_counter_vec,
 };
 
 lazy_static! {
@@ -49,6 +49,38 @@ lazy_static! {
         &["outcome", "reason"]
     )
     .unwrap();
+
+    // --- Process metrics ---
+
+    pub static ref PROCESS_RSS_BYTES: Gauge = register_gauge!(
+        "process_resident_memory_bytes",
+        "Resident memory size in bytes"
+    )
+    .unwrap();
+
+    pub static ref PROCESS_VSIZE_BYTES: Gauge = register_gauge!(
+        "process_virtual_memory_bytes",
+        "Virtual memory size in bytes"
+    )
+    .unwrap();
+
+    pub static ref PROCESS_CPU_SECONDS: Gauge = register_gauge!(
+        "process_cpu_seconds_total",
+        "Total user and system CPU time spent in seconds"
+    )
+    .unwrap();
+
+    pub static ref PROCESS_OPEN_FDS: Gauge = register_gauge!(
+        "process_open_fds",
+        "Number of open file descriptors"
+    )
+    .unwrap();
+
+    pub static ref PROCESS_THREADS: Gauge = register_gauge!(
+        "process_threads",
+        "Number of OS threads in the process"
+    )
+    .unwrap();
 }
 
 /// Record a PII detection for the given kind, mode, route, and direction.
@@ -89,6 +121,26 @@ pub fn observe_duration(mode: &str, route: &str, duration_secs: f64) {
 /// Record an error with its outcome (passed/blocked) and reason.
 pub fn inc_error(outcome: &str, reason: &str) {
     ERRORS_TOTAL.with_label_values(&[outcome, reason]).inc();
+}
+
+/// Update process metrics from /proc/self. Called on each /metrics scrape.
+pub fn update_process_metrics() {
+    let page_size = procfs::page_size();
+
+    if let Ok(me) = procfs::process::Process::myself() {
+        if let Ok(stat) = me.stat() {
+            PROCESS_RSS_BYTES.set((stat.rss as f64) * (page_size as f64));
+            PROCESS_VSIZE_BYTES.set(stat.vsize as f64);
+            let ticks_per_sec = procfs::ticks_per_second() as f64;
+            let cpu_secs = (stat.utime as f64 + stat.stime as f64) / ticks_per_sec;
+            PROCESS_CPU_SECONDS.set(cpu_secs);
+            PROCESS_THREADS.set(stat.num_threads as f64);
+        }
+
+        if let Ok(fds) = me.fd_count() {
+            PROCESS_OPEN_FDS.set(fds as f64);
+        }
+    }
 }
 
 #[cfg(test)]

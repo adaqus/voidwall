@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# Central control script for the Docker-based dev environment.
+#
+# Usage:
+#   docker/ctl compile             # build release binaries on the host
+#   docker/ctl start               # compile + start proxy, echo, prometheus, grafana
+#   docker/ctl stop                # stop all containers
+#   docker/ctl start_echo_server   # start only the echo server container
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+cmd_compile() {
+    echo "Building release binaries..."
+    cargo build --release --manifest-path "$PROJECT_DIR/Cargo.toml" 2>&1
+    echo "Build complete."
+}
+
+cmd_start() {
+    cmd_compile
+    echo "Starting dev environment..."
+    docker compose -f "$COMPOSE_FILE" up --build -d
+    echo ""
+    echo "Services:"
+    echo "  Proxy:      http://localhost:8082"
+    echo "  Admin:      http://localhost:9090/metrics"
+    echo "  Prometheus: http://localhost:9091"
+    echo "  Grafana:    http://localhost:3000"
+}
+
+cmd_stop() {
+    echo "Stopping dev environment..."
+    docker compose -f "$COMPOSE_FILE" down
+}
+
+cmd_start_echo_server() {
+    cmd_compile
+    echo "Starting echo server..."
+    docker compose -f "$COMPOSE_FILE" up --build -d echo-server
+    echo "Echo server: http://localhost:8090"
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+usage() {
+    echo "Usage: $0 {compile|start|stop|start_echo_server}"
+    exit 1
+}
+
+case "${1:-}" in
+    compile)          cmd_compile ;;
+    start)            cmd_start ;;
+    stop)             cmd_stop ;;
+    start_echo_server) cmd_start_echo_server ;;
+    *)                usage ;;
+esac

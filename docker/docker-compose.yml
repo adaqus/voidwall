@@ -1,0 +1,44 @@
+services:
+  proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.proxy
+    command: ["--config", "/etc/pii-proxy/proxy.toml"]
+    volumes:
+      - ./proxy.toml:/etc/pii-proxy/proxy.toml:ro
+    ports:
+      - "8082:8082"
+      - "9090:9090"
+    depends_on:
+      - echo-server
+
+  echo-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.proxy
+    entrypoint: ["echo-server", "--listen", "0.0.0.0:8090"]
+    ports:
+      - "8090:8090"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+    depends_on:
+      - proxy
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

@@ -28,6 +28,9 @@ toml = "0.8"
 prometheus = "0.13"
 lazy_static = "1"
 
+# Process metrics
+procfs = "0.17"
+
 # Utilities
 bytes = "1"
 crossbeam-channel = "0.5"

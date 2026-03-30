@@ -166,8 +166,7 @@ run_scenario() {
 
 # --- Build ---
 
-echo "Building release binaries..."
-cargo build --release --manifest-path "$PROJECT_DIR/Cargo.toml" 2>&1
+"$PROJECT_DIR/docker/ctl" compile
 
 # --- Start echo server ---
 
