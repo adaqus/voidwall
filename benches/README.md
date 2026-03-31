@@ -71,6 +71,28 @@ k6 run -e DURATION=10s -e VUS=100 benches/k6/action_comparison.js
 
 For action comparison and scanner thread scaling, `run.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
 
+## Soak Test
+
+Long-running load test for observing CPU, memory, and other process metrics in Grafana. Requires the Docker dev environment to be running.
+
+```bash
+docker/ctl start                          # start proxy, echo, prometheus, grafana
+docker/ctl soak                           # 30min soak test with default settings
+DURATION=2h PII=true docker/ctl soak      # 2 hours with PII payloads
+```
+
+The load pattern cycles through: ramp up → sustain → ramp down → idle, then repeats. Idle phases help reveal memory that isn't freed after load drops.
+
+| Variable   | Default  | Description             |
+|------------|----------|-------------------------|
+| `DURATION` | `30m`    | Total test duration     |
+| `PEAK_VUS` | `100`    | Peak concurrency        |
+| `PAYLOAD`  | `medium` | small\|medium\|large    |
+| `PII`      | `false`  | Use PII payloads        |
+| `CYCLES`   | `1`      | Number of load cycles   |
+
+Open Grafana at `http://localhost:3000` to view the pre-provisioned "PII Proxy" dashboard with RSS, CPU, request rate, latency percentiles, and PII detection panels.
+
 ## Configs
 
 TOML files in `benches/configs/` — one per scenario variant. All use empty `countries`/`languages` lists so the pii crate enables all supported detectors (worst-case).
