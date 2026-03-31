@@ -43,6 +43,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
+# Allocator
+tikv-jemallocator = "0.6"
+
 # PII scanning
 pii = { path = "../pii" }
 
