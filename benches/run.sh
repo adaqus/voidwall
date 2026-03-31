@@ -16,7 +16,7 @@
 # 3. For each selected scenario config + k6 script:
 #    a. Starts proxy with the scenario's config
 #    b. Waits for /readyz
-#    c. Runs k6, saves CSV output to benches/results/
+#    c. Runs k6
 #    d. Stops proxy
 # 4. Stops echo server
 # 5. Prints summary table (req/s and p99 for each scenario)
@@ -25,7 +25,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RESULTS_DIR="$SCRIPT_DIR/results"
+RESULTS_DIR="$(mktemp -d)"
 CONFIGS_DIR="$SCRIPT_DIR/configs"
 K6_DIR="$SCRIPT_DIR/k6"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -73,7 +73,7 @@ should_run() {
 
 echo "Scenarios to run: ${SELECTED_SCENARIOS[*]}"
 
-mkdir -p "$RESULTS_DIR"
+# Results are written to a temp directory and cleaned up after the summary.
 
 # --- Generate payloads if missing ---
 
@@ -89,6 +89,7 @@ cleanup() {
     echo "Cleaning up..."
     [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null && wait "$PROXY_PID" 2>/dev/null || true
     [ -n "$ECHO_PID" ]  && kill "$ECHO_PID"  2>/dev/null && wait "$ECHO_PID"  2>/dev/null || true
+    rm -rf "$RESULTS_DIR"
 }
 trap cleanup EXIT
 
@@ -317,5 +318,4 @@ for logfile in "$RESULTS_DIR"/*_"${TIMESTAMP}".log; do
 done
 
 echo ""
-echo "Results saved to: $RESULTS_DIR/"
 echo "Done."
