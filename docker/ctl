@@ -12,8 +12,6 @@
 # Soak test env vars:
 #   DURATION   - total test duration  (default: 30m)
 #   PEAK_VUS   - peak concurrency     (default: 100)
-#   PAYLOAD    - small|medium|large   (default: medium)
-#   PII        - true|false           (default: false)
 #
 set -euo pipefail
 
@@ -56,13 +54,11 @@ cmd_start_echo_server() {
 }
 
 cmd_soak() {
-    echo "Running soak test (DURATION=${DURATION:-30m}, PEAK_VUS=${PEAK_VUS:-100}, PAYLOAD=${PAYLOAD:-medium}, PII=${PII:-false}, CYCLES=${CYCLES:-1})..."
+    echo "Running soak test (DURATION=${DURATION:-30m}, PEAK_VUS=${PEAK_VUS:-100}, CYCLES=${CYCLES:-1})..."
     k6 run \
         -e "PROXY_URL=http://localhost:8082" \
         -e "DURATION=${DURATION:-30m}" \
         -e "PEAK_VUS=${PEAK_VUS:-100}" \
-        -e "PAYLOAD=${PAYLOAD:-medium}" \
-        -e "PII=${PII:-false}" \
         -e "CYCLES=${CYCLES:-1}" \
         "$PROJECT_DIR/benches/k6/soak.js"
 }

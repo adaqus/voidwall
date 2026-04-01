@@ -7,6 +7,7 @@
   "panels": [
     {
       "title": "Resident Memory (RSS)",
+      "description": "Physical memory currently used by the proxy process.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -16,6 +17,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -27,6 +34,7 @@
     },
     {
       "title": "CPU Usage",
+      "description": "CPU cores consumed by the proxy process, derived from the rate of CPU seconds used.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -36,6 +44,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -47,6 +61,7 @@
     },
     {
       "title": "Virtual Memory",
+      "description": "Total virtual address space allocated to the proxy process.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -56,6 +71,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -67,6 +88,7 @@
     },
     {
       "title": "Open File Descriptors",
+      "description": "Number of file descriptors currently held open by the proxy process.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -75,6 +97,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -86,6 +114,7 @@
     },
     {
       "title": "Threads",
+      "description": "Number of OS threads active in the proxy process.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -94,6 +123,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -105,6 +140,7 @@
     },
     {
       "title": "Request Rate",
+      "description": "Total number of HTTP requests processed by the proxy per second.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -114,6 +150,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -125,6 +167,7 @@
     },
     {
       "title": "Request Duration Percentiles",
+      "description": "End-to-end request latency at p50, p95, and p99 percentiles.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -134,6 +177,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -155,6 +204,7 @@
     },
     {
       "title": "PII Detections Rate",
+      "description": "Rate of requests in which PII was detected, broken down by PII kind.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -164,6 +214,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -175,6 +231,7 @@
     },
     {
       "title": "Blocked / Redacted Rate",
+      "description": "Rate of PII detections that resulted in a block or redaction action.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -184,6 +241,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {
@@ -200,6 +263,7 @@
     },
     {
       "title": "Errors Rate",
+      "description": "Rate of proxy errors, broken down by outcome and reason.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
       "datasource": { "type": "prometheus", "uid": "" },
@@ -209,6 +273,12 @@
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": ["min", "max", "median"]
+        }
       },
       "targets": [
         {

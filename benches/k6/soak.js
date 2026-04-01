@@ -10,8 +10,6 @@
 //   PROXY_URL  - proxy base URL        (default: http://127.0.0.1:8082)
 //   DURATION   - total test duration    (default: 30m)
 //   PEAK_VUS   - peak concurrency       (default: 100)
-//   PAYLOAD    - payload size            (default: medium; small|medium|large)
-//   PII        - use PII payloads       (default: false; true|false)
 //   CYCLES     - number of load cycles  (default: 1)
 
 import http from "k6/http";
@@ -21,12 +19,9 @@ import { Counter } from "k6/metrics";
 const PROXY_URL = __ENV.PROXY_URL || "http://127.0.0.1:8082";
 const DURATION = __ENV.DURATION || "30m";
 const PEAK_VUS = parseInt(__ENV.PEAK_VUS || "100");
-const PAYLOAD = __ENV.PAYLOAD || "medium";
-const USE_PII = (__ENV.PII || "false") === "true";
 const CYCLES = parseInt(__ENV.CYCLES || "1");
 
-const prefix = USE_PII ? "pii" : "clean";
-const payload = open(`../payloads/${prefix}_${PAYLOAD}.json`);
+const payload = open("../payloads/pii_medium.json");
 
 const errorCount = new Counter("error_count");
 
