@@ -210,7 +210,7 @@
       "datasource": { "type": "prometheus", "uid": "" },
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "reqps",
           "custom": { "fillOpacity": 10 }
         },
         "overrides": []
