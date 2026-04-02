@@ -702,6 +702,17 @@ mod tests {
         PiiKind::PassportNumber, "123456789"
         ; "passport with encoded colon in url"
     )]
+    // Array bracket notation in query string
+    #[test_case(
+        "/form?par=1&user[last_name]=Maurice",
+        PiiKind::PersonName, "Maurice"
+        ; "bracket last_name in url"
+    )]
+    #[test_case(
+        "/form?par=1&user[first_name]=Zidane",
+        PiiKind::PersonName, "Zidane"
+        ; "bracket first_name in url"
+    )]
     // URL path with keyword as path segment
     #[test_case(
         "/api/phone/555-123-4567/details",
