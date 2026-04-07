@@ -1020,6 +1020,186 @@ mod tests {
         ));
     }
 
+    // --- Student essay PII detection tests ---
+    //
+    // Inspired by the Kaggle "PII Data Detection" competition
+    // (pii-detection-removal-from-educational-data). The competition dataset
+    // contains ~22,000 student essays about design thinking where students
+    // accidentally include personal information. These tests simulate that
+    // scenario with multi-sentence prose containing embedded PII.
+
+    #[test]
+    fn essay_email_in_prose() {
+        let scanner = &*SCANNER;
+        let input = "For this assignment I interviewed my colleague at the design firm. \
+                     If you have questions about my submission, please reach out to me at \
+                     jessica.martinez@university.edu and I will respond within 24 hours.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email));
+        let email_match = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(
+            &input[email_match.start..email_match.end],
+            "jessica.martinez@university.edu"
+        );
+    }
+
+    #[test]
+    fn essay_phone_in_prose() {
+        let scanner = &*SCANNER;
+        let input = "During the empathize phase, I conducted interviews with three users. \
+                     One participant asked me to follow up later. My phone number is \
+                     555-867-5309 so they could text me their additional feedback.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::PhoneNumber));
+    }
+
+    #[test]
+    fn essay_name_in_prose() {
+        let scanner = &*SCANNER;
+        let input = "I chose to apply design thinking to the onboarding process at my \
+                     workplace. My last name is Rodriguez and I have been working in UX design \
+                     for the past five years.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&PiiKind::PersonName),
+            "should detect person name in essay, found: {kinds:?}"
+        );
+    }
+
+    #[test]
+    fn essay_multiple_pii_types() {
+        let scanner = &*SCANNER;
+        let input = "Reflection on Design Thinking Application\n\n\
+                     My last name is Thompson and I am a graduate student in the HCI program. \
+                     For the ideation phase, I organized a brainstorming session with \
+                     five stakeholders from the product team. The prototype was tested \
+                     with eight users over two weeks.\n\n\
+                     If the instructor needs to reach me, my email is \
+                     alex.thompson@studentmail.edu and my phone number is 555-234-5678. \
+                     My student ID (SSN) is 234-56-7890.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email), "should detect email");
+        assert!(kinds.contains(&PiiKind::PhoneNumber), "should detect phone");
+        assert!(kinds.contains(&PiiKind::UsSsn), "should detect SSN");
+        assert!(
+            kinds.contains(&PiiKind::PersonName),
+            "should detect person name"
+        );
+    }
+
+    #[test]
+    fn essay_credit_card_in_survey_response() {
+        let scanner = &*SCANNER;
+        let input = "During the user research phase, one participant accidentally \
+                     typed their payment information into the survey form. The card \
+                     number 4532015112830366 was immediately flagged by our system. \
+                     This incident highlighted the need for input validation.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::CreditCard));
+    }
+
+    #[test]
+    fn essay_ssn_as_student_id() {
+        let scanner = &*SCANNER;
+        let input = "Please note my student identification number for grading: \
+                     SSN 345-67-8901. I am submitting this assignment for the \
+                     Human-Centered Design course, section 3.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::UsSsn));
+    }
+
+    #[test]
+    fn essay_clean_text_no_false_positives() {
+        let scanner = &*SCANNER;
+        let input = "Design Thinking is a methodology used by designers to solve complex \
+                     problems and find desirable solutions for clients. It draws upon logic, \
+                     imagination, intuition, and systemic reasoning to explore possibilities \
+                     and create desired outcomes that benefit the end user. The five stages \
+                     of design thinking are Empathize, Define, Ideate, Prototype, and Test. \
+                     Each stage provides a structured approach to innovation that can be \
+                     applied across many different fields and industries.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    #[test]
+    fn essay_clean_with_numbers_no_false_positives() {
+        let scanner = &*SCANNER;
+        let input = "In the testing phase, we gathered feedback from 15 participants \
+                     over a period of 3 weeks. The results showed a 42% improvement in \
+                     task completion rate and a 28% reduction in average time on task. \
+                     We conducted 5 rounds of iteration, each lasting approximately \
+                     2-3 days, before arriving at the final prototype in version 4.1.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    #[test]
+    fn essay_iban_in_reimbursement_note() {
+        let scanner = &*SCANNER;
+        let input = "For the prototype materials I purchased supplies out of pocket. \
+                     Please reimburse me via bank transfer to \
+                     GB29NWBK60161331926819. The total cost was 47.50 GBP for \
+                     cardboard, markers, and adhesive tape.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Iban));
+    }
+
+    #[test]
+    fn essay_ip_address_in_technical_context() {
+        let scanner = &*SCANNER;
+        let input = "We deployed the prototype on our internal server at 10.0.42.15 \
+                     and asked participants to test the interface remotely. The server \
+                     logs showed 342 unique sessions during the two-week testing period.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::IpAddress));
+    }
+
+    #[test]
+    fn essay_has_piis_short_circuits_on_long_text() {
+        let scanner = &*SCANNER;
+        // Simulate a longer essay with PII near the beginning — has_piis should
+        // short-circuit without scanning the entire text.
+        let pii_paragraph = "Contact me at student@university.edu for questions.\n\n";
+        let filler = "Design thinking is an iterative process. ".repeat(200);
+        let input = format!("{pii_paragraph}{filler}");
+        assert!(scanner.has_piis(&input));
+    }
+
+    #[test]
+    fn essay_pii_at_end_of_long_text() {
+        let scanner = &*SCANNER;
+        let filler = "The empathize stage involves understanding the user's needs. ".repeat(200);
+        let pii_paragraph = "\n\nSubmitted by: email contact@student.org, SSN 456-78-9012";
+        let input = format!("{filler}{pii_paragraph}");
+        let matches = scanner.mark_piis(&input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email));
+        assert!(kinds.contains(&PiiKind::UsSsn));
+    }
+
+    #[test]
+    fn essay_mixed_pii_span_accuracy() {
+        let scanner = &*SCANNER;
+        let input = "Author: first name Chen, email wei.chen@designlab.io, \
+                     date of birth 15/03/1995";
+        let matches = scanner.mark_piis(input);
+
+        // Verify email span is exact
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(&input[email.start..email.end], "wei.chen@designlab.io");
+
+        // Verify DOB detected
+        let dob = matches.iter().find(|m| m.kind == PiiKind::DateOfBirth);
+        assert!(dob.is_some(), "should detect date of birth");
+    }
+
     // Compile-time assertion that Scanner is Send + Sync.
     #[test]
     fn scanner_is_send_and_sync() {
