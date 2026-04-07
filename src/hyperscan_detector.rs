@@ -53,7 +53,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
         },
         PatternDef {
             kind: PiiKind::CreditCard,
-            expr: r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{1,4}\b",
+            expr: r"\b(?:[0-9]{4}[-\s]?){3,4}[0-9]{1,4}\b",
             som_fallback: false,
             validator: luhn_check,
             needs_ucp: false,
@@ -493,6 +493,17 @@ mod tests {
     #[test_case("VIN: 1HGBH41JXMN109186", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin")]
     #[test_case("vehicle 1HGBH41JXMN109186 registered", PiiKind::Vin, "1HGBH41JXMN109186" ; "vin span")]
     #[test_case("card: 4111 1111 1111 1111", PiiKind::CreditCard, "4111 1111 1111 1111" ; "credit card")]
+    // Stripe test cards (https://docs.stripe.com/testing)
+    #[test_case("card: 4242424242424242", PiiKind::CreditCard, "4242424242424242" ; "stripe visa")]
+    #[test_case("card: 4000056655665556", PiiKind::CreditCard, "4000056655665556" ; "stripe visa debit")]
+    #[test_case("card: 2223003122003222", PiiKind::CreditCard, "2223003122003222" ; "stripe mastercard 2 series")]
+    #[test_case("card: 5105105105105100", PiiKind::CreditCard, "5105105105105100" ; "stripe mastercard prepaid")]
+    #[test_case("card: 378282246310005", PiiKind::CreditCard, "378282246310005" ; "stripe amex")]
+    #[test_case("card: 36227206271667", PiiKind::CreditCard, "36227206271667" ; "stripe diners club")]
+    #[test_case("card: 6200000000000047", PiiKind::CreditCard, "6200000000000047" ; "stripe unionpay debit")]
+    #[test_case("card: 6205500000000000004", PiiKind::CreditCard, "6205500000000000004" ; "stripe unionpay 19 digit")]
+    #[test_case("card: 4000002500001001", PiiKind::CreditCard, "4000002500001001" ; "stripe cartes bancaires visa")]
+    #[test_case("card: 5555050360000080", PiiKind::CreditCard, "5555050360000080" ; "stripe eftpos mastercard")]
     #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE" ; "aws access key")]
     #[test_case("token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github oauth token")]
     #[test_case("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github pat token")]
