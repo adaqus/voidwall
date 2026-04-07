@@ -548,32 +548,32 @@ impl KeywordContextDetector {
             (
                 PiiKind::FrChAddress,
                 Language::Fr,
-                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 fr_ch_address_check,
             ),
             (
                 PiiKind::FrChBoitePostale,
                 Language::Fr,
-                r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 fr_ch_boite_postale_check,
             ),
             // --- German/Austrian physical address types (Language::De) ---
             (
                 PiiKind::DeAtChAddress,
                 Language::De,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_at_address_check,
             ),
             (
                 PiiKind::DeAtChPostfach,
                 Language::De,
-                r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_at_postfach_check,
             ),
             (
                 PiiKind::DePackstation,
                 Language::De,
-                r"(?i)(?:Packstation|Postfiliale|Paketshop)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Packstation|Postfiliale|Paketshop)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_packstation_check,
             ),
         ];
@@ -586,11 +586,11 @@ impl KeywordContextDetector {
         let detection_overrides: &[(PiiKind, &str)] = &[
             (
                 PiiKind::DeAtChAddress,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-()]+)",
+                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
             ),
             (
                 PiiKind::DeAtChPostfach,
-                r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž\s.\-]+)",
+                r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
             ),
         ];
 
@@ -1138,6 +1138,15 @@ mod tests {
     #[test_case("Packstation: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation 3 digits")]
     #[test_case("Postfiliale: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de postfiliale")]
     #[test_case("Paketshop: 1234, 20095 Hamburg", PiiKind::DePackstation, "1234, 20095 Hamburg" ; "de paketshop 4 digits")]
+    // Address city capture must not extend into trailing prose (regression)
+    #[test_case("adresse: 15 rue de la Paix, 75002 Paris. Merci de confirmer.", PiiKind::FrChAddress, "15 rue de la Paix, 75002 Paris" ; "fr address trailing prose")]
+    #[test_case("BP: 1234, 75008 Paris. Veuillez vérifier.", PiiKind::FrChBoitePostale, "1234, 75008 Paris" ; "fr bp trailing prose")]
+    #[test_case("Anschrift: Friedrichstraße 43, 10117 Berlin. Bitte bewahren Sie diese Bestätigung.", PiiKind::DeAtChAddress, "Friedrichstraße 43, 10117 Berlin" ; "de address trailing prose")]
+    #[test_case("Lieferadresse: Unter den Linden 77, 10117 Berlin. Die Zustellung erfolgt morgen.", PiiKind::DeAtChAddress, "Unter den Linden 77, 10117 Berlin" ; "de address multi word street trailing prose")]
+    #[test_case("Postfach: 1234, 10557 Berlin. Bitte verwenden Sie diese Adresse.", PiiKind::DeAtChPostfach, "1234, 10557 Berlin" ; "de postfach trailing prose")]
+    #[test_case("Packstation: 109, 01099 Dresden. Ihr Paket wird dort abgelegt.", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation trailing prose")]
+    // Multi-word city names must still be captured correctly
+    #[test_case("Anschrift: Rathausplatz 1, 60311 Frankfurt am Main. Bitte bestätigen.", PiiKind::DeAtChAddress, "Rathausplatz 1, 60311 Frankfurt am Main" ; "de address multi word city trailing prose")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector

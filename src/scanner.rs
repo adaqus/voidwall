@@ -1200,6 +1200,909 @@ mod tests {
         assert!(dob.is_some(), "should detect date of birth");
     }
 
+    // --- AI4Privacy-style PII detection tests ---
+    //
+    // Inspired by the ai4privacy/pii-masking-200k dataset (Hugging Face /
+    // Kaggle). The dataset contains 209K synthetic multi-domain texts
+    // (legal, business, healthcare, education) in English, French, German,
+    // and Italian with 54 PII categories annotated at character offsets.
+    // These tests use the dataset's text style and PII category mappings:
+    //
+    // AI4Privacy category     → PiiKind
+    // ─────────────────────────────────────
+    // EMAIL                   → Email
+    // PHONENUMBER             → PhoneNumber
+    // CREDITCARDNUMBER        → CreditCard
+    // IBAN                    → Iban
+    // BITCOINADDRESS          → BitcoinAddress
+    // ETHEREUMADDRESS         → EthereumAddress
+    // IPV4 / IPV6             → IpAddress
+    // MAC                     → MacAddress
+    // VEHICLEVIN              → Vin
+    // DOB                     → DateOfBirth
+    // NEARBYGPSCOORDINATE     → PreciseGeolocation
+    // FIRSTNAME / LASTNAME    → PersonName
+    // PHONEIMEI               → Imei
+
+    // -- Single-PII-type detection in domain-specific prose --
+
+    #[test]
+    fn ai4p_email_in_hr_onboarding() {
+        let scanner = &*SCANNER;
+        let input = "Welcome to the team! Please complete your onboarding \
+                     paperwork by Friday. If you have any questions, contact HR \
+                     at patricia.nguyen@acmecorp.com for assistance with benefits \
+                     enrollment and policy documents.";
+        let matches = scanner.mark_piis(input);
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(
+            &input[email.start..email.end],
+            "patricia.nguyen@acmecorp.com"
+        );
+    }
+
+    #[test]
+    fn ai4p_credit_card_in_billing_dispute() {
+        let scanner = &*SCANNER;
+        let input = "Re: Billing Dispute Case #4821\n\n\
+                     We have reviewed the unauthorized charge on card \
+                     4532015112830366. A provisional credit of $249.99 has been \
+                     applied to your account while we investigate the merchant.";
+        let matches = scanner.mark_piis(input);
+        let cc = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::CreditCard)
+            .unwrap();
+        assert_eq!(&input[cc.start..cc.end], "4532015112830366");
+    }
+
+    #[test]
+    fn ai4p_iban_in_wire_transfer() {
+        let scanner = &*SCANNER;
+        let input = "Please initiate the wire transfer for invoice #INV-2024-0397. \
+                     The beneficiary account is DE89370400440532013000. Ensure the \
+                     reference field includes the invoice number for reconciliation.";
+        let matches = scanner.mark_piis(input);
+        let iban = matches.iter().find(|m| m.kind == PiiKind::Iban).unwrap();
+        assert_eq!(&input[iban.start..iban.end], "DE89370400440532013000");
+    }
+
+    #[test]
+    fn ai4p_bitcoin_in_security_alert() {
+        let scanner = &*SCANNER;
+        let input = "SECURITY ALERT: We have detected a potential breach. Ensure \
+                     users' sensitive details including wallet \
+                     34EUu2QzxVkmBLo4anvhitwWwV1ux6vDW are encrypted and rotate \
+                     all API keys immediately.";
+        let matches = scanner.mark_piis(input);
+        let btc = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::BitcoinAddress)
+            .unwrap();
+        assert_eq!(
+            &input[btc.start..btc.end],
+            "34EUu2QzxVkmBLo4anvhitwWwV1ux6vDW"
+        );
+    }
+
+    #[test]
+    fn ai4p_ethereum_in_compliance_report() {
+        let scanner = &*SCANNER;
+        let input = "Compliance Report - Q3 Crypto Transactions\n\n\
+                     The following wallet address was flagged for review: \
+                     0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe. Transaction \
+                     volume exceeded the quarterly threshold by 340%.";
+        let matches = scanner.mark_piis(input);
+        let eth = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::EthereumAddress)
+            .unwrap();
+        assert_eq!(
+            &input[eth.start..eth.end],
+            "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"
+        );
+    }
+
+    #[test]
+    fn ai4p_ipv4_in_incident_report() {
+        let scanner = &*SCANNER;
+        let input = "Incident Report #IR-7832\n\n\
+                     At 14:32 UTC, our IDS flagged anomalous traffic originating \
+                     from 109.4.61.213. The source attempted 4,200 login requests \
+                     against the authentication endpoint within 15 minutes.";
+        let matches = scanner.mark_piis(input);
+        let ip = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::IpAddress)
+            .unwrap();
+        assert_eq!(&input[ip.start..ip.end], "109.4.61.213");
+    }
+
+    #[test]
+    fn ai4p_mac_in_device_inventory() {
+        let scanner = &*SCANNER;
+        let input = "Device Inventory - Floor 3, Building A\n\n\
+                     The workstation assigned to the new analyst has MAC address \
+                     00:1B:44:11:3A:B7. Please register it in the DHCP reservation \
+                     table before the employee's start date.";
+        let matches = scanner.mark_piis(input);
+        let mac = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::MacAddress)
+            .unwrap();
+        assert_eq!(&input[mac.start..mac.end], "00:1B:44:11:3A:B7");
+    }
+
+    #[test]
+    fn ai4p_vin_in_fleet_management() {
+        let scanner = &*SCANNER;
+        let input = "As per our records, the company vehicle with VIN \
+                     1HGBH41JXMN109186 is due for scheduled maintenance. Please \
+                     coordinate with the fleet manager to arrange service at the \
+                     authorized dealership.";
+        let matches = scanner.mark_piis(input);
+        let vin = matches.iter().find(|m| m.kind == PiiKind::Vin).unwrap();
+        assert_eq!(&input[vin.start..vin.end], "1HGBH41JXMN109186");
+    }
+
+    #[test]
+    fn ai4p_phone_in_patient_intake() {
+        let scanner = &*SCANNER;
+        let input = "Patient Intake Form - Dental Clinic\n\n\
+                     Emergency contact phone: 555-392-7184. Please ensure all \
+                     contact information is current before the scheduled appointment.";
+        let matches = scanner.mark_piis(input);
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PhoneNumber)
+            .unwrap();
+        assert_eq!(&input[phone.start..phone.end], "555-392-7184");
+    }
+
+    #[test]
+    fn ai4p_dob_in_enrollment() {
+        let scanner = &*SCANNER;
+        let input = "Enrollment Verification - Academic Year 2024\n\n\
+                     The applicant's date of birth is 23/07/1998. Please verify \
+                     the age requirement before processing the scholarship application.";
+        let matches = scanner.mark_piis(input);
+        let dob = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DateOfBirth)
+            .unwrap();
+        assert_eq!(&input[dob.start..dob.end], "23/07/1998");
+    }
+
+    #[test]
+    fn ai4p_imei_in_device_report() {
+        let scanner = &*SCANNER;
+        let input = "A student's assessment was found on a device bearing \
+                     IMEI: 35-209900-176148-1. The device has been secured and \
+                     stored in the IT department's lost-and-found locker.";
+        let matches = scanner.mark_piis(input);
+        let imei = matches.iter().find(|m| m.kind == PiiKind::Imei).unwrap();
+        assert_eq!(&input[imei.start..imei.end], "35-209900-176148-1");
+    }
+
+    #[test]
+    fn ai4p_person_name_in_legal_notice() {
+        let scanner = &*SCANNER;
+        let input = "LEGAL NOTICE\n\n\
+                     This document is addressed to the party identified as \
+                     client name: Harrington. Case reference #LC-2024-5539. \
+                     Please respond within 30 business days.";
+        let matches = scanner.mark_piis(input);
+        let name = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PersonName)
+            .unwrap();
+        assert_eq!(&input[name.start..name.end], "Harrington");
+    }
+
+    #[test]
+    fn ai4p_geolocation_in_logistics() {
+        let scanner = &*SCANNER;
+        let input = "Delivery Route Optimization Report\n\n\
+                     The new distribution hub coordinates: 40.7128, -74.0060. \
+                     This location reduces average last-mile delivery time by 18% \
+                     compared to the current warehouse.";
+        let matches = scanner.mark_piis(input);
+        let geo = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PreciseGeolocation)
+            .unwrap();
+        assert_eq!(&input[geo.start..geo.end], "40.7128, -74.0060");
+    }
+
+    // -- Multi-PII detection in a single text --
+
+    #[test]
+    fn ai4p_multi_pii_employee_record() {
+        let scanner = &*SCANNER;
+        let input = "Employee Record - Confidential\n\n\
+                     Full name: Maria Santos-Rivera\n\
+                     Email: maria.santos@globaltech.io\n\
+                     Phone: 555-741-2938\n\
+                     Date of birth: 12/04/1985\n\
+                     SSN: 567-89-0123\n\n\
+                     Department: Engineering | Start Date: 2024-01-15";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::PersonName), "name: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::PhoneNumber), "phone: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::DateOfBirth), "dob: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::UsSsn), "ssn: {kinds:?}");
+    }
+
+    #[test]
+    fn ai4p_multi_pii_it_audit() {
+        let scanner = &*SCANNER;
+        let input = "IT Security Audit - Network Segment B\n\n\
+                     Flagged device MAC: 00:1A:2B:3C:4D:5E connected from \
+                     192.168.42.107 at 09:14 UTC. The device attempted to access \
+                     the payment gateway containing card 4111111111111111. \
+                     Email alert sent to admin@internal.corp.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::MacAddress), "mac: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::IpAddress), "ip: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::CreditCard), "cc: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
+    }
+
+    #[test]
+    fn ai4p_multi_pii_crypto_investigation() {
+        let scanner = &*SCANNER;
+        let input = "Fraud Investigation Case #FI-9021\n\n\
+                     Suspicious transfers detected between Bitcoin wallet \
+                     1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf and Ethereum address \
+                     0x1234567890abcdef1234567890abcdef12345678. Source IP \
+                     traced to 203.0.113.42. Contact investigator at \
+                     fraud.team@enforcement.gov for case coordination.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::BitcoinAddress), "btc: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::EthereumAddress), "eth: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::IpAddress), "ip: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
+    }
+
+    // -- French-language texts (AI4Privacy includes fr) --
+
+    #[test]
+    fn ai4p_fr_email_in_business_letter() {
+        let scanner = &*SCANNER;
+        let input = "Madame, Monsieur,\n\n\
+                     Suite à notre entretien du 15 mars, veuillez trouver ci-joint \
+                     les documents demandés. Pour toute question, vous pouvez me \
+                     contacter à l'adresse sophie.lefebvre@entreprise.fr.\n\n\
+                     Cordialement,\nSophie Lefebvre";
+        let matches = scanner.mark_piis(input);
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(
+            &input[email.start..email.end],
+            "sophie.lefebvre@entreprise.fr"
+        );
+    }
+
+    #[test]
+    fn ai4p_fr_iban_in_invoice() {
+        let scanner = &*SCANNER;
+        let input = "FACTURE N° 2024-0892\n\n\
+                     Merci de procéder au règlement par virement bancaire sur le \
+                     compte suivant : FR7630006000011234567890189. Le délai de \
+                     paiement est de 30 jours à compter de la date de facturation.";
+        let matches = scanner.mark_piis(input);
+        let iban = matches.iter().find(|m| m.kind == PiiKind::Iban).unwrap();
+        assert_eq!(&input[iban.start..iban.end], "FR7630006000011234567890189");
+    }
+
+    #[test]
+    fn ai4p_fr_phone_in_contact_form() {
+        let scanner = &*SCANNER;
+        let input = "Formulaire de contact - Service clientèle\n\n\
+                     Votre demande a été enregistrée sous le numéro #DC-4417. \
+                     Un conseiller vous rappellera au numéro de téléphone: \
+                     555-823-4190 dans les 48 heures ouvrables.";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::PhoneNumber));
+    }
+
+    // -- German-language texts (AI4Privacy includes de) --
+
+    #[test]
+    fn ai4p_de_email_in_job_application() {
+        let scanner = &*SCANNER;
+        let input = "Sehr geehrte Damen und Herren,\n\n\
+                     hiermit bewerbe ich mich auf die ausgeschriebene Stelle als \
+                     Softwareentwickler. Meine Unterlagen finden Sie im Anhang. \
+                     Für Rückfragen erreichen Sie mich unter \
+                     stefan.bauer@bewerbung.de.\n\n\
+                     Mit freundlichen Grüßen";
+        let matches = scanner.mark_piis(input);
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(&input[email.start..email.end], "stefan.bauer@bewerbung.de");
+    }
+
+    #[test]
+    fn ai4p_de_iban_in_contract() {
+        let scanner = &*SCANNER;
+        let input = "Mietvertrag - Paragraph 5: Zahlungsmodalitäten\n\n\
+                     Die monatliche Miete in Höhe von 850,00 EUR ist bis zum \
+                     3. Werktag auf das Konto DE89370400440532013000 zu überweisen. \
+                     Der Verwendungszweck muss die Wohnungsnummer enthalten.";
+        let matches = scanner.mark_piis(input);
+        let iban = matches.iter().find(|m| m.kind == PiiKind::Iban).unwrap();
+        assert_eq!(&input[iban.start..iban.end], "DE89370400440532013000");
+    }
+
+    // -- French-language: country-specific PII types --
+
+    #[test]
+    fn ai4p_fr_nir_in_social_security() {
+        let scanner = &*SCANNER;
+        let input = "Dossier d'inscription - Caisse d'Assurance Maladie\n\n\
+                     Veuillez fournir votre numéro de sécurité sociale: \
+                     2 85 01 75 108 042 47. Ce numéro est indispensable pour le \
+                     traitement de votre dossier.";
+        let matches = scanner.mark_piis(input);
+        let nir = matches.iter().find(|m| m.kind == PiiKind::FrNir).unwrap();
+        assert_eq!(&input[nir.start..nir.end], "2 85 01 75 108 042 47");
+    }
+
+    #[test]
+    fn ai4p_fr_siret_in_commercial_register() {
+        let scanner = &*SCANNER;
+        let input = "Extrait Kbis - Registre du Commerce\n\n\
+                     Dénomination sociale : Dupont Consulting SARL\n\
+                     SIRET: 73282932000074\n\
+                     Date d'immatriculation : 15/03/2018";
+        let matches = scanner.mark_piis(input);
+        let siret = matches.iter().find(|m| m.kind == PiiKind::FrSiret).unwrap();
+        assert_eq!(&input[siret.start..siret.end], "73282932000074");
+    }
+
+    #[test]
+    fn ai4p_fr_siren_in_invoice() {
+        let scanner = &*SCANNER;
+        let input = "FACTURE N° F-2024-1287\n\n\
+                     Fournisseur : Atelier Graphique EURL\n\
+                     SIREN: 732829320\n\
+                     Montant HT : 3 450,00 EUR";
+        let matches = scanner.mark_piis(input);
+        let siren = matches.iter().find(|m| m.kind == PiiKind::FrSiren).unwrap();
+        assert_eq!(&input[siren.start..siren.end], "732829320");
+    }
+
+    #[test]
+    fn ai4p_fr_cni_in_identity_verification() {
+        let scanner = &*SCANNER;
+        let input = "Vérification d'identité - Procédure KYC\n\n\
+                     Le client a présenté sa carte d'identité: 012345678901. \
+                     La pièce est valide jusqu'au 23/09/2029.";
+        let matches = scanner.mark_piis(input);
+        let cni = matches.iter().find(|m| m.kind == PiiKind::FrCni).unwrap();
+        assert_eq!(&input[cni.start..cni.end], "012345678901");
+    }
+
+    #[test]
+    fn ai4p_fr_drivers_license_in_rental() {
+        let scanner = &*SCANNER;
+        let input = "Contrat de location de véhicule\n\n\
+                     Le locataire a fourni son permis de conduire: 012345678901. \
+                     Catégorie B, délivré le 10/06/2015 par la préfecture de Paris.";
+        let matches = scanner.mark_piis(input);
+        let dl = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::FrDriversLicense)
+            .unwrap();
+        assert_eq!(&input[dl.start..dl.end], "012345678901");
+    }
+
+    #[test]
+    fn ai4p_fr_phone_in_medical_record() {
+        let scanner = &*SCANNER;
+        let input = "Fiche patient - Cabinet du Dr. Martin\n\n\
+                     Personne à contacter en cas d'urgence :\n\
+                     Téléphone: 06 12 34 56 78\n\
+                     Relation : conjoint(e)";
+        let matches = scanner.mark_piis(input);
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::FrPhoneNumber)
+            .unwrap();
+        assert_eq!(&input[phone.start..phone.end], "06 12 34 56 78");
+    }
+
+    #[test]
+    fn ai4p_fr_postal_code_in_delivery() {
+        let scanner = &*SCANNER;
+        let input = "Bon de livraison #BL-8842\n\n\
+                     Adresse de livraison : 12 rue de la Paix\n\
+                     Code postal: 75002\n\
+                     Créneau : 14h-18h";
+        let matches = scanner.mark_piis(input);
+        let cp = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::FrPostalCode)
+            .unwrap();
+        assert_eq!(&input[cp.start..cp.end], "75002");
+    }
+
+    #[test]
+    fn ai4p_fr_nif_in_tax_notice() {
+        let scanner = &*SCANNER;
+        let input = "Avis d'imposition - Année fiscale 2023\n\n\
+                     Votre numéro d'identification fiscale: 0123456789012. \
+                     Ce numéro figure sur tous vos documents fiscaux.";
+        let matches = scanner.mark_piis(input);
+        let nif = matches.iter().find(|m| m.kind == PiiKind::FrNif).unwrap();
+        assert_eq!(&input[nif.start..nif.end], "0123456789012");
+    }
+
+    #[test]
+    fn ai4p_fr_passport_in_travel_agency() {
+        let scanner = &*SCANNER;
+        let input = "Réservation de vol - Agence Voyages du Monde\n\n\
+                     Veuillez vérifier les informations du passager :\n\
+                     Passeport français: 05AB12345\n\
+                     Date d'expiration : 22/11/2028";
+        let matches = scanner.mark_piis(input);
+        let pp = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::FrPassportNumber)
+            .unwrap();
+        assert_eq!(&input[pp.start..pp.end], "05AB12345");
+    }
+
+    #[test]
+    fn ai4p_fr_dob_in_registration() {
+        let scanner = &*SCANNER;
+        let input = "Formulaire d'inscription - Association Sportive\n\n\
+                     Catégorie d'âge déterminée par la date de naissance: \
+                     14/07/2001. Les inscriptions sont ouvertes jusqu'au 30 septembre.";
+        let matches = scanner.mark_piis(input);
+        let dob = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DateOfBirth)
+            .unwrap();
+        assert_eq!(&input[dob.start..dob.end], "14/07/2001");
+    }
+
+    #[test]
+    fn ai4p_fr_person_name_in_notary() {
+        let scanner = &*SCANNER;
+        let input = "Acte Notarié - Étude Me Renard\n\n\
+                     Comparaît devant nous, notaire soussigné, le \
+                     bénéficiaire: Lefèvre. Lequel déclare vouloir procéder à \
+                     la vente de l'immeuble ci-après désigné.";
+        let matches = scanner.mark_piis(input);
+        let name = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PersonName)
+            .unwrap();
+        assert_eq!(&input[name.start..name.end], "Lefèvre");
+    }
+
+    #[test]
+    fn ai4p_fr_geolocation_in_delivery_route() {
+        let scanner = &*SCANNER;
+        let input = "Optimisation de la tournée de livraison\n\n\
+                     Le point de dépôt se situe aux coordonnées GPS: \
+                     48.8566, 2.3522. Temps de trajet estimé : 25 minutes \
+                     depuis l'entrepôt principal.";
+        let matches = scanner.mark_piis(input);
+        let geo = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PreciseGeolocation)
+            .unwrap();
+        assert_eq!(&input[geo.start..geo.end], "48.8566, 2.3522");
+    }
+
+    #[test]
+    fn ai4p_fr_swift_in_bank_transfer() {
+        let scanner = &*SCANNER;
+        let input = "Ordre de virement international\n\n\
+                     Banque bénéficiaire : Crédit Lyonnais\n\
+                     Identifiant bancaire: CRLYFRPP\n\
+                     Montant : 15 000,00 EUR";
+        let matches = scanner.mark_piis(input);
+        let swift = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::SwiftBic)
+            .unwrap();
+        assert_eq!(&input[swift.start..swift.end], "CRLYFRPP");
+    }
+
+    #[test]
+    fn ai4p_fr_multi_pii_employee_file() {
+        let scanner = &*SCANNER;
+        let input = "Dossier du personnel - Confidentiel\n\n\
+                     Nom de famille: Moreau\n\
+                     Numéro de sécurité sociale: 1 90 03 75 115 004 03\n\
+                     Téléphone: 07 98 76 54 32\n\
+                     Date de naissance: 15/03/1990\n\
+                     Email: jean.moreau@entreprise.fr";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::PersonName), "name: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::FrNir), "nir: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::FrPhoneNumber), "phone: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::DateOfBirth), "dob: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
+    }
+
+    #[test]
+    fn ai4p_fr_clean_administrative_text() {
+        let scanner = &*SCANNER;
+        let input = "Arrêté municipal n° 2024-0145\n\n\
+                     Le maire de la commune, vu le code général des collectivités \
+                     territoriales, vu la délibération du conseil municipal en date \
+                     du 12 février 2024, arrête que les travaux de voirie sur \
+                     l'avenue principale seront effectués du 1er au 30 avril 2024. \
+                     La circulation sera déviée par la rue du Commerce.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    // -- German-language: country-specific PII types --
+
+    #[test]
+    fn ai4p_de_steuer_id_in_tax_filing() {
+        let scanner = &*SCANNER;
+        let input = "Einkommensteuererklärung 2023\n\n\
+                     Bitte geben Sie Ihre Steuer-ID: 65929970489 an. \
+                     Diese Nummer finden Sie auf Ihrem Steuerbescheid.";
+        let matches = scanner.mark_piis(input);
+        let sid = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DeSteuerId)
+            .unwrap();
+        assert_eq!(&input[sid.start..sid.end], "65929970489");
+    }
+
+    #[test]
+    fn ai4p_de_personalausweis_in_verification() {
+        let scanner = &*SCANNER;
+        let input = "Identitätsprüfung - Kontoeröffnung\n\n\
+                     Der Antragsteller hat seinen Personalausweis: T220001293 \
+                     vorgelegt. Gültigkeit wurde elektronisch bestätigt.";
+        let matches = scanner.mark_piis(input);
+        let pa = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DePersonalausweis)
+            .unwrap();
+        assert_eq!(&input[pa.start..pa.end], "T220001293");
+    }
+
+    #[test]
+    fn ai4p_de_phone_in_appointment() {
+        let scanner = &*SCANNER;
+        let input = "Terminbestätigung - Zahnarztpraxis Dr. Weber\n\n\
+                     Ihr nächster Termin ist am 15.04.2024 um 10:30 Uhr. \
+                     Bei Verhinderung bitten wir um Absage unter \
+                     Telefonnummer: 030 12345678.";
+        let matches = scanner.mark_piis(input);
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DePhoneNumber)
+            .unwrap();
+        assert_eq!(&input[phone.start..phone.end], "030 12345678");
+    }
+
+    #[test]
+    fn ai4p_de_postal_code_in_address() {
+        let scanner = &*SCANNER;
+        let input = "Lieferadresse aktualisieren\n\n\
+                     Bitte bestätigen Sie Ihre neue Postleitzahl: 10115. \
+                     Die Zustellung erfolgt innerhalb von 3 Werktagen.";
+        let matches = scanner.mark_piis(input);
+        let plz = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DePostalCode)
+            .unwrap();
+        assert_eq!(&input[plz.start..plz.end], "10115");
+    }
+
+    #[test]
+    fn ai4p_de_passport_in_travel() {
+        let scanner = &*SCANNER;
+        let input = "Reisebuchung - Bestätigung #RB-44821\n\n\
+                     Bitte überprüfen Sie die Reisedokumente:\n\
+                     Reisepass: 123456789\n\
+                     Ablaufdatum: 15.08.2029";
+        let matches = scanner.mark_piis(input);
+        let pp = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PassportNumber)
+            .unwrap();
+        assert_eq!(&input[pp.start..pp.end], "123456789");
+    }
+
+    #[test]
+    fn ai4p_de_dob_with_month_name() {
+        let scanner = &*SCANNER;
+        let input = "Anmeldeformular - Sprachkurs B2\n\n\
+                     Zur Altersfeststellung benötigen wir Ihr \
+                     Geburtsdatum: 23 März 1995. Die Kursgebühr beträgt 450 EUR.";
+        let matches = scanner.mark_piis(input);
+        let dob = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DateOfBirth)
+            .unwrap();
+        assert_eq!(&input[dob.start..dob.end], "23 März 1995");
+    }
+
+    #[test]
+    fn ai4p_de_geolocation_in_logistics() {
+        let scanner = &*SCANNER;
+        let input = "Routenplanung - Außendienst\n\n\
+                     Der nächste Kundenbesuch befindet sich am \
+                     Standort: 52.5200, 13.4050. Geschätzte Anfahrtszeit: \
+                     35 Minuten ab Hauptniederlassung.";
+        let matches = scanner.mark_piis(input);
+        let geo = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PreciseGeolocation)
+            .unwrap();
+        assert_eq!(&input[geo.start..geo.end], "52.5200, 13.4050");
+    }
+
+    #[test]
+    fn ai4p_de_person_name_in_insurance() {
+        let scanner = &*SCANNER;
+        let input = "Versicherungspolice #VP-2024-8193\n\n\
+                     Versicherter: Müller. Der Vertrag tritt zum 01.01.2025 \
+                     in Kraft und hat eine Laufzeit von 12 Monaten.";
+        let matches = scanner.mark_piis(input);
+        let name = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::PersonName)
+            .unwrap();
+        assert_eq!(&input[name.start..name.end], "Müller");
+    }
+
+    #[test]
+    fn ai4p_de_swift_in_payment() {
+        let scanner = &*SCANNER;
+        let input = "Zahlungsanweisung - Internationale Überweisung\n\n\
+                     Empfängerbank: Deutsche Bank AG\n\
+                     BIC-Code: DEUTDEFF\n\
+                     Betrag: 25.000,00 EUR";
+        let matches = scanner.mark_piis(input);
+        let swift = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::SwiftBic)
+            .unwrap();
+        assert_eq!(&input[swift.start..swift.end], "DEUTDEFF");
+    }
+
+    #[test]
+    fn ai4p_de_address_in_registration() {
+        let scanner = &*SCANNER;
+        let input = "Meldebestätigung - Einwohnermeldeamt\n\n\
+                     Ihre neue Anschrift: Friedrichstraße 43, 10117 Berlin. \
+                     Bitte bewahren Sie diese Bestätigung für Ihre Unterlagen auf.";
+        let matches = scanner.mark_piis(input);
+        let addr = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::DeAtChAddress)
+            .unwrap();
+        assert_eq!(
+            &input[addr.start..addr.end],
+            "Friedrichstraße 43, 10117 Berlin"
+        );
+    }
+
+    // -- Austria-specific PII types --
+
+    #[test]
+    fn ai4p_at_svnr_in_health_insurance() {
+        let scanner = &*SCANNER;
+        let input = "Bestätigung der Pflichtversicherung - ÖGK\n\n\
+                     Ihre Sozialversicherungsnummer: 1237 010180. \
+                     Bitte geben Sie diese Nummer bei jedem Arztbesuch an.";
+        let matches = scanner.mark_piis(input);
+        let svnr = matches.iter().find(|m| m.kind == PiiKind::AtSvnr).unwrap();
+        assert_eq!(&input[svnr.start..svnr.end], "1237 010180");
+    }
+
+    #[test]
+    fn ai4p_at_phone_in_restaurant() {
+        let scanner = &*SCANNER;
+        let input = "Reservierungsbestätigung - Gasthaus zum Goldenen Hirschen\n\n\
+                     Ihre Reservierung für 4 Personen am 20.04.2024 um 19:00 Uhr \
+                     ist bestätigt. Bei Änderungen erreichen Sie uns unter \
+                     Telefonnummer: +43 1 5127839.";
+        let matches = scanner.mark_piis(input);
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::AtPhoneNumber)
+            .unwrap();
+        assert_eq!(&input[phone.start..phone.end], "+43 1 5127839");
+    }
+
+    #[test]
+    fn ai4p_at_postal_code_in_shipping() {
+        let scanner = &*SCANNER;
+        let input = "Versandbestätigung - Bestellung #AT-9921\n\n\
+                     Ihr Paket wird an die folgende PLZ: 1010 zugestellt. \
+                     Voraussichtliche Lieferung: 2 Werktage.";
+        let matches = scanner.mark_piis(input);
+        let plz = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::AtPostalCode)
+            .unwrap();
+        assert_eq!(&input[plz.start..plz.end], "1010");
+    }
+
+    // -- Switzerland-specific PII types --
+
+    #[test]
+    fn ai4p_ch_ahv_in_pension() {
+        let scanner = &*SCANNER;
+        let input = "Vorsorgeausweis - Pensionskasse\n\n\
+                     Ihre AHV-Nummer: 756.1234.5678.97. \
+                     Der aktuelle Umwandlungssatz beträgt 6,8%.";
+        let matches = scanner.mark_piis(input);
+        let ahv = matches.iter().find(|m| m.kind == PiiKind::ChAhv).unwrap();
+        assert_eq!(&input[ahv.start..ahv.end], "756.1234.5678.97");
+    }
+
+    #[test]
+    fn ai4p_ch_phone_in_bank() {
+        let scanner = &*SCANNER;
+        let input = "Kontaktänderung - Kantonalbank\n\n\
+                     Ihre neue Kontaktnummer: +41 44 123 45 67 wurde \
+                     erfolgreich hinterlegt. Bei Fragen wenden Sie sich an \
+                     Ihren Kundenberater.";
+        let matches = scanner.mark_piis(input);
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::ChPhoneNumber)
+            .unwrap();
+        assert_eq!(&input[phone.start..phone.end], "+41 44 123 45 67");
+    }
+
+    #[test]
+    fn ai4p_ch_postal_code_in_directory() {
+        let scanner = &*SCANNER;
+        let input = "Firmenverzeichnis - Kanton Zürich\n\n\
+                     Der Hauptsitz befindet sich in der PLZ: 8001. \
+                     Weitere Niederlassungen in Bern und Basel.";
+        let matches = scanner.mark_piis(input);
+        let plz = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::ChPostalCode)
+            .unwrap();
+        assert_eq!(&input[plz.start..plz.end], "8001");
+    }
+
+    // -- German multi-PII --
+
+    #[test]
+    fn ai4p_de_multi_pii_patient_record() {
+        let scanner = &*SCANNER;
+        let input = "Patientenakte - Vertraulich\n\n\
+                     Nachname: Schneider\n\
+                     Geburtsdatum: 05.11.1978\n\
+                     Steuer-ID: 65929970489\n\
+                     Telefonnummer: 089 98765432\n\
+                     Email: k.schneider@patient.de\n\
+                     Anschrift: Marienplatz 1, 80331 München";
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::PersonName), "name: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::DateOfBirth), "dob: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::DeSteuerId), "steuer-id: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::DePhoneNumber), "phone: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
+        assert!(
+            kinds.contains(&PiiKind::DeAtChAddress),
+            "address: {kinds:?}"
+        );
+    }
+
+    // -- German/Austrian/Swiss clean texts --
+
+    #[test]
+    fn ai4p_de_clean_corporate_announcement() {
+        let scanner = &*SCANNER;
+        let input = "Unternehmensmitteilung\n\n\
+                     Aufgrund der gestiegenen Nachfrage erweitern wir unsere \
+                     Produktionskapazität um 30 Prozent. Die neue Fertigungslinie \
+                     wird im dritten Quartal in Betrieb genommen. Alle Abteilungen \
+                     werden rechtzeitig über die geänderten Schichtpläne informiert. \
+                     Die Investitionssumme beträgt 2,5 Millionen Euro.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    // -- Clean texts: no false positives --
+
+    #[test]
+    fn ai4p_clean_business_memo() {
+        let scanner = &*SCANNER;
+        let input = "MEMORANDUM\n\n\
+                     To: All Department Heads\n\
+                     Re: Quarterly Budget Review\n\n\
+                     Please submit your Q3 expenditure reports by end of business \
+                     on Friday. The finance committee will review all submissions \
+                     during the following week. Budget overruns exceeding 15% will \
+                     require a written justification and director-level approval.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    #[test]
+    fn ai4p_clean_legal_boilerplate() {
+        let scanner = &*SCANNER;
+        let input = "TERMS OF SERVICE\n\n\
+                     By accessing this platform, you agree to comply with all \
+                     applicable laws and regulations. The company reserves the \
+                     right to modify these terms at any time. Users are responsible \
+                     for maintaining the confidentiality of their credentials. \
+                     Any unauthorized use may result in termination of access and \
+                     legal action as permitted by applicable jurisdiction.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    #[test]
+    fn ai4p_clean_technical_spec() {
+        let scanner = &*SCANNER;
+        let input = "System Requirements Specification v2.4\n\n\
+                     The application shall support a minimum of 10,000 concurrent \
+                     users with response times under 200 milliseconds at the 95th \
+                     percentile. The database layer requires at least 64 GB of RAM \
+                     and 500 GB of SSD storage. Failover must complete within 30 \
+                     seconds with zero data loss.";
+        assert!(!scanner.has_piis(input));
+    }
+
+    // -- Span accuracy on multi-PII texts --
+
+    #[test]
+    fn ai4p_span_accuracy_financial() {
+        let scanner = &*SCANNER;
+        let input = "Transfer details: IBAN GB29NWBK60161331926819, \
+                     email recipient@bank.co.uk, card 4111111111111111";
+        let matches = scanner.mark_piis(input);
+
+        let iban = matches.iter().find(|m| m.kind == PiiKind::Iban).unwrap();
+        assert_eq!(&input[iban.start..iban.end], "GB29NWBK60161331926819");
+
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(&input[email.start..email.end], "recipient@bank.co.uk");
+
+        let cc = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::CreditCard)
+            .unwrap();
+        assert_eq!(&input[cc.start..cc.end], "4111111111111111");
+    }
+
+    #[test]
+    fn ai4p_span_accuracy_network() {
+        let scanner = &*SCANNER;
+        let input = "Audit log: source 192.168.1.42, device MAC 00:1A:2B:3C:4D:5E, \
+                     alert sent to soc@monitoring.net";
+        let matches = scanner.mark_piis(input);
+
+        let ip = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::IpAddress)
+            .unwrap();
+        assert_eq!(&input[ip.start..ip.end], "192.168.1.42");
+
+        let mac = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::MacAddress)
+            .unwrap();
+        assert_eq!(&input[mac.start..mac.end], "00:1A:2B:3C:4D:5E");
+
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(&input[email.start..email.end], "soc@monitoring.net");
+    }
+
     // Compile-time assertion that Scanner is Send + Sync.
     #[test]
     fn scanner_is_send_and_sync() {
