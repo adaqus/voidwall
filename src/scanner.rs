@@ -1020,6 +1020,205 @@ mod tests {
         ));
     }
 
+    // --- PII in Meta Conversions API (CAPI) requests ---
+    //
+    // Meta CAPI is a server-side event pipeline used by advertisers to send
+    // conversions (Purchase, Lead, AddToCart, ...) to Meta's ads platform.
+    // Payloads are POSTed as JSON to graph.facebook.com/v{ver}/{pixel}/events.
+    // Meta *requires* customer identifiers (em, ph, fn, ln, db, ct, st, zp,
+    // external_id) to be SHA256-hashed; `client_ip_address`, `client_user_agent`,
+    // `fbc`, `fbp`, and `event_source_url` are passed as-is.
+    //
+    // In practice, raw PII regularly leaks through:
+    //   1. Developers forget to apply SHA256 on a new field.
+    //   2. GTM server-side variable mappings are typo'd and pass raw values.
+    //   3. `event_source_url` is taken from the browser's current URL on a
+    //      logged-in page that includes email/phone/id in the query string.
+    //   4. `custom_data` free-form fields carry order notes, support transcripts,
+    //      fraud signals, etc. with embedded PII.
+    //   5. Shopify / WooCommerce plugins misroute cart attributes (card tokens,
+    //      customer notes) into `content_ids`, `order_id`, `content_name`.
+    //   6. Lead Ads CRM sync / offline conversion uploads forward raw customer
+    //      records when the hashing step was never configured.
+
+    // Unhashed raw email in the canonical `em` advanced-matching field —
+    // classic "forgot to SHA256" leak.
+    #[test_case(
+        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"action_source":"website","user_data":{"em":["john.doe@example.com"],"client_user_agent":"Mozilla/5.0"},"custom_data":{"currency":"USD","value":49.99}}]}"#,
+        PiiKind::Email, "john.doe@example.com"
+        ; "capi unhashed email in em field"
+    )]
+    // Unhashed client IPv4 — always sent raw per Meta's spec, but still PII.
+    #[test_case(
+        r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","user_data":{"client_ip_address":"203.0.113.45","fbp":"fb.1.1700000000.1234567890"}}]}"#,
+        PiiKind::IpAddress, "203.0.113.45"
+        ; "capi ipv4 in client_ip_address"
+    )]
+    // IPv6 client address (mobile networks commonly send v6).
+    #[test_case(
+        r#"{"data":[{"event_name":"AddToCart","event_time":1712841600,"user_data":{"client_ip_address":"2001:0db8:85a3:0000:0000:8a2e:0370:7334"}}]}"#,
+        PiiKind::IpAddress, "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+        ; "capi ipv6 in client_ip_address"
+    )]
+    // event_source_url captured from a logged-in account page where the
+    // email is rendered into the query string (session-restore token flow).
+    #[test_case(
+        r#"{"data":[{"event_name":"ViewContent","event_time":1712841600,"event_source_url":"https://shop.example.com/account/orders?user=jane.smith@example.com&ref=email","user_data":{"fbp":"fb.1.1700000000.0987654321"}}]}"#,
+        PiiKind::Email, "jane.smith@example.com"
+        ; "capi email leaked via event_source_url query"
+    )]
+    // Support-callback landing page passes phone as a query param — ends up
+    // in event_source_url verbatim.
+    #[test_case(
+        r#"{"data":[{"event_name":"Contact","event_time":1712841600,"event_source_url":"https://support.example.com/callback?phone_number=555-123-4567&topic=billing","user_data":{"client_ip_address":"198.51.100.12"}}]}"#,
+        PiiKind::PhoneNumber, "555-123-4567"
+        ; "capi phone leaked via event_source_url query"
+    )]
+    // Developer used SSN as `external_id` to deduplicate customers across
+    // devices (real anti-pattern observed in healthcare / tax verticals).
+    #[test_case(
+        r#"{"data":[{"event_name":"CompleteRegistration","event_time":1712841600,"user_data":{"external_id":["123-45-6789"],"client_ip_address":"198.51.100.7"}}]}"#,
+        PiiKind::UsSsn, "123-45-6789"
+        ; "capi ssn in external_id"
+    )]
+    // Shopify-style misconfiguration: raw PAN passed as `order_id` because
+    // the template pulled `{{ checkout.payment_method_token }}` incorrectly.
+    #[test_case(
+        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"custom_data":{"currency":"USD","value":142.00,"order_id":"4111111111111111","num_items":2}}]}"#,
+        PiiKind::CreditCard, "4111111111111111"
+        ; "capi credit card misused as order_id"
+    )]
+    // Subscription signup flow forwards bank details into `custom_data` as a
+    // free-form note (SEPA mandate). IBAN is structural so it matches.
+    #[test_case(
+        r#"{"data":[{"event_name":"Subscribe","event_time":1712841600,"custom_data":{"predicted_ltv":240,"currency":"GBP","subscription_note":"bank GB29NWBK60161331926819 direct debit"}}]}"#,
+        PiiKind::Iban, "GB29NWBK60161331926819"
+        ; "capi iban in custom_data subscription note"
+    )]
+    // French IBAN arriving through a European Lead Ads integration.
+    #[test_case(
+        r#"{"data":[{"event_name":"Lead","event_time":1712841600,"custom_data":{"lead_event_source":"landing-fr","iban":"FR1420041010050500013M02606","currency":"EUR"}}]}"#,
+        PiiKind::Iban, "FR1420041010050500013M02606"
+        ; "capi fr iban in custom_data"
+    )]
+    // Advanced-matching expansion: some SDKs send `full_name` inside
+    // custom_data instead of (or in addition to) hashed fn/ln.
+    #[test_case(
+        r#"{"data":[{"event_name":"Lead","event_time":1712841600,"custom_data":{"full_name":"Maria Rodriguez","lead_source":"landing_page","currency":"USD"}}]}"#,
+        PiiKind::PersonName, "Maria Rodriguez"
+        ; "capi person name in custom_data full_name"
+    )]
+    // CRM sync pushes descriptive advanced-matching keys alongside Meta's
+    // `ln` field — the descriptive key trips the keyword detector.
+    #[test_case(
+        r#"{"data":[{"event_name":"CompleteRegistration","event_time":1712841600,"user_data":{"ln":["abc123hashedlastname"],"last_name":"O'Brien"}}]}"#,
+        PiiKind::PersonName, "O'Brien"
+        ; "capi last_name advanced matching leaked"
+    )]
+    // WooCommerce plugin shoves card number into content_ids for a
+    // "product id" field (observed in support tickets).
+    #[test_case(
+        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"custom_data":{"content_type":"product","content_ids":["SKU-4532","5555555555554444"],"currency":"USD","value":75.50}}]}"#,
+        PiiKind::CreditCard, "5555555555554444"
+        ; "capi credit card in content_ids array"
+    )]
+    // Fraud-signal enrichment: the advertiser's own risk engine attached an
+    // IP address as a custom field to aid manual review in Meta reporting.
+    #[test_case(
+        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"custom_data":{"currency":"USD","value":3200.00,"fraud_signal":"high","reported_ip":"198.51.100.23"}}]}"#,
+        PiiKind::IpAddress, "198.51.100.23"
+        ; "capi ipv4 in custom_data fraud signal"
+    )]
+    // US tax filing flow: the funnel landing page embeds the SSN in the URL
+    // before the checkout event fires. event_source_url carries it verbatim.
+    #[test_case(
+        r#"{"data":[{"event_name":"InitiateCheckout","event_time":1712841600,"event_source_url":"https://taxapp.example.com/file?ssn=123-45-6789&tax_year=2025","user_data":{"client_ip_address":"192.0.2.88"}}]}"#,
+        PiiKind::UsSsn, "123-45-6789"
+        ; "capi ssn leaked via event_source_url query"
+    )]
+    // Customer service webhook relays the customer's phone as a descriptive
+    // custom_data field — hits the keyword detector via "customer_phone".
+    #[test_case(
+        r#"{"data":[{"event_name":"Contact","event_time":1712841600,"custom_data":{"case_id":"CS-88412","channel":"callback","customer_phone":"555-867-5309"}}]}"#,
+        PiiKind::PhoneNumber, "555-867-5309"
+        ; "capi customer_phone in custom_data"
+    )]
+    // Meta batch endpoint: `data` is an array of events. The second event
+    // contains an email in `em` — detector must scan the full payload.
+    #[test_case(
+        r#"{"data":[{"event_name":"PageView","event_time":1712841500,"user_data":{"fbp":"fb.1.1700000000.1234567890"}},{"event_name":"ViewContent","event_time":1712841600,"user_data":{"em":["alice.wonder@example.com"]}}]}"#,
+        PiiKind::Email, "alice.wonder@example.com"
+        ; "capi email in second event of batch"
+    )]
+    fn detects_pii_in_capi(input: &str, kind: PiiKind, expected_span: &str) {
+        let scanner = &*SCANNER;
+        let matches: Vec<_> = scanner
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // Realistic batch-mode Purchase event with multiple simultaneous leaks:
+    // a dev forgot to hash `em`, the standard `client_ip_address` field
+    // carries the raw buyer IP, and the Shopify plugin misrouted a PAN into
+    // `order_id`. All three must surface in a single scan.
+    #[test]
+    fn capi_purchase_multi_pii_leak() {
+        let scanner = &*SCANNER;
+        let input = r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"action_source":"website","event_source_url":"https://shop.example.com/thank-you","user_data":{"em":["bob.buyer@example.com"],"client_ip_address":"203.0.113.99","client_user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)","fbp":"fb.1.1700000000.1122334455","fbc":"fb.1.1700000000.IwAR2abcdef"},"custom_data":{"currency":"USD","value":199.00,"order_id":"4242424242424242","num_items":3,"content_type":"product"}}]}"#;
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&PiiKind::Email),
+            "should detect email in em field"
+        );
+        assert!(
+            kinds.contains(&PiiKind::IpAddress),
+            "should detect ip in client_ip_address"
+        );
+        assert!(
+            kinds.contains(&PiiKind::CreditCard),
+            "should detect card misused as order_id"
+        );
+    }
+
+    // Sandbox `test_event_code` payload where a developer is iterating on a
+    // new integration. `user_data` is populated with a full unhashed customer
+    // profile and `event_source_url` carries the phone number from a
+    // pre-filled callback form — the messy reality of staging traffic.
+    #[test]
+    fn capi_test_event_sandbox_raw_profile() {
+        let scanner = &*SCANNER;
+        let input = r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","event_source_url":"https://leads.example.com/callback?phone_number=555-222-3344","user_data":{"em":["carla.tester@example.com"],"external_id":["123-45-6789"],"client_ip_address":"198.51.100.44","first_name":"Carla","last_name":"Tester"},"custom_data":{"lead_event_source":"landing","currency":"USD"}}],"test_event_code":"TEST12345"}"#;
+        let matches = scanner.mark_piis(input);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email), "expected email");
+        assert!(kinds.contains(&PiiKind::UsSsn), "expected ssn");
+        assert!(kinds.contains(&PiiKind::IpAddress), "expected ip");
+        assert!(kinds.contains(&PiiKind::PhoneNumber), "expected phone");
+        assert!(kinds.contains(&PiiKind::PersonName), "expected person name");
+    }
+
+    // Properly-implemented CAPI request: all customer identifiers are
+    // SHA256-hashed (64-char lowercase hex). Meta-specific opaque IDs
+    // (`fbp`, `fbc`, `event_id`) are passthrough. Must produce zero matches.
+    #[test]
+    fn capi_properly_hashed_no_false_positives() {
+        let scanner = &*SCANNER;
+        let input = r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"event_id":"order-9af12b","action_source":"website","event_source_url":"https://shop.example.com/checkout/success","user_data":{"em":["973dfe463ec85785f5f95af5ba3906eedb2d931c24e69824a89ea65dba4e813b"],"ph":["c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646"],"fn":["ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"],"ln":["3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"],"fbp":"fb.1.1700000000.AbCdEfGhIj","fbc":"fb.1.1700000000.IwAR2XyZaBcDeFg"},"custom_data":{"currency":"USD","value":49.99,"content_type":"product","num_items":1}}]}"#;
+        assert!(
+            !scanner.has_piis(input),
+            "properly-hashed CAPI payload should not trigger any detector"
+        );
+    }
+
     // --- Student essay PII detection tests ---
     //
     // Inspired by the Kaggle "PII Data Detection" competition
