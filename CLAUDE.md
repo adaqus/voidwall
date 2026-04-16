@@ -102,6 +102,9 @@ After implementing validators and patterns, search the web for documented real e
 4. **Add to keyword detector tests** (`src/keyword_context_detector.rs`) — Add `#[test_case]` entries using the real values with different keyword variants (long keyword, short keyword, alternative keywords).
 5. **Test boundary/edge cases** — Use real-world knowledge to add tests for boundaries: check-digit-is-zero, upper/lower range limits for postal codes, off-by-one invalid checksums, real city postal codes (Berlin 10115, Vienna 1010, Zürich 8001).
 
+### Writing unit tests
+1. ALWAYS try to merge similar test cases using test_case macro. ALWAYS.
+
 #### Known pitfalls
 
 **Keyword substring overlap (duplicate matches).** Vectorscan finds literal byte substrings. "téléphone" contains "phone", "passeport" contains "passport", "numéro IMEI" contains "IMEI". When both English and foreign patterns exist for the same `PiiKind`, the English pattern fires too (keyword found as substring), producing duplicate matches. **Prevention:** Don't add bare English words to foreign-language keyword alternations if the English pattern already has them. In tests, use exclusively-foreign keywords (e.g. `"rappel"` not `"téléphone"`, `"identifiant bancaire"` not `"code SWIFT"`).

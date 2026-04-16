@@ -387,6 +387,7 @@ impl Detector for HyperscanDetector {
                     kind: entry.kind,
                     start,
                     end,
+                    user_label: None,
                 });
             }
         }
@@ -401,6 +402,7 @@ impl Detector for HyperscanDetector {
                             kind: entry.kind,
                             start: m.start(),
                             end: m.end(),
+                            user_label: None,
                         });
                     }
                 }

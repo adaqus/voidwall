@@ -760,6 +760,7 @@ impl KeywordContextDetector {
                     kind: pattern.kind,
                     start: start + value_match.start(),
                     end: start + value_match.end(),
+                    user_label: None,
                 });
             }
         }
@@ -784,6 +785,7 @@ impl Detector for KeywordContextDetector {
                     kind: m.kind,
                     start: offset_map[m.start],
                     end: offset_map[m.end],
+                    user_label: m.user_label,
                 })
                 .collect(),
             None => self.mark_piis_on(input),

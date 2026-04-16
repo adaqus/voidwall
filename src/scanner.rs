@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::detector::Detector;
 use crate::hyperscan_detector::HyperscanDetector;
 use crate::keyword_context_detector::KeywordContextDetector;
+use crate::user_detector::{UserDetector, UserPiiDefinition};
 use crate::{Country, Language, PiiError, PiiKind, PiiMatch};
 
 pub struct Scanner {
@@ -14,6 +15,7 @@ pub struct ScannerBuilder {
     languages: HashSet<Language>,
     pii_kinds: HashSet<PiiKind>,
     exclude_pii_kinds: HashSet<PiiKind>,
+    user_piis: Vec<UserPiiDefinition>,
 }
 
 impl Scanner {
@@ -28,6 +30,7 @@ impl Scanner {
             languages: HashSet::new(),
             pii_kinds: HashSet::new(),
             exclude_pii_kinds: HashSet::new(),
+            user_piis: Vec::new(),
         }
     }
 
@@ -95,6 +98,18 @@ impl ScannerBuilder {
     /// explicit country still contributes at least one kind after exclusion.
     pub fn exclude_pii_kinds(mut self, exclude: impl IntoIterator<Item = PiiKind>) -> Self {
         self.exclude_pii_kinds = exclude.into_iter().collect();
+        self
+    }
+
+    /// Register user-defined PII definitions.
+    ///
+    /// Entries are scanned by a separate `UserDetector` that isolates
+    /// user-supplied regex patterns from the built-in vectorscan database.
+    /// Entries whose `country` is not in the scanner's enabled country set
+    /// are dropped at build time. Matches are reported with
+    /// `PiiKind::Custom` and the per-entry label on `PiiMatch::user_label`.
+    pub fn user_piis(mut self, defs: impl IntoIterator<Item = UserPiiDefinition>) -> Self {
+        self.user_piis = defs.into_iter().collect();
         self
     }
 
@@ -183,12 +198,16 @@ impl ScannerBuilder {
         let regex_detector: Box<dyn Detector + Send + Sync> =
             Box::new(HyperscanDetector::new(&enabled_kinds)?);
 
-        Ok(Scanner {
-            detectors: vec![
-                regex_detector,
-                Box::new(KeywordContextDetector::new(&enabled_kinds, &languages)?),
-            ],
-        })
+        let mut detectors: Vec<Box<dyn Detector + Send + Sync>> = vec![
+            regex_detector,
+            Box::new(KeywordContextDetector::new(&enabled_kinds, &languages)?),
+        ];
+
+        if !self.user_piis.is_empty() {
+            detectors.push(Box::new(UserDetector::new(&self.user_piis, &countries)?));
+        }
+
+        Ok(Scanner { detectors })
     }
 }
 
@@ -2307,5 +2326,84 @@ mod tests {
     fn scanner_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Scanner>();
+    }
+
+    // --- user-defined PII ---
+
+    #[test]
+    fn builder_user_piis_detects_and_reports_label() {
+        let scanner = Scanner::builder()
+            .user_piis([UserPiiDefinition {
+                label: "EMPLOYEE_ID".into(),
+                pattern: r"EMP-\d{6}".into(),
+                keywords: Vec::new(),
+                country: Country::International,
+            }])
+            .build()
+            .unwrap();
+
+        let input = "new hire EMP-123456 onboarded";
+        assert!(scanner.has_piis(input));
+        let matches = scanner.mark_piis(input);
+        let custom: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == PiiKind::Custom)
+            .collect();
+        assert_eq!(custom.len(), 1);
+        assert_eq!(custom[0].label(), "EMPLOYEE_ID");
+        assert_eq!(&input[custom[0].start..custom[0].end], "EMP-123456");
+    }
+
+    #[test]
+    fn builder_user_piis_country_filter_matches_scanner_countries() {
+        let scanner = Scanner::builder()
+            .countries([Country::Fr])
+            .user_piis([UserPiiDefinition {
+                label: "US_ONLY".into(),
+                pattern: r"UID-\d{4}".into(),
+                keywords: Vec::new(),
+                country: Country::Us,
+            }])
+            .build()
+            .unwrap();
+
+        assert!(!scanner.has_piis("value UID-1234 here"));
+    }
+
+    #[test]
+    fn builder_user_piis_coexists_with_builtin_matches() {
+        let scanner = Scanner::builder()
+            .user_piis([UserPiiDefinition {
+                label: "INTERNAL".into(),
+                pattern: r"INT-\d{5}".into(),
+                keywords: Vec::new(),
+                country: Country::International,
+            }])
+            .build()
+            .unwrap();
+
+        let input = "contact user@test.com re INT-12345";
+        let matches = scanner.mark_piis(input);
+        assert!(matches.iter().any(|m| m.kind == PiiKind::Email));
+        assert!(
+            matches
+                .iter()
+                .any(|m| m.kind == PiiKind::Custom && m.label() == "INTERNAL")
+        );
+    }
+
+    #[test]
+    fn builder_user_piis_invalid_regex_surfaces_error() {
+        let err = Scanner::builder()
+            .user_piis([UserPiiDefinition {
+                label: "BAD".into(),
+                pattern: "[unterminated".into(),
+                keywords: Vec::new(),
+                country: Country::International,
+            }])
+            .build()
+            .err()
+            .expect("invalid user regex should fail build");
+        assert!(matches!(err, PiiError::RegexCompilation(_)));
     }
 }

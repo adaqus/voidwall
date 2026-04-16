@@ -2,13 +2,16 @@ pub mod detector;
 pub mod keyword_context_detector;
 pub(crate) mod normalize;
 pub mod scanner;
+pub mod user_detector;
 pub(crate) mod validators;
 
 pub mod hyperscan_detector;
 
 pub use scanner::{Scanner, ScannerBuilder};
+pub use user_detector::UserPiiDefinition;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Errors that can occur during PII scanner initialization.
 #[derive(Debug)]
@@ -189,6 +192,9 @@ pub enum PiiKind {
     ZaPostalCode,
     AuDriversLicense,
     AuAbn,
+    /// Marker for user-defined PII. The per-entry label lives in
+    /// `PiiMatch::user_label`.
+    Custom,
 }
 
 impl PiiKind {
@@ -279,6 +285,7 @@ impl PiiKind {
             PiiKind::ZaPostalCode => "ZA_POSTAL_CODE",
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
             PiiKind::AuAbn => "AU_ABN",
+            PiiKind::Custom => "CUSTOM",
         }
     }
 
@@ -375,7 +382,8 @@ impl PiiKind {
             | PiiKind::AwsSecretKey
             | PiiKind::DateOfBirth
             | PiiKind::BitcoinAddress
-            | PiiKind::EthereumAddress => Country::International,
+            | PiiKind::EthereumAddress
+            | PiiKind::Custom => Country::International,
         }
     }
 
@@ -513,4 +521,17 @@ pub struct PiiMatch {
     pub kind: PiiKind,
     pub start: usize,
     pub end: usize,
+    /// Label for user-defined PII entries. `None` for built-in kinds; for
+    /// those, use `kind.label()`.
+    pub user_label: Option<Arc<str>>,
+}
+
+impl PiiMatch {
+    /// Returns the label for this match — the user-supplied label for
+    /// `PiiKind::Custom`, otherwise the built-in label from `kind`.
+    pub fn label(&self) -> &str {
+        self.user_label
+            .as_deref()
+            .unwrap_or_else(|| self.kind.label())
+    }
 }
