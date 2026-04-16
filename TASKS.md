@@ -7,6 +7,12 @@ Decisions applied:
   proxy mode, one global pool in forward proxy mode.
 - **Graceful shutdown**: `tokio::signal` + `CancellationToken` propagated to all
   listeners; drain in-flight requests with configurable timeout.
+- **Structured body scanning**: JSON and CSV/TSV bodies are parsed into context-value
+  fragments before scanning (hybrid approach). The `pii` crate gains a
+  `mark_piis_structured` API that accepts fragments with context (key path / column
+  name), value, and document byte offset. Structured scanning fully replaces flat
+  text scanning for these content types. CSV/TSV without headers falls back to flat
+  text scanning.
 
 ---
 
@@ -205,9 +211,112 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ---
 
-## Phase 7 — REST API Mode
+## Phase 7 — Structured Body Scanning
 
-### 7.1 REST API endpoints
+### 7.1 pii crate: structured scanning API
+- [ ] Define `ContextFragment` struct in `pii/src/lib.rs`:
+  - `context: &str` — key path (e.g., `user.phone_number`, `phones[0]`)
+  - `value: &str` — the text content to scan
+  - `offset: usize` — byte offset of `value` in the original document
+- [ ] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
+  to `Detector` trait with default no-op returning empty `Vec`
+- [ ] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
+  to `Scanner` that delegates to all detectors via `flat_map`
+- [ ] Unit tests: `Scanner::mark_piis_structured` with empty fragments returns empty
+
+### 7.2 pii crate: HyperscanDetector structured support
+- [ ] Override `mark_piis_structured` in `HyperscanDetector`:
+  - For each fragment, call `mark_piis` on `fragment.value`
+  - Offset-adjust each `PiiMatch` by adding `fragment.offset`
+  - Collect and return all matches
+- [ ] Unit tests: email/SSN/IBAN detected in fragment values with correct
+  document-absolute offsets
+
+### 7.3 pii crate: KeywordContextDetector structured support
+- [ ] Override `mark_piis_structured` in `KeywordContextDetector`:
+  - For each fragment, synthesize `"{context}: {value}"`
+  - Run through existing `mark_piis_on` (or `mark_piis` with normalization)
+  - Offset-adjust results: subtract synthetic prefix length, add `fragment.offset`
+  - Discard any matches that fall within the synthetic prefix (context portion)
+- [ ] Unit tests:
+  - `phone_number` context + phone value → detected with correct offset
+  - `user.phone_number` nested context → detected (keyword patterns use `[\s_]`
+    which doesn't match `.`, but the leaf key `phone_number` appears after the
+    last `.` — verify detection works or adjust synthesis to use leaf key only)
+  - `unknown_field` context + phone value → not detected (no keyword match)
+  - Multiple fragments with different PII kinds → all detected
+  - Offset correctness: returned `PiiMatch.start`/`end` are document-absolute
+
+### 7.4 Proxy: JSON body flattener
+- [ ] Add `serde_json` dependency to proxy `Cargo.toml`
+- [ ] Implement JSON flattener in proxy's `scanner.rs` (or a new `body_parser.rs`):
+  - `fn flatten_json(raw: &[u8]) -> Result<Vec<OwnedContextFragment>, Error>`
+  - Recursively walk JSON tree using `serde_json::Value` or streaming parser
+  - Produce fragments for string values only (skip numbers, booleans, nulls)
+  - Context: dot-separated key path with `[index]` for array elements
+  - Offset: byte position of the value content (inside quotes) in the raw JSON
+  - `OwnedContextFragment` struct: `context: String`, `value: String`, `offset: usize`
+- [ ] Unit tests:
+  - Flat object: `{"phone": "555-1234"}` → one fragment, correct offset
+  - Nested object: `{"a": {"b": "val"}}` → context `a.b`, correct offset
+  - Array: `{"x": ["a", "b"]}` → `x[0]`, `x[1]` with correct offsets
+  - Mixed types: numbers/bools/nulls skipped, strings extracted
+  - Nested arrays: `{"a": [["x"]]}` → `a[0][0]`
+  - Empty object/array → no fragments
+  - Invalid JSON → error
+
+### 7.5 Proxy: CSV/TSV body parser
+- [ ] Add `csv` crate dependency to proxy `Cargo.toml`
+- [ ] Implement CSV/TSV parser in proxy's `scanner.rs` (or `body_parser.rs`):
+  - `fn parse_csv(raw: &[u8], delimiter: u8) -> Result<Option<Vec<OwnedContextFragment>>, Error>`
+  - Returns `None` when no header row is detected (fallback to flat text)
+  - Header detection heuristic: first row is treated as headers if it contains
+    at least one non-numeric field
+  - Context: `column_name[row_index]` (0-based row index, excluding header)
+  - Offset: byte position of cell content in the raw body
+- [ ] Unit tests:
+  - Basic CSV: headers + data rows → fragments with correct contexts and offsets
+  - TSV: tab delimiter works identically
+  - No headers detected → returns `None`
+  - Empty cells → fragments with empty value strings
+  - Quoted CSV fields → correct value (unquoted) and offset (to content within quotes)
+  - Single row (headers only, no data) → no fragments
+
+### 7.6 Proxy: integrate structured scanning into pipeline
+- [ ] Define `BodyFormat` enum in proxy's `scanner.rs`:
+  - `PlainText(Bytes)` — existing flat text path
+  - `Structured { fragments: Vec<OwnedContextFragment>, raw: Bytes }`
+- [ ] Add content-type routing logic:
+  - `application/json` → JSON flattener → `Structured`
+  - `text/csv` → CSV parser (delimiter `,`) → `Structured` if headers detected,
+    else `PlainText`
+  - `text/tab-separated-values` → CSV parser (delimiter `\t`) → `Structured` if
+    headers detected, else `PlainText`
+  - All other content types → `PlainText` (unchanged)
+  - On parse failure: follow `on_error` policy (fail_open → `PlainText` fallback,
+    fail_close → block)
+- [ ] Update `ScanRequest` to accept `BodyFormat` instead of `Option<Bytes>`
+- [ ] Update `execute_scan` to handle `Structured` variant:
+  - Convert `OwnedContextFragment` to `pii::ContextFragment` (borrow)
+  - Call `scanner.mark_piis_structured(&fragments)`
+  - Redaction: apply matches to `raw` bytes using document-absolute offsets
+- [ ] Update `scan_and_act` / `scan_and_act_response` to construct `BodyFormat`
+  based on content-type before building `ScanRequest`
+- [ ] Integration tests:
+  - Nested JSON body with PII in deep key → detected and redacted correctly
+  - CSV body with PII in data cells → detected via column-name context
+  - TSV body → same as CSV with tab delimiter
+  - JSON parse failure with `fail_open` → falls back to plain text scanning
+  - JSON parse failure with `fail_close` → blocks request
+  - CSV without headers → falls back to flat text scanning
+  - Redacted JSON output is valid JSON
+  - Redacted CSV output preserves delimiter structure
+
+---
+
+## Phase 8 — REST API Mode
+
+### 8.1 REST API endpoints
 - [ ] Implement `api.rs` axum router:
   - `POST /v1/scan` — accept JSON `{ "text": "..." }`, scan via `ScannerPool`,
     return `{ "detected": bool, "matches_count": N, "kinds": [...] }`
@@ -221,9 +330,9 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ---
 
-## Phase 8 — Forward Proxy Mode
+## Phase 9 — Forward Proxy Mode
 
-### 8.1 Forward proxy handler
+### 9.1 Forward proxy handler
 - [ ] Implement `forward_proxy.rs`:
   - Parse absolute-form URI from request line (standard forward proxy behavior)
   - Same pipeline as reverse proxy with request/response scanning:
@@ -233,7 +342,7 @@ Setup and infrastructure per `docs/load-testing.md`.
   - Single global `hyper-util` pooling client for all destinations
 - [ ] No CONNECT support — return 405 for CONNECT method
 
-### 8.2 Forward proxy TLS (MITM)
+### 9.2 Forward proxy TLS (MITM)
 - [ ] Client-facing: TLS termination using configured CA cert/key
 - [ ] Dynamic per-host certificate generation via `rcgen`, signed by the CA
 - [ ] Cache generated certs (bounded LRU cache keyed by hostname)
@@ -242,19 +351,19 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ---
 
-## Phase 9 — Load Testing (Full Suite)
+## Phase 10 — Load Testing (Full Suite)
 
 Extend load testing from Phase 6 to cover all modes.
 
-### 9.1 Additional scenarios
+### 10.1 Additional scenarios
 - [ ] Mode comparison — reverse proxy vs forward proxy vs REST API
 - [ ] Soak test — 30 min at 80% max rate, monitor memory, file descriptors, p99 drift
 
 ---
 
-## Phase 10 — Main Entrypoint & Lifecycle
+## Phase 11 — Main Entrypoint & Lifecycle
 
-### 10.1 Startup orchestration
+### 11.1 Startup orchestration
 - [x] `main.rs`:
   1. Parse CLI args, load and validate config
   2. Initialize `tracing` subscriber
@@ -269,7 +378,7 @@ Extend load testing from Phase 6 to cover all modes.
   7. Set readiness flag once all listeners are bound
   8. Await shutdown signal
 
-### 10.2 Graceful shutdown
+### 11.2 Graceful shutdown
 - [x] `tokio::signal::ctrl_c()` + SIGTERM handler → trigger `CancellationToken`
 - [x] Each listener: stop accepting new connections, drain in-flight with timeout
 - [x] `ScannerPool::shutdown()` — drain channel, join threads
@@ -277,9 +386,9 @@ Extend load testing from Phase 6 to cover all modes.
 
 ---
 
-## Phase 11 — End-to-End Testing
+## Phase 12 — End-to-End Testing
 
-### 11.1 Cross-mode integration tests
+### 12.1 Cross-mode integration tests
 - [ ] Full integration test: start binary with test config, send requests through
   each mode, verify scan/block/redact/header behavior end-to-end
 - [ ] Test config validation rejects all invalid cases at startup

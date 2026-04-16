@@ -122,8 +122,80 @@ proxy and forward proxy modes, both requests and responses are scannable
   mode the request is passed through; in `fail_close` mode the request is blocked.
   A metric `pii_proxy_errors_total` is incremented in either case.
 - **Content types**: Only text-based content types are scanned by default:
-  `application/json`, `text/plain`, `text/html`, `application/x-www-form-urlencoded`.
+  `application/json`, `text/plain`, `text/html`, `application/x-www-form-urlencoded`,
+  `text/csv`, `text/tab-separated-values`.
   Configurable via allowlist.
+
+### Structured Body Scanning
+
+For certain content types, the proxy parses body structure before scanning to
+improve detection accuracy. This is especially important for keyword-context PII
+patterns (e.g., `phone_number: 555-1234`) where the keyword and value may be
+separated by document structure rather than appearing as adjacent text.
+
+**Structured scanning replaces flat text scanning for these content types** —
+they are not scanned through both paths.
+
+#### JSON (`application/json`)
+
+The proxy recursively flattens nested JSON into context-value fragments before
+scanning. Each JSON string value becomes a fragment where the context is the
+dot-separated key path and the value is the string content.
+
+| JSON input | Context | Value |
+|------------|---------|-------|
+| `{"phone_number": "555-1234"}` | `phone_number` | `555-1234` |
+| `{"user": {"phone_number": "555-1234"}}` | `user.phone_number` | `555-1234` |
+| `{"phones": ["555-1234", "555-5678"]}` | `phones[0]` | `555-1234` |
+| `{"users": [{"name": "John"}]}` | `users[0].name` | `John` |
+
+Only string values produce fragments. Numbers, booleans, and nulls are skipped.
+Fragment offsets point to the value content bytes within the original JSON body
+(excluding surrounding quotes), enabling in-place redaction that preserves valid
+JSON structure.
+
+#### CSV (`text/csv`) and TSV (`text/tab-separated-values`)
+
+The proxy parses the header row and then produces a fragment for each data cell,
+using the column name as context. Array-style indexing tracks the row:
+
+| CSV input | Context | Value |
+|-----------|---------|-------|
+| `phone_number,name\n555-1234,John` | `phone_number[0]` | `555-1234` |
+| (same, column 2) | `name[0]` | `John` |
+
+If no header row is detected (e.g., all fields are numeric or the file has a
+single row), the body falls back to flat text scanning.
+
+Fragment offsets point to the cell content bytes within the original CSV/TSV body,
+enabling in-place redaction that preserves the delimiter structure.
+
+#### How Structured Scanning Works
+
+The proxy passes context-value fragments to the `pii` crate via a structured
+scanning API (`Scanner::mark_piis_structured`). For each fragment, the crate:
+
+1. **Pattern-only detectors** (e.g., email, SSN regex): scan the value
+   independently and offset-adjust results.
+2. **Keyword-context detectors**: synthesize `"{context}: {value}"` and run
+   through the existing keyword+separator+value detection pipeline. The `:`
+   separator matches the existing separator regex. Results are offset-adjusted
+   back to document-absolute positions.
+
+This approach reuses all existing detection logic without modification. The
+`Detector` trait gains a `mark_piis_structured` method with a default no-op
+implementation, so only detectors that benefit from context need to override it.
+
+#### Redaction of Structured Bodies
+
+Redaction operates on the original raw bytes using document-absolute offsets
+returned by structured scanning. Both `char` and `type_label` strategies produce
+replacements that are safe inside JSON string values and CSV cells:
+
+- JSON: replacement text goes between the existing quote delimiters, preserving
+  valid JSON.
+- CSV/TSV: replacement text stays within cell boundaries, preserving delimiter
+  structure.
 
 ---
 
@@ -357,6 +429,8 @@ content_types = [
     "text/plain",
     "text/html",
     "application/x-www-form-urlencoded",
+    "text/csv",
+    "text/tab-separated-values",
 ]
 url_path = true
 query_params = true
