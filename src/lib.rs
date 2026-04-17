@@ -8,3 +8,4 @@ pub mod metrics;
 pub mod reverse_proxy;
 pub mod scanner;
 pub mod tls;
+pub mod validate;

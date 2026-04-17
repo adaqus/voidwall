@@ -9,9 +9,9 @@ use std::time::Duration;
 use clap::Parser;
 use pii_proxy::admin::{self, AdminState};
 use pii_proxy::config::{AppConfig, Cli};
-use pii_proxy::error::Error;
 use pii_proxy::reverse_proxy;
-use pii_proxy::scanner::{self, ScannerPool};
+use pii_proxy::scanner::ScannerPool;
+use pii_proxy::validate;
 use tokio_util::sync::CancellationToken;
 
 fn main() {
@@ -35,7 +35,7 @@ fn main() {
 /// (exercising regex and vectorscan compilation) and discards it. Does not
 /// initialize tracing, spawn threads, bind sockets, or build any clients.
 fn run_validate(path: &Path) -> i32 {
-    match validate_config(path) {
+    match validate::validate_config_file(path) {
         Ok(()) => {
             println!("config OK: {}", path.display());
             0
@@ -45,12 +45,6 @@ fn run_validate(path: &Path) -> i32 {
             1
         }
     }
-}
-
-fn validate_config(path: &Path) -> Result<(), Error> {
-    let config = AppConfig::load(path)?;
-    scanner::validate_build(&config.pii)?;
-    Ok(())
 }
 
 #[tokio::main]

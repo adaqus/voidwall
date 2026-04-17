@@ -266,10 +266,21 @@ fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
 
     builder.build().map_err(|e| match e {
         pii::PiiError::RegexCompilation(_) | pii::PiiError::HyperscanCompilation(_) => {
-            let labels: Vec<&str> = config.custom.iter().map(|d| d.label.as_str()).collect();
-            Error::Scanner(format!(
-                "pii.custom: scanner build failed ({e}); labels configured: {labels:?}"
-            ))
+            // The `regex` crate precheck didn't flag anything, but the full
+            // builder still rejected a pattern — most likely a vectorscan-only
+            // restriction. Isolate the offender by rebuilding with one entry
+            // at a time.
+            if let Some(def) = isolate_failing_custom_entry(&config.custom) {
+                Error::Scanner(format!(
+                    "pii.custom entry '{}': scanner build failed ({e})",
+                    def.label,
+                ))
+            } else {
+                let labels: Vec<&str> = config.custom.iter().map(|d| d.label.as_str()).collect();
+                Error::Scanner(format!(
+                    "pii.custom: scanner build failed ({e}); labels configured: {labels:?}"
+                ))
+            }
         }
         other => other.into(),
     })
@@ -286,6 +297,20 @@ fn precheck_custom_pii(defs: &[pii::UserPiiDefinition]) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// Rebuild the scanner with one custom entry at a time, returning the first
+/// entry that causes the builder to fail. Only called on an error path, so
+/// the O(N) rebuild cost is acceptable.
+fn isolate_failing_custom_entry(
+    defs: &[pii::UserPiiDefinition],
+) -> Option<&pii::UserPiiDefinition> {
+    defs.iter().find(|def| {
+        pii::Scanner::builder()
+            .user_piis(std::iter::once((*def).clone()))
+            .build()
+            .is_err()
+    })
 }
 
 /// Convert a `RedactStrategy` config value to a `RedactWith`.

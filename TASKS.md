@@ -487,12 +487,12 @@ regex patterns in `[[pii.custom]]` can fail compilation.
 - [x] On failure: print a structured diagnostic to stderr and exit 1
 
 ### 14.2 Diagnostics
-- [ ] Error categories surfaced clearly: TOML parse, schema, semantic
+- [x] Error categories surfaced clearly: TOML parse, schema, semantic
   validation, scanner build. Initial approach: single non-zero exit code
   with a category tag in the message (simplest for CI integration)
-- [ ] For `[[pii.custom]]` regex failures, include the offending entry's
+- [x] For `[[pii.custom]]` regex failures, include the offending entry's
   `label` in the diagnostic so operators can locate it in the config
-- [ ] Unit tests covering each failure category end-to-end via the CLI
+- [x] Unit tests covering each failure category end-to-end via the CLI
   (invoke the binary in an integration test or a library-style validation
   function)
 
