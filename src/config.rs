@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -12,10 +12,20 @@ use crate::error::Error;
 
 #[derive(Parser, Debug)]
 #[command(name = "pii-proxy", about = "PII-inspecting HTTP proxy")]
+#[command(group(
+    ArgGroup::new("mode")
+        .required(true)
+        .multiple(false)
+        .args(["config", "validate"])
+))]
 pub struct Cli {
-    /// Path to TOML configuration file
+    /// Path to TOML configuration file (runs the proxy)
     #[arg(long = "config", env = "PII_PROXY_CONFIG")]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
+
+    /// Validate the config at the given path and exit without binding listeners
+    #[arg(long = "validate")]
+    pub validate: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1607,5 +1617,42 @@ actions = []
         let config = parse(toml).unwrap();
         let ignore = config.pii.ignore.as_ref().unwrap();
         assert_eq!(ignore.len(), 1);
+    }
+
+    // --- CLI parsing ---
+
+    #[test]
+    fn cli_accepts_config_only() {
+        let cli = Cli::try_parse_from(["pii-proxy", "--config", "config.toml"])
+            .expect("--config alone must parse");
+        assert_eq!(cli.config.as_deref(), Some(Path::new("config.toml")));
+        assert!(cli.validate.is_none());
+    }
+
+    #[test]
+    fn cli_accepts_validate_only() {
+        let cli = Cli::try_parse_from(["pii-proxy", "--validate", "config.toml"])
+            .expect("--validate alone must parse");
+        assert_eq!(cli.validate.as_deref(), Some(Path::new("config.toml")));
+        assert!(cli.config.is_none());
+    }
+
+    #[test]
+    fn cli_rejects_both_flags() {
+        let err = Cli::try_parse_from(["pii-proxy", "--config", "a.toml", "--validate", "b.toml"])
+            .expect_err("--config and --validate must be mutually exclusive");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn cli_rejects_neither_flag() {
+        // SAFETY: clear the env fallback so the group's `required=true`
+        // actually fires; no other test reads PII_PROXY_CONFIG.
+        unsafe {
+            std::env::remove_var("PII_PROXY_CONFIG");
+        }
+        let err = Cli::try_parse_from(["pii-proxy"])
+            .expect_err("at least one of --config / --validate is required");
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 }

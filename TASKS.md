@@ -470,21 +470,21 @@ CI/CD before they hit production; especially important now that user-supplied
 regex patterns in `[[pii.custom]]` can fail compilation.
 
 ### 14.1 --validate option
-- [ ] Extend `Cli` in `config.rs`: add `validate: Option<PathBuf>`
-- [ ] Enforce mutual exclusion with `--config` via clap `ArgGroup`
+- [x] Extend `Cli` in `config.rs`: add `validate: Option<PathBuf>`
+- [x] Enforce mutual exclusion with `--config` via clap `ArgGroup`
   (`required = true`, `multiple = false`) so exactly one is provided;
   `--help` shows the constraint
-- [ ] In `main.rs`, branch before any async/server setup: if `validate` is
+- [x] In `main.rs`, branch before any async/server setup: if `validate` is
   set, run the validate-only code path and `std::process::exit(0 or 1)`
-- [ ] Validate-only code path:
+- [x] Validate-only code path:
   1. Load and parse TOML
   2. Run `AppConfig::validate()`
   3. Call `build_scanner(&config.pii)` (construct and discard the scanner —
      this exercises regex + vectorscan compilation)
   4. No listener bind, no `ScannerPool` spawn, no TLS, no upstream clients,
      no tracing subscriber noise beyond a single success/failure line
-- [ ] On success: exit 0 with a one-line "config OK" message
-- [ ] On failure: print a structured diagnostic to stderr and exit 1
+- [x] On success: exit 0 with a one-line "config OK" message
+- [x] On failure: print a structured diagnostic to stderr and exit 1
 
 ### 14.2 Diagnostics
 - [ ] Error categories surfaced clearly: TOML parse, schema, semantic

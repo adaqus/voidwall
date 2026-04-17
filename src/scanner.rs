@@ -235,6 +235,13 @@ fn log_channel_full(message: &str) {
     }
 }
 
+/// Exercise scanner construction for the given PII configuration without
+/// spawning any threads. Used by `--validate` to surface regex and hyperscan
+/// compilation errors at startup.
+pub fn validate_build(config: &PiiConfig) -> Result<(), Error> {
+    build_scanner(config).map(|_| ())
+}
+
 /// Build a `pii::Scanner` from the proxy's PII configuration.
 fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
     precheck_custom_pii(&config.custom)?;

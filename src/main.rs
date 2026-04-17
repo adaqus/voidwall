@@ -1,6 +1,7 @@
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -8,14 +9,52 @@ use std::time::Duration;
 use clap::Parser;
 use pii_proxy::admin::{self, AdminState};
 use pii_proxy::config::{AppConfig, Cli};
+use pii_proxy::error::Error;
 use pii_proxy::reverse_proxy;
-use pii_proxy::scanner::ScannerPool;
+use pii_proxy::scanner::{self, ScannerPool};
 use tokio_util::sync::CancellationToken;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
 
+    if let Some(path) = cli.validate.as_deref() {
+        std::process::exit(run_validate(path));
+    }
+
+    let Some(config_path) = cli.config.clone() else {
+        eprintln!(
+            "error: --config <PATH> is required to run the proxy (or set PII_PROXY_CONFIG). \
+             Use --validate <PATH> to check a config file without starting the proxy.",
+        );
+        std::process::exit(2);
+    };
+    run_server(config_path);
+}
+
+/// Validate-only code path. Loads and validates the config, builds a scanner
+/// (exercising regex and vectorscan compilation) and discards it. Does not
+/// initialize tracing, spawn threads, bind sockets, or build any clients.
+fn run_validate(path: &Path) -> i32 {
+    match validate_config(path) {
+        Ok(()) => {
+            println!("config OK: {}", path.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("config validation failed: {e}");
+            1
+        }
+    }
+}
+
+fn validate_config(path: &Path) -> Result<(), Error> {
+    let config = AppConfig::load(path)?;
+    scanner::validate_build(&config.pii)?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn run_server(config_path: std::path::PathBuf) {
     // Initialize tracing subscriber
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -25,7 +64,7 @@ async fn main() {
         .init();
 
     // Load and validate config
-    let config = match AppConfig::load(&cli.config) {
+    let config = match AppConfig::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "failed to load configuration");
@@ -33,7 +72,7 @@ async fn main() {
         }
     };
 
-    tracing::info!(config_path = %cli.config.display(), "configuration loaded");
+    tracing::info!(config_path = %config_path.display(), "configuration loaded");
 
     // Create ScannerPool
     let scanner = match ScannerPool::new(&config.pii) {
