@@ -197,6 +197,56 @@ replacements that are safe inside JSON string values and CSV cells:
 - CSV/TSV: replacement text stays within cell boundaries, preserving delimiter
   structure.
 
+### User-Defined PII Definitions
+
+In addition to the built-in PII kinds, operators may supply their own PII
+definitions under the `[pii]` section. Each definition is a regex pattern with
+an operator-chosen label and optional keyword context. Matches surface with the
+operator's label in metrics, block responses, `X-PII-Detected` headers, and
+`[LABEL]`-style redaction output — exactly like built-in kinds.
+
+```toml
+[[pii.custom]]
+label    = "EMPLOYEE_ID"
+pattern  = 'EMP-\d{6}'
+
+[[pii.custom]]
+label    = "PROJECT_CODE"
+pattern  = '[A-Z]{3}-\d{3}'
+keywords = ["project code", "proj id"]
+country  = "International"   # default
+```
+
+| Field      | Required | Description |
+|------------|:--------:|-------------|
+| `label`    | yes | Label reported on matches. Must be unique and must not collide with any built-in `PiiKind` label. |
+| `pattern`  | yes | Regex for the value. Must compile in both the `regex` crate and vectorscan — no backreferences or lookaround. |
+| `keywords` | no  | Optional context keywords. When non-empty, a match requires one of the keywords to appear just before the pattern; the reported span covers only the pattern. |
+| `country`  | no  | Country scope. Defaults to `International`. Entries whose country is not in the scanner's enabled set are dropped at build time. |
+
+**Behaviour:**
+
+- User definitions run independently of `detect`/`ignore`; those fields apply
+  only to built-in kinds. Disabling a user entry is done by removing it from
+  config. The literal `"CUSTOM"` is rejected in `detect`/`ignore`.
+- Labels propagate to Prometheus `pii_kind` labels, 403 block response
+  `kinds` lists, `X-PII-Detected` headers, and `type_label` redaction output.
+- Label cardinality is bounded by config size and fully operator-controlled, so
+  no cardinality explosion risk in metrics.
+
+**Validation (at startup):**
+
+- Each `label` is non-empty and unique across `[[pii.custom]]` entries.
+- No `label` collides with any built-in `PiiKind` label — checked against the
+  full namespace, independent of `detect`/`ignore`, so a later change to
+  those fields cannot silently introduce a collision.
+- Each `pattern` is non-empty. Regex compilation is enforced by the `pii` crate
+  at scanner build; failures surface as a startup error.
+- Total entry count is capped (default: 64).
+
+**PII safety:** labels are operator-supplied config, not matched values — the
+existing rules (no PII in logs/metrics/responses) are unaffected.
+
 ---
 
 ## Metrics
@@ -421,6 +471,18 @@ languages = ["En"]
 #   being automatically detected after a proxy upgrade.
 # ignore = ["IpAddress"]
 
+# User-defined PII — operator-supplied regex definitions with chosen labels.
+# See "User-Defined PII Definitions" above. Runs independently of detect/ignore.
+# [[pii.custom]]
+# label    = "EMPLOYEE_ID"
+# pattern  = 'EMP-\d{6}'
+#
+# [[pii.custom]]
+# label    = "PROJECT_CODE"
+# pattern  = '[A-Z]{3}-\d{3}'
+# keywords = ["project code", "proj id"]
+# country  = "International"
+
 # --- Scan settings (shared defaults, overridable per route in reverse proxy) ---
 [scan]
 max_body_size = 1_048_576  # 1 MB, in bytes
@@ -521,6 +583,10 @@ error message if any rule is violated.
 | PII scanner valid | `detect` and `ignore` are mutually exclusive (enforced by `pii` crate) |
 | Countries/PII kinds consistent | All PII kinds in `detect` must be reachable from specified countries (enforced by `pii` crate) |
 | Scanner threads valid | `scanner_threads` must be >= 1 if specified |
+| User-defined PII labels | Non-empty, unique across `[[pii.custom]]`, and non-colliding with built-in `PiiKind` labels (full namespace) |
+| User-defined PII patterns | Non-empty; regex compilation enforced by `pii` crate at build |
+| User-defined PII cap | Total `[[pii.custom]]` entries <= 64 |
+| `CUSTOM` reserved | `"CUSTOM"` must not appear in `detect` or `ignore` |
 
 #### Per-mode action validation
 
@@ -540,6 +606,60 @@ error message if any rule is violated.
 | Valid upstream URLs | Each `upstream` must be a valid URL |
 | Per-route scan override | If a route specifies `scan`, it fully replaces the defaults (no merging) |
 | No per-route actions | Routes must not define `request` or `response` action overrides — actions are set at the mode level only |
+
+### Pre-flight Validation
+
+Config validation must be available as a standalone, offline check so that bad
+configs are caught in CI/CD before they reach production. Silent regressions
+(e.g. a typo in a `[[pii.custom]]` regex) must not be discovered only when a
+pod fails to start.
+
+The proxy exposes a `--validate` option that takes the config path directly
+and switches into a validate-only mode:
+
+```
+pii-proxy --validate /etc/pii-proxy/config.toml
+```
+
+`--validate` and `--config` are mutually exclusive; exactly one must be
+provided. This avoids the awkwardness of requiring both flags together when
+one always implies the other.
+
+Behaviour:
+
+1. Load and parse the TOML file.
+2. Run the full `AppConfig::validate()` routine (global rules, per-mode action
+   rules, route rules, user-defined PII rules).
+3. Build a `pii::Scanner` via `build_scanner`. This exercises the `regex`
+   crate *and* vectorscan compilation identically to the startup path, so a
+   successful validation guarantees the scanner will build at runtime.
+4. Exit `0` on success. On failure, print a structured diagnostic identifying
+   the offending rule or entry and exit non-zero.
+
+In validate mode no listeners are bound, no scanner threads are spawned, no
+TLS material is opened, and no upstream clients are created.
+
+**Excluded from `--validate`** (environment-specific, left to startup):
+
+- Listen-address availability
+- TLS cert/key file contents (only that the path field is present)
+- Upstream reachability
+- Filesystem permissions on metric/log sinks
+
+A separate `--check-env` flag may be added later if these checks become
+useful to run out-of-band.
+
+**Intentional non-goal: partial start.** The proxy does not support a "skip
+invalid entries and continue" mode. Silently dropping declared PII definitions
+is a security regression — strict startup failure combined with pre-flight
+validation is the correct pair.
+
+**Integration targets:**
+
+- CI pipeline on the config repository (run on every PR).
+- Git pre-commit hook for operators editing configs locally.
+- GitOps controller pre-sync hook (Flux / ArgoCD).
+- Kubernetes `ValidatingWebhookConfiguration` that shells out to the binary.
 
 ### Configuration by Mode — What Applies Where
 

@@ -392,3 +392,127 @@ Extend load testing from Phase 6 to cover all modes.
 - [ ] Full integration test: start binary with test config, send requests through
   each mode, verify scan/block/redact/header behavior end-to-end
 - [ ] Test config validation rejects all invalid cases at startup
+
+---
+
+## Phase 13 — User-Defined PII Definitions
+
+See DESIGN.md § "User-Defined PII Definitions".
+
+### 13.1 Configuration
+- [ ] Add `pub custom: Vec<pii::UserPiiDefinition>` to `PiiConfig` with
+  `#[serde(default)]` (reuses the `pii` crate's own `Deserialize` impl)
+- [ ] Implement `validate_custom_pii()` called from `AppConfig::validate()`:
+  - Each `label` non-empty
+  - `label` unique across `[[pii.custom]]` entries (case-sensitive)
+  - `label` does not collide with any built-in `PiiKind::label()` — check the
+    full namespace, independent of `detect`/`ignore`
+  - Each `pattern` non-empty
+  - Cap total entries at 64
+  - Reject the literal `"CUSTOM"` in `detect`/`ignore` (extend
+    `validate_pii_kinds_exclusivity` or add a sibling validator)
+- [ ] Unit tests for each validation case: empty label, duplicate labels,
+  built-in collision (e.g., custom label `EMAIL`), empty pattern, cap exceeded,
+  `"CUSTOM"` in `detect`, `"CUSTOM"` in `ignore`
+- [ ] TOML round-trip test: parse a config with `[[pii.custom]]` entries and
+  verify the deserialized values
+
+### 13.2 Scanner integration
+- [ ] In `build_scanner` (`scanner.rs`), chain
+  `.user_piis(config.custom.iter().cloned())` onto the builder when the list
+  is non-empty
+- [ ] Map `pii::PiiError::{RegexCompilation, HyperscanCompilation}` surfaced
+  by `builder.build()` to the proxy's startup error path with sufficient
+  context to identify the offending entry
+- [ ] Unit test: scanner builds with a valid user definition and detects a
+  matching sample
+- [ ] Unit test: scanner build fails with a clear error for an invalid regex
+
+### 13.3 Label propagation
+- [ ] Replace `m.kind.label()` with `m.label()` in `execute_scan` aggregation
+  (`all_kinds` population) so user labels surface in `ScanResult.kinds`
+- [ ] Replace `m.kind.label()` with `m.label()` in `redact_in_place` so
+  `type_label` redaction produces `[USER_LABEL]` rather than `[CUSTOM]`
+  (replacement length still derived from label length)
+- [ ] Verify metrics helpers (`detections`, `redacted`) are driven by the
+  per-match label string — confirm `pii_kind` counter label uses `m.label()`
+- [ ] Update affected unit tests in `scanner.rs` where the redaction output
+  now reflects user labels
+
+### 13.4 Integration tests
+- [ ] Reverse proxy: request with custom-defined value → `block` response
+  `kinds` list contains the user label
+- [ ] Reverse proxy: `redact` with `type_label` → forwarded body contains
+  `[USER_LABEL]`
+- [ ] Reverse proxy: `header` action → `X-PII-Detected` includes user label
+- [ ] REST API `/v1/scan`: returns user label in `kinds`
+- [ ] REST API `/v1/redact`: replaces matched value with `[USER_LABEL]`
+- [ ] Country filter: user entry with a country outside the scanner's
+  enabled set is silently dropped (entry present in config, no match fires)
+- [ ] Keyword-mode entry: value without the keyword is not matched; value
+  with the keyword is matched and span covers only the value
+- [ ] Built-in + user detection coexist: a body containing both triggers
+  both sets of labels in `kinds`
+
+### 13.5 Documentation
+- [ ] Add a worked example config to `docs/` (or extend an existing example)
+  demonstrating `[[pii.custom]]` alongside `detect`/`ignore`
+- [ ] Note the `CUSTOM` label reservation in the config reference
+
+---
+
+## Phase 14 — Config Validation CLI
+
+See DESIGN.md § "Pre-flight Validation". Lets operators gate config changes in
+CI/CD before they hit production; especially important now that user-supplied
+regex patterns in `[[pii.custom]]` can fail compilation.
+
+### 14.1 --validate option
+- [ ] Extend `Cli` in `config.rs`: add `validate: Option<PathBuf>`
+- [ ] Enforce mutual exclusion with `--config` via clap `ArgGroup`
+  (`required = true`, `multiple = false`) so exactly one is provided;
+  `--help` shows the constraint
+- [ ] In `main.rs`, branch before any async/server setup: if `validate` is
+  set, run the validate-only code path and `std::process::exit(0 or 1)`
+- [ ] Validate-only code path:
+  1. Load and parse TOML
+  2. Run `AppConfig::validate()`
+  3. Call `build_scanner(&config.pii)` (construct and discard the scanner —
+     this exercises regex + vectorscan compilation)
+  4. No listener bind, no `ScannerPool` spawn, no TLS, no upstream clients,
+     no tracing subscriber noise beyond a single success/failure line
+- [ ] On success: exit 0 with a one-line "config OK" message
+- [ ] On failure: print a structured diagnostic to stderr and exit 1
+
+### 14.2 Diagnostics
+- [ ] Error categories surfaced clearly: TOML parse, schema, semantic
+  validation, scanner build. Initial approach: single non-zero exit code
+  with a category tag in the message (simplest for CI integration)
+- [ ] For `[[pii.custom]]` regex failures, include the offending entry's
+  `label` in the diagnostic so operators can locate it in the config
+- [ ] Unit tests covering each failure category end-to-end via the CLI
+  (invoke the binary in an integration test or a library-style validation
+  function)
+
+### 14.3 Integration tests
+- [ ] Valid full config → exit 0
+- [ ] Missing config file → exit non-zero, filesystem error surfaced
+- [ ] Invalid TOML → exit non-zero with parse error
+- [ ] Invalid schema (e.g. unknown action) → exit non-zero
+- [ ] `detect` and `ignore` both set → exit non-zero
+- [ ] `[[pii.custom]]` entry with bad regex → exit non-zero, diagnostic cites
+  the entry label
+- [ ] Custom label colliding with built-in (e.g. `EMAIL`) → exit non-zero
+- [ ] Exceeds custom entry cap → exit non-zero
+- [ ] `"CUSTOM"` in `detect`/`ignore` → exit non-zero
+- [ ] Verify no TCP port is bound during validation (assert via a process-level
+  probe or by pre-binding the configured port and confirming validation still
+  succeeds)
+- [ ] Verify `--validate` and `--config` cannot be combined; missing both
+  prints a clap usage error
+
+### 14.4 Documentation
+- [ ] Ensure DESIGN.md § "Pre-flight Validation" names the flag exactly
+- [ ] Add a `docs/` entry with sample CI usage (GitHub Actions snippet,
+  pre-commit-hook snippet)
+- [ ] Note the flag in README / quick-start once one exists
