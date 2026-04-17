@@ -72,10 +72,12 @@ pub fn validate_config_file(path: &Path) -> Result<(), ValidationError> {
     })?;
 
     // 3. Schema (deserialization from the parsed AST into typed structs).
-    let config: AppConfig = value.try_into().map_err(|e: toml::de::Error| ValidationError {
-        category: Category::Schema,
-        message: e.to_string(),
-    })?;
+    let config: AppConfig = value
+        .try_into()
+        .map_err(|e: toml::de::Error| ValidationError {
+            category: Category::Schema,
+            message: e.to_string(),
+        })?;
 
     // 4. Semantic validation.
     config.validate().map_err(|e| ValidationError {
@@ -149,10 +151,7 @@ upstream = "http://localhost:9000"
         let err = validate_config_file(Path::new("/definitely/does/not/exist.toml"))
             .expect_err("missing file must fail");
         assert_eq!(err.category, Category::File);
-        assert!(
-            err.to_string().starts_with("[file]"),
-            "got: {err}",
-        );
+        assert!(err.to_string().starts_with("[file]"), "got: {err}",);
     }
 
     #[test]

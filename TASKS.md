@@ -497,24 +497,25 @@ regex patterns in `[[pii.custom]]` can fail compilation.
   function)
 
 ### 14.3 Integration tests
-- [ ] Valid full config → exit 0
-- [ ] Missing config file → exit non-zero, filesystem error surfaced
-- [ ] Invalid TOML → exit non-zero with parse error
-- [ ] Invalid schema (e.g. unknown action) → exit non-zero
-- [ ] `detect` and `ignore` both set → exit non-zero
-- [ ] `[[pii.custom]]` entry with bad regex → exit non-zero, diagnostic cites
+- [x] Valid full config → exit 0
+- [x] Missing config file → exit non-zero, filesystem error surfaced
+- [x] Invalid TOML → exit non-zero with parse error
+- [x] Invalid schema (e.g. unknown action) → exit non-zero
+- [x] `detect` and `ignore` both set → exit non-zero
+- [x] `[[pii.custom]]` entry with bad regex → exit non-zero, diagnostic cites
   the entry label
-- [ ] Custom label colliding with built-in (e.g. `EMAIL`) → exit non-zero
-- [ ] Exceeds custom entry cap → exit non-zero
-- [ ] `"CUSTOM"` in `detect`/`ignore` → exit non-zero
-- [ ] Verify no TCP port is bound during validation (assert via a process-level
+- [x] Custom label colliding with built-in (e.g. `EMAIL`) → exit non-zero
+- [x] Exceeds custom entry cap → exit non-zero
+- [x] `"CUSTOM"` in `detect`/`ignore` → exit non-zero
+- [x] Verify no TCP port is bound during validation (assert via a process-level
   probe or by pre-binding the configured port and confirming validation still
   succeeds)
-- [ ] Verify `--validate` and `--config` cannot be combined; missing both
+- [x] Verify `--validate` and `--config` cannot be combined; missing both
   prints a clap usage error
 
 ### 14.4 Documentation
-- [ ] Ensure DESIGN.md § "Pre-flight Validation" names the flag exactly
-- [ ] Add a `docs/` entry with sample CI usage (GitHub Actions snippet,
-  pre-commit-hook snippet)
+- [x] Ensure DESIGN.md § "Pre-flight Validation" names the flag exactly
+- [x] Add a `docs/` entry with sample CI usage (pre-commit-hook snippet)
+  *(GitHub Actions example skipped per operator request)*
 - [ ] Note the flag in README / quick-start once one exists
+  *(deferred — no README yet)*
