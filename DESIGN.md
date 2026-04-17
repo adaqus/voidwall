@@ -470,6 +470,9 @@ languages = ["En"]
 #   this when you want broad coverage and are comfortable with new PII kinds
 #   being automatically detected after a proxy upgrade.
 # ignore = ["IpAddress"]
+#
+# NOTE: "Custom" is reserved — it is the marker kind for user-defined PII
+# definitions (see `[[pii.custom]]` below) and must not appear in detect/ignore.
 
 # User-defined PII — operator-supplied regex definitions with chosen labels.
 # See "User-Defined PII Definitions" above. Runs independently of detect/ignore.

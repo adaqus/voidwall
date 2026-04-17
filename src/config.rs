@@ -70,7 +70,13 @@ pub struct PiiConfig {
 
     #[serde(default)]
     pub ignore: Option<Vec<pii::PiiKind>>,
+
+    #[serde(default)]
+    pub custom: Vec<pii::UserPiiDefinition>,
 }
+
+/// Maximum number of `[[pii.custom]]` entries accepted at config load.
+pub const MAX_CUSTOM_PII_ENTRIES: usize = 64;
 
 impl PiiConfig {
     /// Effective number of scanner threads, applying the auto-detection logic.
@@ -436,6 +442,7 @@ impl AppConfig {
         self.validate_no_port_conflicts()?;
         self.validate_scanner_threads()?;
         self.validate_pii_kinds_exclusivity()?;
+        self.validate_custom_pii()?;
         self.validate_reverse_proxy()?;
         self.validate_forward_proxy()?;
         self.validate_rest_api()?;
@@ -492,6 +499,54 @@ impl AppConfig {
             return Err(Error::Config(
                 "detect and ignore are mutually exclusive".into(),
             ));
+        }
+        for (field, kinds) in [("detect", &self.pii.detect), ("ignore", &self.pii.ignore)] {
+            if let Some(list) = kinds
+                && list.contains(&pii::PiiKind::Custom)
+            {
+                return Err(Error::Config(format!(
+                    "{field}: 'Custom' is reserved for user-defined PII and cannot be listed here",
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_custom_pii(&self) -> Result<(), Error> {
+        let custom = &self.pii.custom;
+        if custom.len() > MAX_CUSTOM_PII_ENTRIES {
+            return Err(Error::Config(format!(
+                "pii.custom: too many entries ({}); max is {MAX_CUSTOM_PII_ENTRIES}",
+                custom.len(),
+            )));
+        }
+
+        let builtin_labels: HashSet<&'static str> =
+            pii::PiiKind::all().iter().map(|k| k.label()).collect();
+
+        let mut seen: HashSet<&str> = HashSet::new();
+        for entry in custom {
+            if entry.label.is_empty() {
+                return Err(Error::Config("pii.custom: label must be non-empty".into()));
+            }
+            if entry.pattern.is_empty() {
+                return Err(Error::Config(format!(
+                    "pii.custom: entry '{}' has empty pattern",
+                    entry.label,
+                )));
+            }
+            if builtin_labels.contains(entry.label.as_str()) {
+                return Err(Error::Config(format!(
+                    "pii.custom: label '{}' collides with a built-in PiiKind label",
+                    entry.label,
+                )));
+            }
+            if !seen.insert(entry.label.as_str()) {
+                return Err(Error::Config(format!(
+                    "pii.custom: duplicate label '{}'",
+                    entry.label,
+                )));
+            }
         }
         Ok(())
     }
@@ -625,6 +680,7 @@ fn validate_direction_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn minimal_toml() -> String {
         r#"
@@ -1196,6 +1252,7 @@ redact_strategy = "char"
             scanner_threads: Some(7),
             detect: None,
             ignore: None,
+            custom: Vec::new(),
         };
         assert_eq!(pii.effective_scanner_threads(), 7);
     }
@@ -1208,6 +1265,7 @@ redact_strategy = "char"
             scanner_threads: None,
             detect: None,
             ignore: None,
+            custom: Vec::new(),
         };
         let n = pii.effective_scanner_threads();
         assert!(n >= 1);
@@ -1385,6 +1443,148 @@ actions = []
         let config = parse(toml).unwrap();
         let detect = config.pii.detect.as_ref().unwrap();
         assert_eq!(detect.len(), 2);
+    }
+
+    // --- Custom PII definitions ---
+
+    fn custom_pii_toml(body: &str) -> String {
+        format!(
+            r#"
+[pii]
+countries = ["Us", "International"]
+{body}
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
+"#
+        )
+    }
+
+    #[test]
+    fn valid_custom_pii_entries() {
+        let toml = custom_pii_toml(
+            r#"
+[[pii.custom]]
+label = "EMPLOYEE_ID"
+pattern = 'EMP-\d{6}'
+
+[[pii.custom]]
+label = "PROJECT_CODE"
+pattern = '[A-Z]{3}-\d{3}'
+keywords = ["project code", "proj id"]
+country = "International"
+"#,
+        );
+        let config = parse(&toml).expect("valid custom entries should parse");
+        assert_eq!(config.pii.custom.len(), 2);
+        assert_eq!(config.pii.custom[0].label, "EMPLOYEE_ID");
+        assert_eq!(config.pii.custom[0].pattern, r"EMP-\d{6}");
+        assert!(config.pii.custom[0].keywords.is_empty());
+        assert_eq!(config.pii.custom[1].label, "PROJECT_CODE");
+        assert_eq!(
+            config.pii.custom[1].keywords,
+            vec!["project code".to_string(), "proj id".to_string()]
+        );
+        assert_eq!(config.pii.custom[1].country, pii::Country::International);
+    }
+
+    #[test]
+    fn valid_custom_pii_defaults_to_empty() {
+        let config = parse(&minimal_toml()).unwrap();
+        assert!(config.pii.custom.is_empty());
+    }
+
+    #[test_case(
+        r#"
+[[pii.custom]]
+label = ""
+pattern = 'abc'
+"#,
+        "label must be non-empty"
+        ; "empty label"
+    )]
+    #[test_case(
+        r#"
+[[pii.custom]]
+label = "FOO"
+pattern = ""
+"#,
+        "empty pattern"
+        ; "empty pattern"
+    )]
+    #[test_case(
+        r#"
+[[pii.custom]]
+label = "EMPLOYEE_ID"
+pattern = 'EMP-\d{6}'
+
+[[pii.custom]]
+label = "EMPLOYEE_ID"
+pattern = 'ID-\d+'
+"#,
+        "duplicate label"
+        ; "duplicate label"
+    )]
+    #[test_case(
+        r#"
+[[pii.custom]]
+label = "EMAIL"
+pattern = 'foo@bar'
+"#,
+        "collides with a built-in PiiKind label"
+        ; "builtin collision"
+    )]
+    fn invalid_custom_pii(body: &str, expected_msg: &str) {
+        let toml = custom_pii_toml(body);
+        let err = parse(&toml).unwrap_err();
+        assert!(err.to_string().contains(expected_msg), "got: {err}");
+    }
+
+    #[test]
+    fn invalid_custom_pii_cap_exceeded() {
+        let mut entries = String::new();
+        for i in 0..=MAX_CUSTOM_PII_ENTRIES {
+            entries.push_str(&format!(
+                "\n[[pii.custom]]\nlabel = \"LBL_{i}\"\npattern = 'x{i}'\n"
+            ));
+        }
+        let toml = custom_pii_toml(&entries);
+        let err = parse(&toml).unwrap_err();
+        assert!(err.to_string().contains("too many entries"));
+    }
+
+    #[test_case("detect" ; "custom in detect")]
+    #[test_case("ignore" ; "custom in ignore")]
+    fn invalid_custom_in_kinds_list(field: &str) {
+        let toml = format!(
+            r#"
+[pii]
+countries = ["Us"]
+{field} = ["Custom"]
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+actions = []
+
+[forward_proxy.response]
+actions = []
+"#
+        );
+        let err = parse(&toml).unwrap_err();
+        assert!(
+            err.to_string().contains("'Custom' is reserved"),
+            "got: {err}"
+        );
     }
 
     #[test]

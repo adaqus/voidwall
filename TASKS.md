@@ -400,9 +400,9 @@ Extend load testing from Phase 6 to cover all modes.
 See DESIGN.md § "User-Defined PII Definitions".
 
 ### 13.1 Configuration
-- [ ] Add `pub custom: Vec<pii::UserPiiDefinition>` to `PiiConfig` with
+- [x] Add `pub custom: Vec<pii::UserPiiDefinition>` to `PiiConfig` with
   `#[serde(default)]` (reuses the `pii` crate's own `Deserialize` impl)
-- [ ] Implement `validate_custom_pii()` called from `AppConfig::validate()`:
+- [x] Implement `validate_custom_pii()` called from `AppConfig::validate()`:
   - Each `label` non-empty
   - `label` unique across `[[pii.custom]]` entries (case-sensitive)
   - `label` does not collide with any built-in `PiiKind::label()` — check the
@@ -411,53 +411,55 @@ See DESIGN.md § "User-Defined PII Definitions".
   - Cap total entries at 64
   - Reject the literal `"CUSTOM"` in `detect`/`ignore` (extend
     `validate_pii_kinds_exclusivity` or add a sibling validator)
-- [ ] Unit tests for each validation case: empty label, duplicate labels,
+- [x] Unit tests for each validation case: empty label, duplicate labels,
   built-in collision (e.g., custom label `EMAIL`), empty pattern, cap exceeded,
   `"CUSTOM"` in `detect`, `"CUSTOM"` in `ignore`
-- [ ] TOML round-trip test: parse a config with `[[pii.custom]]` entries and
+- [x] TOML round-trip test: parse a config with `[[pii.custom]]` entries and
   verify the deserialized values
 
 ### 13.2 Scanner integration
-- [ ] In `build_scanner` (`scanner.rs`), chain
+- [x] In `build_scanner` (`scanner.rs`), chain
   `.user_piis(config.custom.iter().cloned())` onto the builder when the list
   is non-empty
-- [ ] Map `pii::PiiError::{RegexCompilation, HyperscanCompilation}` surfaced
+- [x] Map `pii::PiiError::{RegexCompilation, HyperscanCompilation}` surfaced
   by `builder.build()` to the proxy's startup error path with sufficient
   context to identify the offending entry
-- [ ] Unit test: scanner builds with a valid user definition and detects a
+- [x] Unit test: scanner builds with a valid user definition and detects a
   matching sample
-- [ ] Unit test: scanner build fails with a clear error for an invalid regex
+- [x] Unit test: scanner build fails with a clear error for an invalid regex
 
 ### 13.3 Label propagation
-- [ ] Replace `m.kind.label()` with `m.label()` in `execute_scan` aggregation
+- [x] Replace `m.kind.label()` with `m.label()` in `execute_scan` aggregation
   (`all_kinds` population) so user labels surface in `ScanResult.kinds`
-- [ ] Replace `m.kind.label()` with `m.label()` in `redact_in_place` so
+- [x] Replace `m.kind.label()` with `m.label()` in `redact_in_place` so
   `type_label` redaction produces `[USER_LABEL]` rather than `[CUSTOM]`
   (replacement length still derived from label length)
-- [ ] Verify metrics helpers (`detections`, `redacted`) are driven by the
+- [x] Verify metrics helpers (`detections`, `redacted`) are driven by the
   per-match label string — confirm `pii_kind` counter label uses `m.label()`
-- [ ] Update affected unit tests in `scanner.rs` where the redaction output
+- [x] Update affected unit tests in `scanner.rs` where the redaction output
   now reflects user labels
 
 ### 13.4 Integration tests
-- [ ] Reverse proxy: request with custom-defined value → `block` response
+- [x] Reverse proxy: request with custom-defined value → `block` response
   `kinds` list contains the user label
-- [ ] Reverse proxy: `redact` with `type_label` → forwarded body contains
+- [x] Reverse proxy: `redact` with `type_label` → forwarded body contains
   `[USER_LABEL]`
-- [ ] Reverse proxy: `header` action → `X-PII-Detected` includes user label
-- [ ] REST API `/v1/scan`: returns user label in `kinds`
+- [x] Reverse proxy: `header` action → `X-PII-Detected` includes user label
+- [ ] REST API `/v1/scan`: returns user label in `kinds` *(deferred — Phase 8
+  REST API mode not yet implemented)*
 - [ ] REST API `/v1/redact`: replaces matched value with `[USER_LABEL]`
-- [ ] Country filter: user entry with a country outside the scanner's
+  *(deferred — Phase 8 REST API mode not yet implemented)*
+- [x] Country filter: user entry with a country outside the scanner's
   enabled set is silently dropped (entry present in config, no match fires)
-- [ ] Keyword-mode entry: value without the keyword is not matched; value
+- [x] Keyword-mode entry: value without the keyword is not matched; value
   with the keyword is matched and span covers only the value
-- [ ] Built-in + user detection coexist: a body containing both triggers
+- [x] Built-in + user detection coexist: a body containing both triggers
   both sets of labels in `kinds`
 
 ### 13.5 Documentation
-- [ ] Add a worked example config to `docs/` (or extend an existing example)
+- [x] Add a worked example config to `docs/` (or extend an existing example)
   demonstrating `[[pii.custom]]` alongside `detect`/`ignore`
-- [ ] Note the `CUSTOM` label reservation in the config reference
+- [x] Note the `CUSTOM` label reservation in the config reference
 
 ---
 

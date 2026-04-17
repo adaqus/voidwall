@@ -1153,6 +1153,7 @@ dependencies = [
  "procfs",
  "prometheus",
  "rcgen",
+ "regex",
  "reqwest",
  "rustls",
  "serde",

@@ -48,6 +48,7 @@ tikv-jemallocator = "0.6"
 
 # PII scanning
 pii = { path = "../pii" }
+regex = "1"
 
 [[bin]]
 name = "echo-server"

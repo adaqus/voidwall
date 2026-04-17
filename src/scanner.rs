@@ -237,6 +237,8 @@ fn log_channel_full(message: &str) {
 
 /// Build a `pii::Scanner` from the proxy's PII configuration.
 fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
+    precheck_custom_pii(&config.custom)?;
+
     let mut builder = pii::Scanner::builder();
 
     if !config.countries.is_empty() {
@@ -251,8 +253,32 @@ fn build_scanner(config: &PiiConfig) -> Result<pii::Scanner, Error> {
     if let Some(ref exclude) = config.ignore {
         builder = builder.exclude_pii_kinds(exclude.iter().copied());
     }
+    if !config.custom.is_empty() {
+        builder = builder.user_piis(config.custom.iter().cloned());
+    }
 
-    Ok(builder.build()?)
+    builder.build().map_err(|e| match e {
+        pii::PiiError::RegexCompilation(_) | pii::PiiError::HyperscanCompilation(_) => {
+            let labels: Vec<&str> = config.custom.iter().map(|d| d.label.as_str()).collect();
+            Error::Scanner(format!(
+                "pii.custom: scanner build failed ({e}); labels configured: {labels:?}"
+            ))
+        }
+        other => other.into(),
+    })
+}
+
+/// Per-entry regex pre-check so compilation failures name the offending label.
+fn precheck_custom_pii(defs: &[pii::UserPiiDefinition]) -> Result<(), Error> {
+    for def in defs {
+        if let Err(e) = regex::Regex::new(&def.pattern) {
+            return Err(Error::Scanner(format!(
+                "pii.custom entry '{}': invalid regex: {e}",
+                def.label,
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Convert a `RedactStrategy` config value to a `RedactWith`.
@@ -284,7 +310,7 @@ fn redact_in_place(text: &mut String, matches: &mut [pii::PiiMatch], strategy: &
         if m.end > prev_start {
             continue;
         }
-        let label = m.kind.label();
+        let label = m.label();
         let replacement = match strategy {
             RedactWith::Char(c) => c.to_string().repeat(label.len()),
             RedactWith::TypeLabel => format!("[{label}]"),
@@ -311,7 +337,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         let mut matches = scanner.mark_piis(text);
         matches_count += matches.len();
         for m in &matches {
-            all_kinds.insert(m.kind.label().to_string());
+            all_kinds.insert(m.label().to_string());
         }
 
         if request.redact
@@ -329,7 +355,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         let mut matches = scanner.mark_piis(path);
         matches_count += matches.len();
         for m in &matches {
-            all_kinds.insert(m.kind.label().to_string());
+            all_kinds.insert(m.label().to_string());
         }
 
         if request.redact
@@ -347,7 +373,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         let mut matches = scanner.mark_piis(query);
         matches_count += matches.len();
         for m in &matches {
-            all_kinds.insert(m.kind.label().to_string());
+            all_kinds.insert(m.label().to_string());
         }
 
         if request.redact
@@ -369,7 +395,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
             let mut matches = scanner.mark_piis(value);
             matches_count += matches.len();
             for m in &matches {
-                all_kinds.insert(m.kind.label().to_string());
+                all_kinds.insert(m.label().to_string());
             }
 
             if request.redact
@@ -423,6 +449,7 @@ mod tests {
             scanner_threads: Some(1),
             detect: None,
             ignore: None,
+            custom: Vec::new(),
         }
     }
 
@@ -607,8 +634,99 @@ mod tests {
             scanner_threads: Some(1),
             detect: Some(vec![pii::PiiKind::Email]),
             ignore: None,
+            custom: Vec::new(),
         };
         assert!(build_scanner(&config).is_ok());
+    }
+
+    fn pii_config_with_custom(defs: Vec<pii::UserPiiDefinition>) -> PiiConfig {
+        PiiConfig {
+            countries: vec![pii::Country::International],
+            languages: vec![pii::Language::En],
+            scanner_threads: Some(1),
+            detect: None,
+            ignore: None,
+            custom: defs,
+        }
+    }
+
+    #[test]
+    fn build_scanner_with_valid_custom_detects_match() {
+        let config = pii_config_with_custom(vec![pii::UserPiiDefinition {
+            label: "EMPLOYEE_ID".into(),
+            pattern: r"EMP-\d{6}".into(),
+            keywords: Vec::new(),
+            country: pii::Country::International,
+        }]);
+        let scanner = build_scanner(&config).expect("scanner should build");
+        let matches = scanner.mark_piis("employee EMP-123456 on file");
+        assert!(
+            matches.iter().any(|m| m.label() == "EMPLOYEE_ID"),
+            "expected EMPLOYEE_ID match, got {matches:?}"
+        );
+    }
+
+    #[test]
+    fn build_scanner_with_invalid_custom_regex_cites_label() {
+        let config = pii_config_with_custom(vec![pii::UserPiiDefinition {
+            label: "BROKEN".into(),
+            pattern: r"[unclosed".into(),
+            keywords: Vec::new(),
+            country: pii::Country::International,
+        }]);
+        let err = match build_scanner(&config) {
+            Ok(_) => panic!("expected build_scanner to fail"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("BROKEN"),
+            "expected label in error, got: {msg}"
+        );
+        assert!(
+            msg.contains("invalid regex"),
+            "expected regex diagnostic, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_label_propagates_through_scan_and_redact() {
+        let config = pii_config_with_custom(vec![pii::UserPiiDefinition {
+            label: "EMPLOYEE_ID".into(),
+            pattern: r"EMP-\d{6}".into(),
+            keywords: Vec::new(),
+            country: pii::Country::International,
+        }]);
+        let pool = ScannerPool::new(&config).expect("pool should start");
+
+        let req = ScanRequest {
+            body: Some(Bytes::from_static(b"emp EMP-123456 tag")),
+            path: None,
+            query: None,
+            headers: None,
+            redact: true,
+            redact_strategy: Some(RedactWith::TypeLabel),
+        };
+        let result = pool
+            .process(req, OnError::FailClose)
+            .await
+            .expect("scan succeeds");
+
+        assert!(
+            result.kinds.iter().any(|k| k == "EMPLOYEE_ID"),
+            "expected EMPLOYEE_ID in kinds, got {:?}",
+            result.kinds
+        );
+        let redacted = result.redacted_body.expect("body should be redacted");
+        let redacted_str = std::str::from_utf8(&redacted).unwrap();
+        assert!(
+            redacted_str.contains("[EMPLOYEE_ID]"),
+            "expected [EMPLOYEE_ID] in redacted body, got: {redacted_str}"
+        );
+        assert!(
+            !redacted_str.contains("[CUSTOM]"),
+            "redacted body should not contain [CUSTOM], got: {redacted_str}"
+        );
     }
 
     #[test]
@@ -637,6 +755,7 @@ mod tests {
             scanner_threads: Some(3),
             detect: None,
             ignore: None,
+            custom: Vec::new(),
         };
         let pool = ScannerPool::new(&config).expect("pool should start");
 

@@ -107,6 +107,7 @@ fn default_pii_config() -> PiiConfig {
         scanner_threads: Some(1),
         detect: None,
         ignore: None,
+        custom: Vec::new(),
     }
 }
 
@@ -168,7 +169,25 @@ impl TestProxy {
         response_dir: DirectionConfig,
         scan: ScanConfig,
     ) -> Self {
-        let pii_config = default_pii_config();
+        Self::start_with_pii(
+            upstream_addr,
+            routes,
+            request_dir,
+            response_dir,
+            scan,
+            default_pii_config(),
+        )
+        .await
+    }
+
+    async fn start_with_pii(
+        upstream_addr: SocketAddr,
+        routes: Vec<(&str, &str)>,
+        request_dir: DirectionConfig,
+        response_dir: DirectionConfig,
+        scan: ScanConfig,
+        pii_config: PiiConfig,
+    ) -> Self {
         let scanner = Arc::new(ScannerPool::new(&pii_config).unwrap());
 
         let proxy_routes: Vec<Route> = routes
@@ -938,4 +957,268 @@ async fn both_request_and_response_redaction() {
     // Non-PII text preserved from both sides
     assert!(body.contains("Contact"));
     assert!(body.contains("RESPONSE_PII"));
+}
+
+// ---------------------------------------------------------------------------
+// User-defined PII integration tests
+// ---------------------------------------------------------------------------
+
+fn pii_config_with_custom(custom: Vec<pii::UserPiiDefinition>) -> PiiConfig {
+    PiiConfig {
+        countries: vec![],
+        languages: vec![],
+        scanner_threads: Some(1),
+        detect: None,
+        ignore: None,
+        custom,
+    }
+}
+
+fn employee_id_def() -> pii::UserPiiDefinition {
+    pii::UserPiiDefinition {
+        label: "EMPLOYEE_ID".into(),
+        pattern: r"EMP-\d{6}".into(),
+        keywords: Vec::new(),
+        country: pii::Country::International,
+    }
+}
+
+#[tokio::test]
+async fn custom_pii_block_lists_user_label() {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_block(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![employee_id_def()]),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("staff EMP-123456 here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 403);
+    let body = resp.text().await.unwrap();
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let kinds: Vec<&str> = json["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(
+        kinds.contains(&"EMPLOYEE_ID"),
+        "block response kinds should contain user label, got {kinds:?}"
+    );
+    assert!(!body.contains("EMP-123456"), "PII value must not leak");
+}
+
+#[tokio::test]
+async fn custom_pii_redact_type_label_replaces_with_user_label() {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_redact(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![employee_id_def()]),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("staff EMP-123456 here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("[EMPLOYEE_ID]"),
+        "forwarded body should contain [EMPLOYEE_ID], got: {body}"
+    );
+    assert!(!body.contains("EMP-123456"));
+}
+
+#[tokio::test]
+async fn custom_pii_header_action_includes_user_label() {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_header(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![employee_id_def()]),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("staff EMP-123456 here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("x-pii-detected: EMPLOYEE_ID"),
+        "forwarded request should carry X-PII-Detected: EMPLOYEE_ID, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn custom_pii_country_filter_drops_out_of_scope_entry() {
+    let upstream = start_echo_upstream().await;
+    let pii_config = PiiConfig {
+        countries: vec![pii::Country::Us],
+        languages: vec![],
+        scanner_threads: Some(1),
+        detect: None,
+        ignore: None,
+        custom: vec![pii::UserPiiDefinition {
+            label: "GB_ONLY_ID".into(),
+            pattern: r"GB-\d{6}".into(),
+            keywords: Vec::new(),
+            country: pii::Country::Gb,
+        }],
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_block(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config,
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("value GB-654321 here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200, "out-of-scope entry must not match");
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("BODY:value GB-654321 here"));
+}
+
+#[tokio::test]
+async fn custom_pii_keyword_mode_requires_keyword_and_spans_value() {
+    let upstream = start_echo_upstream().await;
+    let def = pii::UserPiiDefinition {
+        label: "PROJECT_CODE".into(),
+        pattern: r"[A-Z]{3}-\d{3}".into(),
+        keywords: vec!["project code".into()],
+        country: pii::Country::International,
+    };
+
+    // Without keyword → no match, request forwarded
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_redact(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![def.clone()]),
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("random ABC-123 text")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("BODY:random ABC-123 text"));
+    assert!(!body.contains("[PROJECT_CODE]"));
+    drop(proxy);
+
+    // With keyword → value is redacted; the keyword portion stays intact
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_redact(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![def]),
+    )
+    .await;
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("project code ABC-123 assigned")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("project code [PROJECT_CODE] assigned"),
+        "expected keyword preserved and only value redacted, got: {body}"
+    );
+    assert!(!body.contains("ABC-123"));
+}
+
+#[tokio::test]
+async fn custom_pii_coexists_with_builtin_detection() {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_block(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config_with_custom(vec![employee_id_def()]),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("contact john.doe@example.com for EMP-123456")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 403);
+    let body = resp.text().await.unwrap();
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let kinds: Vec<&str> = json["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(
+        kinds.contains(&"EMPLOYEE_ID"),
+        "kinds should include custom label, got {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&"EMAIL"),
+        "kinds should include built-in EMAIL, got {kinds:?}"
+    );
 }
