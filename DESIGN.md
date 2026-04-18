@@ -182,6 +182,33 @@ scanning API (`Scanner::mark_piis_structured`). For each fragment, the crate:
    separator matches the existing separator regex. Results are offset-adjusted
    back to document-absolute positions.
 
+   The PII keyword may sit at any position in the key path, not just the
+   leaf — e.g. `phone_number.primary` or `email.work`. Because the separator
+   regex only accepts a restricted character class (`[\s:.#/\-"=,\]]`) between
+   the keyword and the value, any alphabetic segment *between* the keyword and
+   the value breaks the match. Synthesizing a single fragment per value is
+   therefore insufficient.
+
+   Instead, the scanner iterates over the path, starting from the full
+   prefix and progressively dropping the last segment:
+
+   ```
+   iter 1:  data.user.phone_number: 555-1234   → exposes `phone_number`
+   iter 2:  data.user: 555-1234                 → exposes `user`
+   iter 3:  data: 555-1234                      → exposes `data`
+   ```
+
+   Each iteration exposes a different segment as the token adjacent to `:`,
+   giving the keyword detector a chance to match it. The common case (PII
+   keyword at the leaf, e.g. `user.phone_number`) resolves on iteration 1.
+   Iteration short-circuits as soon as any match is recorded for the value's
+   byte range; since every iteration maps to the same document-absolute
+   offsets, dedup is implicit.
+
+   If the synthesized prefix would exceed the detector's lookback window
+   (512 bytes), the scanner falls back to per-segment synthesis
+   (`"{segment}: {value}"`, one fragment per segment).
+
 This approach reuses all existing detection logic without modification. The
 `Detector` trait gains a `mark_piis_structured` method with a default no-op
 implementation, so only detectors that benefit from context need to override it.

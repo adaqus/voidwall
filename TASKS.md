@@ -234,18 +234,38 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ### 7.3 pii crate: KeywordContextDetector structured support
 - [ ] Override `mark_piis_structured` in `KeywordContextDetector`:
-  - For each fragment, synthesize `"{context}: {value}"`
-  - Run through existing `mark_piis_on` (or `mark_piis` with normalization)
+  - For each fragment, iterate over path prefixes from the full path down
+    to a single segment, synthesizing `"{prefix}: {value}"` each time:
+    - iter 1: `a.b.c: value` (exposes `c` next to `:`)
+    - iter 2: `a.b: value` (exposes `b`)
+    - iter 3: `a: value` (exposes `a`)
+  - Run each synthesis through existing `mark_piis_on`
   - Offset-adjust results: subtract synthetic prefix length, add `fragment.offset`
-  - Discard any matches that fall within the synthetic prefix (context portion)
+  - Short-circuit: stop iterating once any match for the value's byte range
+    is recorded (all iterations map to the same document-absolute span, so
+    dedup is implicit)
+  - If the synthesized prefix would exceed `MATCH_LOOKBACK` (512 bytes),
+    fall back to per-segment synthesis (`"{segment}: {value}"` for each
+    segment in isolation)
+  - Strip array-index segments (`[0]`) from path before iterating
 - [ ] Unit tests:
   - `phone_number` context + phone value → detected with correct offset
-  - `user.phone_number` nested context → detected (keyword patterns use `[\s_]`
-    which doesn't match `.`, but the leaf key `phone_number` appears after the
-    last `.` — verify detection works or adjust synthesis to use leaf key only)
-  - `unknown_field` context + phone value → not detected (no keyword match)
+    (resolves on iter 1)
+  - `user.phone_number` nested context + phone value → detected on iter 1
+    (`phone_number` adjacent to `:`)
+  - `phone_number.primary` context (keyword at head) + phone value →
+    detected on iter 2 after dropping `primary`
+  - `email.work` context (keyword at head) + email value → verify path
+    (pattern-only detector handles this; keyword-context iteration still
+    runs but is a no-op for pattern-only kinds)
+  - `user.phone_number.value` (keyword in middle) + phone value →
+    detected on iter 2 (`user.phone_number: V`)
+  - `unknown_field` context + phone value → not detected (no keyword match
+    at any iteration)
   - Multiple fragments with different PII kinds → all detected
   - Offset correctness: returned `PiiMatch.start`/`end` are document-absolute
+  - Lookback overflow: path with segments totalling > 512 bytes →
+    per-segment fallback still detects leaf-segment keyword
 
 ### 7.4 Proxy: JSON body flattener
 - [ ] Add `serde_json` dependency to proxy `Cargo.toml`
@@ -323,7 +343,6 @@ Setup and infrastructure per `docs/load-testing.md`.
   - `POST /v1/redact` — accept JSON `{ "text": "..." }`, scan+redact via
     `ScannerPool`, return `{ "text": "...", "redacted_count": N, "kinds": [...] }`
   - `GET /v1/health` — 200
-  - `GET /v1/config` — return current PII scanner config as JSON
 - [ ] Respect `max_body_size` / `on_error` for incoming requests
 - [ ] Increment `pii_proxy_requests_total` with `mode=rest_api`
 - [ ] Integration tests: scan detection, redaction, oversized body, health
