@@ -347,6 +347,9 @@ Setup and infrastructure per `docs/load-testing.md`.
 - [ ] Increment `pii_proxy_requests_total` with `mode=rest_api`
 - [ ] Integration tests: scan detection, redaction, oversized body, health
 
+### 8.2 Performance benchmark
+- [ ] Benchmarks are added to benches
+
 ---
 
 ## Phase 9 — Forward Proxy Mode
