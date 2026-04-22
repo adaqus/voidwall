@@ -457,7 +457,7 @@ languages = ["En"]
 #   previously allowed through.
 # detect = [
 #   # International
-#   "Email", "PhoneNumber", "CreditCard", "Iban", "PassportNumber",
+#   "Email", "UsPhoneNumber", "CreditCard", "Iban", "PassportNumber",
 #   "IpAddress", "MacAddress", "Vin", "SwiftBic", "Imei",
 #   "PreciseGeolocation", "PersonName", "AwsAccessKey", "GithubToken",
 #   "AwsSecretKey", "DateOfBirth", "BitcoinAddress", "EthereumAddress",

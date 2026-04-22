@@ -807,7 +807,7 @@ mod tests {
 
     // --- redact_in_place: char-mask tests ---
 
-    // Char-mask replacement length = kind label length (EMAIL=5, PHONE_NUMBER=12, US_SSN=6)
+    // Char-mask replacement length = kind label length (EMAIL=5, US_PHONE_NUMBER=15, US_SSN=6)
     #[test_case("email me at test@example.com please", '*', "email me at ***** please" ; "basic email char mask")]
     #[test_case("nothing sensitive here", '*', "nothing sensitive here" ; "no pii preserves text char mask")]
     #[test_case("contact user%40example.com now", '*', "contact ***** now" ; "url encoded at char mask")]
@@ -815,7 +815,7 @@ mod tests {
     #[test_case("contact user&commat;example.com now", '*', "contact ***** now" ; "html named entity at char mask")]
     #[test_case("contact user\u{200B}@example.com now", '*', "contact ***** now" ; "zwsp in email char mask")]
     #[test_case("user@ex\u{0430}mple.com", '*', "*****" ; "cyrillic homoglyph char mask")]
-    #[test_case("phone: 555-123-4567", '*', "phone: ************" ; "keyword context phone char mask")]
+    #[test_case("phone: 555-123-4567", '*', "phone: ***************" ; "keyword context phone char mask")]
     #[test_case("mask: test@example.com done", '#', "mask: ##### done" ; "custom mask char")]
     #[test_case("\u{00E9}l\u{00E8}ve user@example.com fin", '*', "\u{00E9}l\u{00E8}ve ***** fin" ; "accented chars surrounding preserved")]
     #[test_case("\u{2603} user@example.com \u{2764}", '*', "\u{2603} ***** \u{2764}" ; "emoji surrounding preserved")]

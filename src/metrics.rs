@@ -149,7 +149,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("Email", "reverse_proxy", "/api", "request" ; "email on reverse proxy request")]
-    #[test_case("PhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]
+    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]
     #[test_case("IpAddress", "rest_api", "global", "request" ; "ip on rest api request")]
     fn inc_detection_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = DETECTIONS_TOTAL
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test_case("Email", "reverse_proxy", "/api", "request" ; "email redacted request")]
-    #[test_case("PhoneNumber", "forward_proxy", "global", "response" ; "phone redacted response")]
+    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone redacted response")]
     fn inc_redacted_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = REDACTED_TOTAL
             .with_label_values(&[pii_kind, mode, route, direction])
@@ -230,7 +230,7 @@ mod tests {
             .get();
         let phone_before = DETECTIONS_TOTAL
             .with_label_values(&[
-                "PhoneNumber",
+                "UsPhoneNumber",
                 "reverse_proxy",
                 "/test-independent",
                 "request",
@@ -244,7 +244,7 @@ mod tests {
             .get();
         let phone_after = DETECTIONS_TOTAL
             .with_label_values(&[
-                "PhoneNumber",
+                "UsPhoneNumber",
                 "reverse_proxy",
                 "/test-independent",
                 "request",

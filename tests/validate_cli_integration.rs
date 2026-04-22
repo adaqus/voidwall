@@ -127,7 +127,7 @@ fn detect_and_ignore_both_set_exits_non_zero() {
 countries = ["Us"]
 languages = ["En"]
 detect = ["Email"]
-ignore = ["PhoneNumber"]
+ignore = ["UsPhoneNumber"]
 
 [reverse_proxy]
 enabled = true
