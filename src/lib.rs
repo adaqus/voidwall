@@ -109,7 +109,7 @@ impl Language {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
 pub enum PiiKind {
     Email,
-    PhoneNumber,
+    UsPhoneNumber,
     CreditCard,
     UsSsn,
     GbNino,
@@ -202,7 +202,7 @@ impl PiiKind {
     pub const fn label(&self) -> &'static str {
         match self {
             PiiKind::Email => "EMAIL",
-            PiiKind::PhoneNumber => "PHONE_NUMBER",
+            PiiKind::UsPhoneNumber => "US_PHONE_NUMBER",
             PiiKind::CreditCard => "CREDIT_CARD",
             PiiKind::UsSsn => "US_SSN",
             PiiKind::GbNino => "GB_NINO",
@@ -297,7 +297,7 @@ impl PiiKind {
             | PiiKind::IpAddress
             | PiiKind::MacAddress
             | PiiKind::Vin
-            | PiiKind::PhoneNumber
+            | PiiKind::UsPhoneNumber
             | PiiKind::PassportNumber
             | PiiKind::SwiftBic
             | PiiKind::Imei
@@ -394,7 +394,7 @@ impl PiiKind {
 
     const ALL: &[PiiKind] = &[
         PiiKind::Email,
-        PiiKind::PhoneNumber,
+        PiiKind::UsPhoneNumber,
         PiiKind::CreditCard,
         PiiKind::UsSsn,
         PiiKind::GbNino,

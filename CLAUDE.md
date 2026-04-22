@@ -89,7 +89,7 @@ Distilled from the French (`Language::Fr`, `Country::Fr`) implementation.
 
 1. **`src/lib.rs`** — Add `Country` variant + `Country::all()`, `Language` variant + `Language::all()`, new `PiiKind` variants with `label()`, `country()`, and `ALL` entries.
 2. **`src/validators.rs`** — Add country-specific validators with unit tests.
-3. **`src/keyword_context_detector.rs`** — Add `Language::NewLang` patterns for new PII types AND translated keywords for existing international types (`PhoneNumber`, `PassportNumber`, `DateOfBirth`, `PreciseGeolocation`, `SwiftBic`, `Imei`). Add `#[test_case]` entries to `detects_with_keyword`, `no_detection_without_keyword`, `rejects_invalid_with_keyword`.
+3. **`src/keyword_context_detector.rs`** — Add `Language::NewLang` patterns for new PII types AND translated keywords for existing international types (`UsPhoneNumber`, `PassportNumber`, `DateOfBirth`, `PreciseGeolocation`, `SwiftBic`, `Imei`). Add `#[test_case]` entries to `detects_with_keyword`, `no_detection_without_keyword`, `rejects_invalid_with_keyword`.
 4. **`benches/pii_benchmark.rs`** — Add corpus constants, `per_pii_kind` entries, and samples in `MIXED_PII_TEXT`.
 
 #### Validate with real-world examples

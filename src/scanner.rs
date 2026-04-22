@@ -263,7 +263,7 @@ mod tests {
 
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email));
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
         assert!(kinds.contains(&PiiKind::CreditCard));
     }
 
@@ -364,7 +364,7 @@ mod tests {
         let input = "phone: 555-123-4567";
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
     }
 
     // --- pii_kinds builder tests ---
@@ -462,17 +462,17 @@ mod tests {
 
     #[test]
     fn builder_pii_kinds_keyword_detector_type() {
-        // PhoneNumber is keyword-context detected — verify it works with pii_kinds filter
+        // UsPhoneNumber is keyword-context detected — verify it works with pii_kinds filter
         let scanner = Scanner::builder()
             .countries([Country::International])
-            .pii_kinds([PiiKind::PhoneNumber])
+            .pii_kinds([PiiKind::UsPhoneNumber])
             .languages([Language::En])
             .build()
             .unwrap();
         let input = "phone: 555-123-4567";
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
     }
 
     // --- exclude_pii_kinds builder tests ---
@@ -681,7 +681,7 @@ mod tests {
     // Keyword-context PII in URL query parameters
     #[test_case(
         "/api/search?phone_number=555-123-4567",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "phone in query param"
     )]
     #[test_case(
@@ -702,7 +702,7 @@ mod tests {
     // Multiple query parameters
     #[test_case(
         "/form?first_name=John&phone_number=555-123-4567&ref=abc",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "phone among multiple query params"
     )]
     #[test_case(
@@ -713,7 +713,7 @@ mod tests {
     // Percent-encoded keyword separators in URL paths
     #[test_case(
         "/log?phone%3A%20555-123-4567",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "phone with encoded colon in url"
     )]
     #[test_case(
@@ -735,7 +735,7 @@ mod tests {
     // URL path with keyword as path segment
     #[test_case(
         "/api/phone/555-123-4567/details",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "phone as path segment with slash separator"
     )]
     #[test_case(
@@ -781,7 +781,10 @@ mod tests {
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email), "should detect email");
-        assert!(kinds.contains(&PiiKind::PhoneNumber), "should detect phone");
+        assert!(
+            kinds.contains(&PiiKind::UsPhoneNumber),
+            "should detect phone"
+        );
         assert!(kinds.contains(&PiiKind::UsSsn), "should detect ssn");
     }
 
@@ -801,7 +804,7 @@ mod tests {
     )]
     #[test_case(
         "/matomo.php?idsite=1&rec=1&url=https://app.example.com/search?phone_number=555-123-4567",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "matomo url param contains phone"
     )]
     // PII in referrer URL
@@ -829,7 +832,7 @@ mod tests {
     )]
     #[test_case(
         r#"/matomo.php?idsite=1&rec=1&_cvar={"1":["phone_number","555-123-4567"]}"#,
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "matomo cvar contains phone"
     )]
     // Custom dimensions carrying PII
@@ -911,7 +914,7 @@ mod tests {
     )]
     #[test_case(
         "/collect?v=1&tid=UA-123456-1&cid=555&t=pageview&dl=https://app.example.com/search?phone_number=555-123-4567",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "ga ua dl contains phone"
     )]
     // UA — PII in document referrer (dr)
@@ -959,7 +962,7 @@ mod tests {
     // GA4 — PII in event parameter (ep.xxx)
     #[test_case(
         "/g/collect?v=2&tid=G-ABC123&cid=555&en=login&ep.phone_number=555-123-4567",
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "ga4 event param phone"
     )]
     #[test_case(
@@ -1090,7 +1093,7 @@ mod tests {
     // in event_source_url verbatim.
     #[test_case(
         r#"{"data":[{"event_name":"Contact","event_time":1712841600,"event_source_url":"https://support.example.com/callback?phone_number=555-123-4567&topic=billing","user_data":{"client_ip_address":"198.51.100.12"}}]}"#,
-        PiiKind::PhoneNumber, "555-123-4567"
+        PiiKind::UsPhoneNumber, "555-123-4567"
         ; "capi phone leaked via event_source_url query"
     )]
     // Developer used SSN as `external_id` to deduplicate customers across
@@ -1159,7 +1162,7 @@ mod tests {
     // custom_data field — hits the keyword detector via "customer_phone".
     #[test_case(
         r#"{"data":[{"event_name":"Contact","event_time":1712841600,"custom_data":{"case_id":"CS-88412","channel":"callback","customer_phone":"555-867-5309"}}]}"#,
-        PiiKind::PhoneNumber, "555-867-5309"
+        PiiKind::UsPhoneNumber, "555-867-5309"
         ; "capi customer_phone in custom_data"
     )]
     // Meta batch endpoint: `data` is an array of events. The second event
@@ -1221,7 +1224,7 @@ mod tests {
         assert!(kinds.contains(&PiiKind::Email), "expected email");
         assert!(kinds.contains(&PiiKind::UsSsn), "expected ssn");
         assert!(kinds.contains(&PiiKind::IpAddress), "expected ip");
-        assert!(kinds.contains(&PiiKind::PhoneNumber), "expected phone");
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber), "expected phone");
         assert!(kinds.contains(&PiiKind::PersonName), "expected person name");
     }
 
@@ -1270,7 +1273,7 @@ mod tests {
                      555-867-5309 so they could text me their additional feedback.";
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
     }
 
     #[test]
@@ -1301,7 +1304,10 @@ mod tests {
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email), "should detect email");
-        assert!(kinds.contains(&PiiKind::PhoneNumber), "should detect phone");
+        assert!(
+            kinds.contains(&PiiKind::UsPhoneNumber),
+            "should detect phone"
+        );
         assert!(kinds.contains(&PiiKind::UsSsn), "should detect SSN");
         assert!(
             kinds.contains(&PiiKind::PersonName),
@@ -1429,7 +1435,7 @@ mod tests {
     // AI4Privacy category     → PiiKind
     // ─────────────────────────────────────
     // EMAIL                   → Email
-    // PHONENUMBER             → PhoneNumber
+    // PHONENUMBER             → UsPhoneNumber
     // CREDITCARDNUMBER        → CreditCard
     // IBAN                    → Iban
     // BITCOINADDRESS          → BitcoinAddress
@@ -1572,7 +1578,7 @@ mod tests {
         let matches = scanner.mark_piis(input);
         let phone = matches
             .iter()
-            .find(|m| m.kind == PiiKind::PhoneNumber)
+            .find(|m| m.kind == PiiKind::UsPhoneNumber)
             .unwrap();
         assert_eq!(&input[phone.start..phone.end], "555-392-7184");
     }
@@ -1648,7 +1654,7 @@ mod tests {
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::PersonName), "name: {kinds:?}");
         assert!(kinds.contains(&PiiKind::Email), "email: {kinds:?}");
-        assert!(kinds.contains(&PiiKind::PhoneNumber), "phone: {kinds:?}");
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber), "phone: {kinds:?}");
         assert!(kinds.contains(&PiiKind::DateOfBirth), "dob: {kinds:?}");
         assert!(kinds.contains(&PiiKind::UsSsn), "ssn: {kinds:?}");
     }
@@ -1725,7 +1731,7 @@ mod tests {
                      555-823-4190 dans les 48 heures ouvrables.";
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
-        assert!(kinds.contains(&PiiKind::PhoneNumber));
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
     }
 
     // -- German-language texts (AI4Privacy includes de) --

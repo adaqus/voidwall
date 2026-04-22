@@ -913,7 +913,7 @@ Notifications sent to alert-team@bank.example.com.\n\n\
 Case Status: Under Review.";
 
 // Text with 5 PIIs handled by KeywordContextDetector (keyword + value):
-// PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation
+// UsPhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation
 const KEYWORD_5_TEXT: &str = "\
 COMPLIANCE AUDIT — RECORD #CA-2025-0891\n\
 Date: 2025-03-10\n\n\
@@ -1440,11 +1440,11 @@ fn throughput_hyperscan_detector(c: &mut Criterion) {
 }
 
 // Measures bytes/second throughput of KeywordContextDetector in isolation on 5 common
-// keyword-based PIIs (PhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation).
+// keyword-based PIIs (UsPhoneNumber, PassportNumber, SwiftBic, UsEin, PreciseGeolocation).
 // Shows keyword-detection + regex-extraction cost without HyperscanDetector overhead.
 fn throughput_keyword_detector(c: &mut Criterion) {
     let kinds: HashSet<PiiKind> = [
-        PiiKind::PhoneNumber,
+        PiiKind::UsPhoneNumber,
         PiiKind::PassportNumber,
         PiiKind::SwiftBic,
         PiiKind::UsEin,

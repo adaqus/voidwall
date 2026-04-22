@@ -107,9 +107,9 @@ impl KeywordContextDetector {
                 medicare_check,
             ),
             (
-                PiiKind::PhoneNumber,
+                PiiKind::UsPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:phone[\s_]us|phone[\s_]usa|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
@@ -248,31 +248,31 @@ impl KeywordContextDetector {
             (
                 PiiKind::GbPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
+                r"(?i)(?:phone[\s_]uk|phone[\s_]gb|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
                 phone_check,
             ),
             (
                 PiiKind::AuPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]au|phone[\s_]aus|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::NzPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]nz|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::IePhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]ie|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::ZaPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_]za|phone[\s_]sa|phone[\s_]number|phone[\s_]no\.?|phone[\s_]num|phone[\s_]#|telephone[\s_]number|telephone[\s_]no\.?|telephone|mobile[\s_]number|mobile[\s_]no\.?|mobile[\s_]phone|mobile|cell[\s_]phone|cell[\s_]number|cell|contact[\s_]number|contact[\s_]no\.?|contact[\s_]phone|callback[\s_]number|callback[\s_]no\.?|callback|fax[\s_]number|fax[\s_]no\.?|fax|tel[\s_]number|tel[\s_]no\.?|tel|landline|home[\s_]phone|work[\s_]phone|office[\s_]phone|alternate[\s_]phone|alt[\s_]phone|my[\s_]phone|your[\s_]phone|customer[\s_]phone|applicant[\s_]phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
                 phone_check,
             ),
             // AWS Secret Key
@@ -390,7 +390,7 @@ impl KeywordContextDetector {
             ),
             // --- French keywords for existing international types ---
             (
-                PiiKind::PhoneNumber,
+                PiiKind::UsPhoneNumber,
                 Language::Fr,
                 r"(?i)(?:num[eé]ro[\s_]de[\s_]t[eé]l[eé]phone|num[eé]ro[\s_]de[\s_]t[eé]l|n°[\s_]de[\s_]t[eé]l[eé]phone|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|appeler|rappel)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
@@ -490,7 +490,7 @@ impl KeywordContextDetector {
             ),
             // --- German keywords for existing international types ---
             (
-                PiiKind::PhoneNumber,
+                PiiKind::UsPhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
@@ -808,15 +808,15 @@ mod tests {
 
     // Zero-width space (U+200B) is stripped before matching; the returned span
     // covers the original bytes so the caller can redact the full obfuscated token.
-    #[test_case("phone: 555\u{200B}-123-4567", PiiKind::PhoneNumber, "555\u{200B}-123-4567" ; "phone zwsp in value stripped")]
+    #[test_case("phone: 555\u{200B}-123-4567", PiiKind::UsPhoneNumber, "555\u{200B}-123-4567" ; "phone zwsp in value stripped")]
     // ZWS inside a digit group (not replacing a separator) — after stripping,
     // "1\u{200B}23 456 782" becomes "123 456 782" which passes the TFN checksum.
     #[test_case("TFN: 1\u{200B}23 456 782", PiiKind::AuTfn, "1\u{200B}23 456 782" ; "tfn zwsp in digit stripped")]
-    #[test_case("phone: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "phone basic")]
-    #[test_case("phone: (555) 123-4567", PiiKind::PhoneNumber, "(555) 123-4567" ; "phone parens")]
-    #[test_case("phone: 555.123.4567", PiiKind::PhoneNumber, "555.123.4567" ; "phone dots")]
-    #[test_case("phone: +1-555-123-4567", PiiKind::PhoneNumber, "+1-555-123-4567" ; "phone country code")]
-    #[test_case("phone: 5551234567", PiiKind::PhoneNumber, "5551234567" ; "phone no separators")]
+    #[test_case("phone: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "phone basic")]
+    #[test_case("phone: (555) 123-4567", PiiKind::UsPhoneNumber, "(555) 123-4567" ; "phone parens")]
+    #[test_case("phone: 555.123.4567", PiiKind::UsPhoneNumber, "555.123.4567" ; "phone dots")]
+    #[test_case("phone: +1-555-123-4567", PiiKind::UsPhoneNumber, "+1-555-123-4567" ; "phone country code")]
+    #[test_case("phone: 5551234567", PiiKind::UsPhoneNumber, "5551234567" ; "phone no separators")]
     #[test_case("Passport Number: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
     #[test_case("passport: 987654321", PiiKind::PassportNumber, "987654321" ; "passport lowercase")]
     #[test_case("TFN: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "tfn")]
@@ -867,14 +867,22 @@ mod tests {
     #[test_case("health card: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip span")]
     #[test_case("phone: +44 7911 123456", PiiKind::GbPhoneNumber, "+44 7911 123456" ; "gb phone mobile intl")]
     #[test_case("phone: 07700 900123", PiiKind::GbPhoneNumber, "07700 900123" ; "gb phone mobile local")]
+    #[test_case("\"phone_uk\":\"+44 20 7946 0958\"", PiiKind::GbPhoneNumber, "+44 20 7946 0958" ; "gb phone json phone_uk suffix")]
+    #[test_case("\"phone_gb\":\"+44 20 7946 0958\"", PiiKind::GbPhoneNumber, "+44 20 7946 0958" ; "gb phone json phone_gb suffix")]
     #[test_case("tel: +61 4 1234 5678", PiiKind::AuPhoneNumber, "+61 4 1234 5678" ; "au phone mobile intl")]
     #[test_case("phone: 04 1234 5678", PiiKind::AuPhoneNumber, "04 1234 5678" ; "au phone mobile local")]
+    #[test_case("\"phone_au\":\"+61 4 1234 5678\"", PiiKind::AuPhoneNumber, "+61 4 1234 5678" ; "au phone json phone_au suffix")]
     #[test_case("phone: +64 2 123 4567", PiiKind::NzPhoneNumber, "+64 2 123 4567" ; "nz phone mobile intl")]
     #[test_case("phone: 02 123 4567", PiiKind::NzPhoneNumber, "02 123 4567" ; "nz phone mobile local")]
+    #[test_case("\"phone_nz\":\"+64 2 123 4567\"", PiiKind::NzPhoneNumber, "+64 2 123 4567" ; "nz phone json phone_nz suffix")]
     #[test_case("phone: +353 87 123 4567", PiiKind::IePhoneNumber, "+353 87 123 4567" ; "ie phone mobile intl")]
     #[test_case("phone: 087 123 4567", PiiKind::IePhoneNumber, "087 123 4567" ; "ie phone mobile local")]
+    #[test_case("\"phone_ie\":\"+353 87 123 4567\"", PiiKind::IePhoneNumber, "+353 87 123 4567" ; "ie phone json phone_ie suffix")]
     #[test_case("phone: +27 71 123 4567", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone mobile intl")]
     #[test_case("phone: 071 123 4567", PiiKind::ZaPhoneNumber, "071 123 4567" ; "za phone mobile local")]
+    #[test_case("\"phone_za\":\"+27 71 123 4567\"", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone json phone_za suffix")]
+    #[test_case("\"phone_sa\":\"+27 71 123 4567\"", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone json phone_sa suffix")]
+    #[test_case("\"phone_us\":\"+1-415-555-0132\"", PiiKind::UsPhoneNumber, "+1-415-555-0132" ; "us phone json phone_us suffix")]
     #[test_case("british passport: 123456789", PiiKind::GbZaPassportNumber, "123456789" ; "gb passport")]
     #[test_case("uk passport: 987654321", PiiKind::GbZaPassportNumber, "987654321" ; "gb passport uk keyword")]
     #[test_case("south african passport: 123456789", PiiKind::GbZaPassportNumber, "123456789" ; "za passport")]
@@ -948,7 +956,7 @@ mod tests {
     #[test_case("contact: 09 12 34 56 78", PiiKind::FrPhoneNumber, "09 12 34 56 78" ; "fr phone voip")]
     // French keywords for existing international types
     #[test_case("date de naissance: 15 mars 1990", PiiKind::DateOfBirth, "15 mars 1990" ; "fr dob")]
-    #[test_case("rappel: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "fr keyword us phone")]
+    #[test_case("rappel: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "fr keyword us phone")]
     #[test_case("document de voyage: 123456789", PiiKind::PassportNumber, "123456789" ; "fr keyword passport")]
     #[test_case("géolocalisation: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "fr keyword geolocation")]
     #[test_case("identifiant bancaire: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "fr keyword swift")]
@@ -1044,8 +1052,8 @@ mod tests {
     #[test_case("Postleitzahl: 3000", PiiKind::ChPostalCode, "3000" ; "ch postal code bern")]
     #[test_case("PLZ: 1200", PiiKind::ChPostalCode, "1200" ; "ch postal code geneva")]
     // German keywords for existing international types
-    #[test_case("Rufnummer: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "de keyword us phone")]
-    #[test_case("Kontaktnummer: (555) 234-5678", PiiKind::PhoneNumber, "(555) 234-5678" ; "de keyword us phone parens")]
+    #[test_case("Rufnummer: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "de keyword us phone")]
+    #[test_case("Kontaktnummer: (555) 234-5678", PiiKind::UsPhoneNumber, "(555) 234-5678" ; "de keyword us phone parens")]
     #[test_case("Reisepass: 123456789", PiiKind::PassportNumber, "123456789" ; "de keyword passport")]
     #[test_case("Passnummer: 987654321", PiiKind::PassportNumber, "987654321" ; "de keyword passport alt")]
     #[test_case("Geburtsdatum: 15.03.1990", PiiKind::DateOfBirth, "15.03.1990" ; "de keyword dob numeric")]
@@ -1620,7 +1628,7 @@ mod tests {
 
     // --- No detection without keyword ---
 
-    #[test_case("call 555-123-4567 today", PiiKind::PhoneNumber ; "phone no keyword")]
+    #[test_case("call 555-123-4567 today", PiiKind::UsPhoneNumber ; "phone no keyword")]
     #[test_case("code: 123456789", PiiKind::PassportNumber ; "passportnum no keyword")]
     #[test_case("my number is 123 456 782", PiiKind::AuTfn ; "tfn no keyword")]
     #[test_case("number is 49-091-857", PiiKind::NzIrdNumber ; "ird no keyword")]
@@ -1736,7 +1744,7 @@ mod tests {
 
     // --- JSON input tests ---
 
-    #[test_case(r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#, PiiKind::PhoneNumber, "555-123-4567" ; "phone in json")]
+    #[test_case(r#"{"contact": {"phone": "555-123-4567", "type": "mobile"}}"#, PiiKind::UsPhoneNumber, "555-123-4567" ; "phone in json")]
     #[test_case(r#"{"traveler": {"passport": "123456789", "nationality": "US"}}"#, PiiKind::PassportNumber, "123456789" ; "passport in json")]
     #[test_case(r#"{"tax_file_number": "TFN: 123 456 782", "state": "NSW"}"#, PiiKind::AuTfn, "123 456 782" ; "tfn in json")]
     #[test_case(r#"{"taxpayer": {"IRD number": "49-091-857", "name": "Smith"}}"#, PiiKind::NzIrdNumber, "49-091-857" ; "ird in json")]
@@ -1784,9 +1792,9 @@ mod tests {
 
     // --- URL-encoded input tests ---
 
-    #[test_case("phone%3A 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone sep colon")]
-    #[test_case("phone%3A%20555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone sep colon space")]
-    #[test_case("phone%20number%3A 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url phone keyword space")]
+    #[test_case("phone%3A 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "url phone sep colon")]
+    #[test_case("phone%3A%20555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "url phone sep colon space")]
+    #[test_case("phone%20number%3A 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "url phone keyword space")]
     #[test_case("passport%3A 123456789", PiiKind::PassportNumber, "123456789" ; "url passport sep")]
     #[test_case("TFN%3A 123 456 782", PiiKind::AuTfn, "123 456 782" ; "url tfn sep")]
     #[test_case("EIN%3A 12-3456789", PiiKind::UsEin, "12-3456789" ; "url ein sep")]
@@ -1825,16 +1833,16 @@ mod tests {
 
     // --- HTML entity input tests ---
 
-    #[test_case("phone&#58; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone decimal colon")]
-    #[test_case("phone&colon; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone named colon")]
-    #[test_case("phone&#x3A; 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone hex colon")]
-    #[test_case("phone&nbsp;number: 555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone nbsp keyword")]
+    #[test_case("phone&#58; 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "html phone decimal colon")]
+    #[test_case("phone&colon; 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "html phone named colon")]
+    #[test_case("phone&#x3A; 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "html phone hex colon")]
+    #[test_case("phone&nbsp;number: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "html phone nbsp keyword")]
     #[test_case("passport&#58; 123456789", PiiKind::PassportNumber, "123456789" ; "html passport colon")]
     #[test_case("EIN&colon; 12-3456789", PiiKind::UsEin, "12-3456789" ; "html ein named colon")]
     #[test_case("SWIFT&#58; DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "html swift colon")]
     #[test_case("sort&nbsp;code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "html sort code nbsp")]
     #[test_case("coordinates&#58; 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "html geolocation colon")]
-    #[test_case("phone&#58;&#32;555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "html phone colon and space")]
+    #[test_case("phone&#58;&#32;555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "html phone colon and space")]
     #[test_case("NHS&#58; 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "html nhs colon")]
     #[test_case("UTR&colon; 5555555555", PiiKind::GbUtr, "5555555555" ; "html utr named colon")]
     #[test_case("IMEI&#x3a; 490154203237518", PiiKind::Imei, "490154203237518" ; "html imei hex colon lowercase")]
@@ -1900,14 +1908,14 @@ mod tests {
     #[test_case("last_name=Lopez", PiiKind::PersonName, "Lopez" ; "url qp last_name")]
     #[test_case("first_name=Alberto", PiiKind::PersonName, "Alberto" ; "url qp first_name")]
     #[test_case("full_name=Alberto Lopez", PiiKind::PersonName, "Alberto Lopez" ; "url qp full_name")]
-    #[test_case("phone_number=555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url qp phone_number")]
+    #[test_case("phone_number=555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "url qp phone_number")]
     #[test_case("passport_number=123456789", PiiKind::PassportNumber, "123456789" ; "url qp passport_number")]
     #[test_case("date_of_birth=15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "url qp date_of_birth")]
     #[test_case("sort_code=20-00-00", PiiKind::GbSortCode, "20-00-00" ; "url qp sort_code")]
     // Array bracket notation: param[key]=value
     #[test_case("user[last_name]=Lopez", PiiKind::PersonName, "Lopez" ; "url qp bracket last_name")]
     #[test_case("user[first_name]=Alberto", PiiKind::PersonName, "Alberto" ; "url qp bracket first_name")]
-    #[test_case("data[phone_number]=555-123-4567", PiiKind::PhoneNumber, "555-123-4567" ; "url qp bracket phone_number")]
+    #[test_case("data[phone_number]=555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "url qp bracket phone_number")]
     #[test_case("person[date_of_birth]=15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "url qp bracket date_of_birth")]
     fn detects_url_query_params(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
