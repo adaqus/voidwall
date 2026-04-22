@@ -157,6 +157,7 @@ pub enum PiiKind {
     NzPassportNumber,
     IePassportNumber,
     DateOfBirth,
+    GbAddress,
     GbPostcode,
     CaPostalCode,
     BitcoinAddress,
@@ -176,6 +177,7 @@ pub enum PiiKind {
     FrChBoitePostale,
     DeSteuerId,
     DePersonalausweis,
+    DePassportNumber,
     DePhoneNumber,
     DePostalCode,
     AtSvnr,
@@ -188,7 +190,6 @@ pub enum PiiKind {
     DeAtChAddress,
     DeAtChPostfach,
     DePackstation,
-    GbAddress,
     ZaDriversLicense,
     ZaPostalCode,
     AuDriversLicense,
@@ -270,6 +271,7 @@ impl PiiKind {
             PiiKind::FrChBoitePostale => "FR_CH_BOITE_CASE_POSTALE",
             PiiKind::DeSteuerId => "DE_STEUER_ID",
             PiiKind::DePersonalausweis => "DE_PERSONALAUSWEIS",
+            PiiKind::DePassportNumber => "DE_PASSPORT_NUMBER",
             PiiKind::DePhoneNumber => "DE_PHONE_NUMBER",
             PiiKind::DePostalCode => "DE_POSTAL_CODE",
             PiiKind::AtSvnr => "AT_SVNR",
@@ -370,6 +372,7 @@ impl PiiKind {
 
             PiiKind::DeSteuerId
             | PiiKind::DePersonalausweis
+            | PiiKind::DePassportNumber
             | PiiKind::DePhoneNumber
             | PiiKind::DePostalCode
             | PiiKind::DeAtChAddress
@@ -464,6 +467,7 @@ impl PiiKind {
         PiiKind::FrChBoitePostale,
         PiiKind::DeSteuerId,
         PiiKind::DePersonalausweis,
+        PiiKind::DePassportNumber,
         PiiKind::DePhoneNumber,
         PiiKind::DePostalCode,
         PiiKind::AtSvnr,

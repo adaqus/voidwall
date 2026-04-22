@@ -966,6 +966,27 @@ pub(crate) fn de_personalausweis_check(s: &str) -> bool {
     expected == check
 }
 
+/// German Reisepass (ePassport) check: 9 chars, alphabet restricted to digits
+/// and letters from `[CFGHJKLMNPRTVWXYZ]`, at least one letter present to
+/// distinguish from generic numeric passport formats.
+pub(crate) fn de_passport_check(s: &str) -> bool {
+    let upper = s.to_uppercase();
+    let bytes = upper.as_bytes();
+    if bytes.len() != 9 {
+        return false;
+    }
+    let mut has_letter = false;
+    for &b in bytes {
+        match b {
+            b'0'..=b'9' => {}
+            b'C' | b'F' | b'G' | b'H' | b'J' | b'K' | b'L' | b'M' | b'N' | b'P' | b'R' | b'T'
+            | b'V' | b'W' | b'X' | b'Y' | b'Z' => has_letter = true,
+            _ => return false,
+        }
+    }
+    has_letter
+}
+
 /// German postal code check: 5 digits, range 01000–99999.
 pub(crate) fn de_postal_check(s: &str) -> bool {
     let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
@@ -1742,6 +1763,21 @@ mod tests {
     #[test_case("109, 00000 Nowhere", false ; "invalid PLZ zeros")]
     fn de_packstation(input: &str, expected: bool) {
         assert_eq!(de_packstation_check(input), expected);
+    }
+
+    // --- de_passport_check ---
+    #[test_case("C01X00T47", true ; "valid de passport restricted letters")]
+    #[test_case("CFGHJKLMN", true ; "valid de passport all letters from restricted set")]
+    #[test_case("c01x00t47", true ; "valid de passport lowercase normalised")]
+    #[test_case("123456789", false ; "invalid all digits no letter")]
+    #[test_case("C01X00T4", false ; "invalid too short")]
+    #[test_case("C01X00T478", false ; "invalid too long")]
+    #[test_case("A01X00T47", false ; "invalid letter A not in restricted alphabet")]
+    #[test_case("B01X00T47", false ; "invalid letter B not in restricted alphabet")]
+    #[test_case("D01X00T47", false ; "invalid letter D not in restricted alphabet")]
+    #[test_case("S01X00T47", false ; "invalid letter S not in restricted alphabet")]
+    fn de_passport(input: &str, expected: bool) {
+        assert_eq!(de_passport_check(input), expected);
     }
 
     // --- gb_address_check ---
