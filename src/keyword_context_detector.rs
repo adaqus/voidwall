@@ -279,7 +279,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::AwsSecretKey,
                 Language::En,
-                r"(?:AWS_SECRET_ACCESS_KEY=?|aws_secret_access_key=?|secret_access_key[\s:.=]+|aws[_\s]secret[\s:.=]+)([A-Za-z0-9/+=]{40})",
+                r"(?:AWS_SECRET_ACCESS_KEY=?|aws_secret_access_key=?|secret_access_key[\s:.=\x22]+|aws[_\s]secret[\s:.=\x22]+)([A-Za-z0-9/+=]{40})",
                 always_valid,
             ),
             // Country-specific passport numbers
@@ -902,6 +902,8 @@ mod tests {
     #[test_case("ireland passport: CD7654321", PiiKind::IePassportNumber, "CD7654321" ; "ie passport ireland keyword")]
     #[test_case("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws secret env")]
     #[test_case("secret_access_key: abcdefghijklmnopqrstuvwxyz0123456789ABCD", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret keyword")]
+    #[test_case("\"aws_secret\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws secret json quoted")]
+    #[test_case("\"secret_access_key\":\"abcdefghijklmnopqrstuvwxyz0123456789ABCD\"", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret json quoted full key")]
     #[test_case("date of birth: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "dob dd/mm/yyyy")]
     #[test_case("dob: 1990-03-15", PiiKind::DateOfBirth, "1990-03-15" ; "dob iso")]
     #[test_case("born on: 01-01-2000", PiiKind::DateOfBirth, "01-01-2000" ; "dob born on")]

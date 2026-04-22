@@ -387,6 +387,11 @@ impl PiiKind {
         }
     }
 
+    /// Returns all `PiiKind` variants (built-in and the `Custom` marker).
+    pub fn all() -> &'static [PiiKind] {
+        Self::ALL
+    }
+
     const ALL: &[PiiKind] = &[
         PiiKind::Email,
         PiiKind::PhoneNumber,

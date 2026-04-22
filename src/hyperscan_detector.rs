@@ -156,11 +156,13 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: false,
         },
-        // GithubToken: {36} and {59} fixed repetitions create long DFA state
-        // chains. Use short prefix for detection; regex extraction verifies length.
+        // GithubToken: {36} and {22}_{59} fixed repetitions create long DFA
+        // state chains. Use short prefix for detection; regex extraction
+        // verifies exact length and structure. Fine-grained PATs are
+        // `github_pat_<22 alphanumeric>_<59 alphanumeric>`.
         PatternDef {
             kind: PiiKind::GithubToken,
-            expr: r"\bgh[opsu]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{59}\b",
+            expr: r"\bgh[opsu]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\b",
             som_fallback: true,
             validator: always_valid,
             needs_ucp: false,
@@ -509,6 +511,7 @@ mod tests {
     #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE" ; "aws access key")]
     #[test_case("token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github oauth token")]
     #[test_case("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github pat token")]
+    #[test_case("token: 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", PiiKind::GithubToken, "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" ; "github fine grained pat")]
     // GB postcodes: real landmarks
     #[test_case("postcode: SW1A 1AA", PiiKind::GbPostcode, "SW1A 1AA" ; "gb postcode buckingham palace")]
     #[test_case("postcode: EC1A1BB", PiiKind::GbPostcode, "EC1A1BB" ; "gb postcode barbican")]
