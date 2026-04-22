@@ -1159,6 +1159,61 @@ pub(crate) fn de_packstation_check(s: &str) -> bool {
     })
 }
 
+/// UK street address check: validates captured span.
+/// Length 10–200, ≥3 tokens, must contain a valid GB postcode.
+pub(crate) fn gb_address_check(s: &str) -> bool {
+    let trimmed = s.trim();
+    let len = trimmed.len();
+    if !(10..=200).contains(&len) {
+        return false;
+    }
+    if !trimmed.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return false;
+    }
+    // Must contain a GB postcode. Postcodes can be one token ("SW1A2AA") or
+    // two whitespace-separated tokens ("SW1A" + "2AA").
+    let is_outward = |s: &str| {
+        let b = s.as_bytes();
+        (2..=4).contains(&b.len())
+            && b[0].is_ascii_alphabetic()
+            && b.iter().all(|c| c.is_ascii_alphanumeric())
+            && b[1..].iter().any(|c| c.is_ascii_digit())
+    };
+    let is_inward = |s: &str| {
+        s.len() == 3
+            && s.as_bytes()[0].is_ascii_digit()
+            && s.as_bytes()[1].is_ascii_alphabetic()
+            && s.as_bytes()[2].is_ascii_alphabetic()
+    };
+    let clean: Vec<String> = tokens
+        .iter()
+        .map(|t| {
+            t.trim_matches(|c: char| c == ',' || c.is_whitespace())
+                .to_string()
+        })
+        .collect();
+    // Two-token postcode: adjacent tokens match outward + inward.
+    let two_token = clean
+        .windows(2)
+        .any(|w| is_outward(&w[0]) && is_inward(&w[1]));
+    // One-token postcode: 5–7 char alphanumeric ending with 1 digit + 2 letters.
+    let one_token = clean.iter().any(|t| {
+        let b = t.as_bytes();
+        let n = b.len();
+        (5..=7).contains(&n)
+            && b.iter().all(|c| c.is_ascii_alphanumeric())
+            && b[n - 3].is_ascii_digit()
+            && b[n - 2].is_ascii_alphabetic()
+            && b[n - 1].is_ascii_alphabetic()
+            && is_outward(&t[..n - 3])
+    });
+    two_token || one_token
+}
+
 /// French/Swiss French street address check: validates captured span.
 /// Length 10–200, ≥3 tokens, must contain a valid postal code (5-digit FR or 4-digit CH).
 pub(crate) fn fr_ch_address_check(s: &str) -> bool {
@@ -1687,6 +1742,21 @@ mod tests {
     #[test_case("109, 00000 Nowhere", false ; "invalid PLZ zeros")]
     fn de_packstation(input: &str, expected: bool) {
         assert_eq!(de_packstation_check(input), expected);
+    }
+
+    // --- gb_address_check ---
+    #[test_case("10 Downing Street, London, SW1A 2AA", true ; "valid downing street")]
+    #[test_case("221B Baker Street, London NW1 6XE", true ; "valid baker street")]
+    #[test_case("30 St Mary Axe, London EC3A 8BF", true ; "valid gherkin")]
+    #[test_case("350 Euston Road, London NW1 2RH", true ; "valid euston road")]
+    #[test_case("20 Fenchurch Street, London EC3M 8AF", true ; "valid walkie talkie")]
+    #[test_case("1 Church Lane, Manchester M2 5AB", true ; "valid manchester one-token postcode")]
+    #[test_case("short", false ; "invalid too short")]
+    #[test_case("1600 Pennsylvania Avenue NW, Washington DC 20500", false ; "invalid us address")]
+    #[test_case("Street Without Postcode, London", false ; "invalid no postcode")]
+    #[test_case("10 Downing Street", false ; "invalid not enough tokens")]
+    fn gb_address(input: &str, expected: bool) {
+        assert_eq!(gb_address_check(input), expected);
     }
 
     // --- fr_ch_address_check ---

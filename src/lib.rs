@@ -188,6 +188,7 @@ pub enum PiiKind {
     DeAtChAddress,
     DeAtChPostfach,
     DePackstation,
+    GbAddress,
     ZaDriversLicense,
     ZaPostalCode,
     AuDriversLicense,
@@ -281,6 +282,7 @@ impl PiiKind {
             PiiKind::DeAtChAddress => "DE_AT_CH_ADDRESS",
             PiiKind::DeAtChPostfach => "DE_AT_CH_POSTFACH",
             PiiKind::DePackstation => "DE_PACKSTATION",
+            PiiKind::GbAddress => "GB_ADDRESS",
             PiiKind::ZaDriversLicense => "ZA_DRIVERS_LICENSE",
             PiiKind::ZaPostalCode => "ZA_POSTAL_CODE",
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
@@ -320,7 +322,8 @@ impl PiiKind {
             | PiiKind::GbSortCode
             | PiiKind::GbPhoneNumber
             | PiiKind::GbZaPassportNumber
-            | PiiKind::GbPostcode => Country::Gb,
+            | PiiKind::GbPostcode
+            | PiiKind::GbAddress => Country::Gb,
 
             PiiKind::AuTfn
             | PiiKind::AuMedicare
@@ -477,6 +480,7 @@ impl PiiKind {
         PiiKind::ZaPostalCode,
         PiiKind::AuDriversLicense,
         PiiKind::AuAbn,
+        PiiKind::GbAddress,
     ];
 
     /// Returns all countries this PII kind applies to.

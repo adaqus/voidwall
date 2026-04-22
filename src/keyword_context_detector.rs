@@ -12,8 +12,8 @@ use crate::validators::{
     au_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check, de_at_postfach_check,
     de_packstation_check, de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check,
     ein_check, fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
-    geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check, nhi_check,
-    nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
+    gb_address_check, geolocation_check, ie_driver_check, imei_check, ird_check, medicare_check,
+    nhi_check, nhs_check, nir_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
     person_name_check, phone_check, siren_luhn_check, siret_luhn_check, sort_code_check,
     swift_bic_check, tfn_check, us_dl_check, uscis_receipt_check, utr_check, za_luhn13_check,
     za_postal_check, za_trn_check,
@@ -332,6 +332,15 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:transit[\s_]number|transit[\s_]no\.?|institution[\s_]number|chequing[\s_]account|savings[\s_]account|canadian[\s_]account|ca[\s_]account)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
                 always_valid,
+            ),
+            // --- UK street address ---
+            // Narrower keyword list (qualified address forms only) with the GB
+            // postcode as a hard anchor at the end of the value regex.
+            (
+                PiiKind::GbAddress,
+                Language::En,
+                r"(?i)(?:home[\s_]address|postal[\s_]address|mailing[\s_]address|delivery[\s_]address|billing[\s_]address|shipping[\s_]address|correspondence[\s_]address|residential[\s_]address|business[\s_]address|office[\s_]address|street[\s_]address|registered[\s_]office|address[\s_]line(?:[\s_]?[12])?|addr[\s_]line(?:[\s_]?[12])?)(?:\s+is\s+|[\s:.#/\-\x22=,\]]*?)(\d{1,4}[A-Za-z]?\s+[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-.]+){0,6}[,\s]+(?:[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-]+){0,3}[,\s]+)?[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2})",
+                gb_address_check,
             ),
             // --- France-specific PII types (Language::Fr) ---
             (
@@ -1088,6 +1097,15 @@ mod tests {
     #[test_case("Familienname: Von Trapp", PiiKind::PersonName, "Von Trapp" ; "person name de familienname")]
     #[test_case("Kontoinhaber: Günther Müller", PiiKind::PersonName, "Günther Müller" ; "person name de kontoinhaber")]
     #[test_case("Empfänger: Björk Sigurdsson", PiiKind::PersonName, "Björk Sigurdsson" ; "person name de empfaenger")]
+    // GB address — qualified keywords + GB postcode anchor
+    #[test_case("home address: 10 Downing Street, London, SW1A 2AA", PiiKind::GbAddress, "10 Downing Street, London, SW1A 2AA" ; "gb address downing street")]
+    #[test_case("postal address: 221B Baker Street, London NW1 6XE", PiiKind::GbAddress, "221B Baker Street, London NW1 6XE" ; "gb address baker street")]
+    #[test_case("billing address: 30 St Mary Axe, London EC3A 8BF", PiiKind::GbAddress, "30 St Mary Axe, London EC3A 8BF" ; "gb address gherkin")]
+    #[test_case("delivery address: 350 Euston Road, London NW1 2RH", PiiKind::GbAddress, "350 Euston Road, London NW1 2RH" ; "gb address euston road")]
+    #[test_case("shipping address: 20 Fenchurch Street, London EC3M 8AF", PiiKind::GbAddress, "20 Fenchurch Street, London EC3M 8AF" ; "gb address walkie talkie")]
+    #[test_case("registered office: 1 Church Lane, Manchester M2 5AB", PiiKind::GbAddress, "1 Church Lane, Manchester M2 5AB" ; "gb address manchester")]
+    #[test_case("\"home_address\":\"10 Downing Street, London SW1A 2AA\"", PiiKind::GbAddress, "10 Downing Street, London SW1A 2AA" ; "gb address json home_address")]
+    #[test_case("\"billing_address\":\"221B Baker Street, London NW1 6XE\"", PiiKind::GbAddress, "221B Baker Street, London NW1 6XE" ; "gb address json billing_address")]
     // French/Swiss French address types
     #[test_case("adresse: 15 rue de la Paix, 75002 Paris", PiiKind::FrChAddress, "15 rue de la Paix, 75002 Paris" ; "fr address rue de la paix")]
     #[test_case("domicile: 42 boulevard Haussmann, 75009 Paris", PiiKind::FrChAddress, "42 boulevard Haussmann, 75009 Paris" ; "fr address boulevard")]
