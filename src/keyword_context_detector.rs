@@ -85,13 +85,13 @@ impl KeywordContextDetector {
             (
                 PiiKind::AuTfn,
                 Language::En,
-                r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?number|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?number|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?number|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}\s\d{3}\s\d{3})",
+                r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?number|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?number|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?number|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})",
                 tfn_check,
             ),
             (
                 PiiKind::NzIrdNumber,
                 Language::En,
-                r"(?i)(?:inland[\s_-]?revenue[\s_-]?dep(?:artmen)?t|inland[\s_-]?revenue[\s_-]?number|inland[\s_-]?revenue[\s_-]?no\.?|new[\s_-]?zealand[\s_-]?ird|new[\s_-]?zealand[\s_-]?tax[\s_-]?number|new[\s_-]?zealand[\s_-]?tax[\s_-]?id|nz[\s_-]?ird|nz[\s_-]?tax[\s_-]?number|nz[\s_-]?tax[\s_-]?id|ird[\s_-]?number[\s_-]?nz|ird[\s_-]?number|ird[\s_-]?no\.?|ird[\s_-]?num|ird[\s_-]?#|ird[\s_-]?ref(?:erence)?|applicant[\s_-]?ird|employee[\s_-]?ird|client[\s_-]?ird|customer[\s_-]?ird|my[\s_-]?ird|your[\s_-]?ird|gst[\s_-]?registration|gst[\s_-]?number|gst[\s_-]?no\.?|tax[\s_-]?number[\s_-]?nz|ird)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2,3}-\d{3}-\d{3})",
+                r"(?i)(?:inland[\s_-]?revenue[\s_-]?dep(?:artmen)?t|inland[\s_-]?revenue[\s_-]?number|inland[\s_-]?revenue[\s_-]?no\.?|new[\s_-]?zealand[\s_-]?ird|new[\s_-]?zealand[\s_-]?tax[\s_-]?number|new[\s_-]?zealand[\s_-]?tax[\s_-]?id|nz[\s_-]?ird|nz[\s_-]?tax[\s_-]?number|nz[\s_-]?tax[\s_-]?id|ird[\s_-]?number[\s_-]?nz|ird[\s_-]?number|ird[\s_-]?no\.?|ird[\s_-]?num|ird[\s_-]?#|ird[\s_-]?ref(?:erence)?|applicant[\s_-]?ird|employee[\s_-]?ird|client[\s_-]?ird|customer[\s_-]?ird|my[\s_-]?ird|your[\s_-]?ird|gst[\s_-]?registration|gst[\s_-]?number|gst[\s_-]?no\.?|tax[\s_-]?number[\s_-]?nz|ird)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2,3}-?\d{3}-?\d{3})",
                 ird_check,
             ),
             (
@@ -157,7 +157,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::GbSortCode,
                 Language::En,
-                r"(?i)(?:sort[\s_-]?code|sort-code|sortcode|sort[\s_-]?code[\s_-]?number|sort[\s_-]?code[\s_-]?no\.?|sort[\s_-]?code[\s_-]?#|bank[\s_-]?sort[\s_-]?code|bank[\s_-]?sort|branch[\s_-]?sort[\s_-]?code|branch[\s_-]?sort|branch[\s_-]?code|branch[\s_-]?number|branch[\s_-]?no\.?|branch[\s_-]?#|bank[\s_-]?code|bank[\s_-]?number|bank[\s_-]?no\.?|uk[\s_-]?sort[\s_-]?code|uk[\s_-]?sort|bacs[\s_-]?sort[\s_-]?code|bacs[\s_-]?code|my[\s_-]?sort[\s_-]?code|your[\s_-]?sort[\s_-]?code|account[\s_-]?sort[\s_-]?code|account[\s_-]?sort)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-\d{2}-\d{2})\b",
+                r"(?i)(?:sort[\s_-]?code|sort-code|sortcode|sort[\s_-]?code[\s_-]?number|sort[\s_-]?code[\s_-]?no\.?|sort[\s_-]?code[\s_-]?#|bank[\s_-]?sort[\s_-]?code|bank[\s_-]?sort|branch[\s_-]?sort[\s_-]?code|branch[\s_-]?sort|branch[\s_-]?code|branch[\s_-]?number|branch[\s_-]?no\.?|branch[\s_-]?#|bank[\s_-]?code|bank[\s_-]?number|bank[\s_-]?no\.?|uk[\s_-]?sort[\s_-]?code|uk[\s_-]?sort|bacs[\s_-]?sort[\s_-]?code|bacs[\s_-]?code|my[\s_-]?sort[\s_-]?code|your[\s_-]?sort[\s_-]?code|account[\s_-]?sort[\s_-]?code|account[\s_-]?sort)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{2}-?\d{2})\b",
                 sort_code_check,
             ),
             (
@@ -266,7 +266,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::IePhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?ie|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?353[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_-]?ie|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?353[\s\-.]?|0)[1-9](?:[\s\-.]?\d)?[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
@@ -460,6 +460,12 @@ impl KeywordContextDetector {
                 phone_check,
             ),
             (
+                PiiKind::DePhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?de|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?49[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            (
                 PiiKind::DePostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
@@ -479,6 +485,12 @@ impl KeywordContextDetector {
                 phone_check,
             ),
             (
+                PiiKind::AtPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?at|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?43[\s\-.]?[1-9]\d{0,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            (
                 PiiKind::AtPostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
@@ -495,6 +507,12 @@ impl KeywordContextDetector {
                 PiiKind::ChPhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
+                phone_check,
+            ),
+            (
+                PiiKind::ChPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?ch|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?41[\s\-.]?[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
                 phone_check,
             ),
             (
@@ -835,8 +853,16 @@ mod tests {
     #[test_case("Passport Number: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
     #[test_case("passport: 987654321", PiiKind::PassportNumber, "987654321" ; "passport lowercase")]
     #[test_case("TFN: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "tfn")]
+    // Formatless / hyphenated TFN — value separator is optional (rec 7).
+    #[test_case("TFN: 123456782", PiiKind::AuTfn, "123456782" ; "tfn formatless")]
+    #[test_case("TFN: 123-456-782", PiiKind::AuTfn, "123-456-782" ; "tfn hyphenated")]
+    #[test_case(r#""taxFileNumber": "123456782""#, PiiKind::AuTfn, "123456782" ; "tfn camelcase formatless")]
     #[test_case("IRD: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird")]
     #[test_case("IRD number: 49-091-857", PiiKind::NzIrdNumber, "49-091-857" ; "ird span")]
+    // Formatless / partially-hyphenated IRD — value separator is optional (rec 7).
+    #[test_case("IRD: 49091857", PiiKind::NzIrdNumber, "49091857" ; "ird formatless 8 digit")]
+    #[test_case("IRD: 100000148", PiiKind::NzIrdNumber, "100000148" ; "ird formatless 9 digit")]
+    #[test_case(r#""irdNumber": "49091857""#, PiiKind::NzIrdNumber, "49091857" ; "ird camelcase formatless")]
     #[test_case("NHS: 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "nhs")]
     #[test_case("NHS number: 943 476 5919", PiiKind::GbNhsNumber, "943 476 5919" ; "nhs span")]
     #[test_case("Medicare: 2123 45670 1", PiiKind::AuMedicare, "2123 45670 1" ; "medicare")]
@@ -857,6 +883,9 @@ mod tests {
     #[test_case("ABA routing number: 021000021", PiiKind::UsAbaRouting, "021000021" ; "aba span")]
     #[test_case("Sort code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "sort code")]
     #[test_case("Bank sort code: 20-00-00", PiiKind::GbSortCode, "20-00-00" ; "sort code span")]
+    // Formatless sort code — value separator is optional (rec 7).
+    #[test_case("Sort code: 200000", PiiKind::GbSortCode, "200000" ; "sort code formatless")]
+    #[test_case(r#""sortCode": "200000""#, PiiKind::GbSortCode, "200000" ; "sort code camelcase formatless")]
     #[test_case("GPS coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation")]
     #[test_case("coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation span")]
     #[test_case("Alien number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number")]
@@ -893,6 +922,11 @@ mod tests {
     #[test_case("phone: +353 87 123 4567", PiiKind::IePhoneNumber, "+353 87 123 4567" ; "ie phone mobile intl")]
     #[test_case("phone: 087 123 4567", PiiKind::IePhoneNumber, "087 123 4567" ; "ie phone mobile local")]
     #[test_case("\"phone_ie\":\"+353 87 123 4567\"", PiiKind::IePhoneNumber, "+353 87 123 4567" ; "ie phone json phone_ie suffix")]
+    // IE single-digit area codes (Dublin = 1) with separator between area and subscriber.
+    #[test_case("phone: +353 1 234 5678", PiiKind::IePhoneNumber, "+353 1 234 5678" ; "ie phone dublin spaced")]
+    #[test_case("phone: 01 234 5678", PiiKind::IePhoneNumber, "01 234 5678" ; "ie phone dublin local spaced")]
+    #[test_case("phone: +353-1-234-5678", PiiKind::IePhoneNumber, "+353-1-234-5678" ; "ie phone dublin hyphenated")]
+    #[test_case("phone: +353.1.234.5678", PiiKind::IePhoneNumber, "+353.1.234.5678" ; "ie phone dublin dotted")]
     #[test_case("phone: +27 71 123 4567", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone mobile intl")]
     #[test_case("phone: 071 123 4567", PiiKind::ZaPhoneNumber, "071 123 4567" ; "za phone mobile local")]
     #[test_case("\"phone_za\":\"+27 71 123 4567\"", PiiKind::ZaPhoneNumber, "+27 71 123 4567" ; "za phone json phone_za suffix")]
@@ -1050,6 +1084,14 @@ mod tests {
     #[test_case("Telefonnummer: +49 89 98765432", PiiKind::DePhoneNumber, "+49 89 98765432" ; "de phone munich landline")]
     #[test_case("Festnetz: 030 12345678", PiiKind::DePhoneNumber, "030 12345678" ; "de phone local format")]
     #[test_case("Kontaktnummer: +49 221 1234567", PiiKind::DePhoneNumber, "+49 221 1234567" ; "de phone cologne")]
+    // English-keyword variants (Language::En sibling regex). The intl form must
+    // include `+49` so we don't conflate with US/local numbers under a generic
+    // `phone` keyword.
+    #[test_case("phone: +49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de phone en keyword berlin")]
+    #[test_case("\"phone\": \"+49 30 123456\"", PiiKind::DePhoneNumber, "+49 30 123456" ; "de phone json en keyword")]
+    #[test_case("\"phone_de\":\"+49 151 12345678\"", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de phone json phone_de suffix")]
+    #[test_case("mobile: +49 151 12345678", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de phone en mobile keyword")]
+    #[test_case("\"mobilePhone\": \"+49 151 12345678\"", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de phone en mobile camelcase")]
     // German postal codes
     #[test_case("Postleitzahl: 10115", PiiKind::DePostalCode, "10115" ; "de postal code berlin")]
     #[test_case("PLZ: 80331", PiiKind::DePostalCode, "80331" ; "de postal code munich")]
@@ -1065,6 +1107,9 @@ mod tests {
     // Austrian phones and postal
     #[test_case("Rufnummer: +43 1 12345678", PiiKind::AtPhoneNumber, "+43 1 12345678" ; "at phone vienna")]
     #[test_case("Handynummer: +43 664 1234567", PiiKind::AtPhoneNumber, "+43 664 1234567" ; "at phone mobile")]
+    #[test_case("phone: +43 1 2345678", PiiKind::AtPhoneNumber, "+43 1 2345678" ; "at phone en keyword vienna")]
+    #[test_case("\"altPhone\": \"+43 1 2345678\"", PiiKind::AtPhoneNumber, "+43 1 2345678" ; "at phone en keyword camelcase")]
+    #[test_case("mobile: +43 664 1234567", PiiKind::AtPhoneNumber, "+43 664 1234567" ; "at phone en mobile keyword")]
     #[test_case("PLZ: 1010", PiiKind::AtPostalCode, "1010" ; "at postal code vienna")]
     #[test_case("Postleitzahl: 5020", PiiKind::AtPostalCode, "5020" ; "at postal code salzburg")]
     #[test_case("PLZ: 8010", PiiKind::AtPostalCode, "8010" ; "at postal code graz")]
@@ -1077,6 +1122,10 @@ mod tests {
     // Swiss phones and postal
     #[test_case("Rufnummer: +41 44 123 45 67", PiiKind::ChPhoneNumber, "+41 44 123 45 67" ; "ch phone zurich")]
     #[test_case("Handynummer: +41 79 123 45 67", PiiKind::ChPhoneNumber, "+41 79 123 45 67" ; "ch phone mobile")]
+    #[test_case("phone: +41 44 668 18 00", PiiKind::ChPhoneNumber, "+41 44 668 18 00" ; "ch phone en keyword zurich")]
+    #[test_case("\"workPhone\": \"+41 44 668 18 00\"", PiiKind::ChPhoneNumber, "+41 44 668 18 00" ; "ch phone en keyword camelcase")]
+    #[test_case("\"phone_ch\":\"+41 79 123 45 67\"", PiiKind::ChPhoneNumber, "+41 79 123 45 67" ; "ch phone json phone_ch suffix")]
+    #[test_case("mobile: +41 79 123 45 67", PiiKind::ChPhoneNumber, "+41 79 123 45 67" ; "ch phone en mobile keyword")]
     #[test_case("PLZ: 8001", PiiKind::ChPostalCode, "8001" ; "ch postal code zurich")]
     #[test_case("Postleitzahl: 3000", PiiKind::ChPostalCode, "3000" ; "ch postal code bern")]
     #[test_case("PLZ: 1200", PiiKind::ChPostalCode, "1200" ; "ch postal code geneva")]

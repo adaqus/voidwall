@@ -104,6 +104,7 @@ After implementing validators and patterns, search the web for documented real e
 
 ### Writing unit tests
 1. ALWAYS try to merge similar test cases using test_case macro. ALWAYS.
+2. Implement also tests for false positives. The crate should not detect PIIs when they are not real PIIs.
 
 #### Known pitfalls
 
