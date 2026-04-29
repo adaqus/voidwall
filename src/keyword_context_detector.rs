@@ -562,19 +562,19 @@ impl KeywordContextDetector {
             (
                 PiiKind::PersonName,
                 Language::En,
-                r"(?i)(?:full[\s_-]?name|first[\s_-]?name|last[\s_-]?name|given[\s_-]?name|family[\s_-]?name|surname|forename|maiden[\s_-]?name|middle[\s_-]?name|patient[\s_-]?name|client[\s_-]?name|customer[\s_-]?name|employee[\s_-]?name|applicant[\s_-]?name|cardholder[\s_-]?name|account[\s_-]?holder|account[\s_-]?name|beneficiary[\s_-]?name|recipient[\s_-]?name|sender[\s_-]?name|passenger[\s_-]?name|insured[\s_-]?name)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:full[\s_-]?name|first[\s_-]?name|last[\s_-]?name|given[\s_-]?name|family[\s_-]?name|surname|forename|maiden[\s_-]?name|middle[\s_-]?name|patient[\s_-]?name|client[\s_-]?name|customer[\s_-]?name|employee[\s_-]?name|applicant[\s_-]?name|cardholder[\s_-]?name|account[\s_-]?holder|account[\s_-]?name|beneficiary[\s_-]?name|recipient[\s_-]?name|sender[\s_-]?name|passenger[\s_-]?name|insured[\s_-]?name)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
                 PiiKind::PersonName,
                 Language::Fr,
-                r"(?i)(?:nom[\s_-]?complet|nom[\s_-]?de[\s_-]?famille|nom[\s_-]?de[\s_-]?naissance|nom[\s_-]?de[\s_-]?jeune[\s_-]?fille|nom[\s_-]?d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:nom[\s_-]?complet|nom[\s_-]?de[\s_-]?famille|nom[\s_-]?de[\s_-]?naissance|nom[\s_-]?de[\s_-]?jeune[\s_-]?fille|nom[\s_-]?d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
                 PiiKind::PersonName,
                 Language::De,
-                r"(?i)(?:vollst[aä]ndiger[\s_-]?Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:vollst[aä]ndiger[\s_-]?Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             // --- French/Swiss French physical address types (Language::Fr) ---
@@ -1160,6 +1160,9 @@ mod tests {
     #[test_case("employee name: Maria de Los Santos Garcia", PiiKind::PersonName, "Maria de Los Santos Garcia" ; "person name en employee multi word")]
     #[test_case("surname: Thompson", PiiKind::PersonName, "Thompson" ; "person name en surname")]
     #[test_case("beneficiary name: André Lefèvre", PiiKind::PersonName, "André Lefèvre" ; "person name en beneficiary accented")]
+    // Capture stops at sentence punctuation.
+    #[test_case("full name: John Smith. Other notes follow.", PiiKind::PersonName, "John Smith" ; "person name stops at period")]
+    #[test_case("full name: John Smith, additional info", PiiKind::PersonName, "John Smith" ; "person name stops at comma")]
     // PersonName — French
     #[test_case("nom complet: Jacques Dupont", PiiKind::PersonName, "Jacques Dupont" ; "person name fr nom complet")]
     #[test_case("prénom: François", PiiKind::PersonName, "François" ; "person name fr prenom")]
@@ -1692,6 +1695,12 @@ mod tests {
     // PersonName — rejects non-name values
     #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
     #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]
+    // Lowercase prose after a PersonName keyword must NOT be captured as a
+    // name. Prevents over-capture of phrases like "account holder moved from
+    // NZ Legacy passport".
+    #[test_case("account holder moved from NZ Legacy passport record", PiiKind::PersonName ; "person name lowercase prose after keyword")]
+    #[test_case("recipient name: moved to a new address yesterday", PiiKind::PersonName ; "person name lowercase prose recipient")]
+    #[test_case("customer name: please update the records soon", PiiKind::PersonName ; "person name lowercase prose customer")]
     // French/Swiss address — invalid PLZ
     #[test_case("adresse: 15 rue de la Paix, 00000 Paris", PiiKind::FrChAddress ; "fr address invalid plz zeros")]
     #[test_case("domicile: rue du Général-Dufour 24, 0999 Genève", PiiKind::FrChAddress ; "ch address invalid plz below range")]
