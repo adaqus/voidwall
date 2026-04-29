@@ -553,6 +553,7 @@ mod tests {
                 PiiKind::UsDriversLicense,
                 PiiKind::UsAlienNumber,
                 PiiKind::UsUscisReceiptNumber,
+                PiiKind::UsZaPostalCode,
             ])
             .build()
         {

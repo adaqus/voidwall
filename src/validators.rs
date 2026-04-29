@@ -593,6 +593,49 @@ pub(crate) fn za_postal_check(s: &str) -> bool {
     (1..=9999).contains(&n)
 }
 
+/// US ZIP code: 5 digits, optionally followed by `-NNNN` (ZIP+4).
+/// Structural check only — there is no published checksum for ZIP codes.
+pub(crate) fn us_zip_check(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    match bytes.len() {
+        5 => bytes.iter().all(|b| b.is_ascii_digit()),
+        10 => {
+            bytes[5] == b'-'
+                && bytes[..5].iter().all(|b| b.is_ascii_digit())
+                && bytes[6..].iter().all(|b| b.is_ascii_digit())
+        }
+        _ => false,
+    }
+}
+
+/// Combined US/ZA postal code validator. Accepts ZA 4-digit form or US 5-digit /
+/// ZIP+4 form. Used by `PiiKind::UsZaPostalCode`, which shares English keywords
+/// (`zip`, `postal_code`, `postcode`) across both countries.
+pub(crate) fn us_za_postal_check(s: &str) -> bool {
+    us_zip_check(s) || za_postal_check(s)
+}
+
+/// Irish Eircode: 7 alphanumeric characters in the form `A##XXXX` (one letter,
+/// two digits — or the literal `6W` for the D6W routing key — followed by four
+/// alphanumerics). Whitespace between the routing key and the unique
+/// identifier is permitted and stripped before validation.
+pub(crate) fn ie_eircode_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 7 {
+        return false;
+    }
+    let bytes = clean.as_bytes();
+    if !bytes[0].is_ascii_alphabetic() {
+        return false;
+    }
+    let routing_digits = bytes[1].is_ascii_digit() && bytes[2].is_ascii_digit();
+    let routing_d6w = bytes[1] == b'6' && bytes[2].eq_ignore_ascii_case(&b'W');
+    if !routing_digits && !routing_d6w {
+        return false;
+    }
+    bytes[3..7].iter().all(|b| b.is_ascii_alphanumeric())
+}
+
 pub(crate) fn us_dl_check(s: &str) -> bool {
     let clean: String = s.chars().filter(|c| *c != '-').collect();
     let letter_count = clean
@@ -1677,6 +1720,54 @@ mod tests {
     #[test_case("abcd", false ; "invalid letters")]
     fn za_postal(input: &str, expected: bool) {
         assert_eq!(za_postal_check(input), expected);
+    }
+
+    // --- us_zip_check ---
+    // Real ZIP codes from USPS / Wikipedia.
+    #[test_case("90210", true ; "valid beverly hills")]
+    #[test_case("10001", true ; "valid manhattan")]
+    #[test_case("20500", true ; "valid white house")]
+    #[test_case("00501", true ; "valid lowest holtsville ny")]
+    #[test_case("99950", true ; "valid highest ketchikan ak")]
+    #[test_case("90210-1234", true ; "valid zip plus four")]
+    #[test_case("00000", true ; "valid all zeros structurally")]
+    #[test_case("9021", false ; "invalid four digits")]
+    #[test_case("902100", false ; "invalid six digits")]
+    #[test_case("90210-12345", false ; "invalid zip plus five")]
+    #[test_case("9021A", false ; "invalid letter")]
+    #[test_case("90210 1234", false ; "invalid space separator")]
+    fn us_zip(input: &str, expected: bool) {
+        assert_eq!(us_zip_check(input), expected);
+    }
+
+    // --- us_za_postal_check ---
+    #[test_case("0001", true ; "valid za")]
+    #[test_case("90210", true ; "valid us")]
+    #[test_case("90210-1234", true ; "valid us zip plus four")]
+    #[test_case("0000", false ; "invalid za zero")]
+    #[test_case("123", false ; "invalid three digits")]
+    #[test_case("100000", false ; "invalid six digits")]
+    fn us_za_postal(input: &str, expected: bool) {
+        assert_eq!(us_za_postal_check(input), expected);
+    }
+
+    // --- ie_eircode_check ---
+    // Real Eircodes from Wikipedia and eircode.ie.
+    #[test_case("D02 X285", true ; "valid dublin 2")]
+    #[test_case("D02X285", true ; "valid dublin 2 no space")]
+    #[test_case("d02 x285", true ; "valid lowercase normalised")]
+    #[test_case("T12 N5CY", true ; "valid cork")]
+    #[test_case("D6W FD93", true ; "valid d6w special routing key")]
+    #[test_case("D6w fd93", true ; "valid d6w lowercase")]
+    #[test_case("F92 AB12", true ; "valid donegal")]
+    #[test_case("D02-X285", false ; "invalid hyphen separator")]
+    #[test_case("D02 X28", false ; "invalid too short")]
+    #[test_case("D02 X2855", false ; "invalid too long")]
+    #[test_case("12 X285", false ; "invalid digit first")]
+    #[test_case("DXX X285", false ; "invalid letters in routing digits")]
+    #[test_case("D2W X285", false ; "invalid w not at d6")]
+    fn ie_eircode(input: &str, expected: bool) {
+        assert_eq!(ie_eircode_check(input), expected);
     }
 
     // --- za_trn_check ---

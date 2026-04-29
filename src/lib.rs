@@ -191,9 +191,10 @@ pub enum PiiKind {
     DeAtChPostfach,
     DePackstation,
     ZaDriversLicense,
-    ZaPostalCode,
+    UsZaPostalCode,
     AuDriversLicense,
     AuAbn,
+    IeEircode,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
     Custom,
@@ -286,9 +287,10 @@ impl PiiKind {
             PiiKind::DePackstation => "DE_PACKSTATION",
             PiiKind::GbAddress => "GB_ADDRESS",
             PiiKind::ZaDriversLicense => "ZA_DRIVERS_LICENSE",
-            PiiKind::ZaPostalCode => "ZA_POSTAL_CODE",
+            PiiKind::UsZaPostalCode => "US_ZA_POSTAL_CODE",
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
             PiiKind::AuAbn => "AU_ABN",
+            PiiKind::IeEircode => "IE_EIRCODE",
             PiiKind::Custom => "CUSTOM",
         }
     }
@@ -315,7 +317,8 @@ impl PiiKind {
             | PiiKind::UsAbaRouting
             | PiiKind::UsDriversLicense
             | PiiKind::UsAlienNumber
-            | PiiKind::UsUscisReceiptNumber => Country::Us,
+            | PiiKind::UsUscisReceiptNumber
+            | PiiKind::UsZaPostalCode => Country::Us,
 
             PiiKind::GbNino
             | PiiKind::GbDrivingLicence
@@ -350,13 +353,13 @@ impl PiiKind {
             PiiKind::IePpsn
             | PiiKind::IeDriverNumber
             | PiiKind::IePhoneNumber
-            | PiiKind::IePassportNumber => Country::Ie,
+            | PiiKind::IePassportNumber
+            | PiiKind::IeEircode => Country::Ie,
 
             PiiKind::ZaId
             | PiiKind::ZaTaxReference
             | PiiKind::ZaPhoneNumber
-            | PiiKind::ZaDriversLicense
-            | PiiKind::ZaPostalCode => Country::Za,
+            | PiiKind::ZaDriversLicense => Country::Za,
 
             PiiKind::FrNir
             | PiiKind::FrSiret
@@ -481,9 +484,10 @@ impl PiiKind {
         PiiKind::DeAtChPostfach,
         PiiKind::DePackstation,
         PiiKind::ZaDriversLicense,
-        PiiKind::ZaPostalCode,
+        PiiKind::UsZaPostalCode,
         PiiKind::AuDriversLicense,
         PiiKind::AuAbn,
+        PiiKind::IeEircode,
         PiiKind::GbAddress,
     ];
 
@@ -498,6 +502,7 @@ impl PiiKind {
             }
             PiiKind::FrChAddress | PiiKind::FrChBoitePostale => &[Country::Fr, Country::Ch],
             PiiKind::GbZaPassportNumber => &[Country::Gb, Country::Za],
+            PiiKind::UsZaPostalCode => &[Country::Us, Country::Za],
             _ => match self.country() {
                 Country::International => &[Country::International],
                 Country::Us => &[Country::Us],

@@ -184,6 +184,16 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: false,
         },
+        // IeEircode: 1 letter + 2 digits (or "6W" for D6W routing key)
+        // + 4 alphanumerics, optional space between routing key and unique id.
+        // The validator enforces the routing-key format precisely.
+        PatternDef {
+            kind: PiiKind::IeEircode,
+            expr: r"\b[A-Za-z](?:[0-9]{2}|6[Ww])\s?[A-Za-z0-9]{4}\b",
+            som_fallback: true,
+            validator: ie_eircode_check,
+            needs_ucp: false,
+        },
         // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
         // classes cause DFA state explosion. Use minimum-length prefix for
         // detection; regex extraction verifies exact length and word boundary.
@@ -525,6 +535,12 @@ mod tests {
     #[test_case("postcode: EH1 1YZ", PiiKind::GbPostcode, "EH1 1YZ" ; "gb postcode edinburgh")]
     #[test_case("postal code: M5V 3L9", PiiKind::CaPostalCode, "M5V 3L9" ; "ca postal code with space")]
     #[test_case("postal code: K1A0B1", PiiKind::CaPostalCode, "K1A0B1" ; "ca postal code no space")]
+    // Eircode: real Dublin / Cork / Donegal codes from Wikipedia and eircode.ie.
+    #[test_case("eircode: D02 X285", PiiKind::IeEircode, "D02 X285" ; "ie eircode dublin 2")]
+    #[test_case("Eircode D02X285", PiiKind::IeEircode, "D02X285" ; "ie eircode dublin no space")]
+    #[test_case("delivery: T12 N5CY", PiiKind::IeEircode, "T12 N5CY" ; "ie eircode cork")]
+    #[test_case("address: D6W FD93", PiiKind::IeEircode, "D6W FD93" ; "ie eircode d6w special")]
+    #[test_case("Eircode F92 AB12", PiiKind::IeEircode, "F92 AB12" ; "ie eircode donegal")]
     #[test_case("send to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na", PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf" ; "bitcoin legacy p2pkh")]
     #[test_case("wallet: 0x1234567890abcdef1234567890abcdef12345678", PiiKind::EthereumAddress, "0x1234567890abcdef1234567890abcdef12345678" ; "ethereum address")]
     fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
@@ -580,6 +596,8 @@ mod tests {
     #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
     #[test_case("0x1234567890abcdef1234567890abcdef1234567", PiiKind::EthereumAddress ; "ethereum too short")]
     #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]
+    #[test_case("eircode: D2W X285", PiiKind::IeEircode ; "ie eircode invalid w not at d6")]
+    #[test_case("eircode: 102 X285", PiiKind::IeEircode ; "ie eircode invalid digit first")]
     fn rejects_invalid_pii(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

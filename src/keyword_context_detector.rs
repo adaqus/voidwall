@@ -16,7 +16,7 @@ use crate::validators::{
     imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check,
     ohip_check, passport_check, passport_new_check, person_name_check, phone_check,
     siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    uscis_receipt_check, utr_check, za_luhn13_check, za_postal_check, za_trn_check,
+    uscis_receipt_check, us_za_postal_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
@@ -221,10 +221,10 @@ impl KeywordContextDetector {
                 za_luhn13_check,
             ),
             (
-                PiiKind::ZaPostalCode,
+                PiiKind::UsZaPostalCode,
                 Language::En,
-                r"(?i)(?:postal[\s_-]?code|post[\s_-]?code|postcode|zip[\s_-]?code|zip)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
-                za_postal_check,
+                r"(?i)(?:postal[\s_-]?code|post[\s_-]?code|postcode|zip[\s_-]?code|zip)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5}-\d{4}|\d{5}|\d{4})\b",
+                us_za_postal_check,
             ),
             (
                 PiiKind::AuDriversLicense,
@@ -938,8 +938,14 @@ mod tests {
     #[test_case("sa passport: 987654321", PiiKind::GbZaPassportNumber, "987654321" ; "za passport sa keyword")]
     #[test_case("driver's licence: 8001015009087", PiiKind::ZaDriversLicense, "8001015009087" ; "za drivers licence")]
     #[test_case("driving licence number: 9506150089081", PiiKind::ZaDriversLicense, "9506150089081" ; "za driving licence")]
-    #[test_case("postal code: 0001", PiiKind::ZaPostalCode, "0001" ; "za postal code lower")]
-    #[test_case("zip code: 8001", PiiKind::ZaPostalCode, "8001" ; "za postal code cape town")]
+    #[test_case("postal code: 0001", PiiKind::UsZaPostalCode, "0001" ; "za postal code lower")]
+    #[test_case("zip code: 8001", PiiKind::UsZaPostalCode, "8001" ; "za postal code cape town")]
+    // US ZIP — real codes from USPS / Wikipedia.
+    #[test_case("zip: 90210", PiiKind::UsZaPostalCode, "90210" ; "us zip beverly hills")]
+    #[test_case("ZIP code: 10001", PiiKind::UsZaPostalCode, "10001" ; "us zip manhattan")]
+    #[test_case("postal code: 20500", PiiKind::UsZaPostalCode, "20500" ; "us zip white house")]
+    #[test_case("zip: 90210-1234", PiiKind::UsZaPostalCode, "90210-1234" ; "us zip plus four")]
+    #[test_case(r#""zipCode": "20001""#, PiiKind::UsZaPostalCode, "20001" ; "us zip camelcase json")]
     #[test_case("australian driver's licence: 12345678", PiiKind::AuDriversLicense, "12345678" ; "au dl nsw 8 digit")]
     #[test_case("aus driver's license: 1234567890", PiiKind::AuDriversLicense, "1234567890" ; "au dl vic 10 digit")]
     #[test_case("nsw licence: 01234567", PiiKind::AuDriversLicense, "01234567" ; "au dl qld starting 0")]
@@ -1699,7 +1705,7 @@ mod tests {
     #[test_case("Packstation: 12, 10115 Berlin", PiiKind::DePackstation ; "de packstation too few digits")]
     #[test_case("driver's licence: 8013015009087", PiiKind::ZaDriversLicense ; "za dl invalid month")]
     #[test_case("driver's licence: 8001015009086", PiiKind::ZaDriversLicense ; "za dl bad luhn")]
-    #[test_case("postal code: 0000", PiiKind::ZaPostalCode ; "za postal code zero")]
+    #[test_case("postal code: 0000", PiiKind::UsZaPostalCode ; "za postal code zero")]
     #[test_case("australian driver's licence: 12345", PiiKind::AuDriversLicense ; "au dl too short")]
     #[test_case("australian driver's licence: 0000000", PiiKind::AuDriversLicense ; "au dl all zeros")]
     #[test_case("ABN: 51824753557", PiiKind::AuAbn ; "au abn bad checksum")]
@@ -1783,7 +1789,7 @@ mod tests {
     #[test_case("1234, 10557 Berlin", PiiKind::DeAtChPostfach ; "de postfach no keyword")]
     #[test_case("109, 01099 Dresden", PiiKind::DePackstation ; "de packstation no keyword")]
     #[test_case("8001015009087", PiiKind::ZaDriversLicense ; "za dl no keyword")]
-    #[test_case("0001", PiiKind::ZaPostalCode ; "za postal no keyword")]
+    #[test_case("0001", PiiKind::UsZaPostalCode ; "za postal no keyword")]
     #[test_case("12345678", PiiKind::AuDriversLicense ; "au dl no keyword")]
     #[test_case("51824753556", PiiKind::AuAbn ; "au abn no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {

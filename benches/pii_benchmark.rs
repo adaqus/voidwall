@@ -375,13 +375,26 @@ Drivers requiring licence verification:\n\
 All driver's licences must be verified before renewal.\n\
 Contact the licensing department for corrections.";
 
-const ZA_POSTAL_TEXT: &str = "\
-South Africa Postal Service — Address Verification\n\n\
+const US_ZA_POSTAL_TEXT: &str = "\
+Postal Code Verification — Cross-border directory\n\n\
 Addresses requiring postal code verification:\n\
-- Address A: Postal code: 0001\n\
-- Address B: Zip code: 8001\n\
-All postal codes must be verified against SAPO records.\n\
+- South Africa A: Postal code: 0001\n\
+- South Africa B: Zip code: 8001\n\
+- United States A: ZIP code: 90210\n\
+- United States B: zip: 10001-1234\n\
+- United States C: postal code: 20500\n\
+All postal codes must be verified against SAPO and USPS records.\n\
 Contact the post office for any issues.";
+
+const IE_EIRCODE_TEXT: &str = "\
+Ireland Customer Address Verification — Q1 2026\n\n\
+Records requiring Eircode validation:\n\
+- Customer A: D02 X285\n\
+- Customer B: T12 N5CY\n\
+- Customer C: D6W FD93\n\
+- Customer D: F92 AB12\n\
+- Customer E: D02X285\n\
+All Eircodes must be verified against An Post records before dispatch.";
 
 const AWS_ACCESS_KEY_TEXT: &str = "\
 AWS Infrastructure Audit — Q1 2025\n\n\
@@ -714,6 +727,8 @@ Tier 5 Verification Records:\n\
   South African passport: 123456789\n\
   Driver's licence: 8001015009087\n\
   Postal code: 0001\n\
+  US ZIP: 90210-1234\n\
+  IE Eircode: D02 X285\n\
   British passport: 123456789\n\
   Australian passport: A1234567\n\
   Canadian passport: AB123456\n\
@@ -1242,8 +1257,12 @@ fn per_pii_kind(c: &mut Criterion) {
         b.iter(|| scanner.mark_piis(ZA_DL_TEXT));
     });
 
-    group.bench_function("za_postal_code", |b| {
-        b.iter(|| scanner.mark_piis(ZA_POSTAL_TEXT));
+    group.bench_function("us_za_postal_code", |b| {
+        b.iter(|| scanner.mark_piis(US_ZA_POSTAL_TEXT));
+    });
+
+    group.bench_function("ie_eircode", |b| {
+        b.iter(|| scanner.mark_piis(IE_EIRCODE_TEXT));
     });
 
     group.bench_function("au_drivers_license", |b| {
