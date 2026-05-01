@@ -16,7 +16,7 @@ use crate::validators::{
     imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check,
     ohip_check, passport_check, passport_new_check, person_name_check, phone_check,
     siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    uscis_receipt_check, us_za_postal_check, utr_check, za_luhn13_check, za_trn_check,
+    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{PiiError, PiiKind, PiiMatch};
 
