@@ -8,6 +8,7 @@ edition = "2024"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 vectorscan-rs = "0.0.5"
+percent-encoding = "2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -15,13 +15,9 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-fn decode_percent(hi: u8, lo: u8) -> Option<u8> {
-    let val = (hex_val(hi)? << 4) | hex_val(lo)?;
-    if (0x20..=0x7e).contains(&val) {
-        Some(val)
-    } else {
-        None
-    }
+/// True if the byte pair forms a valid `%XX` hex pair.
+fn is_valid_hex_pair(hi: u8, lo: u8) -> bool {
+    hex_val(hi).is_some() && hex_val(lo).is_some()
 }
 
 fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
@@ -93,11 +89,17 @@ fn decode_html_entity(bytes: &[u8]) -> Option<(u8, usize)> {
 }
 
 /// Normalises input for detection: decodes URL percent-encoding and HTML
-/// entities to plain ASCII, and strips zero-width invisible characters
-/// (U+200B/C/D) that are inserted to break keyword and value patterns.
-/// Returns `None` if the input needs no normalisation (fast path).
-/// Otherwise returns `(normalised, offset_map)` where `offset_map[i]` maps
-/// normalised byte position `i` to the corresponding original byte position.
+/// entities, and strips zero-width invisible characters (U+200B/C/D) that
+/// are inserted to break keyword and value patterns. Returns `None` if the
+/// input needs no normalisation (fast path). Otherwise returns
+/// `(normalised, offset_map)` where `offset_map[i]` maps normalised byte
+/// position `i` to the corresponding original byte position.
+///
+/// Percent-decoding is performed via the `percent-encoding` crate and
+/// supports multi-byte UTF-8 sequences (`%C3%A9` → `é`, `%E2%82%AC` →
+/// `€`, etc.). Each `%XX` triplet contributes one output byte; consecutive
+/// triplets are decoded together so non-ASCII characters are recovered as
+/// proper UTF-8.
 pub(crate) fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> {
     let bytes = input.as_bytes();
     let has_encoding = bytes.iter().any(|&b| b == b'%' || b == b'&');
@@ -122,16 +124,36 @@ pub(crate) fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> 
             continue;
         }
 
+        // Percent-decode a maximal run of `%XX` triplets and pass it through
+        // `percent_encoding::percent_decode`. Decoding the whole run at
+        // once preserves multi-byte UTF-8 sequences split across triplets.
         if bytes[i] == b'%'
             && i + 2 < bytes.len()
-            && let Some(ch) = decode_percent(bytes[i + 1], bytes[i + 2])
+            && is_valid_hex_pair(bytes[i + 1], bytes[i + 2])
         {
-            offset_map.push(i);
-            decoded.push(ch);
-            i += 3;
+            let mut end = i;
+            while end + 2 < bytes.len()
+                && bytes[end] == b'%'
+                && is_valid_hex_pair(bytes[end + 1], bytes[end + 2])
+            {
+                end += 3;
+            }
+
+            let triplets = &bytes[i..end];
+            let raw: Vec<u8> = percent_encoding::percent_decode(triplets).collect();
+
+            // Every triplet (3 input bytes) yields exactly one decoded
+            // output byte. Map each output byte back to the start of the
+            // triplet that produced it.
+            for (k, b) in raw.iter().enumerate() {
+                offset_map.push(i + k * 3);
+                decoded.push(*b);
+            }
+            i = end;
             changed = true;
             continue;
         }
+
         if bytes[i] == b'&'
             && let Some((ch, len)) = decode_html_entity(&bytes[i..])
         {
@@ -151,11 +173,13 @@ pub(crate) fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> 
         return None;
     }
 
-    // SAFETY: We only replace ASCII-encoded sequences (%XX, &#DD;, &name;) with
-    // single ASCII bytes (0x20..=0x7E), strip complete 3-byte zero-width
-    // codepoints (E2 80 8B/8C/8D), and copy all other bytes verbatim from
-    // valid UTF-8 input. The result is always valid UTF-8.
-    Some((unsafe { String::from_utf8_unchecked(decoded) }, offset_map))
+    // The decoded byte sequence may be invalid UTF-8 if the input contained
+    // a malformed percent run (e.g. `%C3X` — UTF-8 lead byte without its
+    // continuation). Use the safe `from_utf8` path; if validation fails,
+    // treat the input as un-normalisable so the original (still-valid
+    // UTF-8) string is scanned instead.
+    let decoded = String::from_utf8(decoded).ok()?;
+    Some((decoded, offset_map))
 }
 
 #[cfg(test)]
@@ -196,6 +220,39 @@ mod tests {
         assert_eq!(map[0], 0); // 'a'
         assert_eq!(map[1], 1); // '%40' starts at 1
         assert_eq!(map[2], 4); // 'b' at 4
+    }
+
+    #[test]
+    fn decodes_multibyte_utf8_percent_encoding() {
+        // `é` = U+00E9 = UTF-8 0xC3 0xA9 = `%C3%A9`. The decoder must
+        // recover the multi-byte sequence so keyword detectors see the
+        // accent.
+        let (s, map) = decode_for_detection("%C3%A9").unwrap();
+        assert_eq!(s, "é");
+        // Two output bytes (0xC3, 0xA9), each mapped back to the start of
+        // its triplet.
+        assert_eq!(map[0], 0);
+        assert_eq!(map[1], 3);
+        assert_eq!(map[2], 6); // sentinel
+    }
+
+    #[test]
+    fn decodes_french_keyword_run() {
+        // The Matomo bulk wire format URL-encodes the whole action name,
+        // so the `é` in `carte d'identité` arrives as `%C3%A9`.
+        let (s, _) = decode_for_detection(
+            "action_name=carte%20d%27identit%C3%A9%3A%20123456789012",
+        )
+        .unwrap();
+        assert!(s.contains("carte d'identité: 123456789012"));
+    }
+
+    #[test]
+    fn rejects_malformed_utf8_percent_sequence() {
+        // `%C3` is a UTF-8 lead byte expecting a continuation in 0x80..=0xBF;
+        // `X` is not a valid continuation. The decoder must fall back to
+        // returning None rather than producing an invalid UTF-8 String.
+        assert!(decode_for_detection("%C3X").is_none());
     }
 
     #[test]
