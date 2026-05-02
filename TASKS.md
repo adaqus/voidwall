@@ -185,6 +185,11 @@ Decisions applied:
 - [x] Metrics always incremented when PII detected (no warn action needed)
 - [x] `on_error` fail-open and fail-close paths
 - [x] Oversized body handling
+- [x] GA4 (Google Analytics 4) traffic shapes — full PiiKind sweep against
+  `/mp/collect` JSON event params; field-shape coverage of integrator-error-prone
+  fields (`dl`, `dt`, `dr`, `uid`, `ep.*`, `up.*`, `user_data`, `items`,
+  `exception.description`, `link_url`, `form_destination`, batch endpoint,
+  URL-path PII, GET-form leaks, password-reset URLs, referrer chains)
 
 ---
 

@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use axum::Router;
 use axum::extract::Request;
@@ -161,6 +161,13 @@ struct TestProxy {
     _scanner: Arc<ScannerPool>,
 }
 
+/// Single ScannerPool shared by every `start` test in this binary. Tests
+/// that need a custom `PiiConfig` (custom regex, country filter, …) call
+/// `start_with_pii` and build their own scanner; everything else reuses
+/// this one to avoid paying ~9 s of regex/hyperscan compilation per test.
+static SHARED_DEFAULT_SCANNER: LazyLock<Arc<ScannerPool>> =
+    LazyLock::new(|| Arc::new(ScannerPool::new(&default_pii_config()).unwrap()));
+
 impl TestProxy {
     async fn start(
         upstream_addr: SocketAddr,
@@ -169,13 +176,14 @@ impl TestProxy {
         response_dir: DirectionConfig,
         scan: ScanConfig,
     ) -> Self {
-        Self::start_with_pii(
+        Self::start_inner(
             upstream_addr,
             routes,
             request_dir,
             response_dir,
             scan,
             default_pii_config(),
+            SHARED_DEFAULT_SCANNER.clone(),
         )
         .await
     }
@@ -189,7 +197,27 @@ impl TestProxy {
         pii_config: PiiConfig,
     ) -> Self {
         let scanner = Arc::new(ScannerPool::new(&pii_config).unwrap());
+        Self::start_inner(
+            upstream_addr,
+            routes,
+            request_dir,
+            response_dir,
+            scan,
+            pii_config,
+            scanner,
+        )
+        .await
+    }
 
+    async fn start_inner(
+        upstream_addr: SocketAddr,
+        routes: Vec<(&str, &str)>,
+        request_dir: DirectionConfig,
+        response_dir: DirectionConfig,
+        scan: ScanConfig,
+        pii_config: PiiConfig,
+        scanner: Arc<ScannerPool>,
+    ) -> Self {
         let proxy_routes: Vec<Route> = routes
             .into_iter()
             .map(|(prefix, upstream_path)| Route {
