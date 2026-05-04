@@ -127,9 +127,7 @@ pub(crate) fn decode_for_detection(input: &str) -> Option<(String, Vec<usize>)> 
         // Percent-decode a maximal run of `%XX` triplets and pass it through
         // `percent_encoding::percent_decode`. Decoding the whole run at
         // once preserves multi-byte UTF-8 sequences split across triplets.
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && is_valid_hex_pair(bytes[i + 1], bytes[i + 2])
+        if bytes[i] == b'%' && i + 2 < bytes.len() && is_valid_hex_pair(bytes[i + 1], bytes[i + 2])
         {
             let mut end = i;
             while end + 2 < bytes.len()
@@ -240,10 +238,9 @@ mod tests {
     fn decodes_french_keyword_run() {
         // The Matomo bulk wire format URL-encodes the whole action name,
         // so the `é` in `carte d'identité` arrives as `%C3%A9`.
-        let (s, _) = decode_for_detection(
-            "action_name=carte%20d%27identit%C3%A9%3A%20123456789012",
-        )
-        .unwrap();
+        let (s, _) =
+            decode_for_detection("action_name=carte%20d%27identit%C3%A9%3A%20123456789012")
+                .unwrap();
         assert!(s.contains("carte d'identité: 123456789012"));
     }
 
