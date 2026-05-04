@@ -219,26 +219,26 @@ Setup and infrastructure per `docs/load-testing.md`.
 ## Phase 7 — Structured Body Scanning
 
 ### 7.1 pii crate: structured scanning API
-- [ ] Define `ContextFragment` struct in `pii/src/lib.rs`:
+- [x] Define `ContextFragment` struct in `pii/src/lib.rs`:
   - `context: &str` — key path (e.g., `user.phone_number`, `phones[0]`)
   - `value: &str` — the text content to scan
   - `offset: usize` — byte offset of `value` in the original document
-- [ ] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
+- [x] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
   to `Detector` trait with default no-op returning empty `Vec`
-- [ ] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
+- [x] Add `mark_piis_structured(&self, fragments: &[ContextFragment]) -> Vec<PiiMatch>`
   to `Scanner` that delegates to all detectors via `flat_map`
-- [ ] Unit tests: `Scanner::mark_piis_structured` with empty fragments returns empty
+- [x] Unit tests: `Scanner::mark_piis_structured` with empty fragments returns empty
 
 ### 7.2 pii crate: HyperscanDetector structured support
-- [ ] Override `mark_piis_structured` in `HyperscanDetector`:
+- [x] Override `mark_piis_structured` in `HyperscanDetector`:
   - For each fragment, call `mark_piis` on `fragment.value`
   - Offset-adjust each `PiiMatch` by adding `fragment.offset`
   - Collect and return all matches
-- [ ] Unit tests: email/SSN/IBAN detected in fragment values with correct
+- [x] Unit tests: email/SSN/IBAN detected in fragment values with correct
   document-absolute offsets
 
 ### 7.3 pii crate: KeywordContextDetector structured support
-- [ ] Override `mark_piis_structured` in `KeywordContextDetector`:
+- [x] Override `mark_piis_structured` in `KeywordContextDetector`:
   - For each fragment, iterate over path prefixes from the full path down
     to a single segment, synthesizing `"{prefix}: {value}"` each time:
     - iter 1: `a.b.c: value` (exposes `c` next to `:`)
@@ -253,7 +253,7 @@ Setup and infrastructure per `docs/load-testing.md`.
     fall back to per-segment synthesis (`"{segment}: {value}"` for each
     segment in isolation)
   - Strip array-index segments (`[0]`) from path before iterating
-- [ ] Unit tests:
+- [x] Unit tests:
   - `phone_number` context + phone value → detected with correct offset
     (resolves on iter 1)
   - `user.phone_number` nested context + phone value → detected on iter 1
@@ -273,15 +273,15 @@ Setup and infrastructure per `docs/load-testing.md`.
     per-segment fallback still detects leaf-segment keyword
 
 ### 7.4 Proxy: JSON body flattener
-- [ ] Add `serde_json` dependency to proxy `Cargo.toml`
-- [ ] Implement JSON flattener in proxy's `scanner.rs` (or a new `body_parser.rs`):
+- [x] Add `serde_json` dependency to proxy `Cargo.toml`
+- [x] Implement JSON flattener in proxy's `scanner.rs` (or a new `body_parser.rs`):
   - `fn flatten_json(raw: &[u8]) -> Result<Vec<OwnedContextFragment>, Error>`
   - Recursively walk JSON tree using `serde_json::Value` or streaming parser
   - Produce fragments for string values only (skip numbers, booleans, nulls)
   - Context: dot-separated key path with `[index]` for array elements
   - Offset: byte position of the value content (inside quotes) in the raw JSON
   - `OwnedContextFragment` struct: `context: String`, `value: String`, `offset: usize`
-- [ ] Unit tests:
+- [x] Unit tests:
   - Flat object: `{"phone": "555-1234"}` → one fragment, correct offset
   - Nested object: `{"a": {"b": "val"}}` → context `a.b`, correct offset
   - Array: `{"x": ["a", "b"]}` → `x[0]`, `x[1]` with correct offsets
@@ -546,3 +546,58 @@ regex patterns in `[[pii.custom]]` can fail compilation.
   *(GitHub Actions example skipped per operator request)*
 - [ ] Note the flag in README / quick-start once one exists
   *(deferred — no README yet)*
+
+---
+
+## Phase 15 — Plural Keyword Forms (pii crate)
+
+Discovered while implementing Phase 7: `KeywordContextDetector` patterns list
+singular keywords only (e.g. `phone_number`, `tax_file_number`). Plural forms
+like `phone_numbers`, `tax_file_numbers`, `passports` are not detected because
+the trailing `s` sits between the keyword and the separator class
+(`[\s:.#/\-"=,\]\\]`), and `s` is not in that class. This affects both flat
+scanning and structured scanning — the structured wrapper inherits the
+limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
+`passport_numbers` arrays). Applies to all language sets in the detector
+(`Language::En`, `Fr`, `De`), not just English.
+
+### 15.1 Pattern updates
+- [ ] Audit each value-bearing keyword in
+  `pii/src/keyword_context_detector.rs` across **every** `Language::*` block
+  and add optional plural suffix where natural. Suffix shape is
+  language-specific:
+  - **English**: typically `s?`, occasionally `(?:s|es)?`
+    (e.g. `phone_number s?`, `passport (?:s|es)?`)
+  - **French**: typically `s?` (e.g. `numéro_de_téléphone s?`,
+    `passeport s?`); use `(?:s|x)?` only for the rare `-x` plurals
+  - **German**: varies by word — `Nummer` → `Nummern` (`(?:n)?`),
+    `Telefon` → `Telefone` (`e?`), compounds usually pluralize on the
+    final element. Add suffixes per-keyword rather than blanket `s?`
+- [ ] Verify additions do not introduce false positives — suffix groups
+  must admit only the legitimate plural ending, not arbitrary letters
+  (so `phoned`, `phoning`, `Telefonate` still must not match)
+- [ ] Unit tests per language: plural form of each affected keyword
+  detected with correct value span. Cover at least one keyword per
+  language: e.g. `phone_numbers: 555-123-4567` (En),
+  `numéros_de_téléphone: …` (Fr), `Telefonnummern: …` (De)
+- [ ] Regression: existing singular-form `#[test_case]` rows still pass
+  in every language block
+- [ ] Structured-scan smoke test in `keyword_context_detector.rs`: a
+  `phone_numbers[0]` context fragment + phone value resolves on iter 1
+  (English path); analogous tests for at least one Fr and one De keyword
+
+### 15.2 Author guidance
+- [ ] Extend `pii/CLAUDE.md` with a "Adding keyword-context patterns"
+  section codifying the rules so future patterns don't repeat the bug:
+  - Plural forms are **mandatory** for every value-bearing keyword,
+    per language (En `s?` / `(?:s|es)?`, Fr `s?` / `(?:s|x)?`,
+    German per-keyword as in 15.1)
+  - Reminder that the keyword/value separator class is
+    `[\s:.#/\-"=,\]\\]` and `*?` (lazy zero-or-more) — anything outside
+    that class between keyword and value blocks the match (incl. letters
+    like `s`, `_`)
+  - Each new pattern must ship with `#[test_case]` rows for: singular,
+    plural, camelCase, snake_case, kebab-case, and the JSON
+    `"key":"value"` shape
+  - Country/language tagging must match the kind's `applicable_countries()`
+    so country filters work correctly

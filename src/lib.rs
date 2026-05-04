@@ -7,5 +7,6 @@ pub mod forward_proxy;
 pub mod metrics;
 pub mod reverse_proxy;
 pub mod scanner;
+pub mod structured;
 pub mod tls;
 pub mod validate;
