@@ -291,15 +291,15 @@ Setup and infrastructure per `docs/load-testing.md`.
   - Invalid JSON → error
 
 ### 7.5 Proxy: CSV/TSV body parser
-- [ ] Add `csv` crate dependency to proxy `Cargo.toml`
-- [ ] Implement CSV/TSV parser in proxy's `scanner.rs` (or `body_parser.rs`):
-  - `fn parse_csv(raw: &[u8], delimiter: u8) -> Result<Option<Vec<OwnedContextFragment>>, Error>`
+- [x] Add `csv` crate dependency to proxy `Cargo.toml`
+- [x] Implement CSV/TSV parser in proxy's `scanner.rs` (or `body_parser.rs`):
+  - `fn flatten_csv(raw: &[u8], delimiter: u8) -> Result<Option<Vec<OwnedContextFragment>>, Error>`
   - Returns `None` when no header row is detected (fallback to flat text)
   - Header detection heuristic: first row is treated as headers if it contains
     at least one non-numeric field
   - Context: `column_name[row_index]` (0-based row index, excluding header)
   - Offset: byte position of cell content in the raw body
-- [ ] Unit tests:
+- [x] Unit tests:
   - Basic CSV: headers + data rows → fragments with correct contexts and offsets
   - TSV: tab delimiter works identically
   - No headers detected → returns `None`

@@ -23,6 +23,7 @@ rcgen = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 toml = "0.8"
+csv = "1"
 
 # Metrics
 prometheus = "0.13"

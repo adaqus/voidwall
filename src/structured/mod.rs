@@ -9,9 +9,10 @@
 //!
 //! Submodules:
 //! - [`json`] — `application/json` flattener
-//! - (future) `csv` — `text/csv` and `text/tab-separated-values` parser
+//! - [`csv`] — `text/csv` and `text/tab-separated-values` parser
 //! - (future) per-format dispatch keyed off Content-Type
 
+pub mod csv;
 pub mod json;
 
 /// One context/value/offset triple emitted by a structured-body parser. Owned
