@@ -4,7 +4,7 @@ use crate::detector::Detector;
 use crate::hyperscan_detector::HyperscanDetector;
 use crate::keyword_context_detector::KeywordContextDetector;
 use crate::user_detector::{UserDetector, UserPiiDefinition};
-use crate::{Country, Language, PiiError, PiiKind, PiiMatch};
+use crate::{ContextFragment, Country, Language, PiiError, PiiKind, PiiMatch};
 
 pub struct Scanner {
     detectors: Vec<Box<dyn Detector + Send + Sync>>,
@@ -46,6 +46,16 @@ impl Scanner {
         self.detectors
             .iter()
             .flat_map(|d| d.mark_piis(input))
+            .collect()
+    }
+
+    /// Scans pre-parsed context/value fragments (e.g. JSON keys + values, or
+    /// CSV columns + cells). Returned match offsets are document-absolute,
+    /// using each fragment's `offset` field.
+    pub fn mark_piis_structured(&self, fragments: &[ContextFragment<'_>]) -> Vec<PiiMatch> {
+        self.detectors
+            .iter()
+            .flat_map(|d| d.mark_piis_structured(fragments))
             .collect()
     }
 }
@@ -274,6 +284,13 @@ mod tests {
         let matches = scanner.mark_piis(input);
         assert_eq!(matches.len(), 1);
         assert_eq!(&input[matches[0].start..matches[0].end], "user@test.com");
+    }
+
+    #[test]
+    fn mark_piis_structured_empty_returns_empty() {
+        let scanner = &*SCANNER;
+        let matches = scanner.mark_piis_structured(&[]);
+        assert!(matches.is_empty());
     }
 
     #[test]

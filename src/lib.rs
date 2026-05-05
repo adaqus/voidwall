@@ -544,6 +544,20 @@ pub struct PiiMatch {
     pub user_label: Option<Arc<str>>,
 }
 
+/// A piece of structured input passed to `mark_piis_structured`.
+///
+/// `context` is the key path the value lives under (e.g. `user.phone_number`,
+/// `phones[0]`, or a CSV column name). `value` is the raw text to scan.
+/// `offset` is the byte position of `value` in the original document; returned
+/// `PiiMatch` spans are document-absolute, so callers can use them directly
+/// against the original bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct ContextFragment<'a> {
+    pub context: &'a str,
+    pub value: &'a str,
+    pub offset: usize,
+}
+
 impl PiiMatch {
     /// Returns the label for this match — the user-supplied label for
     /// `PiiKind::Custom`, otherwise the built-in label from `kind`.

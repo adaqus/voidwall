@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use regex::Regex;
 use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
@@ -18,12 +19,16 @@ use crate::validators::{
     siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
     us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
-use crate::{PiiError, PiiKind, PiiMatch};
+use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
 thread_local! {
     static KW_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
         = const { RefCell::new(None) };
 }
+
+/// Matches `[<digits>]` array-index segments like `[0]`, `[42]` so they can
+/// be stripped from a structured-scan key path before iterating prefixes.
+static ARRAY_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[\d+\]").unwrap());
 
 struct KeywordPattern {
     kind: PiiKind,
@@ -823,6 +828,79 @@ impl Detector for KeywordContextDetector {
                 .collect(),
             None => self.mark_piis_on(input),
         }
+    }
+
+    fn mark_piis_structured(&self, fragments: &[ContextFragment<'_>]) -> Vec<PiiMatch> {
+        let mut results = Vec::new();
+        for f in fragments {
+            let stripped: String = ARRAY_INDEX_RE.replace_all(f.context, "").into_owned();
+            let segments: Vec<&str> = stripped.split('.').filter(|s| !s.is_empty()).collect();
+            if segments.is_empty() {
+                continue;
+            }
+
+            // URL-decode and zero-width-strip the value so that encoded
+            // separators (e.g. `phone%3A%20...`) and obfuscated payloads are
+            // detected here too, just as `mark_piis` already handles them in
+            // the flat scan path. `decode_for_detection` returns the offset
+            // map so we can translate match offsets back to the original
+            // value bytes; if it returns `None`, the value is unchanged and
+            // offsets pass through directly.
+            let decoded = decode_for_detection(f.value);
+            let (scan_value, offset_map): (&str, Option<&Vec<usize>>) = match &decoded {
+                Some((s, m)) => (s.as_str(), Some(m)),
+                None => (f.value, None),
+            };
+
+            // Iterate from the full path down to the first segment, exposing
+            // a different segment adjacent to the synthesized `:` each time.
+            // If the full prefix is too long for the keyword detector's
+            // lookback window, fall back to per-segment synthesis so each
+            // segment still gets exposed individually.
+            let full_prefix = segments.join(".");
+            let prefixes: Vec<String> = if full_prefix.len() > Self::MATCH_LOOKBACK {
+                segments.iter().map(|s| (*s).to_string()).collect()
+            } else {
+                (1..=segments.len())
+                    .rev()
+                    .map(|n| segments[..n].join("."))
+                    .collect()
+            };
+
+            for prefix in &prefixes {
+                let value_start = prefix.len() + 2; // "{prefix}: "
+                let value_end = value_start + scan_value.len();
+                let synthetic = format!("{prefix}: {scan_value}");
+
+                let mut found = false;
+                for m in self.mark_piis_on(&synthetic) {
+                    if m.start >= value_start && m.end <= value_end {
+                        // Offsets within `scan_value` (the decoded form).
+                        let v_start = m.start - value_start;
+                        let v_end = m.end - value_start;
+                        // Map back to original value bytes when we decoded.
+                        let (orig_start, orig_end) = match offset_map {
+                            Some(map) => (map[v_start], map[v_end]),
+                            None => (v_start, v_end),
+                        };
+                        results.push(PiiMatch {
+                            kind: m.kind,
+                            start: orig_start + f.offset,
+                            end: orig_end + f.offset,
+                            user_label: m.user_label,
+                        });
+                        found = true;
+                    }
+                }
+                // Every iteration maps a value-region match to the same
+                // document-absolute span, so the first hit wins; dedup is
+                // implicit.
+                if found {
+                    break;
+                }
+            }
+        }
+        results
     }
 }
 
@@ -2117,5 +2195,187 @@ mod tests {
             !detector.has_piis(input),
             "should not detect PII with invalid encoding: {input}"
         );
+    }
+
+    // --- mark_piis_structured ---
+
+    const PHONE: &str = "555-123-4567";
+
+    fn phone_frag<'a>(context: &'a str, offset: usize) -> ContextFragment<'a> {
+        ContextFragment {
+            context,
+            value: PHONE,
+            offset,
+        }
+    }
+
+    #[test_case("phone_number" ; "leaf keyword (iter 1)")]
+    #[test_case("user.phone_number" ; "leaf keyword nested (iter 1)")]
+    #[test_case("phone_number.primary" ; "keyword at head (iter 2)")]
+    #[test_case("user.phone_number.value" ; "keyword in middle (iter 2)")]
+    fn structured_detects_phone_in_path(context: &str) {
+        let detector = &*DETECTOR;
+        let frags = [phone_frag(context, 0)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for context {context:?}, got {matches:?}"
+        );
+        assert_eq!(matches[0].kind, PiiKind::UsPhoneNumber);
+        // Span covers the value, document-absolute (offset = 0 here).
+        assert_eq!(&PHONE[matches[0].start..matches[0].end], PHONE);
+    }
+
+    #[test]
+    fn structured_no_keyword_no_match_for_keyword_kind() {
+        let detector = &*DETECTOR;
+        let frags = [phone_frag("unknown_field", 0)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.is_empty(),
+            "expected no keyword-context match for unknown_field, got {matches:?}"
+        );
+    }
+
+    #[test]
+    fn structured_pattern_only_kind_is_noop() {
+        // Email is detected by HyperscanDetector (pattern-only). The
+        // keyword-context iteration runs but records nothing because no
+        // keyword-context email pattern exists in this detector.
+        let detector = &*DETECTOR;
+        let frags = [ContextFragment {
+            context: "email.work",
+            value: "user@example.com",
+            offset: 0,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.is_empty(),
+            "KeywordContextDetector should not match email; got {matches:?}"
+        );
+    }
+
+    #[test]
+    fn structured_multiple_fragments_different_kinds() {
+        let detector = &*DETECTOR;
+        let frags = [
+            ContextFragment {
+                context: "phone_number",
+                value: PHONE,
+                offset: 0,
+            },
+            ContextFragment {
+                context: "passport_number",
+                value: "A12345678",
+                offset: 100,
+            },
+        ];
+        let matches = detector.mark_piis_structured(&frags);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::UsPhoneNumber));
+        assert!(
+            kinds.contains(&PiiKind::PassportNumber) || kinds.contains(&PiiKind::UsPassportNew),
+            "expected a passport kind in {kinds:?}",
+        );
+    }
+
+    #[test]
+    fn structured_offsets_are_document_absolute() {
+        let detector = &*DETECTOR;
+        let offset = 137;
+        let frags = [phone_frag("user.phone_number", offset)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].start, offset);
+        assert_eq!(matches[0].end, offset + PHONE.len());
+    }
+
+    /// Encoded keyword/value separators inside a fragment value (e.g. a URL
+    /// query parameter where `phone%3A%20` is used between keyword and digits)
+    /// must still be detected. The structured path decodes the value before
+    /// running the keyword regex and remaps offsets back to the original
+    /// (encoded) bytes via the offset map.
+    #[test]
+    fn structured_detects_url_encoded_separator_in_value() {
+        let detector = &*DETECTOR;
+        // Value contains `phone%3A%205551234567` — `%3A%20` is URL-encoded
+        // ": ", which the keyword regex's separator class would otherwise miss.
+        let value = "https://app.example.com/p?phone=phone%3A%205551234567";
+        let frags = [ContextFragment {
+            context: "page_location",
+            value,
+            offset: 50,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.iter().any(|m| m.kind == PiiKind::UsPhoneNumber),
+            "expected phone match, got {matches:?}",
+        );
+        // Spans must point at the encoded digits in the original value, not
+        // into the decoded scratch string.
+        let phone = matches
+            .iter()
+            .find(|m| m.kind == PiiKind::UsPhoneNumber)
+            .unwrap();
+        let local_start = phone.start - 50;
+        let local_end = phone.end - 50;
+        assert_eq!(&value[local_start..local_end], "5551234567");
+    }
+
+    #[test]
+    fn structured_short_circuits_on_first_hit() {
+        // A nested path where iter 1 (`user.phone_number: V`) already matches —
+        // outer iterations should not produce duplicate results.
+        let detector = &*DETECTOR;
+        let frags = [phone_frag("user.phone_number", 50)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert_eq!(matches.len(), 1, "expected dedup via short-circuit");
+    }
+
+    #[test]
+    fn structured_strips_array_indices() {
+        // Path with array indices — they should be stripped before iterating.
+        // `users[0].phone_number` becomes `users.phone_number`.
+        let detector = &*DETECTOR;
+        let frags = [phone_frag("users[0].phone_number", 0)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PiiKind::UsPhoneNumber);
+    }
+
+    #[test]
+    fn structured_lookback_overflow_falls_back_per_segment() {
+        // Build a path whose joined length exceeds MATCH_LOOKBACK, with
+        // `phone_number` as the leaf segment. The path-prefix iteration
+        // would synthesize a string too long for the lookback window;
+        // per-segment fallback should still detect via the leaf segment alone.
+        let detector = &*DETECTOR;
+        let mut path = String::new();
+        while path.len() < KeywordContextDetector::MATCH_LOOKBACK + 16 {
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str("filler_segment");
+        }
+        path.push('.');
+        path.push_str("phone_number");
+        assert!(path.len() > KeywordContextDetector::MATCH_LOOKBACK);
+
+        let frags = [phone_frag(&path, 0)];
+        let matches = detector.mark_piis_structured(&frags);
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected leaf-segment keyword to match via per-segment fallback"
+        );
+        assert_eq!(matches[0].kind, PiiKind::UsPhoneNumber);
+    }
+
+    #[test]
+    fn structured_empty_fragments_returns_empty() {
+        let detector = &*DETECTOR;
+        let matches = detector.mark_piis_structured(&[]);
+        assert!(matches.is_empty());
     }
 }

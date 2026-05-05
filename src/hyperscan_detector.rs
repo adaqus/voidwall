@@ -7,7 +7,7 @@ use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::*;
-use crate::{PiiError, PiiKind, PiiMatch};
+use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
 thread_local! {
     static V_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
@@ -439,6 +439,18 @@ impl Detector for HyperscanDetector {
 
         results
     }
+
+    fn mark_piis_structured(&self, fragments: &[ContextFragment<'_>]) -> Vec<PiiMatch> {
+        let mut results = Vec::new();
+        for f in fragments {
+            for mut m in self.mark_piis(f.value) {
+                m.start += f.offset;
+                m.end += f.offset;
+                results.push(m);
+            }
+        }
+        results
+    }
 }
 
 #[cfg(test)]
@@ -728,5 +740,65 @@ mod tests {
                 });
             }
         });
+    }
+
+    // --- mark_piis_structured ---
+
+    #[test_case("user@example.com", PiiKind::Email ; "email")]
+    #[test_case("123-45-6789", PiiKind::UsSsn ; "us ssn")]
+    #[test_case("GB82 WEST 1234 5698 7654 32", PiiKind::Iban ; "iban")]
+    fn structured_detects_in_fragment_value(value: &str, kind: PiiKind) {
+        let detector = &*DETECTOR;
+        let frags = [ContextFragment {
+            context: "field",
+            value,
+            offset: 100,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.iter().any(|m| m.kind == kind),
+            "expected {kind:?} in {matches:?}"
+        );
+
+        // Offsets are document-absolute (value's offset added in).
+        let m = matches.iter().find(|m| m.kind == kind).unwrap();
+        assert_eq!(m.end - m.start, value.len());
+        assert!(m.start >= 100, "expected start >= 100, got {}", m.start);
+    }
+
+    #[test]
+    fn structured_offset_is_document_absolute() {
+        let detector = &*DETECTOR;
+        // Simulate: `{"a":"user@example.com"}` — value starts at byte 6 in the doc.
+        let frags = [ContextFragment {
+            context: "a",
+            value: "user@example.com",
+            offset: 6,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        let email = matches.iter().find(|m| m.kind == PiiKind::Email).unwrap();
+        assert_eq!(email.start, 6);
+        assert_eq!(email.end, 6 + "user@example.com".len());
+    }
+
+    #[test]
+    fn structured_collects_across_fragments() {
+        let detector = &*DETECTOR;
+        let frags = [
+            ContextFragment {
+                context: "a",
+                value: "user@example.com",
+                offset: 10,
+            },
+            ContextFragment {
+                context: "b",
+                value: "123-45-6789",
+                offset: 200,
+            },
+        ];
+        let matches = detector.mark_piis_structured(&frags);
+        let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PiiKind::Email));
+        assert!(kinds.contains(&PiiKind::UsSsn));
     }
 }
