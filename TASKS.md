@@ -308,11 +308,12 @@ Setup and infrastructure per `docs/load-testing.md`.
   - Single row (headers only, no data) → no fragments
 
 ### 7.6 Proxy: integrate structured scanning into pipeline
-- [ ] Define `BodyFormat` enum in proxy's `scanner.rs`:
+- [x] Define `BodyFormat` enum in proxy's `scanner.rs`:
   - `PlainText(Bytes)` — existing flat text path
   - `Structured { fragments: Vec<OwnedContextFragment>, raw: Bytes }`
-- [ ] Add content-type routing logic:
-  - `application/json` → JSON flattener → `Structured`
+- [x] Add content-type routing logic:
+  - `application/json` → JSON flattener → `Structured` (also covers
+    `text/json` and any RFC 6839 `application/*+json`)
   - `text/csv` → CSV parser (delimiter `,`) → `Structured` if headers detected,
     else `PlainText`
   - `text/tab-separated-values` → CSV parser (delimiter `\t`) → `Structured` if
@@ -320,14 +321,14 @@ Setup and infrastructure per `docs/load-testing.md`.
   - All other content types → `PlainText` (unchanged)
   - On parse failure: follow `on_error` policy (fail_open → `PlainText` fallback,
     fail_close → block)
-- [ ] Update `ScanRequest` to accept `BodyFormat` instead of `Option<Bytes>`
-- [ ] Update `execute_scan` to handle `Structured` variant:
+- [x] Update `ScanRequest` to accept `BodyFormat` instead of `Option<Bytes>`
+- [x] Update `execute_scan` to handle `Structured` variant:
   - Convert `OwnedContextFragment` to `pii::ContextFragment` (borrow)
   - Call `scanner.mark_piis_structured(&fragments)`
   - Redaction: apply matches to `raw` bytes using document-absolute offsets
-- [ ] Update `scan_and_act` / `scan_and_act_response` to construct `BodyFormat`
+- [x] Update `scan_and_act` / `scan_and_act_response` to construct `BodyFormat`
   based on content-type before building `ScanRequest`
-- [ ] Integration tests:
+- [x] Integration tests:
   - Nested JSON body with PII in deep key → detected and redacted correctly
   - CSV body with PII in data cells → detected via column-name context
   - TSV body → same as CSV with tab delimiter
@@ -336,6 +337,20 @@ Setup and infrastructure per `docs/load-testing.md`.
   - CSV without headers → falls back to flat text scanning
   - Redacted JSON output is valid JSON
   - Redacted CSV output preserves delimiter structure
+  - JSON keyword at the **head** of a path (`phone_number.primary`) →
+    detected on iteration 2 after dropping trailing segment
+  - JSON keyword in the **middle** of a path (`user.phone_number.value`) →
+    detected on iteration 2
+  - JSON keyword at head inside an array (`phone_number[0].primary`) →
+    array indices stripped, still resolves
+- [x] **Side fixes discovered during integration**:
+  - `KeywordContextDetector::mark_piis_structured` (pii crate): apply
+    `decode_for_detection` to each fragment value with offset remapping —
+    structured path now matches flat-path detection of URL-encoded /
+    HTML-encoded / zero-width-obfuscated separators
+  - `default_content_types()` (proxy `config.rs`): add `text/csv` and
+    `text/tab-separated-values` so the default config matches DESIGN.md
+    and exercises the new structured paths out of the box
 
 ---
 

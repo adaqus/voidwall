@@ -9,6 +9,9 @@ use tracing::{debug, error, info};
 
 use crate::config::{OnError, PiiConfig, RedactStrategy};
 use crate::error::Error;
+use crate::structured::OwnedContextFragment;
+use crate::structured::csv::flatten_csv;
+use crate::structured::json::flatten_json;
 
 // ---------------------------------------------------------------------------
 // Redaction strategy (previously in the pii crate)
@@ -27,9 +30,84 @@ pub enum RedactWith {
 // Scan request / result types
 // ---------------------------------------------------------------------------
 
+/// How a request/response body is represented before scanning.
+///
+/// `PlainText` is the historical flat-text path: the body bytes are scanned
+/// as a single UTF-8 string. `Structured` carries pre-parsed
+/// context/value/offset fragments (e.g. JSON keys + string values, CSV column
+/// headers + cells) along with the original raw bytes, so detection can use
+/// keyword context and redaction can rewrite the original body in-place at
+/// document-absolute offsets.
+pub enum BodyFormat {
+    PlainText(Bytes),
+    Structured {
+        fragments: Vec<OwnedContextFragment>,
+        raw: Bytes,
+    },
+}
+
+/// Convert raw body bytes into a `BodyFormat` based on Content-Type.
+///
+/// JSON is parsed into `Structured`; CSV/TSV degrade to `PlainText` when no
+/// header row is detected (per DESIGN.md). Unknown or non-structured content
+/// types map to `PlainText` unchanged. Parse failures (malformed JSON,
+/// unterminated quotes in CSV) propagate as `Err` — the caller decides
+/// whether to fall back via `on_error`.
+pub fn classify_body(raw: Bytes, content_type: &str) -> Result<BodyFormat, Error> {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_ascii_lowercase();
+    if is_json_media_type(&media_type) {
+        let fragments = flatten_json(&raw)?;
+        return Ok(BodyFormat::Structured { fragments, raw });
+    }
+    if is_csv_media_type(&media_type) {
+        return Ok(match flatten_csv(&raw, b',')? {
+            Some(fragments) => BodyFormat::Structured { fragments, raw },
+            None => BodyFormat::PlainText(raw),
+        });
+    }
+    if is_tsv_media_type(&media_type) {
+        return Ok(match flatten_csv(&raw, b'\t')? {
+            Some(fragments) => BodyFormat::Structured { fragments, raw },
+            None => BodyFormat::PlainText(raw),
+        });
+    }
+    Ok(BodyFormat::PlainText(raw))
+}
+
+/// True when `media_type` (already lowercased and parameter-stripped) names a
+/// JSON document. Covers `application/json`, the legacy `text/json`, and any
+/// `application/*+json` structured-suffix type per RFC 6839 (e.g.
+/// `application/ld+json`, `application/hal+json`, `application/problem+json`,
+/// `application/vnd.api+json`).
+fn is_json_media_type(media_type: &str) -> bool {
+    media_type == "application/json"
+        || media_type == "text/json"
+        || (media_type.starts_with("application/") && media_type.ends_with("+json"))
+}
+
+/// True when `media_type` names a CSV document. Covers the canonical
+/// `text/csv` (RFC 7111) plus the non-standard but widely seen
+/// `application/csv` and `text/x-csv`. Excludes `application/vnd.ms-excel`
+/// which is used both for CSV downloads and binary `.xls` and so cannot
+/// be dispatched to the CSV parser without misclassifying spreadsheets.
+fn is_csv_media_type(media_type: &str) -> bool {
+    matches!(media_type, "text/csv" | "application/csv" | "text/x-csv")
+}
+
+/// True when `media_type` names a TSV document. Covers IANA's
+/// `text/tab-separated-values` plus the non-standard short form `text/tsv`.
+fn is_tsv_media_type(media_type: &str) -> bool {
+    matches!(media_type, "text/tab-separated-values" | "text/tsv")
+}
+
 /// A request to scan (and optionally redact) text fragments.
 pub struct ScanRequest {
-    pub body: Option<Bytes>,
+    pub body: Option<BodyFormat>,
     pub path: Option<String>,
     pub query: Option<String>,
     pub headers: Option<Vec<(String, String)>>,
@@ -363,23 +441,60 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
     let mut redacted_headers = None;
 
     // Scan body
-    if let Some(ref body) = request.body
-        && let Ok(text) = std::str::from_utf8(body)
-    {
-        let mut matches = scanner.mark_piis(text);
-        matches_count += matches.len();
-        for m in &matches {
-            all_kinds.insert(m.label().to_string());
-        }
+    match request.body {
+        Some(BodyFormat::PlainText(ref body)) => {
+            if let Ok(text) = std::str::from_utf8(body) {
+                let mut matches = scanner.mark_piis(text);
+                matches_count += matches.len();
+                for m in &matches {
+                    all_kinds.insert(m.label().to_string());
+                }
 
-        if request.redact
-            && !matches.is_empty()
-            && let Some(ref strategy) = request.redact_strategy
-        {
-            let mut owned = text.to_string();
-            redact_in_place(&mut owned, &mut matches, strategy);
-            redacted_body = Some(Bytes::from(owned));
+                if request.redact
+                    && !matches.is_empty()
+                    && let Some(ref strategy) = request.redact_strategy
+                {
+                    let mut owned = text.to_string();
+                    redact_in_place(&mut owned, &mut matches, strategy);
+                    redacted_body = Some(Bytes::from(owned));
+                }
+            }
         }
+        Some(BodyFormat::Structured {
+            ref fragments,
+            ref raw,
+        }) => {
+            // Borrow owned fragments as the pii crate's ContextFragment view.
+            let borrowed: Vec<pii::ContextFragment<'_>> = fragments
+                .iter()
+                .map(|f| pii::ContextFragment {
+                    context: &f.context,
+                    value: &f.value,
+                    offset: f.offset,
+                })
+                .collect();
+
+            let mut matches = scanner.mark_piis_structured(&borrowed);
+            matches_count += matches.len();
+            for m in &matches {
+                all_kinds.insert(m.label().to_string());
+            }
+
+            // Redact against the document-absolute offsets in `raw`. The raw
+            // bytes must be UTF-8 here: JSON requires it, and CSV that
+            // flattened successfully had every cell validated as UTF-8 (the
+            // delimiter/newline bytes between cells are ASCII).
+            if request.redact
+                && !matches.is_empty()
+                && let Some(ref strategy) = request.redact_strategy
+                && let Ok(text) = std::str::from_utf8(raw)
+            {
+                let mut owned = text.to_string();
+                redact_in_place(&mut owned, &mut matches, strategy);
+                redacted_body = Some(Bytes::from(owned));
+            }
+        }
+        None => {}
     }
 
     // Scan URL
@@ -493,7 +608,7 @@ mod tests {
     async fn scan_no_pii() {
         let pool = make_pool();
         let req = ScanRequest {
-            body: Some(Bytes::from("hello world")),
+            body: Some(BodyFormat::PlainText(Bytes::from("hello world"))),
             path: None,
             query: None,
             headers: None,
@@ -511,7 +626,9 @@ mod tests {
     async fn scan_detects_email() {
         let pool = make_pool();
         let req = ScanRequest {
-            body: Some(Bytes::from("contact me at user@example.com please")),
+            body: Some(BodyFormat::PlainText(Bytes::from(
+                "contact me at user@example.com please",
+            ))),
             path: None,
             query: None,
             headers: None,
@@ -529,7 +646,9 @@ mod tests {
     async fn redact_body_type_label() {
         let pool = make_pool();
         let req = ScanRequest {
-            body: Some(Bytes::from("email: user@example.com")),
+            body: Some(BodyFormat::PlainText(Bytes::from(
+                "email: user@example.com",
+            ))),
             path: None,
             query: None,
             headers: None,
@@ -548,7 +667,9 @@ mod tests {
     async fn redact_body_char() {
         let pool = make_pool();
         let req = ScanRequest {
-            body: Some(Bytes::from("email: user@example.com")),
+            body: Some(BodyFormat::PlainText(Bytes::from(
+                "email: user@example.com",
+            ))),
             path: None,
             query: None,
             headers: None,
@@ -646,7 +767,7 @@ mod tests {
         let mut pool = make_pool();
         pool.shutdown();
         let req = ScanRequest {
-            body: Some(Bytes::from("test")),
+            body: Some(BodyFormat::PlainText(Bytes::from("test"))),
             path: None,
             query: None,
             headers: None,
@@ -732,7 +853,9 @@ mod tests {
         let pool = ScannerPool::new(&config).expect("pool should start");
 
         let req = ScanRequest {
-            body: Some(Bytes::from_static(b"emp EMP-123456 tag")),
+            body: Some(BodyFormat::PlainText(Bytes::from_static(
+                b"emp EMP-123456 tag",
+            ))),
             path: None,
             query: None,
             headers: None,
@@ -793,7 +916,9 @@ mod tests {
 
         for _ in 0..6 {
             let req = ScanRequest {
-                body: Some(Bytes::from("email: user@example.com")),
+                body: Some(BodyFormat::PlainText(Bytes::from(
+                    "email: user@example.com",
+                ))),
                 path: None,
                 query: None,
                 headers: None,
@@ -876,5 +1001,166 @@ mod tests {
         assert!(text.contains("[US_SSN]"));
         assert!(!text.contains("user%40test.com"));
         assert!(!text.contains("123-45-6789"));
+    }
+
+    // --- classify_body / is_json_media_type ---
+
+    #[test_case("application/json" ; "canonical")]
+    #[test_case("text/json" ; "legacy text json")]
+    #[test_case("application/ld+json" ; "linked data json")]
+    #[test_case("application/hal+json" ; "hal json")]
+    #[test_case("application/problem+json" ; "rfc 7807 problem json")]
+    #[test_case("application/vnd.api+json" ; "json api")]
+    fn json_media_types_classify_as_structured(media_type: &str) {
+        let raw = Bytes::from_static(br#"{"k": "v"}"#);
+        let bf = classify_body(raw, media_type).expect("classify ok");
+        assert!(matches!(bf, BodyFormat::Structured { .. }));
+    }
+
+    #[test_case("application/xml" ; "xml not json")]
+    #[test_case("application/jsonld" ; "no plus before json")]
+    #[test_case("application/problem+xml" ; "problem xml")]
+    fn non_json_media_types_dont_match_json(media_type: &str) {
+        // These must not be parsed as JSON. Body is invalid JSON to make
+        // misclassification observable: classify_body would return Err if it
+        // tried to flatten as JSON, but PlainText path swallows arbitrary bytes.
+        let raw = Bytes::from_static(b"not json");
+        let bf = classify_body(raw, media_type).expect("classify ok");
+        assert!(matches!(bf, BodyFormat::PlainText(_)));
+    }
+
+    #[test]
+    fn json_with_charset_parameter_classifies_as_structured() {
+        let raw = Bytes::from_static(br#"{"k": "v"}"#);
+        let bf = classify_body(raw, "application/json; charset=utf-8").unwrap();
+        assert!(matches!(bf, BodyFormat::Structured { .. }));
+    }
+
+    #[test]
+    fn json_uppercase_content_type_classifies_as_structured() {
+        let raw = Bytes::from_static(br#"{"k": "v"}"#);
+        let bf = classify_body(raw, "Application/JSON").unwrap();
+        assert!(matches!(bf, BodyFormat::Structured { .. }));
+    }
+
+    #[test]
+    fn invalid_json_returns_error() {
+        let raw = Bytes::from_static(b"{not json");
+        assert!(classify_body(raw, "application/json").is_err());
+    }
+
+    #[test_case("text/csv" ; "canonical")]
+    #[test_case("application/csv" ; "non standard application")]
+    #[test_case("text/x-csv" ; "x prefix")]
+    fn csv_media_types_with_headers_classify_as_structured(media_type: &str) {
+        let raw = Bytes::from_static(b"name,phone\nJohn,555-1234");
+        let bf = classify_body(raw, media_type).unwrap();
+        assert!(matches!(bf, BodyFormat::Structured { .. }));
+    }
+
+    #[test_case("application/vnd.ms-excel" ; "excel binary not csv")]
+    #[test_case("text/comma-separated-values" ; "legacy form not supported")]
+    fn non_csv_media_types_dont_match_csv(media_type: &str) {
+        // Even with a CSV-shaped payload, these must not route to the CSV
+        // parser — Excel can be binary, the legacy form is intentionally
+        // excluded.
+        let raw = Bytes::from_static(b"name,phone\nJohn,555-1234");
+        let bf = classify_body(raw, media_type).unwrap();
+        assert!(matches!(bf, BodyFormat::PlainText(_)));
+    }
+
+    #[test]
+    fn csv_without_headers_falls_back_to_plain_text() {
+        let raw = Bytes::from_static(b"123,456\n789,012");
+        let bf = classify_body(raw, "text/csv").unwrap();
+        assert!(matches!(bf, BodyFormat::PlainText(_)));
+    }
+
+    #[test_case("text/tab-separated-values" ; "canonical")]
+    #[test_case("text/tsv" ; "short form")]
+    fn tsv_media_types_with_headers_classify_as_structured(media_type: &str) {
+        let raw = Bytes::from_static(b"name\tphone\nJohn\t555-1234");
+        let bf = classify_body(raw, media_type).unwrap();
+        assert!(matches!(bf, BodyFormat::Structured { .. }));
+    }
+
+    #[test]
+    fn unknown_content_type_is_plain_text() {
+        let raw = Bytes::from_static(b"hello world");
+        let bf = classify_body(raw, "text/plain").unwrap();
+        assert!(matches!(bf, BodyFormat::PlainText(_)));
+    }
+
+    // --- execute_scan with BodyFormat::Structured ---
+
+    #[tokio::test]
+    async fn structured_body_detects_pii_via_keyword_context() {
+        let pool = make_pool();
+        // The flat-text body `{"phone_number":"555-123-4567"}` already detects
+        // via keyword context; this test instead asserts that the structured
+        // path is wired up — same input, but pre-flattened.
+        let raw = Bytes::from_static(br#"{"phone_number":"555-123-4567"}"#);
+        let bf = classify_body(raw, "application/json").unwrap();
+        let req = ScanRequest {
+            body: Some(bf),
+            path: None,
+            query: None,
+            headers: None,
+            redact: false,
+            redact_strategy: None,
+        };
+        let result = pool.process(req, OnError::FailOpen).await.unwrap();
+        assert!(result.detected, "expected phone detected, got {result:?}");
+        assert!(result.kinds.iter().any(|k| k == "US_PHONE_NUMBER"));
+    }
+
+    #[tokio::test]
+    async fn structured_body_redacts_in_place_preserving_json() {
+        let pool = make_pool();
+        let raw = Bytes::from_static(br#"{"phone_number":"555-123-4567"}"#);
+        let bf = classify_body(raw, "application/json").unwrap();
+        let req = ScanRequest {
+            body: Some(bf),
+            path: None,
+            query: None,
+            headers: None,
+            redact: true,
+            redact_strategy: Some(RedactWith::TypeLabel),
+        };
+        let result = pool.process(req, OnError::FailOpen).await.unwrap();
+        let body = result.redacted_body.expect("body should be redacted");
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(text.contains("[US_PHONE_NUMBER]"), "got: {text}");
+        assert!(!text.contains("555-123-4567"));
+        // Surrounding JSON structure must remain intact (quotes, braces, key).
+        assert!(text.starts_with(r#"{"phone_number":""#));
+        assert!(text.ends_with(r#""}"#));
+        // Re-parse to confirm valid JSON.
+        let v: serde_json::Value = serde_json::from_slice(&body).expect("redacted JSON valid");
+        assert_eq!(v["phone_number"], "[US_PHONE_NUMBER]");
+    }
+
+    #[tokio::test]
+    async fn structured_csv_body_detects_pii_via_column_context() {
+        let pool = make_pool();
+        let raw = Bytes::from_static(b"name,phone_number\nAda,555-123-4567");
+        let bf = classify_body(raw, "text/csv").unwrap();
+        let req = ScanRequest {
+            body: Some(bf),
+            path: None,
+            query: None,
+            headers: None,
+            redact: true,
+            redact_strategy: Some(RedactWith::TypeLabel),
+        };
+        let result = pool.process(req, OnError::FailOpen).await.unwrap();
+        assert!(result.detected);
+        assert!(result.kinds.iter().any(|k| k == "US_PHONE_NUMBER"));
+        let body = result.redacted_body.expect("body should be redacted");
+        let text = std::str::from_utf8(&body).unwrap();
+        // Header row and delimiter structure must be preserved.
+        assert!(text.starts_with("name,phone_number\nAda,"));
+        assert!(text.contains("[US_PHONE_NUMBER]"));
+        assert!(!text.contains("555-123-4567"));
     }
 }

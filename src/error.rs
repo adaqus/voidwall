@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn error_source() {
         use std::error::Error as StdError;
-        let io = Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "oops"));
+        let io = Error::Io(std::io::Error::other("oops"));
         assert!(io.source().is_some());
         assert!(Error::Config("bad".into()).source().is_none());
     }
@@ -179,7 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn into_response_io() {
-        let err = Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "reset"));
+        let err = Error::Io(std::io::Error::other("reset"));
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     }

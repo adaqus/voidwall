@@ -19,7 +19,7 @@ use crate::config::{AppConfig, OnError, ScanConfig};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::SCANNER_ERROR_LIMITER;
-use crate::scanner::{ScanRequest, ScannerPool};
+use crate::scanner::{BodyFormat, ScanRequest, ScannerPool, classify_body};
 
 // ---------------------------------------------------------------------------
 // Hop-by-hop headers to strip when proxying
@@ -420,7 +420,10 @@ async fn scan_and_act(
     headers: &HeaderMap,
     body: Option<&Bytes>,
 ) -> PipelineResult {
-    let scan_body = body.cloned();
+    let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
 
     // URL path and query are scanned separately (not merged into one string)
     // because: (1) each can be independently enabled via config, (2) redaction
@@ -479,7 +482,10 @@ async fn scan_and_act_response(
     headers: &HeaderMap,
     body: Option<&Bytes>,
 ) -> PipelineResult {
-    let scan_body = body.cloned();
+    let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
     let scan_headers = collect_scan_headers(scan_config, headers);
 
     if scan_body.is_none() && scan_headers.is_none() {
@@ -506,6 +512,43 @@ async fn scan_and_act_response(
     };
 
     pipeline_result_from_outcome(action::execute(scan_result, action_set, ctx))
+}
+
+/// Classify the body bytes into a `BodyFormat` based on Content-Type, applying
+/// the `on_error` policy on parse failure: `fail_open` falls back to plain text
+/// scanning, `fail_close` short-circuits with a `PipelineResult::Error` block
+/// response. Returns `Ok(None)` when there is no body to scan.
+///
+/// `Err` is boxed so the `Result` stays small on the stack; the error path
+/// only fires on parse failure under `fail_close`, so the heap allocation is
+/// off the hot path while the success path pays no extra size.
+fn classify_scan_body(
+    body: Option<&Bytes>,
+    headers: &HeaderMap,
+    on_error: OnError,
+) -> Result<Option<BodyFormat>, Box<PipelineResult>> {
+    let Some(bytes) = body else {
+        return Ok(None);
+    };
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    match classify_body(bytes.clone(), content_type) {
+        Ok(format) => Ok(Some(format)),
+        Err(_) => match on_error {
+            OnError::FailOpen => {
+                metrics::inc_error("passed", "body_parse_failed");
+                Ok(Some(BodyFormat::PlainText(bytes.clone())))
+            }
+            OnError::FailClose => {
+                metrics::inc_error("blocked", "body_parse_failed");
+                Err(Box::new(PipelineResult::Error(
+                    Error::Scanner("body parse failed".into()).into_response(),
+                )))
+            }
+        },
+    }
 }
 
 fn collect_scan_headers(

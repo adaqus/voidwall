@@ -153,6 +153,11 @@ fn default_content_types() -> Vec<String> {
         "text/plain".into(),
         "text/html".into(),
         "application/x-www-form-urlencoded".into(),
+        "text/csv".into(),
+        "application/csv".into(),
+        "text/x-csv".into(),
+        "text/tab-separated-values".into(),
+        "text/tsv".into(),
     ]
 }
 
@@ -1235,7 +1240,7 @@ redact_strategy = "char"
         assert!(scan.url_path);
         assert!(scan.query_params);
         assert!(scan.body);
-        assert_eq!(scan.content_types.len(), 4);
+        assert_eq!(scan.content_types.len(), 9);
         assert_eq!(scan.on_error, OnError::FailOpen);
     }
 
