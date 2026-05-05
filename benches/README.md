@@ -78,7 +78,7 @@ Long-running load test for observing CPU, memory, and other process metrics in G
 ```bash
 docker/ctl start                          # start proxy, echo, prometheus, grafana
 docker/ctl soak                           # 30min soak test with default settings
-DURATION=2h PII=true docker/ctl soak      # 2 hours with PII payloads
+DURATION=2h docker/ctl soak               # 2 hours with PII payloads
 ```
 
 The load pattern cycles through: ramp up → sustain → ramp down → idle, then repeats. Idle phases help reveal memory that isn't freed after load drops.
@@ -87,8 +87,6 @@ The load pattern cycles through: ramp up → sustain → ramp down → idle, the
 |------------|----------|-------------------------|
 | `DURATION` | `30m`    | Total test duration     |
 | `PEAK_VUS` | `100`    | Peak concurrency        |
-| `PAYLOAD`  | `medium` | small\|medium\|large    |
-| `PII`      | `false`  | Use PII payloads        |
 | `CYCLES`   | `1`      | Number of load cycles   |
 
 Open Grafana at `http://localhost:3000` to view the pre-provisioned "PII Proxy" dashboard with RSS, CPU, request rate, latency percentiles, and PII detection panels.
