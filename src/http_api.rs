@@ -103,17 +103,27 @@ pub async fn serve(
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, ToSchema)]
+#[schema(example = json!({
+    "detected": true,
+    "matches_count": 2,
+    "kinds": ["EMAIL", "US_SSN"],
+}))]
 struct ScanResponse {
     /// Whether any PII was detected in the body.
     detected: bool,
     /// Total number of PII matches.
     matches_count: usize,
     /// Distinct PII kinds detected (e.g. `EMAIL`, `US_SSN`). Operator-defined
-    /// custom labels surface here using their configured `label`.
+    /// custom labels surface here using their configured `label`. The full
+    /// list of built-in labels is appended to this description at
+    /// spec-generation time.
     kinds: Vec<String>,
 }
 
 #[derive(Serialize, ToSchema)]
+#[schema(example = json!({
+    "error": "malformed body for declared content type",
+}))]
 struct ErrorResponse {
     /// Human-readable error description. Never contains matched PII values.
     error: String,
@@ -221,7 +231,31 @@ fn build_openapi_spec() -> String {
     let mut value = serde_json::to_value(ApiDoc::openapi())
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
     expand_supported_content_types(&mut value);
+    inject_known_pii_kinds(&mut value);
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Append the full list of built-in PII kind labels to the description of
+/// `ScanResponse.kinds`, sourced from `pii::PiiKind::all()`. Doing this at
+/// spec-generation time keeps the documented set in sync with the upstream
+/// crate without duplicating the list at the annotation site. The `Custom`
+/// marker is filtered out because its user-facing label comes from operator
+/// config, not the enum.
+fn inject_known_pii_kinds(spec: &mut serde_json::Value) {
+    let labels_md = pii::PiiKind::all()
+        .iter()
+        .filter(|k| !matches!(k, pii::PiiKind::Custom))
+        .map(|k| format!("{}", k.label()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let pointer = "/components/schemas/ScanResponse/properties/kinds/description";
+    if let Some(desc) = spec.pointer_mut(pointer)
+        && let Some(s) = desc.as_str().map(str::to_owned)
+    {
+        let new_desc = format!("{s}\n\nBuilt-in labels: {labels_md}.");
+        *desc = serde_json::Value::String(new_desc);
+    }
 }
 
 /// Walk the spec's `/v1/scan` and `/v1/redact` POST operations and replace the
@@ -488,5 +522,30 @@ mod tests {
     #[test_case("APPLICATION/JSON", &["application/json".to_string()], true ; "case insensitive")]
     fn content_type_allowlist(ct: &str, allowed: &[String], expected: bool) {
         assert_eq!(is_content_type_allowed(ct, allowed), expected);
+    }
+
+    #[test]
+    fn openapi_spec_contains_examples_and_kind_labels() {
+        let spec: serde_json::Value = serde_json::from_str(&build_openapi_spec()).unwrap();
+
+        let scan_schema = &spec["components"]["schemas"]["ScanResponse"];
+        assert_eq!(scan_schema["example"]["detected"], true);
+        assert_eq!(scan_schema["example"]["matches_count"], 2);
+        assert_eq!(
+            scan_schema["example"]["kinds"],
+            serde_json::json!(["EMAIL", "US_SSN"])
+        );
+
+        let kinds_desc = scan_schema["properties"]["kinds"]["description"]
+            .as_str()
+            .unwrap();
+        assert!(kinds_desc.contains("Built-in labels:"));
+        assert!(kinds_desc.contains("`EMAIL`"));
+        assert!(kinds_desc.contains("`US_SSN`"));
+        // The `Custom` marker is filtered — its label comes from operator config.
+        assert!(!kinds_desc.contains("`CUSTOM`"));
+
+        let err_schema = &spec["components"]["schemas"]["ErrorResponse"];
+        assert!(err_schema["example"]["error"].is_string());
     }
 }
