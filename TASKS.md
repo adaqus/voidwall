@@ -67,7 +67,7 @@ Decisions applied:
   - `scanner_threads` >= 1
   - Reverse proxy: no overlapping `path_prefix`, valid upstream URLs
   - Reverse proxy: routes must not define `request`/`response` action overrides
-  - REST API: no `block`/`header` actions
+  - HTTP API: no `block`/`header` actions
 - [x] CLI parsing with `clap`: `--config` arg and `PII_PROXY_CONFIG` env fallback
 - [x] Unit tests for validation (valid config, each invalid case)
 
@@ -354,21 +354,75 @@ Setup and infrastructure per `docs/load-testing.md`.
 
 ---
 
-## Phase 8 — REST API Mode
+## Phase 8 — HTTP API Mode
 
-### 8.1 REST API endpoints
+### 8.1 HTTP API endpoints
+- [ ] Rename `RestApiConfig` → `HttpApiConfig`, TOML section
+  `[rest_api]` → `[http_api]`, and metrics `mode` label
+  `rest_api` → `http_api`. Update validation messages and existing tests
+  accordingly.
 - [ ] Implement `api.rs` axum router:
-  - `POST /v1/scan` — accept JSON `{ "text": "..." }`, scan via `ScannerPool`,
-    return `{ "detected": bool, "matches_count": N, "kinds": [...] }`
-  - `POST /v1/redact` — accept JSON `{ "text": "..." }`, scan+redact via
-    `ScannerPool`, return `{ "text": "...", "redacted_count": N, "kinds": [...] }`
-  - `GET /v1/health` — 200
-- [ ] Respect `max_body_size` / `on_error` for incoming requests
-- [ ] Increment `pii_proxy_requests_total` with `mode=rest_api`
-- [ ] Integration tests: scan detection, redaction, oversized body, health
+  - `POST /v1/scan` — read the raw request body, route by `Content-Type`
+    using the same `BodyFormat` content-type routing introduced in Phase 7
+    (text/plain → flat; application/json → JSON flatten; text/csv,
+    text/tab-separated-values → CSV/TSV parse with header detection).
+    Submit to `ScannerPool` and return JSON
+    `{ "detected": bool, "matches_count": N, "kinds": [...] }`.
+  - `POST /v1/redact` — same input handling as scan; return the body with
+    PII redacted in place. The response `Content-Type` mirrors the request.
+    Match metadata travels in headers: `X-PII-Detected: KIND1,KIND2`
+    (omitted when none) and `X-PII-Redacted-Count: N`.
+  - `GET /openapi.json` — serve the generated OpenAPI spec (see 8.2).
+- [ ] Reject `Content-Type` outside `scan.content_types` with `415`.
+- [ ] Reject bodies above `max_body_size` with `413`.
+- [ ] Reject malformed structured bodies (invalid JSON, malformed CSV) with
+  `400` regardless of `on_error` — the caller declared the content type, so
+  silently falling back to flat-text would mask their bug.
+- [ ] On scanner failure, follow `on_error`: `fail_open` returns the body
+  unredacted with `X-PII-Redacted-Count: 0`; `fail_close` returns `500`.
+  Either way increment `pii_proxy_errors_total` with the outcome.
+- [ ] Increment `pii_proxy_requests_total` with `mode=http_api`.
+- [ ] Integration tests:
+  - text/plain scan and redact
+  - application/json scan and redact (nested keys + arrays); redacted output
+    is valid JSON
+  - text/csv scan and redact; redacted output preserves delimiter structure
+  - text/tab-separated-values scan and redact
+  - oversized body → 413
+  - unsupported content type → 415
+  - malformed JSON → 400
+  - CSV without headers → flat-text fallback (matches proxy behaviour)
+  - response `Content-Type` mirrors request
+  - `X-PII-Detected` and `X-PII-Redacted-Count` headers populated correctly
+  - no PII present → `X-PII-Detected` omitted, `X-PII-Redacted-Count: 0`
 
-### 8.2 Performance benchmark
-- [ ] Benchmarks are added to benches
+### 8.2 OpenAPI generation
+- [ ] Add `utoipa` (or equivalent) dependency to `Cargo.toml`.
+- [ ] Annotate the `api.rs` request/response types and route handlers so
+  they appear in the generated spec. Document content-type routing,
+  response headers (`X-PII-Detected`, `X-PII-Redacted-Count`), and error
+  status codes.
+- [ ] Wire `GET /openapi.json` to return the generated spec served as
+  `application/json`.
+- [ ] Integration test: `GET /openapi.json` returns a 200 with valid JSON
+  containing both `/v1/scan` and `/v1/redact` paths and the documented
+  response headers. Use a snapshot of a stable subset rather than the full
+  spec to keep the test resistant to incidental ordering changes.
+
+### 8.3 Docker Compose docs service
+- [ ] Extend `docker/docker-compose.yml` with an `api-docs` service running
+  `swaggerapi/swagger-ui:latest`. Configure `SWAGGER_JSON_URL` to point at
+  the proxy's `/openapi.json` over the compose network. Map the UI to a
+  local port (`8088:8080` suggested). `depends_on: [proxy]`.
+- [ ] Update `docker/proxy.toml` (or add a sample alongside it) so
+  `[http_api]` is enabled and the listener is reachable on the compose
+  network.
+- [ ] Document the workflow in `docs/`: how to start the stack, where to
+  reach the docs, and that this service is for development/operator use,
+  not production.
+
+### 8.4 Performance benchmark
+- [ ] Benchmarks are added to benches.
 
 ---
 
@@ -398,7 +452,7 @@ Setup and infrastructure per `docs/load-testing.md`.
 Extend load testing from Phase 6 to cover all modes.
 
 ### 10.1 Additional scenarios
-- [ ] Mode comparison — reverse proxy vs forward proxy vs REST API
+- [ ] Mode comparison — reverse proxy vs forward proxy vs HTTP API
 - [ ] Soak test — 30 min at 80% max rate, monitor memory, file descriptors, p99 drift
 
 ---
@@ -416,7 +470,7 @@ Extend load testing from Phase 6 to cover all modes.
      - Admin server (always on)
      - Reverse proxy (if enabled)
      - Forward proxy (if enabled)
-     - REST API (if enabled)
+     - HTTP API (if enabled)
   7. Set readiness flag once all listeners are bound
   8. Await shutdown signal
 
@@ -487,10 +541,10 @@ See DESIGN.md § "User-Defined PII Definitions".
 - [x] Reverse proxy: `redact` with `type_label` → forwarded body contains
   `[USER_LABEL]`
 - [x] Reverse proxy: `header` action → `X-PII-Detected` includes user label
-- [ ] REST API `/v1/scan`: returns user label in `kinds` *(deferred — Phase 8
-  REST API mode not yet implemented)*
-- [ ] REST API `/v1/redact`: replaces matched value with `[USER_LABEL]`
-  *(deferred — Phase 8 REST API mode not yet implemented)*
+- [ ] HTTP API `/v1/scan`: returns user label in `kinds` *(deferred — Phase 8
+  HTTP API mode not yet implemented)*
+- [ ] HTTP API `/v1/redact`: replaces matched value with `[USER_LABEL]`
+  *(deferred — Phase 8 HTTP API mode not yet implemented)*
 - [x] Country filter: user entry with a country outside the scanner's
   enabled set is silently dropped (entry present in config, no match fires)
 - [x] Keyword-mode entry: value without the keyword is not matched; value

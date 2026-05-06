@@ -9,7 +9,7 @@ detected, regardless of action configuration.
 
 It is not an ingress controller. It may integrate with existing ingress controllers
 (NGINX, HAProxy, Envoy/Istio) and can also operate as a standalone reverse/forward
-proxy or a REST API microservice.
+proxy or an HTTP API microservice.
 
 ---
 
@@ -45,10 +45,12 @@ server. This gives the proxy full visibility into the request content.
 - Capabilities: **block, header, redact**
 - Use case: containers or services making outbound HTTP/HTTPS requests
 
-### 4. REST API Mode
+### 4. HTTP API Mode
 
 Internal microservice exposing PII scanning and redaction as HTTP endpoints. Other
-services in the cluster call it to check or sanitize text.
+services in the cluster call it to check or sanitize content. Accepts plain text,
+JSON, and CSV/TSV bodies; structured formats reuse the proxy's structured-scanning
+path so detection benefits from key-path / column-name context.
 
 - Capabilities: **scan (detect), redact**
 - Use case: application-level integration, pre-processing pipelines, batch scanning
@@ -62,7 +64,7 @@ services in the cluster call it to check or sanitize text.
   ┌─────────────────────────────────────────────────────────┐
   │                                                         │
   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-  │  │ Reverse Proxy │  │ Forward      │  │ REST API     │  │
+  │  │ Reverse Proxy │  │ Forward      │  │ HTTP API     │  │
   │  │ HTTP :8082    │  │ Proxy        │  │ HTTP :8083   │  │
   │  │               │  │ HTTP :8084   │  │              │  │
   │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
@@ -106,12 +108,12 @@ Configurable per mode. Not all targets apply to all modes. In reverse
 proxy and forward proxy modes, both requests and responses are scannable
 (controlled by `request_actions` and `response_actions`).
 
-| Scan target         | Reverse Proxy | Forward Proxy | REST API |
+| Scan target         | Reverse Proxy | Forward Proxy | HTTP API |
 |----------------------|:---:|:---:|:---:|
 | URL path             | request | request | n/a |
 | Query parameters     | request | request | n/a |
 | Request headers      | request | request | n/a |
-| Request body         | request | request | yes (text field) |
+| Request body         | request | request | yes (raw body) |
 | Response headers     | response | response | n/a |
 | Response body        | response | response | n/a |
 
@@ -351,7 +353,7 @@ It is applicable for:
 
 ### Action Applicability by Mode
 
-| Action     | Reverse Proxy (req) | Reverse Proxy (resp) | Forward Proxy (req) | Forward Proxy (resp) | REST API |
+| Action     | Reverse Proxy (req) | Reverse Proxy (resp) | Forward Proxy (req) | Forward Proxy (resp) | HTTP API |
 |------------|:---:|:---:|:---:|:---:|:---:|
 | **block**  | yes | yes | yes | yes | n/a |
 | **header** | yes | n/a | n/a | yes | n/a |
@@ -389,18 +391,51 @@ path was taken.
 
 ---
 
-## REST API Endpoints
+## HTTP API Endpoints
 
 ```
-POST /v1/scan     — detect PII, return matched PII kinds and match count
-POST /v1/redact   — detect and redact PII, return sanitized text
-GET  /v1/health   — health check (identical to admin /healthz)
-GET  /v1/config   — current scanner configuration (PII kinds, countries, languages)
+POST /v1/scan        — detect PII in the request body, return matched kinds and count
+POST /v1/redact      — detect and redact PII in the request body, return sanitized body
+GET  /openapi.json   — OpenAPI 3.x specification for the HTTP API
 ```
 
-### Response Design
+Health and readiness probes are served by the admin port (`/healthz`, `/readyz`)
+and are not duplicated here. There is no `/v1/config` endpoint — exposing scanner
+configuration on a potentially public surface is unnecessary and a low-value
+information leak.
 
-`/v1/scan` returns detected PII kinds and count, not positions:
+### Request Format
+
+The request body **is** the content to scan — no JSON envelope, no `text` field.
+The `Content-Type` header drives body parsing and reuses the same content-type
+routing as the proxy modes:
+
+| Content-Type | Scanning |
+|--------------|----------|
+| `text/plain` | flat text |
+| `application/json` | structured (recursive key-path flatten) |
+| `text/csv` | structured (header row + cells) |
+| `text/tab-separated-values` | structured (header row + cells) |
+
+The `[scan]` allowlist (`content_types`) and `max_body_size` apply identically
+to the API. CSV/TSV without a detectable header row falls back to flat text
+scanning, matching proxy-mode behaviour.
+
+| Status | When |
+|--------|------|
+| `400` | Body cannot be parsed as the declared `Content-Type` |
+| `413` | Body exceeds `max_body_size` |
+| `415` | `Content-Type` not in `scan.content_types` |
+| `500` | Scanner error and `on_error = "fail_close"` |
+
+Note: unlike proxy modes, a malformed structured body is always rejected with
+`400` regardless of `on_error`. The caller explicitly declared the content
+type, so silently falling back to flat-text would mask their bug.
+
+### `POST /v1/scan`
+
+Returns detected PII kinds and a match count. The original body is not echoed
+back. Response is always JSON:
 
 ```json
 {
@@ -410,15 +445,53 @@ GET  /v1/config   — current scanner configuration (PII kinds, countries, langu
 }
 ```
 
-`/v1/redact` returns sanitized text and match metadata:
+### `POST /v1/redact`
 
-```json
-{
-  "text": "Email me at [EMAIL], SSN [US_SSN]",
-  "redacted_count": 2,
-  "kinds": ["EMAIL", "US_SSN"]
-}
+Returns the body with PII redacted in place. The response `Content-Type`
+mirrors the request — JSON in stays valid JSON, CSV stays valid CSV, plain
+text stays plain text. Match metadata travels in response headers so the body
+retains its original format and is byte-comparable to the input save for the
+redacted spans:
+
+| Header | Description |
+|--------|-------------|
+| `X-PII-Detected` | Comma-separated kinds detected. Omitted when none detected. |
+| `X-PII-Redacted-Count` | Total redactions performed. `0` when none. |
+
+### Authentication
+
+The HTTP API does not provide built-in authentication. When exposed publicly,
+place it behind an authenticating gateway (ingress controller, API gateway,
+service mesh sidecar). Network-level isolation (NetworkPolicy on Kubernetes,
+Security Groups on AWS) is the default access control.
+
+### OpenAPI Specification
+
+The HTTP API surface is described by an OpenAPI 3.x specification generated
+from the axum route handlers and request/response types using `utoipa` (or
+equivalent). Generation happens at build time so the spec cannot drift from
+the implementation. The proxy serves the spec at `GET /openapi.json` on the
+HTTP API listener.
+
+Interactive documentation is provided by a Swagger UI service in the
+project's `docker/docker-compose.yml`. The service points at the proxy's
+`/openapi.json` and renders browseable docs (with "Try It Out") on a local
+port:
+
+```yaml
+services:
+  api-docs:
+    image: swaggerapi/swagger-ui:latest
+    ports:
+      - "8088:8080"
+    environment:
+      SWAGGER_JSON_URL: http://proxy:8083/openapi.json
+    depends_on:
+      - proxy
 ```
+
+The Swagger UI service is intended for local development and operator use,
+not for production deployment of the API itself.
 
 ---
 
@@ -585,8 +658,8 @@ redact_strategy = "type_label"
 cert_path = "/tls/tls.crt"
 key_path = "/tls/tls.key"
 
-# --- REST API mode ---
-[rest_api]
+# --- HTTP API mode ---
+[http_api]
 enabled = true
 listen = "0.0.0.0:8083"
 redact_strategy = "type_label"
@@ -608,7 +681,7 @@ error message if any rule is violated.
 
 | Rule | Description |
 |------|-------------|
-| At least one mode enabled | At least one of `reverse_proxy`, `forward_proxy`, `rest_api` must be enabled |
+| At least one mode enabled | At least one of `reverse_proxy`, `forward_proxy`, `http_api` must be enabled |
 | No port conflicts | All enabled listeners must bind to different `host:port` combinations |
 | PII scanner valid | `detect` and `ignore` are mutually exclusive (enforced by `pii` crate) |
 | Countries/PII kinds consistent | All PII kinds in `detect` must be reachable from specified countries (enforced by `pii` crate) |
@@ -622,7 +695,7 @@ error message if any rule is violated.
 
 | Rule | Description |
 |------|-------------|
-| REST API: no `block`/`header` | `block` and `header` actions have no meaning in REST API mode — it always returns scan/redact results |
+| HTTP API: no `block`/`header` | `block` and `header` actions have no meaning in HTTP API mode — it always returns scan/redact results |
 | `block` and `header` mutually exclusive | `block` and `header` cannot both appear in the same direction's action list |
 | `header` direction restriction | `header` is only valid in reverse proxy request actions and forward proxy response actions |
 | `redact` requires strategy | If `redact` is in actions, `redact_strategy` must be specified |
@@ -693,11 +766,11 @@ validation is the correct pair.
 
 ### Configuration by Mode — What Applies Where
 
-| Setting | Reverse Proxy | Forward Proxy | REST API | Admin |
+| Setting | Reverse Proxy | Forward Proxy | HTTP API | Admin |
 |---------|:---:|:---:|:---:|:---:|
 | `pii.*` | yes | yes | yes | n/a |
-| `scan.*` (defaults) | yes (overridable per route) | yes | body only | n/a |
-| `on_error` | yes | yes | yes | n/a |
+| `scan.*` (defaults) | yes (overridable per route) | yes | `content_types`, `max_body_size`, body only | n/a |
+| `on_error` | yes | yes | yes (scanner errors only — body parse failures always 400) | n/a |
 | `request.*` | yes (mode level only) | yes | n/a | n/a |
 | `response.*` | yes (mode level only) | yes | n/a | n/a |
 | `redact_strategy` | yes (in direction sub-tables) | yes (in direction sub-tables) | yes | n/a |
@@ -718,7 +791,7 @@ validation is the correct pair.
 | `pii_proxy_request_duration_seconds` | histogram | `mode`, `route` | Processing time |
 | `pii_proxy_errors_total` | counter | `outcome` (`passed`, `blocked`), `reason` | Scanner failures, body size exceeded, and other errors with fail-open/close outcome |
 
-The `mode` label is one of: `reverse_proxy`, `forward_proxy`, `rest_api`.
+The `mode` label is one of: `reverse_proxy`, `forward_proxy`, `http_api`.
 The `route` label is the path prefix for reverse proxy, or `global` for other modes.
 The `direction` label is `request` or `response`.
 
