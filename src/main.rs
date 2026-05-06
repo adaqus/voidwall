@@ -123,9 +123,17 @@ async fn run_server(config_path: std::path::PathBuf) {
         tracing::warn!("forward proxy mode is enabled but not yet implemented");
     }
 
-    // REST API (if enabled) — not yet implemented
-    if config.rest_api.enabled {
-        tracing::warn!("REST API mode is enabled but not yet implemented");
+    // HTTP API (if enabled)
+    if config.http_api.enabled {
+        let config = config.clone();
+        let scanner = Arc::clone(&scanner);
+        let cancel = cancel.clone();
+        task_handles.push(tokio::spawn(async move {
+            if let Err(e) = pii_proxy::http_api::serve(&config, scanner, cancel).await {
+                tracing::error!(error = %e, "HTTP API failed");
+            }
+        }));
+        tracing::info!("HTTP API task spawned");
     }
 
     // Set readiness flag once all listeners are bound

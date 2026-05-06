@@ -282,7 +282,7 @@ fn default_app_config() -> AppConfig {
         scan: ScanConfig::default(),
         reverse_proxy: ReverseProxyConfig::default(),
         forward_proxy: Default::default(),
-        rest_api: Default::default(),
+        http_api: Default::default(),
         admin: Default::default(),
         shutdown_timeout_secs: 30,
     }

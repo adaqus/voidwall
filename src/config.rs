@@ -46,7 +46,7 @@ pub struct AppConfig {
     pub forward_proxy: ForwardProxyConfig,
 
     #[serde(default)]
-    pub rest_api: RestApiConfig,
+    pub http_api: HttpApiConfig,
 
     #[serde(default)]
     pub admin: AdminConfig,
@@ -347,22 +347,22 @@ fn default_forward_proxy_response() -> DirectionConfig {
 }
 
 // ---------------------------------------------------------------------------
-// REST API
+// HTTP API
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Default, Clone)]
-pub struct RestApiConfig {
+pub struct HttpApiConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    #[serde(default = "default_rest_api_listen")]
+    #[serde(default = "default_http_api_listen")]
     pub listen: String,
 
     pub redact_strategy: Option<RedactStrategy>,
     pub mask_char: Option<char>,
 }
 
-fn default_rest_api_listen() -> String {
+fn default_http_api_listen() -> String {
     "0.0.0.0:8083".into()
 }
 
@@ -460,14 +460,14 @@ impl AppConfig {
         self.validate_custom_pii()?;
         self.validate_reverse_proxy()?;
         self.validate_forward_proxy()?;
-        self.validate_rest_api()?;
+        self.validate_http_api()?;
         Ok(())
     }
 
     fn validate_at_least_one_mode(&self) -> Result<(), Error> {
-        if !self.reverse_proxy.enabled && !self.forward_proxy.enabled && !self.rest_api.enabled {
+        if !self.reverse_proxy.enabled && !self.forward_proxy.enabled && !self.http_api.enabled {
             return Err(Error::Config(
-                "at least one mode must be enabled (reverse_proxy, forward_proxy, or rest_api)"
+                "at least one mode must be enabled (reverse_proxy, forward_proxy, or http_api)"
                     .into(),
             ));
         }
@@ -483,8 +483,8 @@ impl AppConfig {
         if self.forward_proxy.enabled {
             listeners.push(("forward_proxy", &self.forward_proxy.listen));
         }
-        if self.rest_api.enabled {
-            listeners.push(("rest_api", &self.rest_api.listen));
+        if self.http_api.enabled {
+            listeners.push(("http_api", &self.http_api.listen));
         }
 
         for i in 0..listeners.len() {
@@ -628,16 +628,16 @@ impl AppConfig {
         Ok(())
     }
 
-    fn validate_rest_api(&self) -> Result<(), Error> {
-        if !self.rest_api.enabled {
+    fn validate_http_api(&self) -> Result<(), Error> {
+        if !self.http_api.enabled {
             return Ok(());
         }
 
-        if let Some(RedactStrategy::Char) = self.rest_api.redact_strategy
-            && self.rest_api.mask_char.is_none()
+        if let Some(RedactStrategy::Char) = self.http_api.redact_strategy
+            && self.http_api.mask_char.is_none()
         {
             return Err(Error::Config(
-                "rest_api: char redact strategy requires mask_char".into(),
+                "http_api: char redact strategy requires mask_char".into(),
             ));
         }
         Ok(())
@@ -766,7 +766,7 @@ redact_strategy = "type_label"
 actions = ["redact", "header"]
 redact_strategy = "type_label"
 
-[rest_api]
+[http_api]
 enabled = true
 listen = "0.0.0.0:8083"
 "#;
@@ -1214,12 +1214,12 @@ upstream = "://broken"
     // --- Invalid: REST API char without mask ---
 
     #[test]
-    fn invalid_rest_api_char_without_mask() {
+    fn invalid_http_api_char_without_mask() {
         let toml = r#"
 [pii]
 countries = ["Us"]
 
-[rest_api]
+[http_api]
 enabled = true
 listen = "0.0.0.0:8083"
 redact_strategy = "char"
@@ -1392,7 +1392,7 @@ redact_strategy = "type_label"
 actions = ["redact", "header"]
 redact_strategy = "type_label"
 
-[rest_api]
+[http_api]
 enabled = true
 listen = "0.0.0.0:8083"
 redact_strategy = "type_label"
@@ -1403,7 +1403,7 @@ listen = "127.0.0.1:9090"
         let config = parse(toml).unwrap();
         assert!(config.reverse_proxy.enabled);
         assert!(config.forward_proxy.enabled);
-        assert!(config.rest_api.enabled);
+        assert!(config.http_api.enabled);
         assert_eq!(config.reverse_proxy.routes.len(), 2);
         assert_eq!(config.pii.effective_scanner_threads(), 4);
     }

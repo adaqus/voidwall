@@ -357,11 +357,11 @@ Setup and infrastructure per `docs/load-testing.md`.
 ## Phase 8 — HTTP API Mode
 
 ### 8.1 HTTP API endpoints
-- [ ] Rename `RestApiConfig` → `HttpApiConfig`, TOML section
+- [x] Rename `RestApiConfig` → `HttpApiConfig`, TOML section
   `[rest_api]` → `[http_api]`, and metrics `mode` label
   `rest_api` → `http_api`. Update validation messages and existing tests
   accordingly.
-- [ ] Implement `api.rs` axum router:
+- [x] Implement `http_api.rs` axum router:
   - `POST /v1/scan` — read the raw request body, route by `Content-Type`
     using the same `BodyFormat` content-type routing introduced in Phase 7
     (text/plain → flat; application/json → JSON flatten; text/csv,
@@ -372,17 +372,17 @@ Setup and infrastructure per `docs/load-testing.md`.
     PII redacted in place. The response `Content-Type` mirrors the request.
     Match metadata travels in headers: `X-PII-Detected: KIND1,KIND2`
     (omitted when none) and `X-PII-Redacted-Count: N`.
-  - `GET /openapi.json` — serve the generated OpenAPI spec (see 8.2).
-- [ ] Reject `Content-Type` outside `scan.content_types` with `415`.
-- [ ] Reject bodies above `max_body_size` with `413`.
-- [ ] Reject malformed structured bodies (invalid JSON, malformed CSV) with
+  - `GET /openapi.json` — *(stub returning 501; full impl in 8.2)*
+- [x] Reject `Content-Type` outside `scan.content_types` with `415`.
+- [x] Reject bodies above `max_body_size` with `413`.
+- [x] Reject malformed structured bodies (invalid JSON, malformed CSV) with
   `400` regardless of `on_error` — the caller declared the content type, so
   silently falling back to flat-text would mask their bug.
-- [ ] On scanner failure, follow `on_error`: `fail_open` returns the body
+- [x] On scanner failure, follow `on_error`: `fail_open` returns the body
   unredacted with `X-PII-Redacted-Count: 0`; `fail_close` returns `500`.
   Either way increment `pii_proxy_errors_total` with the outcome.
-- [ ] Increment `pii_proxy_requests_total` with `mode=http_api`.
-- [ ] Integration tests:
+- [x] Increment `pii_proxy_requests_total` with `mode=http_api`.
+- [x] Integration tests:
   - text/plain scan and redact
   - application/json scan and redact (nested keys + arrays); redacted output
     is valid JSON

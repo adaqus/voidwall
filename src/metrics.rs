@@ -150,7 +150,7 @@ mod tests {
 
     #[test_case("Email", "reverse_proxy", "/api", "request" ; "email on reverse proxy request")]
     #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]
-    #[test_case("IpAddress", "rest_api", "global", "request" ; "ip on rest api request")]
+    #[test_case("IpAddress", "http_api", "global", "request" ; "ip on http api request")]
     fn inc_detection_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = DETECTIONS_TOTAL
             .with_label_values(&[pii_kind, mode, route, direction])
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("rest_api", "global", "POST", "200" ; "rest api post 200")]
+    #[test_case("http_api", "global", "POST", "200" ; "http api post 200")]
     #[test_case("reverse_proxy", "/api", "GET", "403" ; "reverse proxy get 403")]
     fn inc_request_increments(mode: &str, route: &str, method: &str, status: &str) {
         let before = REQUESTS_TOTAL
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test_case("reverse_proxy", "/api", 0.042 ; "reverse proxy duration")]
-    #[test_case("rest_api", "global", 1.5 ; "rest api duration")]
+    #[test_case("http_api", "global", 1.5 ; "http api duration")]
     fn observe_duration_records(mode: &str, route: &str, secs: f64) {
         let before = REQUEST_DURATION_SECONDS
             .with_label_values(&[mode, route])

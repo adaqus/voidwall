@@ -171,7 +171,7 @@ impl TestProxy {
                 ..Default::default()
             },
             forward_proxy: Default::default(),
-            rest_api: Default::default(),
+            http_api: Default::default(),
             admin: Default::default(),
             shutdown_timeout_secs: 30,
         };
