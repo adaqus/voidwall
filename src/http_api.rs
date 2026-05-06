@@ -10,6 +10,7 @@ use bytes::Bytes;
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::warn;
 use utoipa::{OpenApi, ToSchema};
 
@@ -60,11 +61,23 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ApiState {
 
 pub fn router(state: ApiState) -> Router {
     let max_body = state.max_body_size;
+    // Permissive CORS so the bundled Swagger UI (served from a different
+    // origin in docker/docker-compose.yml) can fetch /openapi.json and
+    // exercise /v1/scan and /v1/redact via "Try it out". The HTTP API has no
+    // built-in auth — it is expected to sit behind a gateway or NetworkPolicy
+    // (DESIGN.md § HTTP API · Authentication), so allowing any origin here
+    // does not weaken the deployed posture.
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers(Any);
     Router::new()
         .route("/v1/scan", post(scan_handler))
         .route("/v1/redact", post(redact_handler))
         .route("/openapi.json", get(openapi_handler))
         .layer(DefaultBodyLimit::max(max_body))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -119,12 +132,7 @@ struct ErrorResponse {
     tag = "pii",
     request_body(
         description = "Raw body content to scan for PII. The `Content-Type` \
-            header determines parsing: `text/plain` is scanned as flat text; \
-            `application/json` is recursively flattened so nested keys give \
-            the keyword-context detector visibility (e.g. `user.phone_number`); \
-            `text/csv` and `text/tab-separated-values` are parsed using the \
-            header row as column-name context, falling back to flat text when \
-            no header row is detected.",
+            header determines how the body is parsed and scanned.",
         content_type = "text/plain",
         content = String,
     ),

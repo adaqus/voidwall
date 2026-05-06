@@ -47,6 +47,12 @@ mapping, so the browser does not need to resolve the compose-internal
 API listens on `0.0.0.0:8083` so the docker port mapping `8083:8083` reaches
 it.
 
+The HTTP API responds with permissive CORS headers (`Access-Control-Allow-Origin: *`)
+so a Swagger UI hosted on a different origin can fetch the spec and exercise
+the endpoints. The API has no built-in authentication — when exposed beyond
+a developer workstation, place it behind an authenticating gateway and
+restrict origins at that layer.
+
 ## Production note
 
 The Swagger UI container is a development convenience. It has no
