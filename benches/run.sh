@@ -42,7 +42,7 @@ PROXY_PID=""
 
 PAYLOADS_DIR="$SCRIPT_DIR/payloads"
 
-ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling"
+ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning"
 
 # --- Parse scenario filter ---
 
@@ -54,7 +54,7 @@ fi
 # Validate scenario names
 for s in "${SELECTED_SCENARIOS[@]}"; do
     case "$s" in
-        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling) ;;
+        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning) ;;
         *)
             echo "ERROR: unknown scenario '$s'" >&2
             echo "Available scenarios: $ALL_SCENARIOS" >&2
@@ -281,6 +281,27 @@ if should_run scanner_thread_scaling; then
             "$CONFIGS_DIR/scanner_threads_${threads}.toml" \
             "$K6_DIR/scanner_thread_scaling.js" \
             "scanner_threads_${threads}"
+    done
+fi
+
+# --- Scenario 6: Structured Scanning ---
+
+if should_run structured_scanning; then
+    for payload in json csv; do
+        echo ""
+        echo "=== Scenario: structured_${payload} ==="
+        start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
+
+        local_output="$RESULTS_DIR/structured_${payload}_${TIMESTAMP}.csv"
+        k6 run \
+            --out "csv=$local_output" \
+            --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+            -e "PROXY_URL=http://$PROXY_ADDR" \
+            -e "DURATION=$DURATION" \
+            -e "PAYLOAD=$payload" \
+            "$K6_DIR/structured_scanning.js" 2>&1 | tee "$RESULTS_DIR/structured_${payload}_${TIMESTAMP}.log"
+
+        stop_proxy
     done
 fi
 

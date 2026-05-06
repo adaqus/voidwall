@@ -44,6 +44,8 @@ Pre-generated JSON files in `benches/payloads/`:
 | `pii_small.json` | ~100 B | 1-2 PII instances (email, SSN) |
 | `pii_medium.json` | ~10 KB | ~10 PII instances mixed across text |
 | `pii_large.json` | ~1 MB | ~100 PII instances |
+| `pii_nested.json` | ~800 B | 4-5 levels deep; KeywordContext keywords mid-path (`request.user.phone.primary`, `accounts[i].holder.name.first`) |
+| `pii_table.csv` | ~9 KB | Header + 100 rows; columns include `first_name`, `last_name`, `phone`, `dob`, `email`, `ssn` |
 
 Clean payloads isolate parsing/proxying overhead from scanner work. PII
 payloads measure the full pipeline including detection and action execution.
@@ -141,7 +143,23 @@ Setup: same 10 KB PII payload, `["warn", "redact"]`, concurrency 50.
 REST API should be fastest (no upstream hop). Forward proxy may be slightly
 slower due to URI parsing and TLS origination (if HTTPS destination).
 
-### 7. Sustained Load (Soak)
+### 7. Structured Scanning
+
+**What it measures**: cost of body parsing + path/column-context detection
+on bodies whose detection depends on structure rather than nearby plain text.
+
+Setup: reverse proxy mode, `reverse_proxy_redact.toml`, concurrency 50.
+
+| Variable | Values |
+|----------|--------|
+| `PAYLOAD` | `json` (4-5 level nested), `csv` (100 rows) |
+
+The JSON exercises mid-path keyword cases (e.g. `request.user.phone.primary`,
+`accounts[i].holder.name.first`) to ensure KeywordContextDetector has to look
+beyond the leaf segment. The CSV exercises header-as-context detection over
+many rows.
+
+### 8. Sustained Load (Soak)
 
 **What it measures**: memory leaks, GC pauses, file descriptor exhaustion.
 

@@ -13,7 +13,7 @@ benches/run.sh baseline                                 # run only "baseline"
 benches/run.sh action_comparison body_size_scaling       # run two scenarios
 ```
 
-Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`.
+Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`, `structured_scanning`.
 
 This generates test payloads if missing, builds release binaries, starts the echo server and proxy for each scenario, runs k6, and prints a summary table. Results are saved to `benches/results/`.
 
@@ -68,6 +68,7 @@ k6 run -e DURATION=10s -e VUS=100 benches/k6/action_comparison.js
 | `body_size_scaling.js`     | `reverse_proxy_redact.toml`            | Throughput vs body size                 |
 | `concurrency_scaling.js`   | `reverse_proxy_no_actions.toml`        | Saturation point and tail latency       |
 | `scanner_thread_scaling.js`| `scanner_threads_{1,2,4,8}.toml`       | Effect of scanner thread count          |
+| `structured_scanning.js`   | `reverse_proxy_redact.toml`            | Throughput on nested JSON & 100-row CSV |
 
 For action comparison and scanner thread scaling, `run.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
 

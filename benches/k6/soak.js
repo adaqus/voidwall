@@ -28,9 +28,6 @@ const errorCount = new Counter("error_count");
 const params = {
   headers: { "Content-Type": "application/json" },
 };
-// const params = {
-//   headers: { "Content-Type": "text/plain" },
-// };
 
 // Parse duration string (e.g. "30m", "2h", "1h30m") to seconds.
 function parseDuration(s) {

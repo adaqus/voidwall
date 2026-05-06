@@ -114,6 +114,93 @@ def make_payload(text: str) -> str:
     return json.dumps({"data": text}, ensure_ascii=False)
 
 
+# --- Structured-scanning payloads -------------------------------------------
+
+# Names cycle deterministically so the file regenerates byte-identical.
+FIRST_NAMES = ["John", "Jane", "Alice", "Bob", "Charlie", "Diana", "Edward",
+               "Fiona", "George", "Helen"]
+LAST_NAMES = ["Doe", "Smith", "Johnson", "Brown", "Wilson", "Davis", "Miller",
+              "Taylor", "Anderson", "Thomas"]
+CITIES = ["New York", "London", "Paris", "Berlin", "Tokyo", "Sydney",
+          "Toronto", "Dublin", "Madrid", "Rome"]
+
+
+def generate_nested_json() -> str:
+    """4-5 levels of nesting with KeywordContextDetector keywords mid-path
+    (e.g. `request.user.phone.primary`, `accounts[i].holder.name.first`)."""
+
+    accounts = []
+    for i in range(3):
+        accounts.append({
+            "id": f"acct-{i + 1}",
+            "holder": {
+                "name": {
+                    "first": FIRST_NAMES[i + 2],
+                    "last": LAST_NAMES[i + 2],
+                },
+                "ssn": f"{100 + i:03d}-{20 + i:02d}-{3000 + i:04d}",
+            },
+            "address": {
+                "city": CITIES[i],
+                "country": "US",
+            },
+        })
+
+    payload = {
+        "tenant_id": "acme-corp",
+        "request": {
+            "metadata": {
+                "trace_id": "abc-123-def-456",
+                "session": {
+                    "ip": "203.0.113.5",
+                    "ua": "Mozilla/5.0 (X11; Linux x86_64)",
+                },
+            },
+            "user": {
+                "id": "u-9876",
+                "email": "john.doe@example.com",
+                "name": {
+                    "first": "John",
+                    "last": "Doe",
+                },
+                "phone": {
+                    "primary": "555-123-4567",
+                    "mobile": "555-987-6543",
+                },
+                "dob": {
+                    "value": "1990-01-15",
+                },
+            },
+            "accounts": accounts,
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def generate_table_csv(rows: int = 100) -> str:
+    """CSV with header row containing KeywordContext keywords (`first_name`,
+    `last_name`, `phone`, `dob`) plus Hyperscan-detected columns (`email`,
+    `ssn`). Generates `rows` data rows after the header."""
+
+    header = "id,first_name,last_name,email,phone,ssn,dob,city,notes"
+    lines = [header]
+    for i in range(rows):
+        first = FIRST_NAMES[i % len(FIRST_NAMES)]
+        last = LAST_NAMES[i % len(LAST_NAMES)]
+        email = f"{first.lower()}.{last.lower()}{i}@example.com"
+        phone = f"555-{(100 + i) % 1000:03d}-{(1000 + i * 7) % 10000:04d}"
+        ssn = f"{(100 + i) % 1000:03d}-{(20 + i) % 100:02d}-{(3000 + i * 13) % 10000:04d}"
+        year = 1950 + (i % 50)
+        month = (i % 12) + 1
+        day = (i % 28) + 1
+        dob = f"{year:04d}-{month:02d}-{day:02d}"
+        city = CITIES[i % len(CITIES)]
+        lines.append(
+            f"{i + 1},{first},{last},{email},{phone},{ssn},{dob},{city},patient"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def write_payload(filename: str, content: str) -> None:
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w") as f:
@@ -135,6 +222,10 @@ def main() -> None:
     write_payload("pii_small.json", make_payload(generate_pii_text(80, 2)))
     write_payload("pii_medium.json", make_payload(generate_pii_text(10_000, 10)))
     write_payload("pii_large.json", make_payload(generate_pii_text(1_000_000, 100)))
+
+    # Structured-scanning payloads (path/column context drives detection)
+    write_payload("pii_nested.json", generate_nested_json())
+    write_payload("pii_table.csv", generate_table_csv(100))
 
     print("Done.")
 
