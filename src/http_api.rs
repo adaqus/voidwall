@@ -11,12 +11,14 @@ use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{AppConfig, HttpApiConfig, OnError, ScanConfig};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::{
-    RedactWith, SCANNER_ERROR_LIMITER, ScanRequest, ScannerPool, classify_body, to_redact_with,
+    RedactWith, SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, ScanRequest, ScannerPool,
+    classify_body, to_redact_with,
 };
 
 const MODE: &str = "http_api";
@@ -32,6 +34,7 @@ pub struct ApiState {
     scan: ScanConfig,
     redact_strategy: Option<RedactWith>,
     max_body_size: usize,
+    openapi_spec: Arc<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -44,11 +47,14 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ApiState {
         .redact_strategy
         .map(|s| to_redact_with(s, api.mask_char));
 
+    let openapi_spec = build_openapi_spec();
+
     ApiState {
         scanner,
         scan: config.scan.clone(),
         redact_strategy,
         max_body_size: config.scan.max_body_size,
+        openapi_spec: Arc::new(openapi_spec),
     }
 }
 
@@ -83,17 +89,86 @@ pub async fn serve(
 // Handlers
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ScanResponse {
+    /// Whether any PII was detected in the body.
     detected: bool,
+    /// Total number of PII matches.
     matches_count: usize,
+    /// Distinct PII kinds detected (e.g. `EMAIL`, `US_SSN`). Operator-defined
+    /// custom labels surface here using their configured `label`.
     kinds: Vec<String>,
 }
 
+#[derive(Serialize, ToSchema)]
+struct ErrorResponse {
+    /// Human-readable error description. Never contains matched PII values.
+    error: String,
+}
+
+// utoipa is a procedural macro and its arguments must be string literals
+// (it cannot expand `const` references), so the macros below use a single
+// `text/plain` placeholder for the body Content-Type. At spec-generation
+// time `expand_supported_content_types` rewrites the placeholder into one
+// entry per `SUPPORTED_BODY_CONTENT_TYPES` element so the documented set
+// stays in sync with the parser dispatch in `scanner::classify_body`.
+
+#[utoipa::path(
+    post,
+    path = "/v1/scan",
+    tag = "pii",
+    request_body(
+        description = "Raw body content to scan for PII. The `Content-Type` \
+            header determines parsing: `text/plain` is scanned as flat text; \
+            `application/json` is recursively flattened so nested keys give \
+            the keyword-context detector visibility (e.g. `user.phone_number`); \
+            `text/csv` and `text/tab-separated-values` are parsed using the \
+            header row as column-name context, falling back to flat text when \
+            no header row is detected.",
+        content_type = "text/plain",
+        content = String,
+    ),
+    responses(
+        (status = 200, description = "Scan completed", body = ScanResponse, content_type = "application/json"),
+        (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
+        (status = 413, description = "Body exceeds configured `max_body_size`", body = ErrorResponse, content_type = "application/json"),
+        (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
+        (status = 500, description = "Scanner failed and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
+    ),
+)]
 async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
     process(state, headers, body, Mode::Scan).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/redact",
+    tag = "pii",
+    request_body(
+        description = "Raw body content to scan and redact. Content-Type \
+            routing matches `/v1/scan`. The response `Content-Type` mirrors \
+            the request so the redacted body remains valid JSON / CSV / TSV / \
+            plain text.",
+        content_type = "text/plain",
+        content = String,
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Redacted body. The response `Content-Type` mirrors the request.",
+            body = String,
+            content_type = "text/plain",
+            headers(
+                ("X-PII-Detected" = String, description = "Comma-separated list of detected PII kinds. Omitted when none detected."),
+                ("X-PII-Redacted-Count" = u32, description = "Total redactions performed. `0` when none."),
+            ),
+        ),
+        (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
+        (status = 413, description = "Body exceeds configured `max_body_size`", body = ErrorResponse, content_type = "application/json"),
+        (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
+        (status = 500, description = "Scanner failed and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
+    ),
+)]
 async fn redact_handler(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -102,16 +177,87 @@ async fn redact_handler(
     process(state, headers, body, Mode::Redact).await
 }
 
-async fn openapi_handler() -> Response {
-    // OpenAPI spec generation is implemented in Phase 8.2. Until then, return
-    // a stable 501 so callers don't think the route is missing.
-    record_request(StatusCode::NOT_IMPLEMENTED);
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        [("content-type", "application/json")],
-        r#"{"error":"OpenAPI spec generation not yet implemented"}"#,
-    )
-        .into_response()
+async fn openapi_handler(State(state): State<ApiState>) -> Response {
+    record_request(StatusCode::OK);
+    let mut response = Response::new(Body::from(state.openapi_spec.as_bytes().to_vec()));
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    response
+}
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "PII Proxy HTTP API",
+        description = "Detect and redact PII in arbitrary text, JSON, CSV, and \
+            TSV bodies. The body itself is the content to scan — there is no \
+            JSON envelope. The `Content-Type` header drives parsing.",
+        version = env!("CARGO_PKG_VERSION"),
+    ),
+    paths(scan_handler, redact_handler),
+    components(schemas(ScanResponse, ErrorResponse)),
+    tags(
+        (name = "pii", description = "PII detection and redaction endpoints"),
+    ),
+)]
+struct ApiDoc;
+
+/// Render the OpenAPI document as a pretty-printed JSON string, expanding the
+/// `text/plain` placeholder used in the `#[utoipa::path]` annotations into one
+/// entry per `SUPPORTED_BODY_CONTENT_TYPES` element. This keeps the documented
+/// content types in sync with the parser dispatch in `scanner::classify_body`
+/// without duplicating the list at every annotation site.
+fn build_openapi_spec() -> String {
+    let mut value = serde_json::to_value(ApiDoc::openapi())
+        .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
+    expand_supported_content_types(&mut value);
+    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Walk the spec's `/v1/scan` and `/v1/redact` POST operations and replace the
+/// single placeholder body Content-Type with one entry per
+/// `SUPPORTED_BODY_CONTENT_TYPES` element. The replacement clones the schema
+/// from the placeholder, so all entries share the same shape.
+fn expand_supported_content_types(spec: &mut serde_json::Value) {
+    for path in ["/v1/scan", "/v1/redact"] {
+        let pointer = format!("/paths/{}/post", encode_pointer_segment(path));
+        let Some(post) = spec.pointer_mut(&pointer) else {
+            continue;
+        };
+
+        if let Some(content) = post
+            .pointer_mut("/requestBody/content")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            expand_content_map(content);
+        }
+
+        if path == "/v1/redact"
+            && let Some(content) = post
+                .pointer_mut("/responses/200/content")
+                .and_then(serde_json::Value::as_object_mut)
+        {
+            expand_content_map(content);
+        }
+    }
+}
+
+fn expand_content_map(content: &mut serde_json::Map<String, serde_json::Value>) {
+    let Some(template) = content.values().next().cloned() else {
+        return;
+    };
+    content.clear();
+    for ct in SUPPORTED_BODY_CONTENT_TYPES {
+        content.insert((*ct).to_string(), template.clone());
+    }
+}
+
+/// JSON Pointer (RFC 6901) escape: `~` → `~0`, `/` → `~1`. We need this
+/// because path templates contain `/` which is the segment separator.
+fn encode_pointer_segment(s: &str) -> String {
+    s.replace('~', "~0").replace('/', "~1")
 }
 
 #[derive(Clone, Copy)]

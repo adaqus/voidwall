@@ -51,6 +51,9 @@ tikv-jemallocator = "0.6"
 pii = { path = "../pii" }
 regex = "1"
 
+# OpenAPI spec generation
+utoipa = "5"
+
 [[bin]]
 name = "echo-server"
 path = "benches/echo_server.rs"

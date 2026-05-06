@@ -397,27 +397,27 @@ Setup and infrastructure per `docs/load-testing.md`.
   - no PII present → `X-PII-Detected` omitted, `X-PII-Redacted-Count: 0`
 
 ### 8.2 OpenAPI generation
-- [ ] Add `utoipa` (or equivalent) dependency to `Cargo.toml`.
-- [ ] Annotate the `api.rs` request/response types and route handlers so
+- [x] Add `utoipa` (or equivalent) dependency to `Cargo.toml`.
+- [x] Annotate the `api.rs` request/response types and route handlers so
   they appear in the generated spec. Document content-type routing,
   response headers (`X-PII-Detected`, `X-PII-Redacted-Count`), and error
   status codes.
-- [ ] Wire `GET /openapi.json` to return the generated spec served as
+- [x] Wire `GET /openapi.json` to return the generated spec served as
   `application/json`.
-- [ ] Integration test: `GET /openapi.json` returns a 200 with valid JSON
+- [x] Integration test: `GET /openapi.json` returns a 200 with valid JSON
   containing both `/v1/scan` and `/v1/redact` paths and the documented
   response headers. Use a snapshot of a stable subset rather than the full
   spec to keep the test resistant to incidental ordering changes.
 
 ### 8.3 Docker Compose docs service
-- [ ] Extend `docker/docker-compose.yml` with an `api-docs` service running
+- [x] Extend `docker/docker-compose.yml` with an `api-docs` service running
   `swaggerapi/swagger-ui:latest`. Configure `SWAGGER_JSON_URL` to point at
   the proxy's `/openapi.json` over the compose network. Map the UI to a
   local port (`8088:8080` suggested). `depends_on: [proxy]`.
-- [ ] Update `docker/proxy.toml` (or add a sample alongside it) so
+- [x] Update `docker/proxy.toml` (or add a sample alongside it) so
   `[http_api]` is enabled and the listener is reachable on the compose
   network.
-- [ ] Document the workflow in `docs/`: how to start the stack, where to
+- [x] Document the workflow in `docs/`: how to start the stack, where to
   reach the docs, and that this service is for development/operator use,
   not production.
 

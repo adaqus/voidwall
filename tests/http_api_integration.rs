@@ -491,6 +491,94 @@ async fn csv_without_headers_falls_back_to_plain_text() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// /openapi.json tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn openapi_json_returns_valid_spec() {
+    let api = TestApi::start().await;
+    let client = reqwest::Client::new();
+    let resp = client.get(api.url("/openapi.json")).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
+
+    let spec: serde_json::Value = resp.json().await.unwrap();
+
+    // Top-level OpenAPI shape.
+    assert!(spec["openapi"].as_str().unwrap().starts_with("3."));
+    assert_eq!(spec["info"]["title"], "PII Proxy HTTP API");
+    assert!(spec["info"]["version"].is_string());
+
+    // Both endpoints are present.
+    let scan = &spec["paths"]["/v1/scan"]["post"];
+    let redact = &spec["paths"]["/v1/redact"]["post"];
+    assert!(scan.is_object(), "/v1/scan POST must be present");
+    assert!(redact.is_object(), "/v1/redact POST must be present");
+
+    // Request bodies advertise all four supported content types — driven by
+    // `scanner::SUPPORTED_BODY_CONTENT_TYPES` so the spec stays in sync with
+    // the parser dispatch.
+    for path in ["/v1/scan", "/v1/redact"] {
+        let req_content = &spec["paths"][path]["post"]["requestBody"]["content"];
+        for ct in [
+            "text/plain",
+            "application/json",
+            "text/csv",
+            "text/tab-separated-values",
+        ] {
+            assert!(
+                req_content.get(ct).is_some(),
+                "{path}: requestBody.content missing {ct}"
+            );
+        }
+    }
+
+    // /v1/redact 200 mirrors the same content types and documents both
+    // X-PII-* response headers.
+    let redact_200 = &redact["responses"]["200"];
+    let redact_200_content = &redact_200["content"];
+    for ct in [
+        "text/plain",
+        "application/json",
+        "text/csv",
+        "text/tab-separated-values",
+    ] {
+        assert!(
+            redact_200_content.get(ct).is_some(),
+            "/v1/redact: 200.content missing {ct}"
+        );
+    }
+    let headers = &redact_200["headers"];
+    assert!(
+        headers.get("X-PII-Detected").is_some(),
+        "/v1/redact: 200 missing X-PII-Detected header"
+    );
+    assert!(
+        headers.get("X-PII-Redacted-Count").is_some(),
+        "/v1/redact: 200 missing X-PII-Redacted-Count header"
+    );
+
+    // Documented error status codes are present on both endpoints.
+    for path in ["/v1/scan", "/v1/redact"] {
+        let responses = &spec["paths"][path]["post"]["responses"];
+        for status in ["400", "413", "415", "500"] {
+            assert!(
+                responses.get(status).is_some(),
+                "{path}: missing {status} response"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn content_type_with_charset_param_accepted() {
     let api = TestApi::start().await;

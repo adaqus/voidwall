@@ -105,6 +105,19 @@ fn is_tsv_media_type(media_type: &str) -> bool {
     matches!(media_type, "text/tab-separated-values" | "text/tsv")
 }
 
+/// Canonical body Content-Types accepted by `classify_body` for documentation
+/// purposes (HTTP API OpenAPI spec, public docs). The actual dispatch in
+/// `classify_body` is more lenient — it also accepts `text/json`,
+/// `application/*+json`, `application/csv`, `text/x-csv`, and `text/tsv` —
+/// but those are non-standard variants and not worth advertising. Keep this
+/// list in sync with the canonical IANA names.
+pub const SUPPORTED_BODY_CONTENT_TYPES: &[&str] = &[
+    "text/plain",
+    "application/json",
+    "text/csv",
+    "text/tab-separated-values",
+];
+
 /// A request to scan (and optionally redact) text fragments.
 pub struct ScanRequest {
     pub body: Option<BodyFormat>,

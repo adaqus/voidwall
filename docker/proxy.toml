@@ -25,5 +25,10 @@ redact_strategy = "type_label"
 path_prefix = "/"
 upstream = "http://echo-server:8090"
 
+[http_api]
+enabled = true
+listen = "0.0.0.0:8083"
+redact_strategy = "type_label"
+
 [admin]
 listen = "0.0.0.0:9090"
