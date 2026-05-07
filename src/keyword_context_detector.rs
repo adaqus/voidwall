@@ -321,7 +321,19 @@ impl KeywordContextDetector {
             (
                 PiiKind::DePassportNumber,
                 Language::En,
-                r"(?i)(?:german[\s_-]?passports?|germany[\s_-]?passports?|deutsche[\s_-]?passports?|deutscher[\s_\-]reisepass|deutscher[\s_\-]pass|bundespass|reisepassnummern?|reisepass[\s_\-]nummern?|reisepass[\s_\-]nr\.?|reisepass[\s_\-]no\.?|reisepass[\s_\-]#|reisepass|passnummern?|pass[\s_\-]nummern?|pass[\s_\-]nr\.?|pass[\s_\-]no\.?|pass[\s_\-]#|passdokumentennummern?|passdokument|reisedokumentennummern?|reisedokument|amtliches[\s_\-]reisedokument|dokumentennummern?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
+                r"(?i)(?:german[\s_-]?passports?|germany[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
+                de_passport_check,
+            ),
+            // German-keyword tuple. Substring-disjoint from the English
+            // tuple above: no German keyword contains "passport", and no
+            // English keyword contains a German stem ("reisepass", "pass
+            // nr", "passdokument", "dokumentennummer", "bundespass", etc.).
+            // `deutsche passport(s)` is intentionally absent — it would
+            // double-match via the English `passports?` alternation.
+            (
+                PiiKind::DePassportNumber,
+                Language::De,
+                r"(?i)(?:deutscher[\s_\-]reisepass|deutscher[\s_\-]pass|bundespass|reisepassnummern?|reisepass[\s_\-]nummern?|reisepass[\s_\-]nr\.?|reisepass[\s_\-]no\.?|reisepass[\s_\-]#|reisepass|passnummern?|pass[\s_\-]nummern?|pass[\s_\-]nr\.?|pass[\s_\-]no\.?|pass[\s_\-]#|passdokumentennummern?|passdokument|reisedokumentennummern?|reisedokument|amtliches[\s_\-]reisedokument|dokumentennummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
                 de_passport_check,
             ),
             // Date of birth
@@ -360,10 +372,33 @@ impl KeywordContextDetector {
                 r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?de[\s_-]?s[eé]cu|num[eé]ros?[\s_-]?s[eé]cu|n°[\s_-]?s[eé]cu|s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?SS|n°[\s_-]?SS|code[\s_-]?s[eé]cu|NIR|s[eé]cu)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
                 nir_check,
             ),
+            // Substring-disjoint: French stems "numéro" / "sécu" /
+            // "sociale" (with trailing "e") / "n°" / "NIR" / bare "SS" do
+            // not appear in any English literal here. The English noun
+            // "social" is not a substring of "sociale", so bare phrases
+            // like "social security number" are safe — but they would
+            // collide with US/other-country usage, so we keep country-
+            // prefixed forms only.
+            (
+                PiiKind::FrNir,
+                Language::En,
+                r"(?i)(?:french[\s_-]?social[\s_-]?security[\s_-]?numbers?|france[\s_-]?social[\s_-]?security[\s_-]?numbers?|fr[\s_-]?social[\s_-]?security[\s_-]?numbers?|french[\s_-]?ssns?|france[\s_-]?ssns?|fr[\s_-]?ssns?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
+                nir_check,
+            ),
             (
                 PiiKind::FrSiret,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?SIRET|n°[\s_-]?SIRET|[eé]tablissement[\s_-]?SIRET|SIRET)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14})\b",
+                siret_luhn_check,
+            ),
+            // Substring-disjoint: every French alternation contains
+            // "SIRET", which English alternations must avoid; conversely
+            // no French alternation contains "establishment", "branch",
+            // or "french/france/fr".
+            (
+                PiiKind::FrSiret,
+                Language::En,
+                r"(?i)(?:french[\s_-]?establishment[\s_-]?numbers?|france[\s_-]?establishment[\s_-]?numbers?|fr[\s_-]?establishment[\s_-]?numbers?|french[\s_-]?establishment[\s_-]?ids?|france[\s_-]?establishment[\s_-]?ids?|fr[\s_-]?establishment[\s_-]?ids?|french[\s_-]?business[\s_-]?establishment[\s_-]?numbers?|french[\s_-]?branch[\s_-]?numbers?|france[\s_-]?branch[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14})\b",
                 siret_luhn_check,
             ),
             (
@@ -372,10 +407,31 @@ impl KeywordContextDetector {
                 r"(?i)(?:num[eé]ros?[\s_-]?SIREN|n°[\s_-]?SIREN|entreprise[\s_-]?SIREN|SIREN)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 siren_luhn_check,
             ),
+            // Substring-disjoint: French alternations all contain "SIREN";
+            // English alternations must avoid that token. No French
+            // alternation contains "company" / "business" / "registration"
+            // / "french/france/fr".
+            (
+                PiiKind::FrSiren,
+                Language::En,
+                r"(?i)(?:french[\s_-]?company[\s_-]?numbers?|france[\s_-]?company[\s_-]?numbers?|fr[\s_-]?company[\s_-]?numbers?|french[\s_-]?business[\s_-]?numbers?|france[\s_-]?business[\s_-]?numbers?|fr[\s_-]?business[\s_-]?numbers?|french[\s_-]?company[\s_-]?registration[\s_-]?numbers?|france[\s_-]?company[\s_-]?registration[\s_-]?numbers?|french[\s_-]?business[\s_-]?registration[\s_-]?numbers?|french[\s_-]?company[\s_-]?ids?|france[\s_-]?company[\s_-]?ids?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                siren_luhn_check,
+            ),
             (
                 PiiKind::FrPassportNumber,
                 Language::Fr,
                 r"(?i)(?:passeports?[\s_-]?fran[cç]ais|passeports?[\s_-]?france|num[eé]ros?[\s_-]?de[\s_-]?passeports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[A-Za-z]{2}\d{5})\b",
+                always_valid,
+            ),
+            // Substring-disjoint: French uses "passeport" (no "passport"
+            // substring). The French alternation `passeport france` does
+            // contain the literal "france", but vectorscan only fires when
+            // the FULL alternation is present in input, so `france
+            // passport` (different word order) does not double-match.
+            (
+                PiiKind::FrPassportNumber,
+                Language::En,
+                r"(?i)(?:french[\s_-]?passport[\s_-]?numbers?|france[\s_-]?passport[\s_-]?numbers?|fr[\s_-]?passport[\s_-]?numbers?|french[\s_-]?passports?|france[\s_-]?passports?|fr[\s_-]?passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[A-Za-z]{2}\d{5})\b",
                 always_valid,
             ),
             (
@@ -384,10 +440,29 @@ impl KeywordContextDetector {
                 r"(?i)(?:carte[\s_-]?nationale[\s_-]?d'identit[eé]|carte[\s_-]?d'identit[eé]|pi[eè]ce[\s_-]?d'identit[eé]|num[eé]ros?[\s_-]?CNI|CNI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
                 always_valid,
             ),
+            // Substring-disjoint: French uses "carte" / "d'identité" /
+            // "pièce" / "CNI" — none in English here. English "identity"
+            // is not a substring of "identité" (y vs é at end). The bare
+            // "CNI" must be omitted from English alternations to avoid
+            // duplicate matches against the French pattern.
+            (
+                PiiKind::FrCni,
+                Language::En,
+                r"(?i)(?:french[\s_-]?national[\s_-]?id[\s_-]?cards?|france[\s_-]?national[\s_-]?id[\s_-]?cards?|fr[\s_-]?national[\s_-]?id[\s_-]?cards?|french[\s_-]?id[\s_-]?cards?|france[\s_-]?id[\s_-]?cards?|fr[\s_-]?id[\s_-]?cards?|french[\s_-]?identity[\s_-]?cards?|france[\s_-]?identity[\s_-]?cards?|fr[\s_-]?identity[\s_-]?cards?|french[\s_-]?national[\s_-]?ids?|france[\s_-]?national[\s_-]?ids?|fr[\s_-]?national[\s_-]?ids?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
+                always_valid,
+            ),
             (
                 PiiKind::FrDriversLicense,
                 Language::Fr,
                 r"(?i)(?:permis[\s_-]?de[\s_-]?conduire|num[eé]ros?[\s_-]?de[\s_-]?permis|n°[\s_-]?permis)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
+                always_valid,
+            ),
+            // Substring-disjoint: French uses "permis" / "conduire" /
+            // "numéro" / "n°" — none in English here.
+            (
+                PiiKind::FrDriversLicense,
+                Language::En,
+                r"(?i)(?:french[\s_-]?drivers?[\s_-]?licen[cs]es?|france[\s_-]?drivers?[\s_-]?licen[cs]es?|fr[\s_-]?drivers?[\s_-]?licen[cs]es?|french[\s_-]?driving[\s_-]?licen[cs]es?|france[\s_-]?driving[\s_-]?licen[cs]es?|fr[\s_-]?driving[\s_-]?licen[cs]es?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
                 always_valid,
             ),
             (
@@ -396,16 +471,50 @@ impl KeywordContextDetector {
                 r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?t[eé]l[eé]phones?|num[eé]ros?[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phones?|n°[\s_-]?de[\s_-]?t[eé]l|t[eé]l[eé]phones?|portable|mobiles?|fixe|t[eé]l|tel|num[eé]ros?[\s_-]?t[eé]l|appeler|rappel|contact)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
                 phone_check,
             ),
+            // Substring-disjoint: French keywords include "tel" (3-char
+            // ASCII), "mobile", "portable", "fixe", "contact", "rappel".
+            // English alternations must not contain any of these as
+            // substrings — so no `telephone`, no bare `mobile phone`, no
+            // bare `phones?`. We use only country-prefixed forms plus
+            // `cell phone` (no "tel"/"mobile" inside).
+            (
+                PiiKind::FrPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?fr|french[\s_-]?phone[\s_-]?numbers?|france[\s_-]?phone[\s_-]?numbers?|fr[\s_-]?phone[\s_-]?numbers?|french[\s_-]?phones?|france[\s_-]?phones?|french[\s_-]?cell[\s_-]?phones?|france[\s_-]?cell[\s_-]?phones?|fr[\s_-]?cell[\s_-]?phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?33[\s\-.]?[1-9](?:[\s\-.]?\d{2}){4})",
+                phone_check,
+            ),
             (
                 PiiKind::FrPostalCode,
                 Language::Fr,
                 r"(?i)(?:code[\s_-]?postal|CP)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
                 fr_postal_check,
             ),
+            // Substring-disjoint: French uses "code postal" (different
+            // word order than English "postal code") and the bare "CP"
+            // 2-char token; neither is a substring of any English literal
+            // here. Country-prefixed only — bare "postal code" is owned
+            // by `UsZaPostalCode`.
+            (
+                PiiKind::FrPostalCode,
+                Language::En,
+                r"(?i)(?:french[\s_-]?postal[\s_-]?codes?|france[\s_-]?postal[\s_-]?codes?|fr[\s_-]?postal[\s_-]?codes?|french[\s_-]?zip[\s_-]?codes?|france[\s_-]?zip[\s_-]?codes?|fr[\s_-]?zip[\s_-]?codes?|french[\s_-]?postcodes?|france[\s_-]?postcodes?|fr[\s_-]?postcodes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                fr_postal_check,
+            ),
             (
                 PiiKind::FrNif,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?d'identification[\s_-]?fiscale|num[eé]ros?[\s_-]?fiscal|identifiant[\s_-]?fiscal|avis[\s_-]?d'imposition|NIF|SPI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
+                fr_nif_check,
+            ),
+            // Substring-disjoint: French stems "fiscal" / "fiscale" /
+            // "identifiant" / "imposition" / "NIF" / "SPI" must not appear
+            // in English alternations. English "identification" is not a
+            // substring of "identifiant" (n vs c at position 8), so the
+            // phrase "tax identification number" is safe.
+            (
+                PiiKind::FrNif,
+                Language::En,
+                r"(?i)(?:french[\s_-]?tax[\s_-]?ids?|france[\s_-]?tax[\s_-]?ids?|fr[\s_-]?tax[\s_-]?ids?|french[\s_-]?tax[\s_-]?numbers?|france[\s_-]?tax[\s_-]?numbers?|fr[\s_-]?tax[\s_-]?numbers?|french[\s_-]?tax[\s_-]?identification[\s_-]?numbers?|france[\s_-]?tax[\s_-]?identification[\s_-]?numbers?|french[\s_-]?taxpayer[\s_-]?ids?|france[\s_-]?taxpayer[\s_-]?ids?|fr[\s_-]?taxpayer[\s_-]?ids?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
                 fr_nif_check,
             ),
             // --- French keywords for existing international types ---
@@ -452,10 +561,28 @@ impl KeywordContextDetector {
                 r"(?i)(?:Steueridentifikationsnummern?|Steuerliche[\s_-]?Identifikationsnummern?|Steuer-ID|IdNr|Steuernummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
                 de_steuer_id_check,
             ),
+            // Substring-disjoint with the German pattern above: no German
+            // keyword contains "tax" / "german" / "germany" / "de tax", and
+            // no English keyword contains "steuer" / "idnr".
+            (
+                PiiKind::DeSteuerId,
+                Language::En,
+                r"(?i)(?:german[\s_-]?tax[\s_-]?ids?|germany[\s_-]?tax[\s_-]?ids?|de[\s_-]?tax[\s_-]?ids?|german[\s_-]?tax[\s_-]?numbers?|tax[\s_-]?identification[\s_-]?numbers?|tax[\s_-]?id[\s_-]?numbers?|tax[\s_-]?id[\s_-]?no\.?|tax[\s_-]?ids?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
+                de_steuer_id_check,
+            ),
             (
                 PiiKind::DePersonalausweis,
                 Language::De,
                 r"(?i)(?:Personalausweisnummern?|Personalausweise?|Ausweisnummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
+                de_personalausweis_check,
+            ),
+            // Substring-disjoint: no German keyword contains "national" /
+            // "id card" / "identity card" / "german"; no English keyword
+            // contains "ausweis".
+            (
+                PiiKind::DePersonalausweis,
+                Language::En,
+                r"(?i)(?:german[\s_-]?national[\s_-]?ids?|germany[\s_-]?national[\s_-]?ids?|de[\s_-]?national[\s_-]?ids?|german[\s_-]?id[\s_-]?cards?|germany[\s_-]?id[\s_-]?cards?|de[\s_-]?id[\s_-]?cards?|german[\s_-]?identity[\s_-]?cards?|national[\s_-]?id[\s_-]?cards?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
                 de_personalausweis_check,
             ),
             (
@@ -476,11 +603,33 @@ impl KeywordContextDetector {
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
                 de_postal_check,
             ),
+            // Substring-disjoint: no German keyword contains "postal" /
+            // "zip" / "postcode" / "german"; no English keyword contains
+            // "postleitzahl" / "plz". Country-prefixed only — bare "postal
+            // code" is owned by `UsZaPostalCode`.
+            (
+                PiiKind::DePostalCode,
+                Language::En,
+                r"(?i)(?:german[\s_-]?postal[\s_-]?codes?|germany[\s_-]?postal[\s_-]?codes?|de[\s_-]?postal[\s_-]?codes?|german[\s_-]?zip[\s_-]?codes?|germany[\s_-]?zip[\s_-]?codes?|de[\s_-]?zip[\s_-]?codes?|german[\s_-]?postcodes?|germany[\s_-]?postcodes?|de[\s_-]?postcodes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                de_postal_check,
+            ),
             // --- Austria-specific PII types (Language::De) ---
             (
                 PiiKind::AtSvnr,
                 Language::De,
                 r"(?i)(?:Sozialversicherungsnummern?|Versicherungsnummern?|SVNR)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?\d{6})\b",
+                at_svnr_check,
+            ),
+            // The bare "SVNR" alternations (and any English keyword containing
+            // "svnr") are intentionally absent here — the German pattern above
+            // already matches them case-insensitively, so adding them would
+            // double-match any string containing "svnr" (e.g. `at_svnr: ...`).
+            // This pattern is for the long English phrases the German keyword
+            // set does not subsume.
+            (
+                PiiKind::AtSvnr,
+                Language::En,
+                r"(?i)(?:austrian[\s_-]?social[\s_-]?security[\s_-]?numbers?|austria[\s_-]?social[\s_-]?security[\s_-]?numbers?|at[\s_-]?social[\s_-]?security[\s_-]?numbers?|austrian[\s_-]?insurance[\s_-]?numbers?|austria[\s_-]?insurance[\s_-]?numbers?|at[\s_-]?insurance[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?\d{6})\b",
                 at_svnr_check,
             ),
             (
@@ -501,11 +650,28 @@ impl KeywordContextDetector {
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
                 at_postal_check,
             ),
+            // Substring-disjoint: see DePostalCode rationale; country-
+            // prefixed only.
+            (
+                PiiKind::AtPostalCode,
+                Language::En,
+                r"(?i)(?:austrian[\s_-]?postal[\s_-]?codes?|austria[\s_-]?postal[\s_-]?codes?|at[\s_-]?postal[\s_-]?codes?|austrian[\s_-]?zip[\s_-]?codes?|austria[\s_-]?zip[\s_-]?codes?|at[\s_-]?zip[\s_-]?codes?|austrian[\s_-]?postcodes?|austria[\s_-]?postcodes?|at[\s_-]?postcodes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
+                at_postal_check,
+            ),
             // --- Switzerland-specific PII types (Language::De) ---
             (
                 PiiKind::ChAhv,
                 Language::De,
                 r"(?i)(?:AHV-Nummern?|AHV-Nr|OASI|Versichertennummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
+                ch_ahv_check,
+            ),
+            // Substring-disjoint: no German keyword contains "swiss" /
+            // "switzerland" / "social security" / "insurance"; no English
+            // keyword contains "ahv" / "oasi" / "versicherten".
+            (
+                PiiKind::ChAhv,
+                Language::En,
+                r"(?i)(?:swiss[\s_-]?social[\s_-]?security[\s_-]?numbers?|switzerland[\s_-]?social[\s_-]?security[\s_-]?numbers?|ch[\s_-]?social[\s_-]?security[\s_-]?numbers?|swiss[\s_-]?insurance[\s_-]?numbers?|switzerland[\s_-]?insurance[\s_-]?numbers?|ch[\s_-]?insurance[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
                 ch_ahv_check,
             ),
             (
@@ -524,6 +690,14 @@ impl KeywordContextDetector {
                 PiiKind::ChPostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
+                ch_postal_check,
+            ),
+            // Substring-disjoint: see DePostalCode rationale; country-
+            // prefixed only.
+            (
+                PiiKind::ChPostalCode,
+                Language::En,
+                r"(?i)(?:swiss[\s_-]?postal[\s_-]?codes?|switzerland[\s_-]?postal[\s_-]?codes?|ch[\s_-]?postal[\s_-]?codes?|swiss[\s_-]?zip[\s_-]?codes?|switzerland[\s_-]?zip[\s_-]?codes?|ch[\s_-]?zip[\s_-]?codes?|swiss[\s_-]?postcodes?|switzerland[\s_-]?postcodes?|ch[\s_-]?postcodes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
                 ch_postal_check,
             ),
             // --- German keywords for existing international types ---
@@ -589,10 +763,36 @@ impl KeywordContextDetector {
                 r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adressen?|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 fr_ch_address_check,
             ),
+            // Substring-disjoint: French "adresse" (single d) is not a
+            // substring of English "address" (double d) or vice versa.
+            // French stems "domicile" / "habitation" / "résidence" /
+            // "siège" do not appear in English alternations. Generic
+            // English address keywords (`home address`, `mailing address`,
+            // etc.) are shared with `DeAtChAddress` EN — cross-kind value
+            // regex (FR requires `rue/avenue/...`, DE requires capitalized
+            // German street name) disambiguates.
+            (
+                PiiKind::FrChAddress,
+                Language::En,
+                r"(?i)(?:french[\s_-]?address(?:es)?|france[\s_-]?address(?:es)?|fr[\s_-]?address(?:es)?|swiss[\s_-]?french[\s_-]?address(?:es)?|home[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|physical[\s_-]?address(?:es)?|address(?:es)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                fr_ch_address_check,
+            ),
             (
                 PiiKind::FrChBoitePostale,
                 Language::Fr,
                 r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                fr_ch_boite_postale_check,
+            ),
+            // Substring-disjoint: French uses "boîte postale" / "case
+            // postale" / "BP" / "CP". English alternations contain none of
+            // these; "post office box" / "postal box" do not contain the
+            // continuous "postale" stem. Generic forms are shared with
+            // `DeAtChPostfach` EN — same value regex shape, but each
+            // validator gates on the country-specific PLZ range.
+            (
+                PiiKind::FrChBoitePostale,
+                Language::En,
+                r"(?i)(?:french[\s_-]?po[\s_-]?box(?:es)?|france[\s_-]?po[\s_-]?box(?:es)?|fr[\s_-]?po[\s_-]?box(?:es)?|swiss[\s_-]?french[\s_-]?po[\s_-]?box(?:es)?|french[\s_-]?post[\s_-]?office[\s_-]?box(?:es)?|france[\s_-]?post[\s_-]?office[\s_-]?box(?:es)?|french[\s_-]?postal[\s_-]?box(?:es)?|france[\s_-]?postal[\s_-]?box(?:es)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 fr_ch_boite_postale_check,
             ),
             // --- German/Austrian physical address types (Language::De) ---
@@ -602,16 +802,45 @@ impl KeywordContextDetector {
                 r"(?i)(?:Anschrift(?:en)?|Wohnadressen?|Wohnanschrift(?:en)?|Hausanschrift(?:en)?|Wohnsitz|Lieferadressen?|Rechnungsadressen?|Meldeadressen?|Zustelladressen?|Privatadressen?|Heimatadressen?|Adressen?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_at_address_check,
             ),
+            // Substring-disjoint: English "address" (double-d) does not
+            // contain the German stem "adress" (single-d), so the bare
+            // English `address(es)?` keyword does not double-match against
+            // the German `Adressen?` keyword. No German keyword contains
+            // any English alternation.
+            (
+                PiiKind::DeAtChAddress,
+                Language::En,
+                r"(?i)(?:german[\s_-]?address(?:es)?|austrian[\s_-]?address(?:es)?|swiss[\s_-]?address(?:es)?|de[\s_-]?address(?:es)?|at[\s_-]?address(?:es)?|ch[\s_-]?address(?:es)?|home[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|physical[\s_-]?address(?:es)?|address(?:es)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                de_at_address_check,
+            ),
             (
                 PiiKind::DeAtChPostfach,
                 Language::De,
                 r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_at_postfach_check,
             ),
+            // Substring-disjoint: no German keyword ("postfach", "pf")
+            // contains "po box" / "post office" / "pob"; no English
+            // keyword contains "postfach" or the bare "pf" digram.
+            (
+                PiiKind::DeAtChPostfach,
+                Language::En,
+                r"(?i)(?:german[\s_-]?po[\s_-]?box(?:es)?|austrian[\s_-]?po[\s_-]?box(?:es)?|swiss[\s_-]?po[\s_-]?box(?:es)?|de[\s_-]?po[\s_-]?box(?:es)?|at[\s_-]?po[\s_-]?box(?:es)?|ch[\s_-]?po[\s_-]?box(?:es)?|post[\s_-]?office[\s_-]?box(?:es)?|postal[\s_-]?box(?:es)?|po[\s_-]?box(?:es)?|pob)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                de_at_postfach_check,
+            ),
             (
                 PiiKind::DePackstation,
                 Language::De,
                 r"(?i)(?:Packstation|Postfiliale|Paketshop)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                de_packstation_check,
+            ),
+            // Substring-disjoint: no German keyword contains "parcel" /
+            // "locker" / "dhl"; no English keyword contains "packstation"
+            // / "postfiliale" / "paketshop".
+            (
+                PiiKind::DePackstation,
+                Language::En,
+                r"(?i)(?:german[\s_-]?parcel[\s_-]?lockers?|dhl[\s_-]?parcel[\s_-]?lockers?|parcel[\s_-]?lockers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_packstation_check,
             ),
         ];
@@ -621,13 +850,15 @@ impl KeywordContextDetector {
         // regex (used by the regex crate for capture groups) can be wider/more
         // complex since it only runs on inputs vectorscan already confirmed.
         // PLZ uses \d{4,5} to cover DE (5-digit), AT (4-digit), and CH (4-digit).
-        let detection_overrides: &[(PiiKind, &str)] = &[
+        let detection_overrides: &[(PiiKind, Language, &str)] = &[
             (
                 PiiKind::DeAtChAddress,
+                Language::De,
                 r"(?i)(?:Anschrift(?:en)?|Wohnadressen?|Wohnanschrift(?:en)?|Hausanschrift(?:en)?|Wohnsitz|Lieferadressen?|Rechnungsadressen?|Meldeadressen?|Zustelladressen?|Privatadressen?|Heimatadressen?|Adressen?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
             ),
             (
                 PiiKind::DeAtChPostfach,
+                Language::De,
                 r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
             ),
         ];
@@ -640,11 +871,11 @@ impl KeywordContextDetector {
             .collect();
 
         let mut vs_patterns = Vec::with_capacity(raw_patterns.len());
-        for (id, (kind, _, pat, _)) in raw_patterns.iter().enumerate() {
+        for (id, (kind, lang, pat, _)) in raw_patterns.iter().enumerate() {
             let detection_pat = detection_overrides
                 .iter()
-                .find(|(k, _)| k == kind)
-                .map(|(_, p)| *p)
+                .find(|(k, l, _)| k == kind && l == lang)
+                .map(|(_, _, p)| *p)
                 .unwrap_or(pat);
             vs_patterns.push(Pattern::new(
                 detection_pat.as_bytes().to_vec(),
@@ -1052,6 +1283,12 @@ mod tests {
     #[test_case("bundespass: CFGHJKLMN", PiiKind::DePassportNumber, "CFGHJKLMN" ; "de passport bundespass")]
     #[test_case("\"passport\":\"C01X00T47\"", PiiKind::DePassportNumber, "C01X00T47" ; "de passport json en")]
     #[test_case("\"reisepass\":\"C01X00T47\"", PiiKind::DePassportNumber, "C01X00T47" ; "de passport json reisepass")]
+    #[test_case("Reisepassnummern: C01X00T47", PiiKind::DePassportNumber, "C01X00T47" ; "de passport reisepassnummern plural")]
+    #[test_case("Passnummern: C01X00T47", PiiKind::DePassportNumber, "C01X00T47" ; "de passport passnummern plural")]
+    #[test_case("Dokumentennummern: C01X00T47", PiiKind::DePassportNumber, "C01X00T47" ; "de passport dokumentennummern plural")]
+    #[test_case("reisepass_nr: C01X00T47", PiiKind::DePassportNumber, "C01X00T47" ; "de passport reisepass nr snake_case")]
+    #[test_case("\"reisepassnummer\":\"C01X00T47\"", PiiKind::DePassportNumber, "C01X00T47" ; "de passport json reisepassnummer")]
+    #[test_case("\"passnummer\":\"C01X00T47\"", PiiKind::DePassportNumber, "C01X00T47" ; "de passport json passnummer")]
     // Matomo `_cvar` double-escapes quotes inside the URL-encoded JSON payload,
     // so the raw body contains `\",\"` (literal backslash) between keyword and value.
     #[test_case(r#"_cvar={\"2\":[\"passport\",\"C01X00T47\"]}"#, PiiKind::DePassportNumber, "C01X00T47" ; "de passport matomo cvar double escape")]
@@ -1101,6 +1338,70 @@ mod tests {
     #[test_case("portable: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone intl mobile")]
     #[test_case("fixe: 01 23 45 67 89", PiiKind::FrPhoneNumber, "01 23 45 67 89" ; "fr phone paris landline")]
     #[test_case("contact: 09 12 34 56 78", PiiKind::FrPhoneNumber, "09 12 34 56 78" ; "fr phone voip")]
+    // English keywords for FR PII kinds — exercises JSON-key-in-English / value-in-FR-format case
+    // FrNir
+    #[test_case("french social security number: 1 85 05 78 006 084 91", PiiKind::FrNir, "1 85 05 78 006 084 91" ; "fr nir en singular")]
+    #[test_case("french social security numbers: 1 85 05 78 006 084 91", PiiKind::FrNir, "1 85 05 78 006 084 91" ; "fr nir en plural")]
+    #[test_case("french_social_security_number: 185036912304532", PiiKind::FrNir, "185036912304532" ; "fr nir en snake_case")]
+    #[test_case("france-social-security-number: 185036912304532", PiiKind::FrNir, "185036912304532" ; "fr nir en kebab-case")]
+    #[test_case("\"frenchSocialSecurityNumber\":\"185036912304532\"", PiiKind::FrNir, "185036912304532" ; "fr nir en camelCase json")]
+    #[test_case("\"fr_ssn\":\"175012A00403288\"", PiiKind::FrNir, "175012A00403288" ; "fr nir en json fr_ssn")]
+    // FrSiret
+    #[test_case("french establishment number: 73282932000074", PiiKind::FrSiret, "73282932000074" ; "fr siret en singular")]
+    #[test_case("french establishment numbers: 73282932000074", PiiKind::FrSiret, "73282932000074" ; "fr siret en plural")]
+    #[test_case("french_establishment_number: 77567041700051", PiiKind::FrSiret, "77567041700051" ; "fr siret en snake_case")]
+    #[test_case("france-establishment-number: 54205118000066", PiiKind::FrSiret, "54205118000066" ; "fr siret en kebab-case")]
+    #[test_case("\"frenchEstablishmentNumber\":\"71204961800739\"", PiiKind::FrSiret, "71204961800739" ; "fr siret en camelCase json")]
+    #[test_case("\"fr_establishment_id\":\"73282932000074\"", PiiKind::FrSiret, "73282932000074" ; "fr siret en json fr prefix")]
+    // FrSiren
+    #[test_case("french company number: 732829320", PiiKind::FrSiren, "732829320" ; "fr siren en singular")]
+    #[test_case("french company numbers: 732829320", PiiKind::FrSiren, "732829320" ; "fr siren en plural")]
+    #[test_case("french_company_number: 775670417", PiiKind::FrSiren, "775670417" ; "fr siren en snake_case")]
+    #[test_case("france-company-number: 542051180", PiiKind::FrSiren, "542051180" ; "fr siren en kebab-case")]
+    #[test_case("\"frenchCompanyNumber\":\"441639465\"", PiiKind::FrSiren, "441639465" ; "fr siren en camelCase json")]
+    #[test_case("\"fr_business_number\":\"780129987\"", PiiKind::FrSiren, "780129987" ; "fr siren en json business")]
+    // FrPassportNumber
+    #[test_case("french passport: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en singular")]
+    #[test_case("french passports: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en plural")]
+    #[test_case("french_passport_number: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en snake_case")]
+    #[test_case("france-passport: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en kebab-case")]
+    #[test_case("\"frenchPassport\":\"05AB12345\"", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en camelCase json")]
+    #[test_case("\"fr_passport_number\":\"05AB12345\"", PiiKind::FrPassportNumber, "05AB12345" ; "fr passport en json fr prefix")]
+    // FrCni
+    #[test_case("french national id: 123456789012", PiiKind::FrCni, "123456789012" ; "fr cni en singular")]
+    #[test_case("french national ids: 123456789012", PiiKind::FrCni, "123456789012" ; "fr cni en plural")]
+    #[test_case("french_id_card: 123456789012", PiiKind::FrCni, "123456789012" ; "fr cni en snake_case")]
+    #[test_case("france-id-card: 123456789012", PiiKind::FrCni, "123456789012" ; "fr cni en kebab-case")]
+    #[test_case("\"frenchIdentityCard\":\"123456789012\"", PiiKind::FrCni, "123456789012" ; "fr cni en camelCase json")]
+    #[test_case("\"fr_national_id\":\"123456789012\"", PiiKind::FrCni, "123456789012" ; "fr cni en json fr prefix")]
+    // FrDriversLicense
+    #[test_case("french drivers license: 123456789012", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en singular")]
+    #[test_case("french drivers licenses: 123456789012", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en plural")]
+    #[test_case("french_driving_licence: 123456789012", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en snake_case british")]
+    #[test_case("france-drivers-license: 123456789012", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en kebab-case")]
+    #[test_case("\"frenchDriversLicense\":\"123456789012\"", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en camelCase json")]
+    #[test_case("\"fr_driving_license\":\"123456789012\"", PiiKind::FrDriversLicense, "123456789012" ; "fr dl en json fr prefix")]
+    // FrPhoneNumber
+    #[test_case("french phone: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en singular")]
+    #[test_case("french phones: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en plural")]
+    #[test_case("french_phone_number: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en snake_case")]
+    #[test_case("france-phone-number: +33 6 12 34 56 78", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en kebab-case")]
+    #[test_case("\"frenchPhoneNumber\":\"+33 6 12 34 56 78\"", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en camelCase json")]
+    #[test_case("\"phone_fr\":\"+33 6 12 34 56 78\"", PiiKind::FrPhoneNumber, "+33 6 12 34 56 78" ; "fr phone en json phone_fr suffix")]
+    // FrPostalCode
+    #[test_case("french postal code: 75001", PiiKind::FrPostalCode, "75001" ; "fr postal en singular")]
+    #[test_case("french postal codes: 75001", PiiKind::FrPostalCode, "75001" ; "fr postal en plural")]
+    #[test_case("french_postal_code: 13001", PiiKind::FrPostalCode, "13001" ; "fr postal en snake_case")]
+    #[test_case("france-zip-code: 69001", PiiKind::FrPostalCode, "69001" ; "fr postal en kebab-case zip")]
+    #[test_case("\"frenchPostcode\":\"31000\"", PiiKind::FrPostalCode, "31000" ; "fr postal en camelCase json postcode")]
+    #[test_case("\"fr_postal_code\":\"97110\"", PiiKind::FrPostalCode, "97110" ; "fr postal en json fr prefix")]
+    // FrNif
+    #[test_case("french tax id: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif en singular")]
+    #[test_case("french tax ids: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif en plural")]
+    #[test_case("french_tax_number: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif en snake_case")]
+    #[test_case("france-tax-id: 0123456789012", PiiKind::FrNif, "0123456789012" ; "fr nif en kebab-case")]
+    #[test_case("\"frenchTaxId\":\"0123456789012\"", PiiKind::FrNif, "0123456789012" ; "fr nif en camelCase json")]
+    #[test_case("\"fr_taxpayer_id\":\"0123456789012\"", PiiKind::FrNif, "0123456789012" ; "fr nif en json taxpayer")]
     // French keywords for existing international types
     #[test_case("date de naissance: 15 mars 1990", PiiKind::DateOfBirth, "15 mars 1990" ; "fr dob")]
     #[test_case("rappel: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "fr keyword us phone")]
@@ -1157,11 +1458,25 @@ mod tests {
     #[test_case("Steueridentifikationsnummer: 86095742719", PiiKind::DeSteuerId, "86095742719" ; "de steuer id long keyword")]
     #[test_case("IdNr: 26954371827", PiiKind::DeSteuerId, "26954371827" ; "de steuer id idnr keyword")]
     #[test_case("Steuernummer: 12345678995", PiiKind::DeSteuerId, "12345678995" ; "de steuer id kryptografie example")]
+    // English keywords for DE Steuer-ID
+    #[test_case("german tax id: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id en singular")]
+    #[test_case("german tax ids: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id en plural")]
+    #[test_case("german_tax_id: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id en snake_case")]
+    #[test_case("german-tax-id: 65929970489", PiiKind::DeSteuerId, "65929970489" ; "de steuer id en kebab-case")]
+    #[test_case("\"germanTaxId\":\"65929970489\"", PiiKind::DeSteuerId, "65929970489" ; "de steuer id en camelCase json")]
+    #[test_case("tax identification number: 86095742719", PiiKind::DeSteuerId, "86095742719" ; "de steuer id en tax identification long phrase")]
     // Personalausweis — values from kryptografie.de/personalausweis.htm
     #[test_case("Personalausweis: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis newest format")]
     #[test_case("Ausweisnummer: T220001293", PiiKind::DePersonalausweis, "T220001293" ; "de personalausweis new format")]
     #[test_case("Personalausweisnummer: C01X00T478", PiiKind::DePersonalausweis, "C01X00T478" ; "de personalausweis long keyword")]
     #[test_case("Personalausweis: M123456788", PiiKind::DePersonalausweis, "M123456788" ; "de personalausweis sequential digits")]
+    // English keywords for DE Personalausweis
+    #[test_case("german national id: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis en singular")]
+    #[test_case("german national ids: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis en plural")]
+    #[test_case("german_id_card: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis en snake_case")]
+    #[test_case("german-id-card: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis en kebab-case")]
+    #[test_case("\"nationalIdCard\":\"L01X00T471\"", PiiKind::DePersonalausweis, "L01X00T471" ; "de personalausweis en camelCase json")]
+    #[test_case("\"german_identity_card\":\"C01X00T478\"", PiiKind::DePersonalausweis, "C01X00T478" ; "de personalausweis en json identity card")]
     // German phones
     #[test_case("Rufnummer: +49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de phone berlin landline")]
     #[test_case("Handynummer: +49 151 12345678", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de phone mobile")]
@@ -1182,12 +1497,27 @@ mod tests {
     #[test_case("Postleitzahl: 01067", PiiKind::DePostalCode, "01067" ; "de postal code dresden")]
     #[test_case("PLZ: 60311", PiiKind::DePostalCode, "60311" ; "de postal code frankfurt")]
     #[test_case("PLZ: 20095", PiiKind::DePostalCode, "20095" ; "de postal code hamburg")]
+    // English keywords for DE postal code
+    #[test_case("german postal code: 10115", PiiKind::DePostalCode, "10115" ; "de postal code en singular")]
+    #[test_case("german postal codes: 10115", PiiKind::DePostalCode, "10115" ; "de postal code en plural")]
+    #[test_case("german_postal_code: 80331", PiiKind::DePostalCode, "80331" ; "de postal code en snake_case")]
+    #[test_case("german-zip-code: 01067", PiiKind::DePostalCode, "01067" ; "de postal code en kebab-case zip")]
+    #[test_case("\"germanPostcode\":\"60311\"", PiiKind::DePostalCode, "60311" ; "de postal code en camelCase json postcode")]
+    #[test_case("\"de_postal_code\":\"20095\"", PiiKind::DePostalCode, "20095" ; "de postal code en json de prefix")]
     // Austria-specific PII types — SVNR from gist.github.com/jensens
     #[test_case("SVNR: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr")]
     #[test_case("Sozialversicherungsnummer: 1233250689", PiiKind::AtSvnr, "1233250689" ; "at svnr long keyword")]
     #[test_case("Versicherungsnummer: 1237010180", PiiKind::AtSvnr, "1237010180" ; "at svnr documented example")]
     #[test_case("SVNR: 4567150390", PiiKind::AtSvnr, "4567150390" ; "at svnr born 1990")]
     #[test_case("SVNR: 7892281275", PiiKind::AtSvnr, "7892281275" ; "at svnr born 1975")]
+    // English keywords for AT SVNR — exercises JSON-key-in-English / value-in-AT-format case.
+    #[test_case("austrian social security number: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr en long keyword singular")]
+    #[test_case("austrian social security numbers: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr en long keyword plural")]
+    #[test_case("at_svnr: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr en snake_case")]
+    #[test_case("at-svnr: 1238150185", PiiKind::AtSvnr, "1238150185" ; "at svnr en kebab-case")]
+    #[test_case("\"atSvnr\":\"1238150185\"", PiiKind::AtSvnr, "1238150185" ; "at svnr en camelCase json")]
+    #[test_case("\"austrian_social_security_number\":\"1238150185\"", PiiKind::AtSvnr, "1238150185" ; "at svnr en json long key")]
+    #[test_case("\"austrianInsuranceNumber\":\"1238150185\"", PiiKind::AtSvnr, "1238150185" ; "at svnr en json insurance camelCase")]
     // Austrian phones and postal
     #[test_case("Rufnummer: +43 1 12345678", PiiKind::AtPhoneNumber, "+43 1 12345678" ; "at phone vienna")]
     #[test_case("Handynummer: +43 664 1234567", PiiKind::AtPhoneNumber, "+43 664 1234567" ; "at phone mobile")]
@@ -1197,12 +1527,26 @@ mod tests {
     #[test_case("PLZ: 1010", PiiKind::AtPostalCode, "1010" ; "at postal code vienna")]
     #[test_case("Postleitzahl: 5020", PiiKind::AtPostalCode, "5020" ; "at postal code salzburg")]
     #[test_case("PLZ: 8010", PiiKind::AtPostalCode, "8010" ; "at postal code graz")]
+    // English keywords for AT postal code
+    #[test_case("austrian postal code: 1010", PiiKind::AtPostalCode, "1010" ; "at postal code en singular")]
+    #[test_case("austrian postal codes: 1010", PiiKind::AtPostalCode, "1010" ; "at postal code en plural")]
+    #[test_case("austrian_postal_code: 5020", PiiKind::AtPostalCode, "5020" ; "at postal code en snake_case")]
+    #[test_case("austrian-zip-code: 8010", PiiKind::AtPostalCode, "8010" ; "at postal code en kebab-case zip")]
+    #[test_case("\"austrianPostcode\":\"1010\"", PiiKind::AtPostalCode, "1010" ; "at postal code en camelCase json")]
+    #[test_case("\"at_postal_code\":\"5020\"", PiiKind::AtPostalCode, "5020" ; "at postal code en json at prefix")]
     // Switzerland-specific — AHV from sozialversicherungsnummer.ch and gist.github.com/rordi
     #[test_case("AHV-Nummer: 756.1234.5678.97", PiiKind::ChAhv, "756.1234.5678.97" ; "ch ahv dotted")]
     #[test_case("Versichertennummer: 7561234567897", PiiKind::ChAhv, "7561234567897" ; "ch ahv plain")]
     #[test_case("AHV-Nr: 756.9217.0769.85", PiiKind::ChAhv, "756.9217.0769.85" ; "ch ahv sozialversicherungsnummer.ch example")]
     #[test_case("AHV-Nummer: 756.0081.3782.50", PiiKind::ChAhv, "756.0081.3782.50" ; "ch ahv gist example")]
     #[test_case("OASI: 756.3026.0705.92", PiiKind::ChAhv, "756.3026.0705.92" ; "ch ahv oasi keyword")]
+    // English keywords for CH AHV
+    #[test_case("swiss social security number: 756.1234.5678.97", PiiKind::ChAhv, "756.1234.5678.97" ; "ch ahv en singular")]
+    #[test_case("swiss social security numbers: 756.1234.5678.97", PiiKind::ChAhv, "756.1234.5678.97" ; "ch ahv en plural")]
+    #[test_case("swiss_social_security_number: 756.0081.3782.50", PiiKind::ChAhv, "756.0081.3782.50" ; "ch ahv en snake_case")]
+    #[test_case("swiss-insurance-number: 756.9217.0769.85", PiiKind::ChAhv, "756.9217.0769.85" ; "ch ahv en kebab-case insurance")]
+    #[test_case("\"swissSocialSecurityNumber\":\"756.3026.0705.92\"", PiiKind::ChAhv, "756.3026.0705.92" ; "ch ahv en camelCase json")]
+    #[test_case("\"ch_insurance_number\":\"7561234567897\"", PiiKind::ChAhv, "7561234567897" ; "ch ahv en json ch prefix")]
     // Swiss phones and postal
     #[test_case("Rufnummer: +41 44 123 45 67", PiiKind::ChPhoneNumber, "+41 44 123 45 67" ; "ch phone zurich")]
     #[test_case("Handynummer: +41 79 123 45 67", PiiKind::ChPhoneNumber, "+41 79 123 45 67" ; "ch phone mobile")]
@@ -1213,6 +1557,13 @@ mod tests {
     #[test_case("PLZ: 8001", PiiKind::ChPostalCode, "8001" ; "ch postal code zurich")]
     #[test_case("Postleitzahl: 3000", PiiKind::ChPostalCode, "3000" ; "ch postal code bern")]
     #[test_case("PLZ: 1200", PiiKind::ChPostalCode, "1200" ; "ch postal code geneva")]
+    // English keywords for CH postal code
+    #[test_case("swiss postal code: 8001", PiiKind::ChPostalCode, "8001" ; "ch postal code en singular")]
+    #[test_case("swiss postal codes: 8001", PiiKind::ChPostalCode, "8001" ; "ch postal code en plural")]
+    #[test_case("swiss_postal_code: 3000", PiiKind::ChPostalCode, "3000" ; "ch postal code en snake_case")]
+    #[test_case("swiss-zip-code: 1200", PiiKind::ChPostalCode, "1200" ; "ch postal code en kebab-case zip")]
+    #[test_case("\"swissPostcode\":\"8001\"", PiiKind::ChPostalCode, "8001" ; "ch postal code en camelCase json")]
+    #[test_case("\"ch_postal_code\":\"3000\"", PiiKind::ChPostalCode, "3000" ; "ch postal code en json ch prefix")]
     // German keywords for existing international types
     #[test_case("Rufnummer: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "de keyword us phone")]
     #[test_case("Kontaktnummer: (555) 234-5678", PiiKind::UsPhoneNumber, "(555) 234-5678" ; "de keyword us phone parens")]
@@ -1289,6 +1640,13 @@ mod tests {
     #[test_case("habitation: avenue de Cour 135, 1007 Lausanne", PiiKind::FrChAddress, "avenue de Cour 135, 1007 Lausanne" ; "ch address lausanne cour")] // CIO Lausanne
     #[test_case("domicile: avenue de Chillon 21, 1820 Veytaux", PiiKind::FrChAddress, "avenue de Chillon 21, 1820 Veytaux" ; "ch address veytaux chateau")] // Château de Chillon
     #[test_case("résidence: avenue Nestlé 55, 1800 Vevey", PiiKind::FrChAddress, "avenue Nestlé 55, 1800 Vevey" ; "ch address vevey nestle")] // Nestlé HQ
+    // English keywords for FrChAddress
+    #[test_case("french address: 15 rue de la Paix, 75002 Paris", PiiKind::FrChAddress, "15 rue de la Paix, 75002 Paris" ; "fr address en singular")]
+    #[test_case("french addresses: 15 rue de la Paix, 75002 Paris", PiiKind::FrChAddress, "15 rue de la Paix, 75002 Paris" ; "fr address en plural")]
+    #[test_case("home_address: 42 boulevard Haussmann, 75009 Paris", PiiKind::FrChAddress, "42 boulevard Haussmann, 75009 Paris" ; "fr address en snake_case home")]
+    #[test_case("mailing-address: 8 chemin des Vignes, 31000 Toulouse", PiiKind::FrChAddress, "8 chemin des Vignes, 31000 Toulouse" ; "fr address en kebab-case mailing")]
+    #[test_case("\"frenchAddress\":\"3 place Bellecour, 69002 Lyon\"", PiiKind::FrChAddress, "3 place Bellecour, 69002 Lyon" ; "fr address en camelCase json")]
+    #[test_case("\"billing_address\":\"25 cours de l'Intendance, 33000 Bordeaux\"", PiiKind::FrChAddress, "25 cours de l'Intendance, 33000 Bordeaux" ; "fr address en json billing")]
     // French/Swiss PO box
     #[test_case("BP: 1234, 75008 Paris", PiiKind::FrChBoitePostale, "1234, 75008 Paris" ; "fr bp paris")]
     #[test_case("boîte postale: 56, 69001 Lyon", PiiKind::FrChBoitePostale, "56, 69001 Lyon" ; "fr bp lyon")]
@@ -1300,6 +1658,13 @@ mod tests {
     // Swiss Case Postale addresses
     #[test_case("case postale: 2272, 1950 Sion", PiiKind::FrChBoitePostale, "2272, 1950 Sion" ; "ch cp sion")] // Ville de Sion
     #[test_case("CP: 440, 1211 Genève", PiiKind::FrChBoitePostale, "440, 1211 Genève" ; "ch cp geneve")] // From ge.ch
+    // English keywords for FrChBoitePostale
+    #[test_case("french po box: 1234, 75008 Paris", PiiKind::FrChBoitePostale, "1234, 75008 Paris" ; "fr bp en singular")]
+    #[test_case("french po boxes: 1234, 75008 Paris", PiiKind::FrChBoitePostale, "1234, 75008 Paris" ; "fr bp en plural")]
+    #[test_case("french_po_box: 56, 69001 Lyon", PiiKind::FrChBoitePostale, "56, 69001 Lyon" ; "fr bp en snake_case")]
+    #[test_case("france-po-box: 789, 97100 Basse-Terre", PiiKind::FrChBoitePostale, "789, 97100 Basse-Terre" ; "fr bp en kebab-case")]
+    #[test_case("\"frenchPoBox\":\"123456, 13001 Marseille\"", PiiKind::FrChBoitePostale, "123456, 13001 Marseille" ; "fr bp en camelCase json")]
+    #[test_case("\"french_post_office_box\":\"7008, 97307 Cayenne\"", PiiKind::FrChBoitePostale, "7008, 97307 Cayenne" ; "fr bp en json post office box")]
     // German/Austrian address types
     #[test_case("Anschrift: Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress, "Musterstraße 42, 10115 Berlin" ; "de address standard")]
     #[test_case("Wohnadresse: Am Markt 3a, 01067 Dresden", PiiKind::DeAtChAddress, "Am Markt 3a, 01067 Dresden" ; "de address with suffix")]
@@ -1315,15 +1680,36 @@ mod tests {
     #[test_case("Anschrift: Bahnhofstrasse 1, 8001 Zürich", PiiKind::DeAtChAddress, "Bahnhofstrasse 1, 8001 Zürich" ; "ch address zurich")] // Hauser & Wirth gallery
     #[test_case("Wohnadresse: Bundesplatz 3, 3003 Bern", PiiKind::DeAtChAddress, "Bundesplatz 3, 3003 Bern" ; "ch address bern")] // Federal Palace
     #[test_case("Adresse: Pilatusstrasse 15, 6003 Luzern", PiiKind::DeAtChAddress, "Pilatusstrasse 15, 6003 Luzern" ; "ch address luzern")] // From Yelp
+    // English keywords for DE/AT/CH address
+    #[test_case("home address: Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress, "Musterstraße 42, 10115 Berlin" ; "de address en home keyword")]
+    #[test_case("street addresses: Friedrichstraße 43, 10117 Berlin", PiiKind::DeAtChAddress, "Friedrichstraße 43, 10117 Berlin" ; "de address en street plural")]
+    #[test_case("german_address: Bahnhofstr. 1, 60311 Frankfurt", PiiKind::DeAtChAddress, "Bahnhofstr. 1, 60311 Frankfurt" ; "de address en snake_case")]
+    #[test_case("austrian-address: Schillerstraße 10, 1010 Wien", PiiKind::DeAtChAddress, "Schillerstraße 10, 1010 Wien" ; "at address en kebab-case")]
+    #[test_case("\"swissAddress\":\"Bahnhofstrasse 1, 8001 Zürich\"", PiiKind::DeAtChAddress, "Bahnhofstrasse 1, 8001 Zürich" ; "ch address en camelCase json")]
+    #[test_case("\"mailing_address\":\"Unter den Linden 77, 10117 Berlin\"", PiiKind::DeAtChAddress, "Unter den Linden 77, 10117 Berlin" ; "de address en json mailing")]
     #[test_case("Postfach: 1234, 10557 Berlin", PiiKind::DeAtChPostfach, "1234, 10557 Berlin" ; "de postfach berlin")]
     #[test_case("PF: 56, 80331 München", PiiKind::DeAtChPostfach, "56, 80331 München" ; "de postfach short keyword")]
     #[test_case("Postfach: 123456, 01067 Dresden", PiiKind::DeAtChPostfach, "123456, 01067 Dresden" ; "de postfach 6 digits")]
     #[test_case("Postfach: 789, 5020 Salzburg", PiiKind::DeAtChPostfach, "789, 5020 Salzburg" ; "at postfach salzburg")]
     #[test_case("PF: 56, 4020 Linz", PiiKind::DeAtChPostfach, "56, 4020 Linz" ; "at postfach linz")]
     #[test_case("Postfach: 567, 6000 Luzern", PiiKind::DeAtChPostfach, "567, 6000 Luzern" ; "ch postfach luzern")]
+    // English keywords for DE/AT/CH PO box
+    #[test_case("po box: 1234, 10557 Berlin", PiiKind::DeAtChPostfach, "1234, 10557 Berlin" ; "de postfach en singular")]
+    #[test_case("po boxes: 1234, 10557 Berlin", PiiKind::DeAtChPostfach, "1234, 10557 Berlin" ; "de postfach en plural")]
+    #[test_case("po_box: 56, 80331 München", PiiKind::DeAtChPostfach, "56, 80331 München" ; "de postfach en snake_case")]
+    #[test_case("post-office-box: 789, 5020 Salzburg", PiiKind::DeAtChPostfach, "789, 5020 Salzburg" ; "at postfach en kebab-case")]
+    #[test_case("\"poBox\":\"567, 6000 Luzern\"", PiiKind::DeAtChPostfach, "567, 6000 Luzern" ; "ch postfach en camelCase json")]
+    #[test_case("\"german_po_box\":\"123456, 01067 Dresden\"", PiiKind::DeAtChPostfach, "123456, 01067 Dresden" ; "de postfach en json german prefix")]
     #[test_case("Packstation: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation 3 digits")]
     #[test_case("Postfiliale: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de postfiliale")]
     #[test_case("Paketshop: 1234, 20095 Hamburg", PiiKind::DePackstation, "1234, 20095 Hamburg" ; "de paketshop 4 digits")]
+    // English keywords for DE Packstation
+    #[test_case("parcel locker: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation en singular")]
+    #[test_case("parcel lockers: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de packstation en plural")]
+    #[test_case("dhl_parcel_locker: 109, 01099 Dresden", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation en snake_case")]
+    #[test_case("dhl-parcel-locker: 502, 10115 Berlin", PiiKind::DePackstation, "502, 10115 Berlin" ; "de packstation en kebab-case")]
+    #[test_case("\"parcelLocker\":\"1234, 20095 Hamburg\"", PiiKind::DePackstation, "1234, 20095 Hamburg" ; "de packstation en camelCase json")]
+    #[test_case("\"german_parcel_locker\":\"109, 01099 Dresden\"", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation en json german prefix")]
     // Address city capture must not extend into trailing prose (regression)
     #[test_case("adresse: 15 rue de la Paix, 75002 Paris. Merci de confirmer.", PiiKind::FrChAddress, "15 rue de la Paix, 75002 Paris" ; "fr address trailing prose")]
     #[test_case("BP: 1234, 75008 Paris. Veuillez vérifier.", PiiKind::FrChBoitePostale, "1234, 75008 Paris" ; "fr bp trailing prose")]
@@ -1804,29 +2190,42 @@ mod tests {
     // France
     #[test_case("numéro de sécu: 1 85 05 78 006 084 99", PiiKind::FrNir ; "fr nir bad checksum")]
     #[test_case("n° sécu: 185036912304533", PiiKind::FrNir ; "fr nir lyon off by one")]
+    #[test_case("french social security number: 1 85 05 78 006 084 99", PiiKind::FrNir ; "fr nir en keyword bad checksum")]
     #[test_case("code postal: 00100", PiiKind::FrPostalCode ; "fr postal below range")]
     #[test_case("code postal: 99999", PiiKind::FrPostalCode ; "fr postal above range")]
+    #[test_case("french postal code: 00100", PiiKind::FrPostalCode ; "fr postal en keyword below range")]
     #[test_case("numéro fiscal: 4123456789012", PiiKind::FrNif ; "fr nif invalid first digit")]
+    #[test_case("french tax id: 4123456789012", PiiKind::FrNif ; "fr nif en keyword invalid first digit")]
     #[test_case("SIRET: 73282932000075", PiiKind::FrSiret ; "fr siret bad luhn")]
     #[test_case("SIRET: 77567041700052", PiiKind::FrSiret ; "fr siret lvmh off by one")]
+    #[test_case("french establishment number: 73282932000075", PiiKind::FrSiret ; "fr siret en keyword bad luhn")]
     #[test_case("SIREN: 732829321", PiiKind::FrSiren ; "fr siren bad luhn")]
     #[test_case("SIREN: 775670418", PiiKind::FrSiren ; "fr siren lvmh off by one")]
+    #[test_case("french company number: 732829321", PiiKind::FrSiren ; "fr siren en keyword bad luhn")]
     // Germany/Austria/Switzerland
     #[test_case("Steuer-ID: 65929970480", PiiKind::DeSteuerId ; "de steuer id bad checksum")]
     #[test_case("Steuer-ID: 26954371820", PiiKind::DeSteuerId ; "de steuer id bad checksum 2")]
+    #[test_case("german tax id: 65929970480", PiiKind::DeSteuerId ; "de steuer id en keyword bad checksum")]
+    #[test_case("Reisepassnummer: 123456789", PiiKind::DePassportNumber ; "de passport no letter")]
     #[test_case("Personalausweis: L01X00T470", PiiKind::DePersonalausweis ; "de personalausweis bad check")]
     #[test_case("Personalausweis: T220001290", PiiKind::DePersonalausweis ; "de personalausweis bad check 2")]
+    #[test_case("national id card: L01X00T470", PiiKind::DePersonalausweis ; "de personalausweis en keyword bad check")]
     #[test_case("PLZ: 00100", PiiKind::DePostalCode ; "de postal below range")]
     #[test_case("PLZ: 00000", PiiKind::DePostalCode ; "de postal all zeros")]
+    #[test_case("german postal code: 00100", PiiKind::DePostalCode ; "de postal en keyword below range")]
     #[test_case("SVNR: 1230150185", PiiKind::AtSvnr ; "at svnr bad checksum")]
     #[test_case("SVNR: 1238010180", PiiKind::AtSvnr ; "at svnr check digit off by one")]
+    #[test_case("\"atSvnr\":\"1230150185\"", PiiKind::AtSvnr ; "at svnr en keyword bad checksum")]
     #[test_case("PLZ: 1000", PiiKind::AtPostalCode ; "at postal below range")]
     #[test_case("PLZ: 1009", PiiKind::AtPostalCode ; "at postal just below range")]
+    #[test_case("austrian postal code: 1009", PiiKind::AtPostalCode ; "at postal en keyword below range")]
     #[test_case("AHV-Nummer: 7561234567890", PiiKind::ChAhv ; "ch ahv bad checksum")]
     #[test_case("AHV-Nummer: 756.9217.0769.80", PiiKind::ChAhv ; "ch ahv bad checksum real prefix")]
     #[test_case("AHV-Nummer: 1231234567897", PiiKind::ChAhv ; "ch ahv wrong prefix")]
+    #[test_case("swiss social security number: 7561234567890", PiiKind::ChAhv ; "ch ahv en keyword bad checksum")]
     #[test_case("PLZ: 9999", PiiKind::ChPostalCode ; "ch postal above range")]
     #[test_case("PLZ: 0999", PiiKind::ChPostalCode ; "ch postal below range")]
+    #[test_case("swiss postal code: 9999", PiiKind::ChPostalCode ; "ch postal en keyword above range")]
     // PersonName — rejects non-name values
     #[test_case("full name: 12345", PiiKind::PersonName ; "person name digits only")]
     #[test_case("first name: a", PiiKind::PersonName ; "person name single lowercase")]

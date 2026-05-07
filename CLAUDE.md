@@ -127,6 +127,10 @@ Add these rows to the existing parametrized test functions (`detects_with_keywor
 
 **3. Country/language tagging must match the kind.** A pattern's `Language::*` tag has to align with the kind's `applicable_countries()`. A French keyword on a US-only kind will silently fail under country filtering and mislead operators reading the patterns.
 
+**4. When adding a new-language tuple for an existing kind, audit for substring overlap with the existing pattern's keywords.** Many country-specific PII kinds (e.g. `AtSvnr`, `DePersonalausweis`, `FrNir`) start with a single local-language tuple. Structured payloads (JSON / CSV / URL-encoded) often pair English keys with local-language values, so a second tuple in `Language::En` is the natural fix. But the new tuple is **purely additive**: it must drop every keyword alternation whose substring is already matched (case-insensitively) by the existing pattern's keywords. Vectorscan finds literal substrings, and the dedup in `mark_piis_on` only collapses repeats *within* a single pattern — two patterns matching the same input produce duplicate `PiiMatch` entries.
+
+Concretely, the German `AtSvnr` pattern already matches the bare `SVNR` token, so the English `AtSvnr` pattern must drop `svnr`, `at svnr`, `austrian svnr`, `svnr numbers?`, etc. (anywhere "svnr" appears in the input the German pattern fires). The English pattern keeps only phrases the existing pattern does **not** subsume — e.g. `austrian social security number`, `at insurance number`. This is the inverse of the substring-overlap pitfall below.
+
 ### Writing unit tests
 1. ALWAYS try to merge similar test cases using test_case macro. ALWAYS.
 2. Implement also tests for false positives. The crate should not detect PIIs when they are not real PIIs.
