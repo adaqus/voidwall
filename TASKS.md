@@ -631,7 +631,7 @@ limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
 (`Language::En`, `Fr`, `De`), not just English.
 
 ### 15.1 Pattern updates
-- [ ] Audit each value-bearing keyword in
+- [x] Audit each value-bearing keyword in
   `pii/src/keyword_context_detector.rs` across **every** `Language::*` block
   and add optional plural suffix where natural. Suffix shape is
   language-specific:
@@ -642,16 +642,16 @@ limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
   - **German**: varies by word — `Nummer` → `Nummern` (`(?:n)?`),
     `Telefon` → `Telefone` (`e?`), compounds usually pluralize on the
     final element. Add suffixes per-keyword rather than blanket `s?`
-- [ ] Verify additions do not introduce false positives — suffix groups
+- [x] Verify additions do not introduce false positives — suffix groups
   must admit only the legitimate plural ending, not arbitrary letters
   (so `phoned`, `phoning`, `Telefonate` still must not match)
-- [ ] Unit tests per language: plural form of each affected keyword
+- [x] Unit tests per language: plural form of each affected keyword
   detected with correct value span. Cover at least one keyword per
   language: e.g. `phone_numbers: 555-123-4567` (En),
   `numéros_de_téléphone: …` (Fr), `Telefonnummern: …` (De)
-- [ ] Regression: existing singular-form `#[test_case]` rows still pass
+- [x] Regression: existing singular-form `#[test_case]` rows still pass
   in every language block
-- [ ] Structured-scan smoke test in `keyword_context_detector.rs`: a
+- [x] Structured-scan smoke test in `keyword_context_detector.rs`: a
   `phone_numbers[0]` context fragment + phone value resolves on iter 1
   (English path); analogous tests for at least one Fr and one De keyword
 
