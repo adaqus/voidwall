@@ -102,6 +102,31 @@ After implementing validators and patterns, search the web for documented real e
 4. **Add to keyword detector tests** (`src/keyword_context_detector.rs`) — Add `#[test_case]` entries using the real values with different keyword variants (long keyword, short keyword, alternative keywords).
 5. **Test boundary/edge cases** — Use real-world knowledge to add tests for boundaries: check-digit-is-zero, upper/lower range limits for postal codes, off-by-one invalid checksums, real city postal codes (Berlin 10115, Vienna 1010, Zürich 8001).
 
+### Adding keyword-context patterns
+
+When adding or extending patterns in `keyword_context_detector.rs`, follow these rules. Past detection bugs trace directly to violations.
+
+**1. Plurals are mandatory.** Every value-bearing keyword must accept its plural form. The keyword/value separator class is `[\s:.#/\-"=,\]\\]` with `*?` (lazy zero-or-more); anything outside that class — including letters like `s` and `_` — between the keyword and the value blocks the match. Without an explicit suffix, `phone_number: 555…` matches but `phone_numbers: 555…` does not.
+
+Suffix shape per language:
+- **English**: typically `s?`, occasionally `(?:s|es)?` (e.g. `phone_numbers?`, `passport(?:s|es)?`, `fax(?:es)?`).
+- **French**: typically `s?` (e.g. `num[eé]ros?`, `passeports?`); `(?:s|x)?` only for the rare `-x` plurals (e.g. `bureau(?:x)?`).
+- **German**: per-keyword — `Nummer` → `Nummern` so use `(?:n)?`; `Telefon` → `Telefone` so use `e?`; compounds usually pluralize on the final element only. Do **not** blanket-apply `s?` to German keywords.
+
+Suffix groups must admit *only* the legitimate plural ending — never widen to arbitrary letters. `phoned`, `phoning`, `Telefonate` must still not match.
+
+**2. Test rows for every new keyword.** Each new pattern must ship with `#[test_case]` rows covering all of:
+- singular form (e.g. `phone_number: 555-1234`)
+- plural form (e.g. `phone_numbers: 555-1234`)
+- camelCase (e.g. `phoneNumber: 555-1234`)
+- snake_case (e.g. `phone_number: 555-1234`)
+- kebab-case (e.g. `phone-number: 555-1234`)
+- JSON `"key":"value"` shape (e.g. `"phone_number":"555-1234"`)
+
+Add these rows to the existing parametrized test functions (`detects_with_keyword`, etc.) — only fall back to a standalone test when the assertion shape genuinely differs.
+
+**3. Country/language tagging must match the kind.** A pattern's `Language::*` tag has to align with the kind's `applicable_countries()`. A French keyword on a US-only kind will silently fail under country filtering and mislead operators reading the patterns.
+
 ### Writing unit tests
 1. ALWAYS try to merge similar test cases using test_case macro. ALWAYS.
 2. Implement also tests for false positives. The crate should not detect PIIs when they are not real PIIs.
