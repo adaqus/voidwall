@@ -656,7 +656,7 @@ limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
   (English path); analogous tests for at least one Fr and one De keyword
 
 ### 15.2 Author guidance
-- [ ] Extend `pii/CLAUDE.md` with a "Adding keyword-context patterns"
+- [x] Extend `pii/CLAUDE.md` with a "Adding keyword-context patterns"
   section codifying the rules so future patterns don't repeat the bug:
   - Plural forms are **mandatory** for every value-bearing keyword,
     per language (En `s?` / `(?:s|es)?`, Fr `s?` / `(?:s|x)?`,
