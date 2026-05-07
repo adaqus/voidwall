@@ -32,6 +32,7 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 ECHO_ADDR="127.0.0.1:8090"
 PROXY_ADDR="127.0.0.1:8082"
+API_ADDR="127.0.0.1:8083"
 ADMIN_ADDR="127.0.0.1:9090"
 
 DURATION="${DURATION:-30s}"
@@ -42,7 +43,7 @@ PROXY_PID=""
 
 PAYLOADS_DIR="$SCRIPT_DIR/payloads"
 
-ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning"
+ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning http_api"
 
 # --- Parse scenario filter ---
 
@@ -54,7 +55,7 @@ fi
 # Validate scenario names
 for s in "${SELECTED_SCENARIOS[@]}"; do
     case "$s" in
-        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning) ;;
+        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning|http_api) ;;
         *)
             echo "ERROR: unknown scenario '$s'" >&2
             echo "Available scenarios: $ALL_SCENARIOS" >&2
@@ -142,7 +143,7 @@ run_k6() {
 
     echo "  Running k6: $(basename "$script") -> $(basename "$output")"
     k6 run \
-        --out "csv=$output" \
+        --quiet \
         --summary-trend-stats "avg,p(50),p(95),p(99),max" \
         -e "PROXY_URL=http://$PROXY_ADDR" \
         -e "ECHO_URL=http://$ECHO_ADDR" \
@@ -196,7 +197,7 @@ run_baseline() {
     local output="$RESULTS_DIR/${name}_${TIMESTAMP}.csv"
     echo "  Running k6: baseline.js ($target, $payload, ${vus} VUs) -> $(basename "$output")"
     k6 run \
-        --out "csv=$output" \
+        --quiet \
         --summary-trend-stats "avg,p(50),p(95),p(99),max" \
         -e "PROXY_URL=http://$PROXY_ADDR" \
         -e "ECHO_URL=http://$ECHO_ADDR" \
@@ -241,7 +242,7 @@ if should_run body_size_scaling; then
 
         local_output="$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.csv"
         k6 run \
-            --out "csv=$local_output" \
+            --quiet \
             --summary-trend-stats "avg,p(50),p(95),p(99),max" \
             -e "PROXY_URL=http://$PROXY_ADDR" \
             -e "DURATION=$DURATION" \
@@ -262,7 +263,7 @@ if should_run concurrency_scaling; then
 
         local_output="$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.csv"
         k6 run \
-            --out "csv=$local_output" \
+            --quiet \
             --summary-trend-stats "avg,p(50),p(95),p(99),max" \
             -e "PROXY_URL=http://$PROXY_ADDR" \
             -e "DURATION=$DURATION" \
@@ -294,7 +295,7 @@ if should_run structured_scanning; then
 
         local_output="$RESULTS_DIR/structured_${payload}_${TIMESTAMP}.csv"
         k6 run \
-            --out "csv=$local_output" \
+            --quiet \
             --summary-trend-stats "avg,p(50),p(95),p(99),max" \
             -e "PROXY_URL=http://$PROXY_ADDR" \
             -e "DURATION=$DURATION" \
@@ -302,6 +303,46 @@ if should_run structured_scanning; then
             "$K6_DIR/structured_scanning.js" 2>&1 | tee "$RESULTS_DIR/structured_${payload}_${TIMESTAMP}.log"
 
         stop_proxy
+    done
+fi
+
+# --- Scenario 7: HTTP API ---
+# Sweeps endpoint × content-type × body size, all against PII-bearing payloads.
+# The http_api config enables only the API listener (no echo upstream needed).
+# One k6 process per (endpoint, content_type, payload) combination keeps memory
+# small and lines results up cleanly in the summary table.
+
+run_http_api() {
+    local endpoint="$1"
+    local content_type="$2"
+    local payload="$3"
+    local name="http_api_${endpoint}_${content_type}_${payload}"
+
+    echo ""
+    echo "=== Scenario: $name ==="
+    start_proxy "$CONFIGS_DIR/http_api.toml"
+
+    echo "  Running k6: http_api.js ($endpoint, $content_type, $payload)"
+    k6 run \
+        --quiet \
+        --summary-trend-stats "avg,p(50),p(95),p(99),max" \
+        -e "API_URL=http://$API_ADDR" \
+        -e "DURATION=$DURATION" \
+        -e "ENDPOINT=$endpoint" \
+        -e "CONTENT_TYPE=$content_type" \
+        -e "PAYLOAD=$payload" \
+        "$K6_DIR/http_api.js" 2>&1 | tee "$RESULTS_DIR/${name}_${TIMESTAMP}.log"
+
+    stop_proxy
+}
+
+if should_run http_api; then
+    for endpoint in scan redact; do
+        for content_type in text json csv; do
+            for payload in small medium large; do
+                run_http_api "$endpoint" "$content_type" "$payload"
+            done
+        done
     done
 fi
 

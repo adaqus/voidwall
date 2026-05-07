@@ -201,6 +201,31 @@ def generate_table_csv(rows: int = 100) -> str:
     return "\n".join(lines) + "\n"
 
 
+def generate_clean_table_csv(rows: int) -> str:
+    """CSV of the same column count as `generate_table_csv` but with neutral
+    column names (no PII keywords) and lorem-ipsum row data (no PII patterns).
+    Used by the http_api benchmark when PII=false to compare scanner cost on
+    structured but PII-free input."""
+
+    header = "id,col_a,col_b,col_c,col_d,col_e,col_f,col_g,col_h"
+    lines = [header]
+    for i in range(rows):
+        cells = [
+            str(i + 1),
+            *(RNG.choice(CLEAN_WORDS) for _ in range(8)),
+        ]
+        lines.append(",".join(cells))
+    return "\n".join(lines) + "\n"
+
+
+# Row counts chosen so the resulting files line up with the JSON size buckets:
+#   small  ≈ 100 B   medium ≈ 10 KB   large ≈ 1 MB
+# Each row averages ~84 bytes for the PII table and ~50 bytes for the clean
+# table, so the row counts below produce comparable file sizes.
+CSV_PII_ROWS = {"small": 1, "medium": 100, "large": 10_000}
+CSV_CLEAN_ROWS = {"small": 1, "medium": 200, "large": 17_000}
+
+
 def write_payload(filename: str, content: str) -> None:
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w") as f:
@@ -226,6 +251,15 @@ def main() -> None:
     # Structured-scanning payloads (path/column context drives detection)
     write_payload("pii_nested.json", generate_nested_json())
     write_payload("pii_table.csv", generate_table_csv(100))
+
+    # Sized CSV payloads for the http_api benchmark. The medium PII table is
+    # byte-identical to pii_table.csv above; both names exist so the
+    # http_api scenario can iterate small/medium/large without overloading the
+    # bare pii_table.csv corpus used by structured_scanning.js.
+    for size, n in CSV_PII_ROWS.items():
+        write_payload(f"pii_table_{size}.csv", generate_table_csv(n))
+    for size, n in CSV_CLEAN_ROWS.items():
+        write_payload(f"clean_table_{size}.csv", generate_clean_table_csv(n))
 
     print("Done.")
 

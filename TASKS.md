@@ -422,7 +422,7 @@ Setup and infrastructure per `docs/load-testing.md`.
   not production.
 
 ### 8.4 Performance benchmark
-- [ ] Benchmarks are added to benches.
+- [x] Benchmarks are added to benches.
 
 ---
 
