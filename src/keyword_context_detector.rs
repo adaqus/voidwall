@@ -90,79 +90,79 @@ impl KeywordContextDetector {
             (
                 PiiKind::AuTfn,
                 Language::En,
-                r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?number|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?number|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?number|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?number|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})",
+                r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?numbers?|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?numbers?|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?numbers?|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})",
                 tfn_check,
             ),
             (
                 PiiKind::NzIrdNumber,
                 Language::En,
-                r"(?i)(?:inland[\s_-]?revenue[\s_-]?dep(?:artmen)?t|inland[\s_-]?revenue[\s_-]?number|inland[\s_-]?revenue[\s_-]?no\.?|new[\s_-]?zealand[\s_-]?ird|new[\s_-]?zealand[\s_-]?tax[\s_-]?number|new[\s_-]?zealand[\s_-]?tax[\s_-]?id|nz[\s_-]?ird|nz[\s_-]?tax[\s_-]?number|nz[\s_-]?tax[\s_-]?id|ird[\s_-]?number[\s_-]?nz|ird[\s_-]?number|ird[\s_-]?no\.?|ird[\s_-]?num|ird[\s_-]?#|ird[\s_-]?ref(?:erence)?|applicant[\s_-]?ird|employee[\s_-]?ird|client[\s_-]?ird|customer[\s_-]?ird|my[\s_-]?ird|your[\s_-]?ird|gst[\s_-]?registration|gst[\s_-]?number|gst[\s_-]?no\.?|tax[\s_-]?number[\s_-]?nz|ird)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2,3}-?\d{3}-?\d{3})",
+                r"(?i)(?:inland[\s_-]?revenue[\s_-]?dep(?:artmen)?t|inland[\s_-]?revenue[\s_-]?numbers?|inland[\s_-]?revenue[\s_-]?no\.?|new[\s_-]?zealand[\s_-]?ird|new[\s_-]?zealand[\s_-]?tax[\s_-]?numbers?|new[\s_-]?zealand[\s_-]?tax[\s_-]?id|nz[\s_-]?ird|nz[\s_-]?tax[\s_-]?numbers?|nz[\s_-]?tax[\s_-]?id|ird[\s_-]?numbers?[\s_-]?nz|ird[\s_-]?numbers?|ird[\s_-]?no\.?|ird[\s_-]?num|ird[\s_-]?#|ird[\s_-]?ref(?:erence)?|applicant[\s_-]?ird|employee[\s_-]?ird|client[\s_-]?ird|customer[\s_-]?ird|my[\s_-]?ird|your[\s_-]?ird|gst[\s_-]?registration|gst[\s_-]?numbers?|gst[\s_-]?no\.?|tax[\s_-]?numbers?[\s_-]?nz|ird)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2,3}-?\d{3}-?\d{3})",
                 ird_check,
             ),
             (
                 PiiKind::GbNhsNumber,
                 Language::En,
-                r"(?i)(?:national[\s_-]?health[\s_-]?service[\s_-]?number|national[\s_-]?health[\s_-]?service[\s_-]?no\.?|nhs[\s_-]?patient[\s_-]?number|nhs[\s_-]?patient[\s_-]?id|nhs[\s_-]?patient[\s_-]?no\.?|nhs[\s_-]?record[\s_-]?number|nhs[\s_-]?registration|nhs[\s_-]?identifier|nhs[\s_-]?number|nhs[\s_-]?no\.?|nhs[\s_-]?num|nhs[\s_-]?#|nhs[\s_-]?id|nhs[\s_-]?ref(?:erence)?|nhs[\s_-]?record|health[\s_-]?service[\s_-]?number|health[\s_-]?service[\s_-]?no\.?|health[\s_-]?index[\s_-]?number|health[\s_-]?id|patient[\s_-]?number|patient[\s_-]?no\.?|patient[\s_-]?id|my[\s_-]?nhs[\s_-]?number|your[\s_-]?nhs[\s_-]?number|chi[\s_-]?number|h&c[\s_-]?number|hc[\s_-]?number|nhs)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}\s\d{3}\s\d{4})",
+                r"(?i)(?:national[\s_-]?health[\s_-]?service[\s_-]?numbers?|national[\s_-]?health[\s_-]?service[\s_-]?no\.?|nhs[\s_-]?patient[\s_-]?numbers?|nhs[\s_-]?patient[\s_-]?id|nhs[\s_-]?patient[\s_-]?no\.?|nhs[\s_-]?record[\s_-]?numbers?|nhs[\s_-]?registration|nhs[\s_-]?identifier|nhs[\s_-]?numbers?|nhs[\s_-]?no\.?|nhs[\s_-]?num|nhs[\s_-]?#|nhs[\s_-]?id|nhs[\s_-]?ref(?:erence)?|nhs[\s_-]?record|health[\s_-]?service[\s_-]?numbers?|health[\s_-]?service[\s_-]?no\.?|health[\s_-]?index[\s_-]?numbers?|health[\s_-]?id|patient[\s_-]?numbers?|patient[\s_-]?no\.?|patient[\s_-]?id|my[\s_-]?nhs[\s_-]?numbers?|your[\s_-]?nhs[\s_-]?numbers?|chi[\s_-]?numbers?|h&c[\s_-]?numbers?|hc[\s_-]?numbers?|nhs)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}\s\d{3}\s\d{4})",
                 nhs_check,
             ),
             (
                 PiiKind::AuMedicare,
                 Language::En,
-                r"(?i)(?:medicare[\s_-]?card[\s_-]?number|medicare[\s_-]?card[\s_-]?no\.?|medicare[\s_-]?card|australian[\s_-]?medicare|medicare[\s_-]?enrol(?:l)?ment|medicare[\s_-]?registration|medicare[\s_-]?identifier|medicare[\s_-]?number|medicare[\s_-]?no\.?|medicare[\s_-]?num|medicare[\s_-]?#|medicare[\s_-]?id|medicare[\s_-]?ref(?:erence)?|medicare[\s_-]?patient|aus[\s_-]?medicare|au[\s_-]?medicare|applicant[\s_-]?medicare|employee[\s_-]?medicare|client[\s_-]?medicare|customer[\s_-]?medicare|my[\s_-]?medicare|your[\s_-]?medicare|medicare|irn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s\d{5}\s\d)",
+                r"(?i)(?:medicare[\s_-]?cards?[\s_-]?numbers?|medicare[\s_-]?cards?[\s_-]?no\.?|medicare[\s_-]?cards?|australian[\s_-]?medicare|medicare[\s_-]?enrol(?:l)?ment|medicare[\s_-]?registration|medicare[\s_-]?identifier|medicare[\s_-]?numbers?|medicare[\s_-]?no\.?|medicare[\s_-]?num|medicare[\s_-]?#|medicare[\s_-]?id|medicare[\s_-]?ref(?:erence)?|medicare[\s_-]?patient|aus[\s_-]?medicare|au[\s_-]?medicare|applicant[\s_-]?medicare|employee[\s_-]?medicare|client[\s_-]?medicare|customer[\s_-]?medicare|my[\s_-]?medicare|your[\s_-]?medicare|medicare|irn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s\d{5}\s\d)",
                 medicare_check,
             ),
             (
                 PiiKind::UsPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?us|phone[\s_-]?usa|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:phone[\s_-]?us|phone[\s_-]?usa|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::En,
-                r"(?i)(?:united[\s_-]?states[\s_-]?passport|passport[\s_-]?book[\s_-]?number|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?card[\s_-]?number|us[\s_-]?passport[\s_-]?number|us[\s_-]?passport[\s_-]?no\.?|american[\s_-]?passport|travel[\s_-]?document[\s_-]?number|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?number|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?number|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?card|us[\s_-]?passport|travel[\s_-]?doc|applicant[\s_-]?passport|my[\s_-]?passport|your[\s_-]?passport|document[\s_-]?number|document[\s_-]?no\.?|doc[\s_-]?number|doc[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 passport_check,
             ),
             (
                 PiiKind::UsPassportNew,
                 Language::En,
-                r"(?i)(?:united[\s_-]?states[\s_-]?passport|passport[\s_-]?book[\s_-]?number|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?card[\s_-]?number|us[\s_-]?passport[\s_-]?number|us[\s_-]?passport[\s_-]?no\.?|american[\s_-]?passport|travel[\s_-]?document[\s_-]?number|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?number|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?number|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?card|us[\s_-]?passport|travel[\s_-]?doc|applicant[\s_-]?passport|my[\s_-]?passport|your[\s_-]?passport|document[\s_-]?number|document[\s_-]?no\.?|doc[\s_-]?number|doc[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([AXYZaxyz]\d{8})",
+                r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([AXYZaxyz]\d{8})",
                 passport_new_check,
             ),
             (
                 PiiKind::SwiftBic,
                 Language::En,
-                r"(?i)(?:bank[\s_-]?identifier[\s_-]?code|bank[\s_-]?identifier|correspondent[\s_-]?(?:bank[\s_-]?)?swift|intermediary[\s_-]?swift|intermediary[\s_-]?bic|international[\s_-]?bank[\s_-]?code|beneficiary[\s_-]?swift|beneficiary[\s_-]?bic|swift/bic|swift[\s_-]?bic|bic/swift|swift[\s_-]?code|swift[\s_-]?number|swift[\s_-]?no\.?|swift[\s_-]?#|swift[\s_-]?address|swift[\s_-]?id|bank[\s_-]?swift|bank[\s_-]?routing|bank[\s_-]?bic|bic[\s_-]?code|bic[\s_-]?number|bic[\s_-]?no\.?|bic[\s_-]?#|bic[\s_-]?id|routing[\s_-]?code|clearing[\s_-]?code|my[\s_-]?swift|swift|bic)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:bank[\s_-]?identifier[\s_-]?code|bank[\s_-]?identifier|correspondent[\s_-]?(?:bank[\s_-]?)?swift|intermediary[\s_-]?swift|intermediary[\s_-]?bic|international[\s_-]?bank[\s_-]?code|beneficiary[\s_-]?swift|beneficiary[\s_-]?bic|swift/bic|swift[\s_-]?bic|bic/swift|swift[\s_-]?code|swift[\s_-]?numbers?|swift[\s_-]?no\.?|swift[\s_-]?#|swift[\s_-]?address(?:es)?|swift[\s_-]?id|bank[\s_-]?swift|bank[\s_-]?routing|bank[\s_-]?bic|bic[\s_-]?code|bic[\s_-]?numbers?|bic[\s_-]?no\.?|bic[\s_-]?#|bic[\s_-]?id|routing[\s_-]?code|clearing[\s_-]?code|my[\s_-]?swift|swift|bic)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
                 PiiKind::UsEin,
                 Language::En,
-                r"(?i)(?:employer[\s_-]?identification[\s_-]?number|employer[\s_-]?identification[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?identification|employer[\s_-]?id[\s_-]?number|employer[\s_-]?id[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?id|federal[\s_-]?tax[\s_-]?identification|tax[\s_-]?identification[\s_-]?number|federal[\s_-]?id[\s_-]?number|federal[\s_-]?id[\s_-]?no\.?|federal[\s_-]?tax[\s_-]?id|federal[\s_-]?ein|tax[\s_-]?id[\s_-]?number|employer[\s_-]?number|employer[\s_-]?no\.?|business[\s_-]?tax[\s_-]?id|company[\s_-]?tax[\s_-]?id|company[\s_-]?ein|irs[\s_-]?employer[\s_-]?id|applicant[\s_-]?ein|ein[\s_-]?number|ein[\s_-]?no\.?|ein[\s_-]?num|ein[\s_-]?#|tax[\s_-]?id|irs[\s_-]?ein|our[\s_-]?ein|my[\s_-]?ein|fein|ein)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-\d{7})",
+                r"(?i)(?:employer[\s_-]?identification[\s_-]?numbers?|employer[\s_-]?identification[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?identification|employer[\s_-]?id[\s_-]?numbers?|employer[\s_-]?id[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?id|federal[\s_-]?tax[\s_-]?identification|tax[\s_-]?identification[\s_-]?numbers?|federal[\s_-]?id[\s_-]?numbers?|federal[\s_-]?id[\s_-]?no\.?|federal[\s_-]?tax[\s_-]?id|federal[\s_-]?ein|tax[\s_-]?id[\s_-]?numbers?|employer[\s_-]?numbers?|employer[\s_-]?no\.?|business[\s_-]?tax[\s_-]?id|company[\s_-]?tax[\s_-]?id|company[\s_-]?ein|irs[\s_-]?employer[\s_-]?id|applicant[\s_-]?ein|ein[\s_-]?numbers?|ein[\s_-]?no\.?|ein[\s_-]?num|ein[\s_-]?#|tax[\s_-]?id|irs[\s_-]?ein|our[\s_-]?ein|my[\s_-]?ein|fein|ein)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-\d{7})",
                 ein_check,
             ),
             (
                 PiiKind::Imei,
                 Language::En,
-                r"(?i)(?:international[\s_-]?mobile[\s_-]?equipment[\s_-]?identity|mobile[\s_-]?equipment[\s_-]?identity|equipment[\s_-]?identity|device[\s_-]?identifier|device[\s_-]?id[\s_-]?number|device[\s_-]?serial|device[\s_-]?imei|handset[\s_-]?imei|serial[\s_-]?imei|mobile[\s_-]?imei|tablet[\s_-]?imei|equipment[\s_-]?id|phone[\s_-]?imei|imei[\s_-]?identifier|imei[\s_-]?number|imei[\s_-]?no\.?|imei[\s_-]?num|imei[\s_-]?#|imei[\s_-]?code|imei[\s_-]?id|your[\s_-]?imei|my[\s_-]?imei|meid|imei)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:international[\s_-]?mobile[\s_-]?equipment[\s_-]?identity|mobile[\s_-]?equipment[\s_-]?identity|equipment[\s_-]?identity|device[\s_-]?identifier|device[\s_-]?id[\s_-]?numbers?|device[\s_-]?serial|device[\s_-]?imei|handset[\s_-]?imei|serial[\s_-]?imei|mobile[\s_-]?imei|tablet[\s_-]?imei|equipment[\s_-]?id|phone[\s_-]?imei|imei[\s_-]?identifier|imei[\s_-]?numbers?|imei[\s_-]?no\.?|imei[\s_-]?num|imei[\s_-]?#|imei[\s_-]?code|imei[\s_-]?id|your[\s_-]?imei|my[\s_-]?imei|meid|imei)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             (
                 PiiKind::GbUtr,
                 Language::En,
-                r"(?i)(?:unique[\s_-]?taxpayer[\s_-]?ref(?:erence)?|unique[\s_-]?tax[\s_-]?ref(?:erence)?|taxpayer[\s_-]?ref(?:erence)?|tax[\s_-]?ref(?:erence)?|hmrc[\s_-]?ref(?:erence)?|hmrc[\s_-]?utr|self[\s_-]?assessment[\s_-]?ref(?:erence)?|self[\s_-]?assessment[\s_-]?utr|self[\s_-]?assessment[\s_-]?number|self[\s_-]?assessment[\s_-]?no\.?|sa[\s_-]?utr|sa[\s_-]?ref(?:erence)?|sa[\s_-]?number|sa[\s_-]?no\.?|corporation[\s_-]?tax[\s_-]?ref(?:erence)?|corporation[\s_-]?tax[\s_-]?utr|ct[\s_-]?utr|ct[\s_-]?ref(?:erence)?|company[\s_-]?utr|company[\s_-]?tax[\s_-]?ref(?:erence)?|partnership[\s_-]?utr|partnership[\s_-]?ref(?:erence)?|your[\s_-]?utr|my[\s_-]?utr|client[\s_-]?utr|customer[\s_-]?utr|applicant[\s_-]?utr|utr[\s_-]?number|utr[\s_-]?no\.?|utr[\s_-]?num|utr[\s_-]?#|utr[\s_-]?ref(?:erence)?|utr)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10})\b",
+                r"(?i)(?:unique[\s_-]?taxpayer[\s_-]?ref(?:erence)?|unique[\s_-]?tax[\s_-]?ref(?:erence)?|taxpayer[\s_-]?ref(?:erence)?|tax[\s_-]?ref(?:erence)?|hmrc[\s_-]?ref(?:erence)?|hmrc[\s_-]?utr|self[\s_-]?assessment[\s_-]?ref(?:erence)?|self[\s_-]?assessment[\s_-]?utr|self[\s_-]?assessment[\s_-]?numbers?|self[\s_-]?assessment[\s_-]?no\.?|sa[\s_-]?utr|sa[\s_-]?ref(?:erence)?|sa[\s_-]?numbers?|sa[\s_-]?no\.?|corporation[\s_-]?tax[\s_-]?ref(?:erence)?|corporation[\s_-]?tax[\s_-]?utr|ct[\s_-]?utr|ct[\s_-]?ref(?:erence)?|company[\s_-]?utr|company[\s_-]?tax[\s_-]?ref(?:erence)?|partnership[\s_-]?utr|partnership[\s_-]?ref(?:erence)?|your[\s_-]?utr|my[\s_-]?utr|client[\s_-]?utr|customer[\s_-]?utr|applicant[\s_-]?utr|utr[\s_-]?numbers?|utr[\s_-]?no\.?|utr[\s_-]?num|utr[\s_-]?#|utr[\s_-]?ref(?:erence)?|utr)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10})\b",
                 utr_check,
             ),
             (
                 PiiKind::UsAbaRouting,
                 Language::En,
-                r"(?i)(?:aba[\s_-]?routing[\s_-]?number|aba[\s_-]?routing[\s_-]?no\.?|aba[\s_-]?routing|aba[\s_-]?number|aba[\s_-]?no\.?|aba[\s_-]?#|routing[\s_-]?transit[\s_-]?number|routing[\s_-]?transit[\s_-]?no\.?|routing[\s_-]?number|routing[\s_-]?no\.?|routing[\s_-]?#|bank[\s_-]?routing[\s_-]?number|bank[\s_-]?routing[\s_-]?no\.?|bank[\s_-]?routing|transit[\s_-]?number|transit[\s_-]?no\.?|transit[\s_-]?#|aba[\s_-]?rtn|rtn[\s_-]?number|rtn[\s_-]?no\.?|rtn[\s_-]?#|fed[\s_-]?routing|fedwire[\s_-]?routing|ach[\s_-]?routing|wire[\s_-]?routing|wire[\s_-]?transfer[\s_-]?routing|my[\s_-]?routing[\s_-]?number|your[\s_-]?routing[\s_-]?number|bank[\s_-]?rtn|routing[\s_-]?code|aba|rtn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:aba[\s_-]?routing[\s_-]?numbers?|aba[\s_-]?routing[\s_-]?no\.?|aba[\s_-]?routing|aba[\s_-]?numbers?|aba[\s_-]?no\.?|aba[\s_-]?#|routing[\s_-]?transit[\s_-]?numbers?|routing[\s_-]?transit[\s_-]?no\.?|routing[\s_-]?numbers?|routing[\s_-]?no\.?|routing[\s_-]?#|bank[\s_-]?routing[\s_-]?numbers?|bank[\s_-]?routing[\s_-]?no\.?|bank[\s_-]?routing|transit[\s_-]?numbers?|transit[\s_-]?no\.?|transit[\s_-]?#|aba[\s_-]?rtn|rtn[\s_-]?numbers?|rtn[\s_-]?no\.?|rtn[\s_-]?#|fed[\s_-]?routing|fedwire[\s_-]?routing|ach[\s_-]?routing|wire[\s_-]?routing|wire[\s_-]?transfer[\s_-]?routing|my[\s_-]?routing[\s_-]?numbers?|your[\s_-]?routing[\s_-]?numbers?|bank[\s_-]?rtn|routing[\s_-]?code|aba|rtn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 aba_check,
             ),
             (
                 PiiKind::GbSortCode,
                 Language::En,
-                r"(?i)(?:sort[\s_-]?code|sort-code|sortcode|sort[\s_-]?code[\s_-]?number|sort[\s_-]?code[\s_-]?no\.?|sort[\s_-]?code[\s_-]?#|bank[\s_-]?sort[\s_-]?code|bank[\s_-]?sort|branch[\s_-]?sort[\s_-]?code|branch[\s_-]?sort|branch[\s_-]?code|branch[\s_-]?number|branch[\s_-]?no\.?|branch[\s_-]?#|bank[\s_-]?code|bank[\s_-]?number|bank[\s_-]?no\.?|uk[\s_-]?sort[\s_-]?code|uk[\s_-]?sort|bacs[\s_-]?sort[\s_-]?code|bacs[\s_-]?code|my[\s_-]?sort[\s_-]?code|your[\s_-]?sort[\s_-]?code|account[\s_-]?sort[\s_-]?code|account[\s_-]?sort)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{2}-?\d{2})\b",
+                r"(?i)(?:sort[\s_-]?code|sort-code|sortcode|sort[\s_-]?code[\s_-]?numbers?|sort[\s_-]?code[\s_-]?no\.?|sort[\s_-]?code[\s_-]?#|bank[\s_-]?sort[\s_-]?code|bank[\s_-]?sort|branch[\s_-]?sort[\s_-]?code|branch[\s_-]?sort|branch[\s_-]?code|branch[\s_-]?numbers?|branch[\s_-]?no\.?|branch[\s_-]?#|bank[\s_-]?code|bank[\s_-]?numbers?|bank[\s_-]?no\.?|uk[\s_-]?sort[\s_-]?code|uk[\s_-]?sort|bacs[\s_-]?sort[\s_-]?code|bacs[\s_-]?code|my[\s_-]?sort[\s_-]?code|your[\s_-]?sort[\s_-]?code|account[\s_-]?sort[\s_-]?code|account[\s_-]?sort)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{2}-?\d{2})\b",
                 sort_code_check,
             ),
             (
@@ -174,55 +174,55 @@ impl KeywordContextDetector {
             (
                 PiiKind::UsAlienNumber,
                 Language::En,
-                r"(?i)(?:alien[\s_-]?registration[\s_-]?number|alien[\s_-]?registration[\s_-]?no\.?|alien[\s_-]?registration|alien[\s_-]?number|alien[\s_-]?no\.?|alien[\s_-]?#|a-number|uscis[\s_-]?alien[\s_-]?number|uscis[\s_-]?alien[\s_-]?no\.?|uscis[\s_-]?number|uscis[\s_-]?no\.?|uscis[\s_-]?id|uscis[\s_-]?#|green[\s_-]?card[\s_-]?number|green[\s_-]?card[\s_-]?no\.?|green[\s_-]?card[\s_-]?#|permanent[\s_-]?resident[\s_-]?number|permanent[\s_-]?resident[\s_-]?no\.?|immigration[\s_-]?number|immigration[\s_-]?no\.?|immigration[\s_-]?id|dhs[\s_-]?number|dhs[\s_-]?no\.?|my[\s_-]?a-number|your[\s_-]?a-number|applicant[\s_-]?a-number)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([Aa]\d{7,9})\b",
+                r"(?i)(?:alien[\s_-]?registration[\s_-]?numbers?|alien[\s_-]?registration[\s_-]?no\.?|alien[\s_-]?registration|alien[\s_-]?numbers?|alien[\s_-]?no\.?|alien[\s_-]?#|a-number|uscis[\s_-]?alien[\s_-]?numbers?|uscis[\s_-]?alien[\s_-]?no\.?|uscis[\s_-]?numbers?|uscis[\s_-]?no\.?|uscis[\s_-]?id|uscis[\s_-]?#|green[\s_-]?cards?[\s_-]?numbers?|green[\s_-]?cards?[\s_-]?no\.?|green[\s_-]?cards?[\s_-]?#|permanent[\s_-]?resident[\s_-]?numbers?|permanent[\s_-]?resident[\s_-]?no\.?|immigration[\s_-]?numbers?|immigration[\s_-]?no\.?|immigration[\s_-]?id|dhs[\s_-]?numbers?|dhs[\s_-]?no\.?|my[\s_-]?a-number|your[\s_-]?a-number|applicant[\s_-]?a-number)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([Aa]\d{7,9})\b",
                 a_number_check,
             ),
             (
                 PiiKind::UsUscisReceiptNumber,
                 Language::En,
-                r"(?i)(?:uscis[\s_-]?receipt[\s_-]?number|uscis[\s_-]?receipt[\s_-]?no\.?|uscis[\s_-]?receipt|uscis[\s_-]?case[\s_-]?number|uscis[\s_-]?case[\s_-]?no\.?|uscis[\s_-]?case|immigration[\s_-]?case[\s_-]?number|immigration[\s_-]?case[\s_-]?no\.?|immigration[\s_-]?case|petition[\s_-]?receipt[\s_-]?number|petition[\s_-]?receipt[\s_-]?no\.?|petition[\s_-]?receipt|application[\s_-]?receipt[\s_-]?number|application[\s_-]?receipt[\s_-]?no\.?|application[\s_-]?receipt|i-797[\s_-]?receipt|i-797[\s_-]?number|i-797[\s_-]?no\.?|receipt[\s_-]?number|receipt[\s_-]?no\.?|receipt[\s_-]?#|case[\s_-]?number|case[\s_-]?no\.?|case[\s_-]?#|petition[\s_-]?number|petition[\s_-]?no\.?|petition[\s_-]?#|my[\s_-]?receipt[\s_-]?number|your[\s_-]?receipt[\s_-]?number|beneficiary[\s_-]?receipt|applicant[\s_-]?receipt)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{3}\d{10})\b",
+                r"(?i)(?:uscis[\s_-]?receipt[\s_-]?numbers?|uscis[\s_-]?receipt[\s_-]?no\.?|uscis[\s_-]?receipt|uscis[\s_-]?case[\s_-]?numbers?|uscis[\s_-]?case[\s_-]?no\.?|uscis[\s_-]?case|immigration[\s_-]?case[\s_-]?numbers?|immigration[\s_-]?case[\s_-]?no\.?|immigration[\s_-]?case|petition[\s_-]?receipt[\s_-]?numbers?|petition[\s_-]?receipt[\s_-]?no\.?|petition[\s_-]?receipt|application[\s_-]?receipt[\s_-]?numbers?|application[\s_-]?receipt[\s_-]?no\.?|application[\s_-]?receipt|i-797[\s_-]?receipt|i-797[\s_-]?numbers?|i-797[\s_-]?no\.?|receipt[\s_-]?numbers?|receipt[\s_-]?no\.?|receipt[\s_-]?#|case[\s_-]?numbers?|case[\s_-]?no\.?|case[\s_-]?#|petition[\s_-]?numbers?|petition[\s_-]?no\.?|petition[\s_-]?#|my[\s_-]?receipt[\s_-]?numbers?|your[\s_-]?receipt[\s_-]?numbers?|beneficiary[\s_-]?receipt|applicant[\s_-]?receipt)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{3}\d{10})\b",
                 uscis_receipt_check,
             ),
             (
                 PiiKind::ZaId,
                 Language::En,
-                r"(?i)(?:south[\s_-]?african[\s_-]?id[\s_-]?number|south[\s_-]?african[\s_-]?id[\s_-]?no\.?|south[\s_-]?african[\s_-]?id|south[\s_-]?african[\s_-]?identity[\s_-]?number|south[\s_-]?african[\s_-]?identity|sa[\s_-]?id[\s_-]?number|sa[\s_-]?id[\s_-]?no\.?|sa[\s_-]?id|sa[\s_-]?identity[\s_-]?number|sa[\s_-]?identity|national[\s_-]?id[\s_-]?number|national[\s_-]?id[\s_-]?no\.?|national[\s_-]?identity[\s_-]?number|national[\s_-]?identity|id[\s_-]?number|id[\s_-]?no\.?|id[\s_-]?book|id[\s_-]?card|identity[\s_-]?number|identity[\s_-]?no\.?|identity[\s_-]?document|identity[\s_-]?card|home[\s_-]?affairs[\s_-]?number|home[\s_-]?affairs[\s_-]?no\.?|home[\s_-]?affairs[\s_-]?id|citizen[\s_-]?id|citizen[\s_-]?number|applicant[\s_-]?id|my[\s_-]?id|your[\s_-]?id)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
+                r"(?i)(?:south[\s_-]?african[\s_-]?id[\s_-]?numbers?|south[\s_-]?african[\s_-]?id[\s_-]?no\.?|south[\s_-]?african[\s_-]?id|south[\s_-]?african[\s_-]?identity[\s_-]?numbers?|south[\s_-]?african[\s_-]?identity|sa[\s_-]?id[\s_-]?numbers?|sa[\s_-]?id[\s_-]?no\.?|sa[\s_-]?id|sa[\s_-]?identity[\s_-]?numbers?|sa[\s_-]?identity|national[\s_-]?id[\s_-]?numbers?|national[\s_-]?id[\s_-]?no\.?|national[\s_-]?identity[\s_-]?numbers?|national[\s_-]?identity|id[\s_-]?numbers?|id[\s_-]?no\.?|id[\s_-]?book|id[\s_-]?cards?|identity[\s_-]?numbers?|identity[\s_-]?no\.?|identity[\s_-]?document|identity[\s_-]?cards?|home[\s_-]?affairs[\s_-]?numbers?|home[\s_-]?affairs[\s_-]?no\.?|home[\s_-]?affairs[\s_-]?id|citizen[\s_-]?id|citizen[\s_-]?numbers?|applicant[\s_-]?id|my[\s_-]?id|your[\s_-]?id)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
                 za_luhn13_check,
             ),
             (
                 PiiKind::UsDriversLicense,
                 Language::En,
-                r"(?i)(?:driver'?s?[\s_-]*licen[cs]e[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]e[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]e[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*id[\s_-]*(?:number|no\.?|num|#)?|dmv[\s_-]*(?:number|no\.?|num|#)|dl[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*(?:driver'?s?[\s_-]*licen[cs]e|dl)|your[\s_-]*(?:driver'?s?[\s_-]*licen[cs]e|dl)|applicant[\s_-]*(?:driver'?s?[\s_-]*licen[cs]e|dl)|licen[cs]e[\s_-]*(?:number|no\.?|num|#)|dl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
+                r"(?i)(?:driver'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*id[\s_-]*(?:number|no\.?|num|#)?|dmv[\s_-]*(?:number|no\.?|num|#)|dl[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|your[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|applicant[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|licen[cs]es?[\s_-]*(?:number|no\.?|num|#)|dl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
             ),
             (
                 PiiKind::NzNhiNumber,
                 Language::En,
-                r"(?i)(?:national[\s_-]?health[\s_-]?index[\s_-]?number|national[\s_-]?health[\s_-]?index[\s_-]?no\.?|national[\s_-]?health[\s_-]?index|nhi[\s_-]?number|nhi[\s_-]?no\.?|nhi[\s_-]?num|nhi[\s_-]?#|nhi[\s_-]?id|nhi[\s_-]?ref(?:erence)?|nhi[\s_-]?code|my[\s_-]?nhi|your[\s_-]?nhi|patient[\s_-]?nhi|nhi)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
+                r"(?i)(?:national[\s_-]?health[\s_-]?index[\s_-]?numbers?|national[\s_-]?health[\s_-]?index[\s_-]?no\.?|national[\s_-]?health[\s_-]?index|nhi[\s_-]?numbers?|nhi[\s_-]?no\.?|nhi[\s_-]?num|nhi[\s_-]?#|nhi[\s_-]?id|nhi[\s_-]?ref(?:erence)?|nhi[\s_-]?code|my[\s_-]?nhi|your[\s_-]?nhi|patient[\s_-]?nhi|nhi)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
                 nhi_check,
             ),
             (
                 PiiKind::NzDriverLicence,
                 Language::En,
-                r"(?i)(?:new[\s_-]?zealand[\s_-]?driver[\s_-]?licen[cs]e|nz[\s_-]?driver[\s_-]?licen[cs]e|nz[\s_-]?driving[\s_-]?licen[cs]e|driver[\s_-]?licen[cs]e|licen[cs]e[\s_-]?number|licen[cs]e[\s_-]?no\.?|licence[\s_-]?num|driving[\s_-]?licence)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Z]{2}\d{6})\b",
+                r"(?i)(?:new[\s_-]?zealand[\s_-]?driver[\s_-]?licen[cs]es?|nz[\s_-]?driver[\s_-]?licen[cs]es?|nz[\s_-]?driving[\s_-]?licen[cs]es?|driver[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|licen[cs]es?[\s_-]?no\.?|licence[\s_-]?num|driving[\s_-]?licence)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Z]{2}\d{6})\b",
                 nz_dl_check,
             ),
             (
                 PiiKind::IeDriverNumber,
                 Language::En,
-                r"(?i)(?:irish[\s_-]?driver[\s_-]?number|irish[\s_-]?driving[\s_-]?licen[cs]e|ireland[\s_-]?driver[\s_-]?number|ireland[\s_-]?driving[\s_-]?licen[cs]e|ie[\s_-]?driver[\s_-]?number|ie[\s_-]?driving[\s_-]?licen[cs]e|driver[\s_-]?number|driving[\s_-]?licen[cs]e|licen[cs]e[\s_-]?number|driver[\s_-]?no\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:irish[\s_-]?driver[\s_-]?numbers?|irish[\s_-]?driving[\s_-]?licen[cs]es?|ireland[\s_-]?driver[\s_-]?numbers?|ireland[\s_-]?driving[\s_-]?licen[cs]es?|ie[\s_-]?driver[\s_-]?numbers?|ie[\s_-]?driving[\s_-]?licen[cs]es?|driver[\s_-]?numbers?|driving[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|driver[\s_-]?no\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 ie_driver_check,
             ),
             (
                 PiiKind::ZaTaxReference,
                 Language::En,
-                r"(?i)(?:south[\s_-]?african[\s_-]?tax[\s_-]?ref(?:erence)?|south[\s_-]?african[\s_-]?tax[\s_-]?number|sa[\s_-]?tax[\s_-]?ref(?:erence)?|sa[\s_-]?tax[\s_-]?number|sars[\s_-]?ref(?:erence)?|sars[\s_-]?number|sars[\s_-]?tax|tax[\s_-]?ref(?:erence)?|tax[\s_-]?number|tax[\s_-]?ref|SARS)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([0-3,9]\d{9})\b",
+                r"(?i)(?:south[\s_-]?african[\s_-]?tax[\s_-]?ref(?:erence)?|south[\s_-]?african[\s_-]?tax[\s_-]?numbers?|sa[\s_-]?tax[\s_-]?ref(?:erence)?|sa[\s_-]?tax[\s_-]?numbers?|sars[\s_-]?ref(?:erence)?|sars[\s_-]?numbers?|sars[\s_-]?tax|tax[\s_-]?ref(?:erence)?|tax[\s_-]?numbers?|tax[\s_-]?ref|SARS)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([0-3,9]\d{9})\b",
                 za_trn_check,
             ),
             (
                 PiiKind::ZaDriversLicense,
                 Language::En,
-                r"(?i)(?:south[\s_-]?african[\s_-]?driver'?s?[\s_-]?licen[cs]e|sa[\s_-]?driver'?s?[\s_-]?licen[cs]e|driver'?s?[\s_-]?licen[cs]e[\s_-]?number|driver'?s?[\s_-]?licen[cs]e[\s_-]?no\.?|driver'?s?[\s_-]?licen[cs]e|driving[\s_-]?licen[cs]e[\s_-]?number|driving[\s_-]?licen[cs]e[\s_-]?no\.?|driving[\s_-]?licen[cs]e|learner'?s?[\s_-]?licen[cs]e)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
+                r"(?i)(?:south[\s_-]?african[\s_-]?driver'?s?[\s_-]?licen[cs]es?|sa[\s_-]?driver'?s?[\s_-]?licen[cs]es?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?numbers?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?no\.?|driver'?s?[\s_-]?licen[cs]es?|driving[\s_-]?licen[cs]es?[\s_-]?numbers?|driving[\s_-]?licen[cs]es?[\s_-]?no\.?|driving[\s_-]?licen[cs]es?|learner'?s?[\s_-]?licen[cs]es?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
                 za_luhn13_check,
             ),
             (
@@ -234,50 +234,50 @@ impl KeywordContextDetector {
             (
                 PiiKind::AuDriversLicense,
                 Language::En,
-                r"(?i)(?:australian[\s_-]?driver'?s?[\s_-]?licen[cs]e|aus[\s_-]?driver'?s?[\s_-]?licen[cs]e|nsw[\s_-]?licen[cs]e|vic[\s_-]?licen[cs]e|qld[\s_-]?licen[cs]e|wa[\s_-]?licen[cs]e|act[\s_-]?licen[cs]e|sa[\s_-]?licen[cs]e|tas[\s_-]?licen[cs]e|nt[\s_-]?licen[cs]e|australian[\s_-]?dl|aus[\s_-]?dl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{6,10}|[A-Za-z]\d{5,9})\b",
+                r"(?i)(?:australian[\s_-]?driver'?s?[\s_-]?licen[cs]es?|aus[\s_-]?driver'?s?[\s_-]?licen[cs]es?|nsw[\s_-]?licen[cs]es?|vic[\s_-]?licen[cs]es?|qld[\s_-]?licen[cs]es?|wa[\s_-]?licen[cs]es?|act[\s_-]?licen[cs]es?|sa[\s_-]?licen[cs]es?|tas[\s_-]?licen[cs]es?|nt[\s_-]?licen[cs]es?|australian[\s_-]?dl|aus[\s_-]?dl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{6,10}|[A-Za-z]\d{5,9})\b",
                 au_dl_check,
             ),
             (
                 PiiKind::AuAbn,
                 Language::En,
-                r"(?i)(?:australian[\s_-]?business[\s_-]?number|australian[\s_-]?business[\s_-]?no\.?|aus[\s_-]?business[\s_-]?number|abn[\s_-]?number|abn[\s_-]?no\.?|abn[\s_-]?#|abn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
+                r"(?i)(?:australian[\s_-]?business[\s_-]?numbers?|australian[\s_-]?business[\s_-]?no\.?|aus[\s_-]?business[\s_-]?numbers?|abn[\s_-]?numbers?|abn[\s_-]?no\.?|abn[\s_-]?#|abn)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
                 au_abn_check,
             ),
             (
                 PiiKind::CaOhip,
                 Language::En,
-                r"(?i)(?:ontario[\s_-]?health[\s_-]?insurance[\s_-]?plan|ontario[\s_-]?health[\s_-]?card|ontario[\s_-]?health[\s_-]?number|health[\s_-]?card[\s_-]?number|health[\s_-]?card[\s_-]?no\.?|health[\s_-]?card|health[\s_-]?insurance[\s_-]?number|health[\s_-]?insurance[\s_-]?no\.?|health[\s_-]?number|carte[\s_-]?sant[eé]|OHIP[\s_-]?number|OHIP[\s_-]?no\.?|OHIP[\s_-]?card|OHIP)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10}(?:\s?[A-Za-z]{2})?)\b",
+                r"(?i)(?:ontario[\s_-]?health[\s_-]?insurance[\s_-]?plan|ontario[\s_-]?health[\s_-]?cards?|ontario[\s_-]?health[\s_-]?numbers?|health[\s_-]?cards?[\s_-]?numbers?|health[\s_-]?cards?[\s_-]?no\.?|health[\s_-]?cards?|health[\s_-]?insurance[\s_-]?numbers?|health[\s_-]?insurance[\s_-]?no\.?|health[\s_-]?numbers?|carte[\s_-]?sant[eé]|OHIP[\s_-]?numbers?|OHIP[\s_-]?no\.?|OHIP[\s_-]?cards?|OHIP)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10}(?:\s?[A-Za-z]{2})?)\b",
                 ohip_check,
             ),
             // International phone numbers
             (
                 PiiKind::GbPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?uk|phone[\s_-]?gb|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
+                r"(?i)(?:phone[\s_-]?uk|phone[\s_-]?gb|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
                 phone_check,
             ),
             (
                 PiiKind::AuPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?au|phone[\s_-]?aus|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_-]?au|phone[\s_-]?aus|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::NzPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?nz|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_-]?nz|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::IePhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?ie|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?353[\s\-.]?|0)[1-9](?:[\s\-.]?\d)?[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_-]?ie|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?353[\s\-.]?|0)[1-9](?:[\s\-.]?\d)?[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
                 phone_check,
             ),
             (
                 PiiKind::ZaPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?za|phone[\s_-]?sa|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
+                r"(?i)(?:phone[\s_-]?za|phone[\s_-]?sa|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
                 phone_check,
             ),
             // AWS Secret Key
@@ -291,37 +291,37 @@ impl KeywordContextDetector {
             (
                 PiiKind::GbZaPassportNumber,
                 Language::En,
-                r"(?i)(?:british[\s_-]?passport|uk[\s_-]?passport|united[\s_-]?kingdom[\s_-]?passport|hmpo|south[\s_-]?african[\s_-]?passport|sa[\s_-]?passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:british[\s_-]?passports?|uk[\s_-]?passports?|united[\s_-]?kingdom[\s_-]?passports?|hmpo|south[\s_-]?african[\s_-]?passports?|sa[\s_-]?passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 always_valid,
             ),
             (
                 PiiKind::AuPassportNumber,
                 Language::En,
-                r"(?i)(?:australian[\s_-]?passport|australia[\s_-]?passport|passport[\s_-]?number|passport[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]\d{7})\b",
+                r"(?i)(?:australian[\s_-]?passports?|australia[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]\d{7})\b",
                 always_valid,
             ),
             (
                 PiiKind::CaPassportNumber,
                 Language::En,
-                r"(?i)(?:canadian[\s_-]?passport|canada[\s_-]?passport|passport[\s_-]?number|passport[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{6})\b",
+                r"(?i)(?:canadian[\s_-]?passports?|canada[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{6})\b",
                 always_valid,
             ),
             (
                 PiiKind::NzPassportNumber,
                 Language::En,
-                r"(?i)(?:new[\s_-]?zealand[\s_-]?passport|nz[\s_-]?passport|passport[\s_-]?number|passport[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{1,2}\d{6,7})\b",
+                r"(?i)(?:new[\s_-]?zealand[\s_-]?passports?|nz[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{1,2}\d{6,7})\b",
                 always_valid,
             ),
             (
                 PiiKind::IePassportNumber,
                 Language::En,
-                r"(?i)(?:irish[\s_-]?passport|ireland[\s_-]?passport|passport[\s_-]?number|passport[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{7})\b",
+                r"(?i)(?:irish[\s_-]?passports?|ireland[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{7})\b",
                 always_valid,
             ),
             (
                 PiiKind::DePassportNumber,
                 Language::En,
-                r"(?i)(?:german[\s_-]?passport|germany[\s_-]?passport|deutsche[\s_-]?passport|deutscher[\s_\-]reisepass|deutscher[\s_\-]pass|bundespass|reisepassnummer|reisepass[\s_\-]nummer|reisepass[\s_\-]nr\.?|reisepass[\s_\-]no\.?|reisepass[\s_\-]#|reisepass|passnummer|pass[\s_\-]nummer|pass[\s_\-]nr\.?|pass[\s_\-]no\.?|pass[\s_\-]#|passdokumentennummer|passdokument|reisedokumentennummer|reisedokument|amtliches[\s_\-]reisedokument|dokumentennummer|passport[\s_-]?number|passport[\s_-]?no\.?|passport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
+                r"(?i)(?:german[\s_-]?passports?|germany[\s_-]?passports?|deutsche[\s_-]?passports?|deutscher[\s_\-]reisepass|deutscher[\s_\-]pass|bundespass|reisepassnummern?|reisepass[\s_\-]nummern?|reisepass[\s_\-]nr\.?|reisepass[\s_\-]no\.?|reisepass[\s_\-]#|reisepass|passnummern?|pass[\s_\-]nummern?|pass[\s_\-]nr\.?|pass[\s_\-]no\.?|pass[\s_\-]#|passdokumentennummern?|passdokument|reisedokumentennummern?|reisedokument|amtliches[\s_\-]reisedokument|dokumentennummern?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
                 de_passport_check,
             ),
             // Date of birth
@@ -335,13 +335,13 @@ impl KeywordContextDetector {
             (
                 PiiKind::AuBankAccount,
                 Language::En,
-                r"(?i)(?:bsb|bank[\s_-]?state[\s_-]?branch|bsb[\s_-]?number|bsb[\s_-]?no\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
+                r"(?i)(?:bsb|bank[\s_-]?state[\s_-]?branch|bsb[\s_-]?numbers?|bsb[\s_-]?no\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
                 always_valid,
             ),
             (
                 PiiKind::CaBankAccount,
                 Language::En,
-                r"(?i)(?:transit[\s_-]?number|transit[\s_-]?no\.?|institution[\s_-]?number|chequing[\s_-]?account|savings[\s_-]?account|canadian[\s_-]?account|ca[\s_-]?account)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
+                r"(?i)(?:transit[\s_-]?numbers?|transit[\s_-]?no\.?|institution[\s_-]?numbers?|chequing[\s_-]?account|savings[\s_-]?account|canadian[\s_-]?account|ca[\s_-]?account)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
                 always_valid,
             ),
             // --- UK street address ---
@@ -350,50 +350,50 @@ impl KeywordContextDetector {
             (
                 PiiKind::GbAddress,
                 Language::En,
-                r"(?i)(?:home[\s_-]?address|postal[\s_-]?address|mailing[\s_-]?address|delivery[\s_-]?address|billing[\s_-]?address|shipping[\s_-]?address|correspondence[\s_-]?address|residential[\s_-]?address|business[\s_-]?address|office[\s_-]?address|street[\s_-]?address|registered[\s_-]?office|address[\s_-]?line(?:[\s_-]??[12])?|addr[\s_-]?line(?:[\s_-]??[12])?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,4}[A-Za-z]?\s+[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-.]+){0,6}[,\s]+(?:[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-]+){0,3}[,\s]+)?[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2})",
+                r"(?i)(?:home[\s_-]?address(?:es)?|postal[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|correspondence[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|business[\s_-]?address(?:es)?|office[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|registered[\s_-]?office|address[\s_-]?line(?:[\s_-]??[12])?|addr[\s_-]?line(?:[\s_-]??[12])?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,4}[A-Za-z]?\s+[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-.]+){0,6}[,\s]+(?:[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-]+){0,3}[,\s]+)?[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2})",
                 gb_address_check,
             ),
             // --- France-specific PII types (Language::Fr) ---
             (
                 PiiKind::FrNir,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ro[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ro[\s_-]?de[\s_-]?s[eé]cu|num[eé]ro[\s_-]?s[eé]cu|n°[\s_-]?s[eé]cu|s[eé]curit[eé][\s_-]?sociale|num[eé]ro[\s_-]?SS|n°[\s_-]?SS|code[\s_-]?s[eé]cu|NIR|s[eé]cu)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
+                r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?de[\s_-]?s[eé]cu|num[eé]ros?[\s_-]?s[eé]cu|n°[\s_-]?s[eé]cu|s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?SS|n°[\s_-]?SS|code[\s_-]?s[eé]cu|NIR|s[eé]cu)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
                 nir_check,
             ),
             (
                 PiiKind::FrSiret,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?SIRET|n°[\s_-]?SIRET|[eé]tablissement[\s_-]?SIRET|SIRET)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14})\b",
+                r"(?i)(?:num[eé]ros?[\s_-]?SIRET|n°[\s_-]?SIRET|[eé]tablissement[\s_-]?SIRET|SIRET)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14})\b",
                 siret_luhn_check,
             ),
             (
                 PiiKind::FrSiren,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?SIREN|n°[\s_-]?SIREN|entreprise[\s_-]?SIREN|SIREN)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:num[eé]ros?[\s_-]?SIREN|n°[\s_-]?SIREN|entreprise[\s_-]?SIREN|SIREN)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 siren_luhn_check,
             ),
             (
                 PiiKind::FrPassportNumber,
                 Language::Fr,
-                r"(?i)(?:passeport[\s_-]?fran[cç]ais|passeport[\s_-]?france|num[eé]ro[\s_-]?de[\s_-]?passeport)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[A-Za-z]{2}\d{5})\b",
+                r"(?i)(?:passeports?[\s_-]?fran[cç]ais|passeports?[\s_-]?france|num[eé]ros?[\s_-]?de[\s_-]?passeports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[A-Za-z]{2}\d{5})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrCni,
                 Language::Fr,
-                r"(?i)(?:carte[\s_-]?nationale[\s_-]?d'identit[eé]|carte[\s_-]?d'identit[eé]|pi[eè]ce[\s_-]?d'identit[eé]|num[eé]ro[\s_-]?CNI|CNI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
+                r"(?i)(?:carte[\s_-]?nationale[\s_-]?d'identit[eé]|carte[\s_-]?d'identit[eé]|pi[eè]ce[\s_-]?d'identit[eé]|num[eé]ros?[\s_-]?CNI|CNI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrDriversLicense,
                 Language::Fr,
-                r"(?i)(?:permis[\s_-]?de[\s_-]?conduire|num[eé]ro[\s_-]?de[\s_-]?permis|n°[\s_-]?permis)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
+                r"(?i)(?:permis[\s_-]?de[\s_-]?conduire|num[eé]ros?[\s_-]?de[\s_-]?permis|n°[\s_-]?permis)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{12})\b",
                 always_valid,
             ),
             (
                 PiiKind::FrPhoneNumber,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?de[\s_-]?t[eé]l[eé]phone|num[eé]ro[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phone|n°[\s_-]?de[\s_-]?t[eé]l|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|tel|num[eé]ro[\s_-]?t[eé]l|appeler|rappel|contact)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
+                r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?t[eé]l[eé]phones?|num[eé]ros?[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phones?|n°[\s_-]?de[\s_-]?t[eé]l|t[eé]l[eé]phones?|portable|mobiles?|fixe|t[eé]l|tel|num[eé]ros?[\s_-]?t[eé]l|appeler|rappel|contact)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
                 phone_check,
             ),
             (
@@ -405,20 +405,20 @@ impl KeywordContextDetector {
             (
                 PiiKind::FrNif,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?d'identification[\s_-]?fiscale|num[eé]ro[\s_-]?fiscal|identifiant[\s_-]?fiscal|avis[\s_-]?d'imposition|NIF|SPI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
+                r"(?i)(?:num[eé]ros?[\s_-]?d'identification[\s_-]?fiscale|num[eé]ros?[\s_-]?fiscal|identifiant[\s_-]?fiscal|avis[\s_-]?d'imposition|NIF|SPI)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{13})\b",
                 fr_nif_check,
             ),
             // --- French keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?de[\s_-]?t[eé]l[eé]phone|num[eé]ro[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phone|t[eé]l[eé]phone|portable|mobile|fixe|t[eé]l|appeler|rappel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?t[eé]l[eé]phones?|num[eé]ros?[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phones?|t[eé]l[eé]phones?|portable|mobiles?|fixe|t[eé]l|appeler|rappel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::Fr,
-                r"(?i)(?:passeport|num[eé]ro[\s_-]?de[\s_-]?passeport|document[\s_-]?de[\s_-]?voyage)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:passeports?|num[eé]ros?[\s_-]?de[\s_-]?passeports?|document[\s_-]?de[\s_-]?voyage)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 passport_check,
             ),
             (
@@ -442,101 +442,101 @@ impl KeywordContextDetector {
             (
                 PiiKind::Imei,
                 Language::Fr,
-                r"(?i)(?:num[eé]ro[\s_-]?IMEI|identifiant[\s_-]?appareil)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                r"(?i)(?:num[eé]ros?[\s_-]?IMEI|identifiant[\s_-]?appareil)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
             // --- Germany-specific PII types (Language::De) ---
             (
                 PiiKind::DeSteuerId,
                 Language::De,
-                r"(?i)(?:Steueridentifikationsnummer|Steuerliche[\s_-]?Identifikationsnummer|Steuer-ID|IdNr|Steuernummer)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
+                r"(?i)(?:Steueridentifikationsnummern?|Steuerliche[\s_-]?Identifikationsnummern?|Steuer-ID|IdNr|Steuernummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
                 de_steuer_id_check,
             ),
             (
                 PiiKind::DePersonalausweis,
                 Language::De,
-                r"(?i)(?:Personalausweisnummer|Personalausweis|Ausweisnummer)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
+                r"(?i)(?:Personalausweisnummern?|Personalausweise?|Ausweisnummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
                 de_personalausweis_check,
             ),
             (
                 PiiKind::DePhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::DePhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?de|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?49[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:phone[\s_-]?de|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?49[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::DePostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
                 de_postal_check,
             ),
             // --- Austria-specific PII types (Language::De) ---
             (
                 PiiKind::AtSvnr,
                 Language::De,
-                r"(?i)(?:Sozialversicherungsnummer|Versicherungsnummer|SVNR)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?\d{6})\b",
+                r"(?i)(?:Sozialversicherungsnummern?|Versicherungsnummern?|SVNR)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?\d{6})\b",
                 at_svnr_check,
             ),
             (
                 PiiKind::AtPhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::AtPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?at|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?43[\s\-.]?[1-9]\d{0,4}[\s\-./]?\d{3,8})",
+                r"(?i)(?:phone[\s_-]?at|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?43[\s\-.]?[1-9]\d{0,4}[\s\-./]?\d{3,8})",
                 phone_check,
             ),
             (
                 PiiKind::AtPostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
+                r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
                 at_postal_check,
             ),
             // --- Switzerland-specific PII types (Language::De) ---
             (
                 PiiKind::ChAhv,
                 Language::De,
-                r"(?i)(?:AHV-Nummer|AHV-Nr|OASI|Versichertennummer)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
+                r"(?i)(?:AHV-Nummern?|AHV-Nr|OASI|Versichertennummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
                 ch_ahv_check,
             ),
             (
                 PiiKind::ChPhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
+                r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
                 phone_check,
             ),
             (
                 PiiKind::ChPhoneNumber,
                 Language::En,
-                r"(?i)(?:phone[\s_-]?ch|phone[\s_-]?number|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?number|telephone[\s_-]?no\.?|telephone|mobile[\s_-]?number|mobile[\s_-]?no\.?|mobile[\s_-]?phone|mobile|cell[\s_-]?phone|cell[\s_-]?number|cell|contact[\s_-]?number|contact[\s_-]?no\.?|contact[\s_-]?phone|callback[\s_-]?number|callback[\s_-]?no\.?|callback|fax[\s_-]?number|fax[\s_-]?no\.?|fax|tel[\s_-]?number|tel[\s_-]?no\.?|tel|landline|home[\s_-]?phone|work[\s_-]?phone|office[\s_-]?phone|alternate[\s_-]?phone|alt[\s_-]?phone|my[\s_-]?phone|your[\s_-]?phone|customer[\s_-]?phone|applicant[\s_-]?phone|phone)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?41[\s\-.]?[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
+                r"(?i)(?:phone[\s_-]?ch|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?41[\s\-.]?[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
                 phone_check,
             ),
             (
                 PiiKind::ChPostalCode,
                 Language::De,
-                r"(?i)(?:Postleitzahl|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
+                r"(?i)(?:Postleitzahl(?:en)?|PLZ)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4})\b",
                 ch_postal_check,
             ),
             // --- German keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::De,
-                r"(?i)(?:Telefonnummer|Rufnummer|Festnetz|Handynummer|Mobilnummer|Kontaktnummer|Anruf|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
                 phone_check,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::De,
-                r"(?i)(?:Reisepass|Passnummer)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                r"(?i)(?:Reisepass|Passnummern?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
                 passport_check,
             ),
             (
@@ -548,13 +548,13 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::De,
-                r"(?i)(?:GPS-Koordinaten|Standort|Geokoordinaten)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:GPS-Koordinaten|Standorte?|Geokoordinaten)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
                 geolocation_check,
             ),
             (
                 PiiKind::SwiftBic,
                 Language::De,
-                r"(?i)(?:Bankleitzahl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                r"(?i)(?:Bankleitzahl(?:en)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
                 swift_bic_check,
             ),
             (
@@ -567,13 +567,13 @@ impl KeywordContextDetector {
             (
                 PiiKind::PersonName,
                 Language::En,
-                r"(?i)(?:full[\s_-]?name|first[\s_-]?name|last[\s_-]?name|given[\s_-]?name|family[\s_-]?name|surname|forename|maiden[\s_-]?name|middle[\s_-]?name|patient[\s_-]?name|client[\s_-]?name|customer[\s_-]?name|employee[\s_-]?name|applicant[\s_-]?name|cardholder[\s_-]?name|account[\s_-]?holder|account[\s_-]?name|beneficiary[\s_-]?name|recipient[\s_-]?name|sender[\s_-]?name|passenger[\s_-]?name|insured[\s_-]?name)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:full[\s_-]?names?|first[\s_-]?names?|last[\s_-]?names?|given[\s_-]?names?|family[\s_-]?names?|surname|forename|maiden[\s_-]?names?|middle[\s_-]?names?|patient[\s_-]?names?|client[\s_-]?names?|customer[\s_-]?names?|employee[\s_-]?names?|applicant[\s_-]?names?|cardholder[\s_-]?names?|account[\s_-]?holder|account[\s_-]?names?|beneficiary[\s_-]?names?|recipient[\s_-]?names?|sender[\s_-]?names?|passenger[\s_-]?names?|insured[\s_-]?names?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
                 PiiKind::PersonName,
                 Language::Fr,
-                r"(?i)(?:nom[\s_-]?complet|nom[\s_-]?de[\s_-]?famille|nom[\s_-]?de[\s_-]?naissance|nom[\s_-]?de[\s_-]?jeune[\s_-]?fille|nom[\s_-]?d'usage|pr[eé]nom|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
+                r"(?i)(?:noms?[\s_-]?complet|noms?[\s_-]?de[\s_-]?famille|noms?[\s_-]?de[\s_-]?naissance|noms?[\s_-]?de[\s_-]?jeune[\s_-]?fille|noms?[\s_-]?d'usage|pr[eé]noms?|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
                 person_name_check,
             ),
             (
@@ -586,7 +586,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::FrChAddress,
                 Language::Fr,
-                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adresse|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adressen?|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 fr_ch_address_check,
             ),
             (
@@ -599,7 +599,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DeAtChAddress,
                 Language::De,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                r"(?i)(?:Anschrift(?:en)?|Wohnadressen?|Wohnanschrift(?:en)?|Hausanschrift(?:en)?|Wohnsitz|Lieferadressen?|Rechnungsadressen?|Meldeadressen?|Zustelladressen?|Privatadressen?|Heimatadressen?|Adressen?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_at_address_check,
             ),
             (
@@ -624,7 +624,7 @@ impl KeywordContextDetector {
         let detection_overrides: &[(PiiKind, &str)] = &[
             (
                 PiiKind::DeAtChAddress,
-                r"(?i)(?:Anschrift|Wohnadresse|Wohnanschrift|Hausanschrift|Wohnsitz|Lieferadresse|Rechnungsadresse|Meldeadresse|Zustelladresse|Privatadresse|Heimatadresse|Adresse)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+                r"(?i)(?:Anschrift(?:en)?|Wohnadressen?|Wohnanschrift(?:en)?|Hausanschrift(?:en)?|Wohnsitz|Lieferadressen?|Rechnungsadressen?|Meldeadressen?|Zustelladressen?|Privatadressen?|Heimatadressen?|Adressen?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
             ),
             (
                 PiiKind::DeAtChPostfach,
@@ -1333,6 +1333,63 @@ mod tests {
     #[test_case("Packstation: 109, 01099 Dresden. Ihr Paket wird dort abgelegt.", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation trailing prose")]
     // Multi-word city names must still be captured correctly
     #[test_case("Anschrift: Rathausplatz 1, 60311 Frankfurt am Main. Bitte bestätigen.", PiiKind::DeAtChAddress, "Rathausplatz 1, 60311 Frankfurt am Main" ; "de address multi word city trailing prose")]
+    // --- Plural keyword forms ---
+    // English plurals (single -s suffix on the head noun)
+    #[test_case("phone_numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers snakecase")]
+    #[test_case("phoneNumbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phoneNumbers camelcase")]
+    #[test_case(r#""phoneNumbers": "555-123-4567""#, PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phoneNumbers json")]
+    #[test_case("mobile phones: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural mobile phones")]
+    #[test_case("passport_numbers: A12345678", PiiKind::UsPassportNew, "A12345678" ; "en plural passport_numbers")]
+    #[test_case("passports: A12345678", PiiKind::UsPassportNew, "A12345678" ; "en plural passports")]
+    #[test_case("tax_file_numbers: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "en plural tax_file_numbers")]
+    #[test_case("routing numbers: 021000021", PiiKind::UsAbaRouting, "021000021" ; "en plural routing numbers")]
+    #[test_case("driver's licenses: B1234568", PiiKind::UsDriversLicense, "B1234568" ; "en plural drivers licenses")]
+    #[test_case("nz driving licences: AB123456", PiiKind::NzDriverLicence, "AB123456" ; "en plural nz driving licences")]
+    #[test_case("home addresses: 10 Downing Street, London, SW1A 2AA", PiiKind::GbAddress, "10 Downing Street, London, SW1A 2AA" ; "en plural home addresses")]
+    #[test_case("full names: Jean-Pierre Müller", PiiKind::PersonName, "Jean-Pierre Müller" ; "en plural full names")]
+    // French plurals (single -s suffix on the head noun)
+    #[test_case("numéros de téléphone: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural numeros de telephone")]
+    #[test_case("numeros_de_telephone: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural numeros_de_telephone snakecase")]
+    #[test_case("téléphones: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural telephones")]
+    #[test_case("numéros de passeport: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr plural numeros de passeport")]
+    #[test_case("passeports français: 05AB12345", PiiKind::FrPassportNumber, "05AB12345" ; "fr plural passeports francais")]
+    #[test_case("noms de famille: Beaumont", PiiKind::PersonName, "Beaumont" ; "fr plural noms de famille")]
+    #[test_case("prénoms: François", PiiKind::PersonName, "François" ; "fr plural prenoms")]
+    // German plurals (varies per word: -n, -en, -e)
+    #[test_case("Telefonnummern: +49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de plural Telefonnummern")]
+    #[test_case("Rufnummern: +49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de plural Rufnummern")]
+    #[test_case("Handynummern: +49 151 12345678", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de plural Handynummern")]
+    #[test_case("Personalausweise: L01X00T471", PiiKind::DePersonalausweis, "L01X00T471" ; "de plural Personalausweise")]
+    #[test_case("Steueridentifikationsnummern: 86095742719", PiiKind::DeSteuerId, "86095742719" ; "de plural Steueridentifikationsnummern")]
+    #[test_case("AHV-Nummern: 756.1234.5678.97", PiiKind::ChAhv, "756.1234.5678.97" ; "ch plural AHV-Nummern")]
+    #[test_case("Anschriften: Friedrichstraße 43, 10117 Berlin", PiiKind::DeAtChAddress, "Friedrichstraße 43, 10117 Berlin" ; "de plural Anschriften")]
+    #[test_case("Wohnadressen: Musterstraße 42, 10115 Berlin", PiiKind::DeAtChAddress, "Musterstraße 42, 10115 Berlin" ; "de plural Wohnadressen")]
+    #[test_case("Lieferadressen: Unter den Linden 77, 10117 Berlin", PiiKind::DeAtChAddress, "Unter den Linden 77, 10117 Berlin" ; "de plural Lieferadressen")]
+    #[test_case("Postleitzahlen: 10115", PiiKind::DePostalCode, "10115" ; "de plural Postleitzahlen")]
+    #[test_case("Standorte: 48.1351,11.5820", PiiKind::PreciseGeolocation, "48.1351,11.5820" ; "de plural Standorte")]
+    // English plurals — separator variants (JSON / URL query / kebab / URL-encoded / HTML entity / equals)
+    #[test_case(r#""phone_numbers": "555-123-4567""#, PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers json snakecase")]
+    #[test_case("phone-numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone-numbers kebab yaml")]
+    #[test_case("phone_numbers=555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers url query")]
+    #[test_case("phone_numbers%3A%20555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers url-encoded")]
+    #[test_case("phone_numbers&#58; 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers html entity")]
+    #[test_case("user[phone_numbers]=555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers url bracket")]
+    #[test_case(r#""passport_numbers":"A12345678""#, PiiKind::UsPassportNew, "A12345678" ; "en plural passport_numbers tight json")]
+    #[test_case("tax-file-numbers=123 456 782", PiiKind::AuTfn, "123 456 782" ; "en plural tax-file-numbers kebab equals")]
+    #[test_case("routing_numbers%3A 021000021", PiiKind::UsAbaRouting, "021000021" ; "en plural routing_numbers url-encoded")]
+    // French plurals — separator variants (JSON / URL / equals)
+    #[test_case(r#""téléphones": "06 12 34 56 78""#, PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural telephones json")]
+    #[test_case(r#""numéros_de_téléphone": "06 12 34 56 78""#, PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural numeros_de_telephone json")]
+    #[test_case("numéros-de-téléphone: 06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural numeros-de-telephone kebab")]
+    #[test_case("téléphones=06 12 34 56 78", PiiKind::FrPhoneNumber, "06 12 34 56 78" ; "fr plural telephones equals")]
+    #[test_case(r#""passeports_français":"05AB12345""#, PiiKind::FrPassportNumber, "05AB12345" ; "fr plural passeports_francais json")]
+    // German plurals — separator variants (JSON / URL / equals / kebab)
+    #[test_case(r#""Telefonnummern": "+49 30 12345678""#, PiiKind::DePhoneNumber, "+49 30 12345678" ; "de plural Telefonnummern json")]
+    #[test_case("Telefonnummern=+49 30 12345678", PiiKind::DePhoneNumber, "+49 30 12345678" ; "de plural Telefonnummern equals")]
+    #[test_case(r#""Handynummern":"+49 151 12345678""#, PiiKind::DePhoneNumber, "+49 151 12345678" ; "de plural Handynummern tight json")]
+    #[test_case("Handynummern%3A%20+49 151 12345678", PiiKind::DePhoneNumber, "+49 151 12345678" ; "de plural Handynummern url-encoded")]
+    #[test_case(r#""Postleitzahlen": "10115""#, PiiKind::DePostalCode, "10115" ; "de plural Postleitzahlen json")]
+    #[test_case(r#""Anschriften":"Friedrichstraße 43, 10117 Berlin""#, PiiKind::DeAtChAddress, "Friedrichstraße 43, 10117 Berlin" ; "de plural Anschriften tight json")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -2213,6 +2270,11 @@ mod tests {
     #[test_case("user.phone_number" ; "leaf keyword nested (iter 1)")]
     #[test_case("phone_number.primary" ; "keyword at head (iter 2)")]
     #[test_case("user.phone_number.value" ; "keyword in middle (iter 2)")]
+    // Plural-form variants (TASKS.md 15.1: phone_numbers[0], etc.)
+    #[test_case("phone_numbers" ; "leaf plural keyword (iter 1)")]
+    #[test_case("user.phone_numbers" ; "plural keyword nested (iter 1)")]
+    #[test_case("phone_numbers[0]" ; "plural keyword in array (iter 1, indices stripped)")]
+    #[test_case("user.phone_numbers[0]" ; "plural keyword nested in array")]
     fn structured_detects_phone_in_path(context: &str) {
         let detector = &*DETECTOR;
         let frags = [phone_frag(context, 0)];
@@ -2342,6 +2404,42 @@ mod tests {
         let matches = detector.mark_piis_structured(&frags);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].kind, PiiKind::UsPhoneNumber);
+    }
+
+    #[test]
+    fn structured_detects_fr_plural_keyword() {
+        // French plural head noun (`numéros de téléphone`) inside an array
+        // context — exercises iter 1 with stripped indices.
+        let detector = &*DETECTOR;
+        let value = "06 12 34 56 78";
+        let frags = [ContextFragment {
+            context: "numéros_de_téléphone[0]",
+            value,
+            offset: 0,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.iter().any(|m| m.kind == PiiKind::FrPhoneNumber),
+            "expected FrPhoneNumber match for plural French keyword in array, got {matches:?}"
+        );
+    }
+
+    #[test]
+    fn structured_detects_de_plural_keyword() {
+        // German plural compound (`Telefonnummern`) inside an array context —
+        // exercises iter 1 with stripped indices.
+        let detector = &*DETECTOR;
+        let value = "+49 30 12345678";
+        let frags = [ContextFragment {
+            context: "Telefonnummern[0]",
+            value,
+            offset: 0,
+        }];
+        let matches = detector.mark_piis_structured(&frags);
+        assert!(
+            matches.iter().any(|m| m.kind == PiiKind::DePhoneNumber),
+            "expected DePhoneNumber match for plural German keyword in array, got {matches:?}"
+        );
     }
 
     #[test]
