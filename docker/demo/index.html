@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PII Proxy — Demo</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #fff;
+    --border: #e5e7eb;
+    --text: #111;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; background: var(--bg); color: var(--text);
+  }
+  header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 1.4rem; }
+  header p { margin: .25rem 0 0; color: var(--muted); font-size: .9rem; }
+  header code { font-family: var(--mono); font-size: .85rem; }
+  main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem; }
+  .demo { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 900px) { .demo { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1rem;
+  }
+  h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
+  label {
+    display: block; font-size: .75rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem;
+  }
+  select, textarea, button {
+    font: inherit; width: 100%; padding: .5rem .6rem;
+    border: 1px solid var(--border); border-radius: 4px; background: #fff;
+  }
+  textarea {
+    font-family: var(--mono); font-size: .85rem;
+    resize: vertical; min-height: 220px;
+  }
+  .row { display: flex; gap: .75rem; margin-bottom: .75rem; }
+  .row > div { flex: 1; }
+  .examples { margin-bottom: .5rem; }
+  .examples button {
+    width: auto; padding: .25rem .6rem; margin-right: .25rem; margin-bottom: .25rem;
+    font-size: .8rem; background: #f3f4f6; cursor: pointer;
+  }
+  .examples button:hover { background: #e5e7eb; }
+  .send {
+    background: var(--accent); color: #fff; border: none; cursor: pointer;
+    font-weight: 600; padding: .65rem; margin-top: .75rem;
+  }
+  .send:hover { background: #1d4ed8; }
+  .send:disabled { opacity: .5; cursor: not-allowed; }
+  .resp-meta {
+    font-family: var(--mono); font-size: .8rem; margin-bottom: .5rem;
+    color: var(--muted); min-height: 1.4em;
+  }
+  .resp-status {
+    display: inline-block; padding: .1rem .5rem; border-radius: 3px;
+    color: #fff; font-weight: 600; margin-right: .5rem;
+  }
+  .resp-status.ok { background: #16a34a; }
+  .resp-status.err { background: #dc2626; }
+  .resp-body {
+    font-family: var(--mono); font-size: .82rem; white-space: pre-wrap;
+    word-break: break-word; background: #0f172a; color: #e5e7eb;
+    padding: .75rem; border-radius: 4px; overflow-x: auto;
+    min-height: 220px; margin: 0;
+  }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
+  #redoc-container {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>PII Proxy — Live Demo</h1>
+  <p>Send sample payloads to the HTTP API at <code id="api-url-display"></code> and see PII detection / redaction in action.</p>
+</header>
+<main>
+  <section class="demo">
+    <div class="panel">
+      <h2>Request</h2>
+      <div class="row">
+        <div>
+          <label for="endpoint">Endpoint</label>
+          <select id="endpoint">
+            <option value="/v1/scan">POST /v1/scan</option>
+            <option value="/v1/redact">POST /v1/redact</option>
+          </select>
+        </div>
+        <div>
+          <label for="content-type">Content-Type</label>
+          <select id="content-type">
+            <option>application/json</option>
+            <option>text/csv</option>
+            <option>text/tab-separated-values</option>
+            <option>text/plain</option>
+          </select>
+        </div>
+      </div>
+      <label>Body</label>
+      <div class="examples">
+        <button type="button" data-example="json">JSON example</button>
+        <button type="button" data-example="csv">CSV example</button>
+        <button type="button" data-example="tsv">TSV example</button>
+        <button type="button" data-example="text">Plain text example</button>
+      </div>
+      <textarea id="body" placeholder="Paste JSON, CSV, TSV, or plain text here..."></textarea>
+      <button type="button" id="send" class="send">Send request</button>
+    </div>
+    <div class="panel">
+      <h2>Response</h2>
+      <div class="resp-meta" id="resp-meta">—</div>
+      <pre class="resp-body" id="resp-body">Send a request to see the response.</pre>
+    </div>
+  </section>
+  <hr>
+  <h2>API reference</h2>
+  <div id="redoc-container"></div>
+</main>
+<script src="config.js"></script>
+<script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+<script>
+  const apiBase = (window.PII_API_URL || "").replace(/\/+$/, "");
+  document.getElementById("api-url-display").textContent = apiBase || "(unset)";
+
+  const examples = {
+    json: {
+      ct: "application/json",
+      body: JSON.stringify({
+        name: "Jane Doe",
+        email: "jane.doe@example.com",
+        phone: "+1 415 555 1234",
+        ssn: "123-45-6789",
+        note: "Customer prefers contact via email."
+      }, null, 2)
+    },
+    csv: {
+      ct: "text/csv",
+      body:
+        "name,email,phone\n" +
+        "Jane Doe,jane.doe@example.com,+1 415 555 1234\n" +
+        "John Smith,john@example.com,+44 20 7946 0001\n"
+    },
+    tsv: {
+      ct: "text/tab-separated-values",
+      body:
+        "name\temail\tphone\n" +
+        "Jane Doe\tjane.doe@example.com\t+1 415 555 1234\n" +
+        "John Smith\tjohn@example.com\t+44 20 7946 0001\n"
+    },
+    text: {
+      ct: "text/plain",
+      body:
+        "Hi team — please reach out to Jane Doe at jane.doe@example.com " +
+        "or call +1 415 555 1234. Her SSN on file is 123-45-6789."
+    }
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  document.querySelectorAll(".examples button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const ex = examples[btn.dataset.example];
+      $("content-type").value = ex.ct;
+      $("body").value = ex.body;
+    });
+  });
+
+  $("send").addEventListener("click", async () => {
+    if (!apiBase) {
+      $("resp-meta").innerHTML = '<span class="resp-status err">config error</span>';
+      $("resp-body").textContent = "PII_API_URL is not set.";
+      return;
+    }
+    const endpoint = $("endpoint").value;
+    const ct = $("content-type").value;
+    const body = $("body").value;
+    const url = apiBase + endpoint;
+    const sendBtn = $("send");
+    sendBtn.disabled = true;
+    $("resp-meta").textContent = "Sending…";
+    $("resp-body").textContent = "";
+    try {
+      const start = performance.now();
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": ct },
+        body
+      });
+      const elapsed = (performance.now() - start).toFixed(0);
+      const text = await res.text();
+      const respCt = res.headers.get("content-type") || "";
+      const redacted = res.headers.get("x-pii-redacted-count");
+      let pretty = text;
+      if (respCt.includes("application/json")) {
+        try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+      }
+      const cls = res.ok ? "ok" : "err";
+      const parts = [
+        `<span class="resp-status ${cls}">${res.status} ${res.statusText}</span>`,
+        `${elapsed} ms`
+      ];
+      if (respCt) parts.push(`Content-Type: ${respCt}`);
+      if (redacted !== null) parts.push(`X-PII-Redacted-Count: ${redacted}`);
+      $("resp-meta").innerHTML = parts.join("  •  ");
+      $("resp-body").textContent = pretty;
+    } catch (e) {
+      $("resp-meta").innerHTML = '<span class="resp-status err">network error</span>';
+      $("resp-body").textContent = e.message + "\n\n(Is the proxy reachable from your browser at " + apiBase + "?)";
+    } finally {
+      sendBtn.disabled = false;
+    }
+  });
+
+  if (apiBase && window.Redoc) {
+    Redoc.init(
+      apiBase + "/openapi.json",
+      { hideDownloadButton: false, expandResponses: "200", theme: { sidebar: { width: "260px" } } },
+      document.getElementById("redoc-container")
+    );
+  }
+</script>
+</body>
+</html>

@@ -136,10 +136,16 @@ struct ErrorResponse {
 // entry per `SUPPORTED_BODY_CONTENT_TYPES` element so the documented set
 // stays in sync with the parser dispatch in `scanner::classify_body`.
 
+/// Scan a request body for PII
+///
+/// Inspects the body for PII according to the configured detector set and
+/// returns the kinds detected along with per-kind match counts. The body
+/// itself is never echoed back.
 #[utoipa::path(
     post,
     path = "/v1/scan",
     tag = "pii",
+    operation_id = "scanBody",
     request_body(
         description = "Raw body content to scan for PII. The `Content-Type` \
             header determines how the body is parsed and scanned.",
@@ -158,10 +164,17 @@ async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: B
     process(state, headers, body, Mode::Scan).await
 }
 
+/// Redact PII in a request body
+///
+/// Scans the body and replaces detected PII spans in-place. The response
+/// `Content-Type` mirrors the request so the redacted body remains valid
+/// JSON / CSV / TSV / plain text. Detection metadata is returned via the
+/// `X-PII-Detected` and `X-PII-Redacted-Count` response headers.
 #[utoipa::path(
     post,
     path = "/v1/redact",
     tag = "pii",
+    operation_id = "redactBody",
     request_body(
         description = "Raw body content to scan and redact. Content-Type \
             routing matches `/v1/scan`. The response `Content-Type` mirrors \
