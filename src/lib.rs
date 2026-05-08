@@ -292,7 +292,7 @@ impl PiiKind {
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
             PiiKind::AuAbn => "AU_ABN",
             PiiKind::IeEircode => "IE_EIRCODE",
-            PiiKind::InternationalPhoneNumber => "INTERNATIONAL_PHONE_NUMBER",
+            PiiKind::InternationalPhoneNumber => "PHONE_NUMBER",
             PiiKind::Custom => "CUSTOM",
         }
     }
