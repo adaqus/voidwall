@@ -27,6 +27,11 @@
   header h1 { margin: 0; font-size: 1.4rem; }
   header p { margin: .25rem 0 0; color: var(--muted); font-size: .9rem; }
   header code { font-family: var(--mono); font-size: .85rem; }
+  .disclaimer {
+    margin: .75rem 0 0; padding: .6rem .8rem;
+    background: #fef3c7; border: 1px solid #fcd34d;
+    border-radius: 4px; font-size: .85rem; color: #78350f;
+  }
   main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem; }
   .demo { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 900px) { .demo { grid-template-columns: 1fr; } }
@@ -90,6 +95,10 @@
   <p>Send sample payloads to the HTTP API at <code id="api-url-display"></code> and see PII detection / redaction in action.</p>
 </header>
 <main>
+  <section>
+    <p class="disclaimer"><strong>Privacy notice:</strong> No data submitted through this form is stored anywhere — it is processed in memory and discarded. Feel free to experiment. If in doubt, do not send real PII.</p>
+    <p></p>
+  </section>
   <section class="demo">
     <div class="panel">
       <h2>Request</h2>
