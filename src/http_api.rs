@@ -75,6 +75,7 @@ pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/v1/scan", post(scan_handler))
         .route("/v1/redact", post(redact_handler))
+        .route("/v1/info", get(info_handler))
         .route("/openapi.json", get(openapi_handler))
         .layer(DefaultBodyLimit::max(max_body))
         .layer(cors)
@@ -127,6 +128,22 @@ struct ScanResponse {
 struct ErrorResponse {
     /// Human-readable error description. Never contains matched PII values.
     error: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[schema(example = json!({
+    "version": "0.1.0",
+    "languages": ["en", "fr", "de"],
+    "kinds": ["EMAIL", "US_SSN", "CREDIT_CARD"],
+}))]
+struct InfoResponse {
+    /// Veilflow build version.
+    version: &'static str,
+    /// Languages supported by keyword-context detectors.
+    languages: Vec<&'static str>,
+    /// All built-in PII kind labels recognised by the detector. Operator-defined
+    /// custom labels are not included here — they are surfaced per-deployment.
+    kinds: Vec<&'static str>,
 }
 
 // utoipa is a procedural macro and its arguments must be string literals
@@ -208,6 +225,51 @@ async fn redact_handler(
     process(state, headers, body, Mode::Redact).await
 }
 
+/// List supported PII kinds and languages
+///
+/// Returns the full set of built-in PII kind labels and supported keyword
+/// languages. Useful for clients that want to surface the deployment's
+/// detection capabilities (e.g. the bundled demo page).
+#[utoipa::path(
+    get,
+    path = "/v1/info",
+    tag = "pii",
+    operation_id = "getInfo",
+    responses(
+        (status = 200, description = "Supported kinds and languages", body = InfoResponse, content_type = "application/json"),
+    ),
+)]
+async fn info_handler() -> Response {
+    let payload = InfoResponse {
+        version: env!("CARGO_PKG_VERSION"),
+        languages: language_labels(),
+        kinds: kind_labels(),
+    };
+    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    let resp = (StatusCode::OK, [("content-type", "application/json")], body).into_response();
+    record_request(resp.status());
+    resp
+}
+
+fn kind_labels() -> Vec<&'static str> {
+    pii::PiiKind::all()
+        .iter()
+        .filter(|k| !matches!(k, pii::PiiKind::Custom))
+        .map(|k| k.label())
+        .collect()
+}
+
+fn language_labels() -> Vec<&'static str> {
+    pii::Language::all()
+        .iter()
+        .map(|l| match l {
+            pii::Language::En => "en",
+            pii::Language::Fr => "fr",
+            pii::Language::De => "de",
+        })
+        .collect()
+}
+
 async fn openapi_handler(State(state): State<ApiState>) -> Response {
     record_request(StatusCode::OK);
     let mut response = Response::new(Body::from(state.openapi_spec.as_bytes().to_vec()));
@@ -227,8 +289,8 @@ async fn openapi_handler(State(state): State<ApiState>) -> Response {
             JSON envelope. The `Content-Type` header drives parsing.",
         version = env!("CARGO_PKG_VERSION"),
     ),
-    paths(scan_handler, redact_handler),
-    components(schemas(ScanResponse, ErrorResponse)),
+    paths(scan_handler, redact_handler, info_handler),
+    components(schemas(ScanResponse, ErrorResponse, InfoResponse)),
     tags(
         (name = "pii", description = "PII detection and redaction endpoints"),
     ),

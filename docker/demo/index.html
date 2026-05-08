@@ -87,6 +87,19 @@
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 6px; overflow: hidden;
   }
+  .info-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; }
+  @media (max-width: 700px) { .info-grid { grid-template-columns: 1fr; } }
+  .info-grid h3 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin: 0 0 .5rem;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip {
+    font-family: var(--mono); font-size: .78rem;
+    padding: .15rem .5rem; border-radius: 3px;
+    background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
+  }
+  .info-empty { color: var(--muted); font-size: .85rem; }
 </style>
 </head>
 <body>
@@ -136,6 +149,20 @@
       <h2>Response</h2>
       <div class="resp-meta" id="resp-meta">—</div>
       <pre class="resp-body" id="resp-body">Send a request to see the response.</pre>
+    </div>
+  </section>
+  <hr>
+  <section class="panel">
+    <h2>Detection capabilities</h2>
+    <div class="info-grid">
+      <div>
+        <h3>Languages</h3>
+        <div id="info-languages" class="chips"><span class="info-empty">Loading…</span></div>
+      </div>
+      <div>
+        <h3>PII kinds</h3>
+        <div id="info-kinds" class="chips"><span class="info-empty">Loading…</span></div>
+      </div>
     </div>
   </section>
   <hr>
@@ -254,6 +281,36 @@
       sendBtn.disabled = false;
     }
   });
+
+  async function loadInfo() {
+    if (!apiBase) {
+      const msg = '<span class="info-empty">PII_API_URL is not set.</span>';
+      $("info-languages").innerHTML = msg;
+      $("info-kinds").innerHTML = msg;
+      return;
+    }
+    try {
+      const res = await fetch(apiBase + "/v1/info");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const info = await res.json();
+      const renderChips = (el, items) => {
+        if (!items || items.length === 0) {
+          el.innerHTML = '<span class="info-empty">none</span>';
+          return;
+        }
+        el.innerHTML = items
+          .map((v) => `<span class="chip">${v}</span>`)
+          .join("");
+      };
+      renderChips($("info-languages"), info.languages);
+      renderChips($("info-kinds"), info.kinds);
+    } catch (e) {
+      const msg = `<span class="info-empty">Could not load: ${e.message}</span>`;
+      $("info-languages").innerHTML = msg;
+      $("info-kinds").innerHTML = msg;
+    }
+  }
+  loadInfo();
 
   if (apiBase && window.Redoc) {
     Redoc.init(

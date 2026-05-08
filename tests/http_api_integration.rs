@@ -496,6 +496,31 @@ async fn csv_without_headers_falls_back_to_plain_text() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn info_endpoint_returns_kinds_and_languages() {
+    let api = TestApi::start().await;
+    let client = reqwest::Client::new();
+    let resp = client.get(api.url("/v1/info")).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let info: serde_json::Value = resp.json().await.unwrap();
+
+    assert!(info["version"].as_str().unwrap().len() > 0);
+
+    let langs = info["languages"].as_array().unwrap();
+    let lang_strs: Vec<&str> = langs.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(lang_strs.contains(&"en"));
+    assert!(lang_strs.contains(&"fr"));
+    assert!(lang_strs.contains(&"de"));
+
+    let kinds = info["kinds"].as_array().unwrap();
+    let kind_strs: Vec<&str> = kinds.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(kind_strs.contains(&"EMAIL"));
+    assert!(kind_strs.contains(&"US_SSN"));
+    // The Custom marker is filtered — its label comes from operator config.
+    assert!(!kind_strs.contains(&"CUSTOM"));
+}
+
+#[tokio::test]
 async fn openapi_json_returns_valid_spec() {
     let api = TestApi::start().await;
     let client = reqwest::Client::new();
