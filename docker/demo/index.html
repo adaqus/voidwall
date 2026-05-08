@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PII Proxy — Demo</title>
+<title>Veilflow Demo</title>
 <style>
   :root {
     --bg: #fafafa;
@@ -86,7 +86,7 @@
 </head>
 <body>
 <header>
-  <h1>PII Proxy — Live Demo</h1>
+  <h1>Veilflow — Live Demo</h1>
   <p>Send sample payloads to the HTTP API at <code id="api-url-display"></code> and see PII detection / redaction in action.</p>
 </header>
 <main>
@@ -113,6 +113,8 @@
       </div>
       <label>Body</label>
       <div class="examples">
+        <button type="button" data-example="ga4">GA4 tracking</button>
+        <button type="button" data-example="matomo">Matomo tracking</button>
         <button type="button" data-example="json">JSON example</button>
         <button type="button" data-example="csv">CSV example</button>
         <button type="button" data-example="tsv">TSV example</button>
@@ -167,6 +169,24 @@
       body:
         "Hi team — please reach out to Jane Doe at jane.doe@example.com " +
         "or call +1 415 555 1234. Her SSN on file is 123-45-6789."
+    },
+    ga4: {
+      ct: "text/plain",
+      body:
+        "v=1&tid=UA-12345-1&cid=35009a79-1a05-49d7-b876-2b884d0f825b" +
+        "&t=event&ec=account&ea=signup&el=newsletter" +
+        "&uid=jane.doe@example.com&uip=192.168.1.42" +
+        "&dp=%2Fcheckout&dt=Checkout" +
+        "&cd1=Jane%20Doe&cd2=%2B14155551234"
+    },
+    matomo: {
+      ct: "text/plain",
+      body:
+        "idsite=1&rec=1&action_name=Checkout" +
+        "&url=https%3A%2F%2Fshop.example.com%2Fcheckout%3Femail%3Djane.doe%40example.com" +
+        "&_id=abc123def4567890&uid=jane.doe@example.com" +
+        "&cip=192.168.1.42&cdt=2026-05-08%2010%3A30%3A45" +
+        "&dimension1=Jane%20Doe&dimension2=%2B14155551234"
     }
   };
 

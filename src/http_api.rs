@@ -221,7 +221,7 @@ async fn openapi_handler(State(state): State<ApiState>) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "PII Proxy HTTP API",
+        title = "Veilflow HTTP API",
         description = "Detect and redact PII in arbitrary text, JSON, CSV, and \
             TSV bodies. The body itself is the content to scan — there is no \
             JSON envelope. The `Content-Type` header drives parsing.",
