@@ -195,6 +195,7 @@ pub enum PiiKind {
     AuDriversLicense,
     AuAbn,
     IeEircode,
+    InternationalPhoneNumber,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
     Custom,
@@ -291,6 +292,7 @@ impl PiiKind {
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
             PiiKind::AuAbn => "AU_ABN",
             PiiKind::IeEircode => "IE_EIRCODE",
+            PiiKind::InternationalPhoneNumber => "INTERNATIONAL_PHONE_NUMBER",
             PiiKind::Custom => "CUSTOM",
         }
     }
@@ -308,7 +310,8 @@ impl PiiKind {
             | PiiKind::SwiftBic
             | PiiKind::Imei
             | PiiKind::PreciseGeolocation
-            | PiiKind::PersonName => Country::International,
+            | PiiKind::PersonName
+            | PiiKind::InternationalPhoneNumber => Country::International,
 
             PiiKind::UsSsn
             | PiiKind::UsItin
@@ -489,6 +492,7 @@ impl PiiKind {
         PiiKind::AuAbn,
         PiiKind::IeEircode,
         PiiKind::GbAddress,
+        PiiKind::InternationalPhoneNumber,
     ];
 
     /// Returns all countries this PII kind applies to.

@@ -212,6 +212,15 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: false,
         },
+        // InternationalPhoneNumber: E.164 with optional separators.
+        // Trailing \b prevents matching a 15-digit prefix of a longer digit run.
+        PatternDef {
+            kind: PiiKind::InternationalPhoneNumber,
+            expr: r"\+[1-9]\d{0,2}[\s\-.]?(?:\d[\s\-.]?){6,13}\d\b",
+            som_fallback: false,
+            validator: e164_check,
+            needs_ucp: false,
+        },
     ];
 
     all.into_iter()
@@ -555,6 +564,14 @@ mod tests {
     #[test_case("Eircode F92 AB12", PiiKind::IeEircode, "F92 AB12" ; "ie eircode donegal")]
     #[test_case("send to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na", PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf" ; "bitcoin legacy p2pkh")]
     #[test_case("wallet: 0x1234567890abcdef1234567890abcdef12345678", PiiKind::EthereumAddress, "0x1234567890abcdef1234567890abcdef12345678" ; "ethereum address")]
+    #[test_case("or call +1 415 555 1234.", PiiKind::InternationalPhoneNumber, "+1 415 555 1234" ; "intl phone us spaces")]
+    #[test_case("ring +44 20 7946 0958 today", PiiKind::InternationalPhoneNumber, "+44 20 7946 0958" ; "intl phone uk spaces")]
+    #[test_case("number: +1-415-555-1234", PiiKind::InternationalPhoneNumber, "+1-415-555-1234" ; "intl phone hyphens")]
+    #[test_case("dial +14155551234 now", PiiKind::InternationalPhoneNumber, "+14155551234" ; "intl phone no separators")]
+    #[test_case("DE office: +49 30 12345678", PiiKind::InternationalPhoneNumber, "+49 30 12345678" ; "intl phone de spaces")]
+    #[test_case("Casablanca: +212 522 123456", PiiKind::InternationalPhoneNumber, "+212 522 123456" ; "intl phone morocco 3 digit cc")]
+    #[test_case("Moscow: +7 495 1234567", PiiKind::InternationalPhoneNumber, "+7 495 1234567" ; "intl phone russia 1 digit cc")]
+    #[test_case("freephone +800 12345678", PiiKind::InternationalPhoneNumber, "+800 12345678" ; "intl phone uifn service code")]
     fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -610,6 +627,13 @@ mod tests {
     #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]
     #[test_case("eircode: D2W X285", PiiKind::IeEircode ; "ie eircode invalid w not at d6")]
     #[test_case("eircode: 102 X285", PiiKind::IeEircode ; "ie eircode invalid digit first")]
+    #[test_case("see version +1.2.3 today", PiiKind::InternationalPhoneNumber ; "intl phone too few digits")]
+    #[test_case("call +1 234", PiiKind::InternationalPhoneNumber ; "intl phone below 8 digits")]
+    #[test_case("ext +0 1234567890", PiiKind::InternationalPhoneNumber ; "intl phone leading zero country code")]
+    #[test_case("call +9 9999999 today", PiiKind::InternationalPhoneNumber ; "intl phone all nines no valid cc")]
+    #[test_case("call +89 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone unassigned 2 digit cc")]
+    #[test_case("call +210 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone unassigned 3 digit cc")]
+    #[test_case("call +999 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone reserved 999")]
     fn rejects_invalid_pii(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
