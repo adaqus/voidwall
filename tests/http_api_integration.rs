@@ -540,7 +540,7 @@ async fn openapi_json_returns_valid_spec() {
 
     // Top-level OpenAPI shape.
     assert!(spec["openapi"].as_str().unwrap().starts_with("3."));
-    assert_eq!(spec["info"]["title"], "PII Proxy HTTP API");
+    assert_eq!(spec["info"]["title"], "Veilflow HTTP API");
     assert!(spec["info"]["version"].is_string());
 
     // Both endpoints are present.
