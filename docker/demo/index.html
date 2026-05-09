@@ -181,7 +181,10 @@
       body: JSON.stringify({
         name: "Jane Doe",
         email: "jane.doe@example.com",
-        phone: "+1 415 555 1234",
+        phones: {
+          "primary": "+1 415 555 1234",
+          "secondary": "+44 20 7946 0001"
+        },
         ssn: "123-45-6789",
         note: "Customer prefers contact via email."
       }, null, 2)
