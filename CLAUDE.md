@@ -80,6 +80,26 @@ When adding a new detector or PII type, update **all** of the following:
    - Add a corpus constant (e.g., `SSN_TEXT`) with realistic embedded PII
    - Add an entry in the `per_detector` benchmark group
    - Add the new PII type into `MIXED_PII_TEXT` so throughput and comparison benchmarks cover it
+5. **If the new kind can produce equal-span matches with an existing kind, add it to a priority group in `overlap.rs`.** See "Overlap resolution" below. Containment cases (a wider kind whose match strictly contains a narrower one, e.g. address ⊃ postcode) are handled by the generic rules and need no priority entry.
+
+### Overlap resolution
+
+`mark_piis` and `mark_piis_structured` return raw matches — multiple detectors can fire on the same or overlapping spans (e.g. `UsPhoneNumber` and `InternationalPhoneNumber` on the same digits, `GbAddress` containing `GbPostcode`). Callers that need a non-overlapping set should pass results through `pii::resolve_overlaps`, which applies these rules in order:
+
+1. **Same span, same kind** → dedupe to one match.
+2. **Span A strictly contains span B** → drop B. The wider match already covers the narrower one for redaction.
+3. **Spans equal, kinds differ** → keep the higher-priority kind per `PRIORITY_GROUPS` in `overlap.rs`.
+4. **Partial overlap, neither contained** → keep the longer; tie-break by priority then by `PiiKind` discriminant order so behavior is deterministic.
+
+Output is a non-overlapping set, each match with one kind. Same value at different byte offsets stays as distinct matches — those are separate PII instances.
+
+Shadowed (dropped) matches are emitted at `debug!` level as `shadowed: kind=X by kind=Y at span=…` for tuning the priority list against real traffic.
+
+**Priority groups** are hard-coded — they describe a property of the `PiiKind` taxonomy, not a deployment knob. Currently:
+- **Phone**: country-scoped (`UsPhoneNumber`, `GbPhoneNumber`, `AuPhoneNumber`, `NzPhoneNumber`, `IePhoneNumber`, `ZaPhoneNumber`, `FrPhoneNumber`, `DePhoneNumber`, `AtPhoneNumber`, `ChPhoneNumber`) > `InternationalPhoneNumber`.
+- **Passport**: country-scoped (`GbZaPassportNumber`, `AuPassportNumber`, `CaPassportNumber`, `NzPassportNumber`, `IePassportNumber`, `FrPassportNumber`, `DePassportNumber`) > `PassportNumber`.
+
+Earlier index in a group beats later. Across groups, no precedence is asserted — different families shouldn't produce equal-span matches.
 
 ### Adding a New Language + Country — Checklist
 

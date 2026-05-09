@@ -1,12 +1,14 @@
 pub mod detector;
 pub mod keyword_context_detector;
 pub(crate) mod normalize;
+pub mod overlap;
 pub mod scanner;
 pub mod user_detector;
 pub(crate) mod validators;
 
 pub mod hyperscan_detector;
 
+pub use overlap::resolve_overlaps;
 pub use scanner::{Scanner, ScannerBuilder};
 pub use user_detector::UserPiiDefinition;
 
