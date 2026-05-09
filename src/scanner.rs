@@ -457,7 +457,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
     match request.body {
         Some(BodyFormat::PlainText(ref body)) => {
             if let Ok(text) = std::str::from_utf8(body) {
-                let mut matches = scanner.mark_piis(text);
+                let mut matches = pii::resolve_overlaps(scanner.mark_piis(text));
                 matches_count += matches.len();
                 for m in &matches {
                     all_kinds.insert(m.label().to_string());
@@ -487,7 +487,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
                 })
                 .collect();
 
-            let mut matches = scanner.mark_piis_structured(&borrowed);
+            let mut matches = pii::resolve_overlaps(scanner.mark_piis_structured(&borrowed));
             matches_count += matches.len();
             for m in &matches {
                 all_kinds.insert(m.label().to_string());
@@ -512,7 +512,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
 
     // Scan URL
     if let Some(ref path) = request.path {
-        let mut matches = scanner.mark_piis(path);
+        let mut matches = pii::resolve_overlaps(scanner.mark_piis(path));
         matches_count += matches.len();
         for m in &matches {
             all_kinds.insert(m.label().to_string());
@@ -530,7 +530,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
 
     // Scan query string
     if let Some(ref query) = request.query {
-        let mut matches = scanner.mark_piis(query);
+        let mut matches = pii::resolve_overlaps(scanner.mark_piis(query));
         matches_count += matches.len();
         for m in &matches {
             all_kinds.insert(m.label().to_string());
@@ -552,7 +552,7 @@ fn execute_scan(scanner: &pii::Scanner, request: ScanRequest) -> ScanResult {
         let mut any_redacted = false;
 
         for (name, value) in headers {
-            let mut matches = scanner.mark_piis(value);
+            let mut matches = pii::resolve_overlaps(scanner.mark_piis(value));
             matches_count += matches.len();
             for m in &matches {
                 all_kinds.insert(m.label().to_string());

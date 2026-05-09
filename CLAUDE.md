@@ -98,6 +98,17 @@ These are non-negotiable and apply everywhere:
 - **Never include PII in error responses.** 403 responses list detected kinds, not matched text.
 - **Drop body buffers promptly** after scanning. Do not hold request bodies longer than needed.
 
+## Match Resolution
+
+`execute_scan` runs every `Scanner::mark_piis(_structured)` result through `pii::resolve_overlaps` before counting, redacting, or surfacing matches. The proxy operates exclusively on the resolved (non-overlapping) set:
+
+- `/v1/scan` and `/v1/redact` `matches_count` = `resolve_overlaps(raw).len()`.
+- `kinds` lists in API responses and 403 errors derive from the resolved set.
+- Prometheus `pii_detections_total{kind=…}` increments per resolved match.
+- Same value at distinct byte offsets stays as distinct matches — those are separate PII instances.
+
+Policy and priority groups live in the `pii` crate (`overlap.rs` + that crate's CLAUDE.md). Don't reimplement resolution here.
+
 ## Threading Model
 
 The PII scanner is CPU-bound and **must not run on the tokio async runtime**.
