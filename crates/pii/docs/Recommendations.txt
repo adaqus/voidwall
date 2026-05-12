@@ -1,0 +1,34 @@
+  Recommendations
+
+  OK 1. Field‑name token normaliser before keyword regexes. Insert a soft tokeniser that maps camelCase (alienNumber→alien
+   number) and snake_case (alien_number→alien number) on JSON keys/labels prior to scanning. Single biggest win — fixes
+   ~70% of category C.
+  OK 2. Unify the keyword separator class. Replace ad‑hoc \s* / [\s_] / hyphen combinations with one shared character
+  class ([\s_-]*) for every keyword pattern. This removes the driver_license vs driverLicense asymmetry and other
+  one‑offs.
+  OK 3. Allow trailing tail words between keyword stem and value separator. Extend the inter‑keyword/value gap regex to
+  optionally consume [A-Za-z]{0,12} (e.g., Number, Code, ID, No) so nhs matches inside nhsNumber":. Pair with a small
+  denylist to prevent runaway matches.
+  4. Disambiguate Luhn collisions. When a 15‑digit value matches both CreditCard and Imei, prefer Imei if the field
+  name (post‑normalisation) contains imei. Same for siret/CreditCard at 14 digits. Cheapest fix: priority‑rank
+  Imei/Siret detectors above CreditCard when keyword context exists.
+  5. Country‑scoped postal/passport/DL selection. When a value satisfies multiple country‑specific kinds, prefer the
+  kind whose country tag co‑occurs in the same JSON object (e.g., country: "CH" ⇒ pick ChPostalCode, not ZaPostalCode).
+   For postal codes specifically, restrict ZA postal regex to occur only with ZA keyword context.
+  6. Tighten ZA 4‑digit postal regex to require a ZA‑specific keyword (it currently matches generic zip/postal_code and
+   over‑claims AT/CH 4‑digit codes).
+  OK 7. Add formatless variants for AU TFN, NZ IRD, GB Sort code — accept the bare digit run when the keyword stem
+  matches, then enforce checksum. This eliminates a class of B misses (placeholder values aside).
+  OK 8. Add detectors for US ZIP code and IE Eircode. Both are well‑defined; missing today.
+  OK 9. Tighten/relax phone country regexes: IE phone needs [1-9]\d? (or [1-9](?:\s?\d)?) to accept +353 1 234 5678;
+  DE/AT/CH phones should fire even when only the En keyword (phone) is present, not only the De keyword block.
+  10. PersonName: accept the bare name keyword (with stricter capture, e.g., 2‑3 capitalised tokens) to catch "name":
+  "John Doe". Currently name is missing from the alternation.
+  OK 11. Bound PersonName captures. R13's account holder matched and over‑captured "AU account holder moved from NZ.
+  Legacy passport record LN123456 was replaced…" into [PERSON_NAME]. Cap to 3–4 word tokens and stop at sentence
+  punctuation.
+
+  The proxy is doing well on hyperscan‑driven kinds (Email, IBAN, IP, MAC, BIC, CreditCard, AWS keys, GitHub token,
+  BTC/ETH, VIN). The remaining gap is concentrated in keyword‑driven kinds where JSON field naming defeats the regex
+  separator class.
+
