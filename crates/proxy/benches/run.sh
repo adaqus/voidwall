@@ -24,7 +24,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 RESULTS_DIR="$(mktemp -d)"
 CONFIGS_DIR="$SCRIPT_DIR/configs"
 K6_DIR="$SCRIPT_DIR/k6"
