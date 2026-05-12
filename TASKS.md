@@ -683,7 +683,7 @@ scanning cannot: encoding round-trip correctness (e.g. `[EMAIL]` becoming
 Matomo's `url=` parameter) and false positives on opaque IDs.
 
 ### 16.1 Framework
-- [ ] New module `crates/proxy/src/specialization/mod.rs`:
+- [x] New module `crates/proxy/src/specialization/mod.rs`:
   - `Specialization` trait with `name()` and async `process()` per
     DESIGN.md. `process()` takes both the **query string** and the
     **body** (each `Option`), plus body content-type and a `ScanHandle`
@@ -696,12 +696,12 @@ Matomo's `url=` parameter) and false positives on opaque IDs.
     untouched (including the input-was-`None` case)
   - `SpecializationError` enum: `Decode { reason }`,
     `UnsupportedContentType`, `RecursionLimit` (for nested URL decoding)
-- [ ] Built-in registry: `fn lookup(name: &str) -> Option<&'static dyn Specialization>`
+- [x] Built-in registry: `fn lookup(name: &str) -> Option<&'static dyn Specialization>`
   returning singletons for `"ga4"` and `"matomo"`. Unknown names return
   `None` for callers to convert into a config or API-level error.
-- [ ] Rate-limited warn helper keyed by `specialization` name (one log
+- [x] Rate-limited warn helper keyed by `specialization` name (one log
   line per name per minute, at most). Must never log payload contents.
-- [ ] Unit tests: registry lookup (hit + miss), `ProcessedRequest`
+- [x] Unit tests: registry lookup (hit + miss), `ProcessedRequest`
   shape, rate-limiter emits once then suppresses within window.
 
 ### 16.2 Pipeline integration

@@ -7,6 +7,7 @@ pub mod http_api;
 pub mod metrics;
 pub mod reverse_proxy;
 pub mod scanner;
+pub mod specialization;
 pub mod structured;
 pub mod tls;
 pub mod validate;

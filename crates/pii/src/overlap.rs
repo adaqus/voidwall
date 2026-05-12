@@ -255,10 +255,7 @@ mod tests {
     #[test]
     fn partial_overlap_longer_wins() {
         // Two matches partially overlap; neither contains the other.
-        let input = vec![
-            m(PiiKind::Email, 0, 10),
-            m(PiiKind::CreditCard, 5, 25),
-        ];
+        let input = vec![m(PiiKind::Email, 0, 10), m(PiiKind::CreditCard, 5, 25)];
         let out = resolve_overlaps(input);
         assert_eq!(out, vec![m(PiiKind::CreditCard, 5, 25)]);
     }
@@ -292,10 +289,7 @@ mod tests {
     fn unrelated_kinds_with_overlap_use_longer_wins() {
         // Email and CreditCard share no priority group; partial overlap
         // resolves by longer-wins rule alone.
-        let input = vec![
-            m(PiiKind::Email, 0, 30),
-            m(PiiKind::CreditCard, 25, 45),
-        ];
+        let input = vec![m(PiiKind::Email, 0, 30), m(PiiKind::CreditCard, 25, 45)];
         let out = resolve_overlaps(input);
         assert_eq!(out, vec![m(PiiKind::Email, 0, 30)]);
     }
