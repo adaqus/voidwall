@@ -670,3 +670,348 @@ limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
     `"key":"value"` shape
   - Country/language tagging must match the kind's `applicable_countries()`
     so country filters work correctly
+
+---
+
+## Phase 16 — Specializations
+
+See DESIGN.md § "Specializations". Specializations are per-endpoint adapters
+that parse a known wire format (GA4, Matomo), scan a declared subset of
+fields, and re-encode the result correctly. They fix two problems flat
+scanning cannot: encoding round-trip correctness (e.g. `[EMAIL]` becoming
+`%5BEMAIL%5D` inside form-encoded bodies, or being re-encoded twice in
+Matomo's `url=` parameter) and false positives on opaque IDs.
+
+### 16.1 Framework
+- [ ] New module `crates/proxy/src/specialization/mod.rs`:
+  - `Specialization` trait with `name()` and async `process()` per
+    DESIGN.md. `process()` takes both the **query string** and the
+    **body** (each `Option`), plus body content-type and a `ScanHandle`
+  - `ScanHandle` exposing a single async method that scans a field value
+    and returns matched kinds + redacted replacement (when redaction is
+    enabled for the direction). Internally backed by `ScannerPool`
+  - `ProcessedRequest { query, body, scan_result }` where `query` and
+    `body` are each `Option<ProcessedPart>` (re-encoded bytes +
+    content-type); `None` means the specialization left that slot
+    untouched (including the input-was-`None` case)
+  - `SpecializationError` enum: `Decode { reason }`,
+    `UnsupportedContentType`, `RecursionLimit` (for nested URL decoding)
+- [ ] Built-in registry: `fn lookup(name: &str) -> Option<&'static dyn Specialization>`
+  returning singletons for `"ga4"` and `"matomo"`. Unknown names return
+  `None` for callers to convert into a config or API-level error.
+- [ ] Rate-limited warn helper keyed by `specialization` name (one log
+  line per name per minute, at most). Must never log payload contents.
+- [ ] Unit tests: registry lookup (hit + miss), `ProcessedRequest`
+  shape, rate-limiter emits once then suppresses within window.
+
+### 16.2 Pipeline integration
+- [ ] Plumb a per-route / per-API-request `Option<&dyn Specialization>`
+  into the request-side scan path (`scan_and_act` in reverse proxy, the
+  equivalent in http_api). The response-side path receives the same
+  specialization but only the body slot is populated.
+- [ ] When a specialization is active:
+  - The proxy's default scanning of the **query string** and the
+    **request body** is bypassed for that request — the specialization
+    is the sole entry point for those parts.
+  - **URL path** and **request headers** continue on the default scan
+    path with their existing `scan_config` controls. They are scanned
+    *in addition to* the specialization's output (one combined
+    `ScanResult` is assembled for downstream actions).
+- [ ] On `SpecializationError`:
+  - fall back to default scanning of query+body (existing content-type
+    routing) for that request,
+  - emit rate-limited warning,
+  - increment `pii_proxy_specialization_errors_total{specialization, reason}`.
+- [ ] `UnsupportedContentType` on the response direction is the
+  expected common case (1x1 gif / 204) — silent fallback, **no** log
+  line, **no** counter increment.
+- [ ] Do **not** consult `on_error` for specialization decode failures —
+  fallback is always taken on the request side.
+- [ ] Unit tests:
+  - success path: spec returns re-encoded query+body and aggregated
+    kinds; default URL-path and header scanning still runs and its
+    detections merge into the final `ScanResult`
+  - decode failure falls back to default scan and increments the error
+    counter
+  - rate-limited log fires once across N successive failures within a
+    window
+  - response-side `UnsupportedContentType` produces no log, no counter
+    increment
+
+### 16.3 GA4 specialization
+
+**Source of truth for the allowlist:** every field that
+`crates/proxy/tests/ga4_integration.rs` demonstrates as a PII vector
+must be allowlisted, so enabling the specialization does not regress
+detection coverage. Use the table in DESIGN.md § "Specializations →
+ga4" as the canonical list. Cross-reference each test case below to
+confirm coverage before checking the box.
+
+- [ ] Implement `Ga4Specialization`
+  (`crates/proxy/src/specialization/ga4.rs`).
+- [ ] **Query string and form-body transport** (`/g/collect`):
+  - Parse as `application/x-www-form-urlencoded`.
+  - Recursively decode `dl`, `dr` as URLs and scan each inner query
+    parameter (per DESIGN.md). Path component of the inner URL also
+    scanned for embedded PII.
+  - Scan as flat string: `dt`, `uid`, `en`, every parameter with a
+    prefix of `ep.` or `up.`, `cu`, `cm`, `cs`, `_uip`, `ip_override`.
+  - Skip: `v`, `tid`, `cid`, `_s`, `_et`, `_p`, `_z`, `gtm`, `sid`,
+    `seg`, `sct`.
+  - Re-encode with redacted values percent-encoded for form-body
+    context; doubly-encoded for the inner URL layer of `dl`/`dr`.
+- [ ] **JSON body transport** (`/mp/collect`, `/debug/mp/collect`,
+  `/batch`):
+  - Walk the JSON tree. For each string leaf under
+    `client_id`, `user_id`, `user_data.**`, `user_properties.*.value`,
+    `ip_override`, `user_location.**`, `events[].name`,
+    `events[].params.**` (including arbitrary custom keys),
+    `events[].params.items[].**`, call `ScanHandle`.
+  - `events[].params.page_location` and `events[].params.link_url`
+    receive recursive URL treatment in addition to flat scanning.
+  - Skip non-string leaves, numeric and boolean fields, and
+    `timestamp_micros`, `message_id`, `non_personalized_ads`,
+    `consent.*`.
+  - Re-emit JSON with substituted values; preserve key order where the
+    JSON library allows. Redacted leaves stay inside the original
+    quotes so output remains valid JSON.
+- [ ] Error categories: `invalid_json`,
+  `invalid_form_encoding`, `unexpected_shape` (top-level not an
+  object), `recursion_limit` (URL-in-URL nesting beyond a small bound
+  — e.g. 3).
+- [ ] **Unit tests** — one per allowlisted field family, plus negatives:
+  - `dl` with email in inner query → detected, output doubly-encoded
+    redaction
+  - `dr` with email + credit-card-shaped value in inner query
+  - `dt`, `uid`, `en`, `ep.<custom>`, `up.<custom>` each with PII →
+    detected
+  - JSON `user_id`, `user_data.email_address`,
+    `user_data.phone_number`, `user_data.address.*`,
+    `user_properties.<name>.value`, `ip_override`,
+    `user_location.city`, `events[].name`,
+    `events[].params.page_title`, `events[].params.search_term`,
+    `events[].params.transaction_id`, `events[].params.coupon`,
+    `events[].params.affiliation`, `events[].params.link_url`,
+    `events[].params.form_destination`, `events[].params.description`
+    (multi-line stack trace), `events[].params.items[].item_name`,
+    `events[].params.items[].item_id` → each detected
+  - Multi-event payload: PII in one event, clean in another →
+    selective detection
+  - Numeric/bool/null leaves skipped without error
+  - Opaque IDs (`cid`, `tid`, auto-generated dotted-decimal `cid`) do
+    not trigger false positives
+  - Malformed JSON → `Decode { reason: "invalid_json" }`
+  - Top-level array → `Decode { reason: "unexpected_shape" }`
+  - Recursion limit hit by an `dl` whose inner URL also contains a
+    `dl=` → `RecursionLimit`
+- [ ] **Integration test parity** — port every numbered test in
+  `crates/proxy/tests/ga4_integration.rs` (#1–#29 plus clean
+  pass-through) to a new module that runs the same scenarios against a
+  route configured with `specialization = "ga4"`. Each must:
+  - still detect the same PII kinds,
+  - produce a re-encoded body/query that is byte-identical to the
+    original except inside redacted spans,
+  - in form-encoded outputs, redaction labels must be properly
+    percent-encoded (`%5BEMAIL%5D`, not `[EMAIL]`).
+  - The block, header, and redact actions all retain their existing
+    semantics (parity with the non-specialized tests).
+- [ ] **False-positive regression** — add a test confirming the
+  specialization does *not* scan `cid`, `tid`, `_s`, `_et`, even when
+  their values happen to match a PII shape (e.g. construct a `cid`
+  that looks like a credit card number). Without the spec, the proxy
+  would flag this; with the spec, it must not.
+
+### 16.4 Matomo specialization
+
+**Source of truth for the allowlist:** every field that
+`crates/proxy/tests/matomo_integration.rs` demonstrates as a PII vector
+must be allowlisted. Use the table in DESIGN.md § "Specializations →
+matomo" as the canonical list.
+
+- [ ] Implement `MatomoSpecialization`
+  (`crates/proxy/src/specialization/matomo.rs`).
+- [ ] **Form/query transport** (the common case — GET query string or
+  POST `application/x-www-form-urlencoded` body):
+  - Parse fields. For each declared field, call `ScanHandle`.
+  - Flat-string scan: `action_name`, `uid`, `cip`, every parameter
+    matching `^dimension\d+$`, `e_c`, `e_a`, `e_n`, `e_v`, `search`,
+    `search_cat`, `cra`, `cra_st`, `c_n`, `c_p`, `c_i`.
+  - Recursive URL scan: `url`, `urlref`, `link`, `download`, `cra_ru`.
+    Parse the value as a URL; scan each inner query parameter and the
+    path component; re-encode at both layers.
+  - JSON-value scan: `cvar`, `_cvar`, `ec_items`. Parse the value as
+    JSON; scan each string leaf; re-emit JSON inside the form field.
+  - Skip: `idsite`, `rec`, `apiv`, `_id`, `rand`, `revenue`, `idgoal`,
+    `res`, `h`, `m`, `s`, `fla`, `qt`, `realp`, `wma`, `dir`, `java`,
+    `cookie`, `pv_id`, `gt_ms`, plus any other parameter not in the
+    allowlist.
+  - Re-encode form/query bytes with each scanned field replaced; opaque
+    fields pass through verbatim. Redaction labels properly
+    percent-encoded.
+- [ ] **Bulk JSON transport** (`{"requests": ["?...", "?..."],
+  "token_auth": "..."}`):
+  - Parse top-level JSON.
+  - For each entry in `requests`, strip the leading `?`, process the
+    remainder as a flat-form Matomo payload (same allowlist as above),
+    then reassemble.
+  - `token_auth` passes through unchanged and is not scanned (operator
+    credential, not subject PII).
+  - Re-emit the bulk JSON envelope with each entry's redacted query
+    string in place.
+- [ ] **Legacy `/piwik.php`**: identical handling to `/matomo.php`. The
+  specialization is selected by route config, so the alias is an
+  operator config concern, not a spec concern. Document it in
+  `docs/specializations.md` so operators remember to route both paths.
+- [ ] Error categories: `invalid_form_encoding`, `invalid_bulk_json`,
+  `invalid_inner_url` (per offending field — not fatal; falls back to
+  flat scan of that field's raw value), `invalid_inner_json` (same
+  per-field fallback for `cvar` / `_cvar` / `ec_items`),
+  `recursion_limit`.
+- [ ] **Unit tests** — one per allowlisted field family:
+  - `url` with `email=` and `card=` in inner query → both detected,
+    output doubly-encoded
+  - `urlref` recursive scan
+  - `link` and `download` recursive scan
+  - `cra_ru` recursive scan
+  - `cvar` and `_cvar` JSON values → string leaves scanned
+  - `ec_items` JSON array → string elements scanned
+  - `e_c`/`e_a`/`e_n`/`e_v` flat scan
+  - `search` and `search_cat` flat scan
+  - `cra` and `cra_st` (multi-line stack trace) flat scan
+  - `c_n`, `c_p`, `c_i` flat scan (heatmap form input)
+  - `dimension1` through `dimension999` (sample a few) flat scan
+  - `action_name`, `uid`, `cip` flat scan
+  - Bulk endpoint: two entries, one with PII in `url`, one clean →
+    selective detection, bulk envelope preserved
+  - Opaque fields (`idsite`, `_id`, `rand`, `revenue`, `res`, `h`, `m`,
+    `s`) pass through unchanged
+  - `cvar` with malformed inner JSON → that field falls back to flat
+    scanning; other fields unaffected; counter increments under reason
+    `invalid_inner_json`
+  - `url` whose value is not parseable as a URL → falls back to flat
+    scan of the raw value
+  - Malformed top-level form encoding →
+    `Decode { reason: "invalid_form_encoding" }`
+  - Malformed bulk JSON → `Decode { reason: "invalid_bulk_json" }`
+- [ ] **Integration test parity** — port every numbered test in
+  `crates/proxy/tests/matomo_integration.rs` (#1–#29 plus clean
+  pass-through and `/piwik.php` alias) to a new module that runs the
+  same scenarios against a route configured with
+  `specialization = "matomo"`. Same parity rules as for GA4: same PII
+  kinds detected, byte-equivalent output outside redacted spans,
+  redaction labels percent-encoded.
+- [ ] **False-positive regression** — confirm the specialization does
+  not scan `_id`, `rand`, `idsite`, `revenue`, `res`, even when their
+  values match a PII shape (e.g. construct an `_id` whose hex digits
+  happen to form an IBAN-shaped string).
+- [ ] **Encoding bug regression** — the canonical test for the user's
+  reported issue: the demo's Matomo payload (with `url=` containing a
+  URL-encoded email and `dimension2` containing a URL-encoded phone
+  number) must redact such that the output is valid form-encoded data,
+  i.e. brackets in `[EMAIL]`, `[IP_ADDRESS]`, `[PHONE_NUMBER]` are
+  percent-encoded as `%5B` / `%5D`. Round-tripping the response
+  through a form-decoder must yield the redaction labels intact.
+
+### 16.5 Config: reverse proxy
+- [ ] Add `specialization: Option<String>` to `Route` in `config.rs`.
+- [ ] Validation: if set, value must resolve via the registry; otherwise
+  startup error names the route and the unknown name.
+- [ ] Unit tests: route with known specialization parses + validates,
+  unknown name rejected, omitted field accepted.
+- [ ] Extend the sample `proxy.toml` in `crates/proxy/configs/` (and the
+  docker config) with a commented-out specialization example.
+
+### 16.6 HTTP API
+- [ ] Accept `?specialization=<name>` on `POST /v1/scan` and
+  `POST /v1/redact`. Unknown name → `400` with a structured error body
+  naming the unknown value.
+- [ ] When set, specialization owns parsing and content-type routing is
+  bypassed (DESIGN.md § HTTP API). In API mode the specialization
+  receives `query=None` (the API's own `?specialization=` is consumed
+  by the handler, not handed to the spec); the payload comes entirely
+  in the request body. Callers that want to test a `/g/collect`-style
+  query-string payload pass it as an `application/x-www-form-urlencoded`
+  body — the spec handles form-encoded bodies the same way.
+- [ ] `Content-Type` allowlist still enforced for the *outer* content
+  type — calling `/v1/scan?specialization=ga4` with a non-JSON body
+  yields a `415` (or the specialization's own `400` for decode failure,
+  whichever fires first; pick the cheapest check).
+- [ ] `X-PII-Specialization: <name>` response header on both endpoints
+  when a specialization processed the body (omitted otherwise) — lets
+  callers verify which path ran.
+- [ ] Update the OpenAPI annotations: document the query parameter on
+  both routes, list the accepted values, document the response header.
+- [ ] Integration tests:
+  - GA4 JSON payload → kinds returned, body redacted on `/v1/redact`
+  - Matomo form-encoded payload → kinds returned, redacted body is
+    valid form-encoded data with correctly-encoded redaction labels
+  - unknown specialization name → 400
+  - specialization decode failure → falls back to raw scan, request
+    succeeds, error counter incremented
+  - response header `X-PII-Specialization` populated correctly (present
+    when set, absent otherwise)
+
+### 16.7 Reverse proxy
+- [ ] Wire specialization into the reverse proxy request path: when the
+  matched route carries `specialization`, run the request body through it
+  before action evaluation. Redacted body replaces the forwarded body.
+- [ ] Apply the same specialization (if any) to the response body when
+  response actions are non-empty.
+- [ ] If the response `Content-Type` is not what the specialization
+  expects, the specialization returns
+  `SpecializationError::UnsupportedContentType` and the response falls
+  through to raw scanning (which the content-type allowlist then skips).
+  Both GA4 and Matomo respond to tracking calls with a 1x1 tracking
+  pixel (`image/gif`) or `204 No Content`, so this is the **common case
+  on the response path** — not an exception. It must be silent: no log
+  noise, no `specialization_errors_total` increment. Only decode/shape
+  failures on bodies the specialization claimed it could handle count
+  toward the error counter.
+- [ ] Integration tests:
+  - route with `specialization = "ga4"` against a payload containing
+    PII in `user_id` → kinds detected, `[EMAIL]` redacted in forwarded
+    body, metrics labelled `specialization="ga4"`
+  - same with Matomo and a doubly-encoded `url=` → redacted forwarded
+    body has correct encoding at both layers
+  - response from upstream that does not match the specialization →
+    falls back without error counter increment
+
+### 16.8 Forward proxy — deferred
+- [ ] Same wiring as 16.7 for forward proxy. Blocked until Phase 9 lands.
+  Track as a follow-up; no work required in this phase beyond noting the
+  dependency in `forward_proxy.rs` once that module exists.
+
+### 16.9 Metrics
+- [ ] Add `specialization` label to `pii_proxy_detections_total` and
+  `pii_proxy_redacted_total`. Default value `"none"` when no
+  specialization is active.
+- [ ] New counter `pii_proxy_specialization_errors_total` with labels
+  `specialization`, `reason`.
+- [ ] Update metric helper functions and call sites.
+- [ ] Unit tests for helper functions covering the new label.
+
+### 16.10 Demo page
+- [ ] Add a "Specialization" `<select>` to `docker/demo/index.html`,
+  placed alongside the existing endpoint and content-type selectors.
+  Options: `(none)`, `ga4`, `matomo`.
+- [ ] When the user submits the form, append `?specialization=<value>`
+  to the request URL when the value is not `(none)`. The `(none)` option
+  sends no query parameter.
+- [ ] Update the `examples` object so that selecting "GA4 tracking" or
+  "Matomo tracking" buttons sets the specialization dropdown to `ga4` or
+  `matomo` respectively, in addition to setting endpoint/content-type/body.
+  The JSON/CSV/TSV/text examples set specialization to `(none)`.
+- [ ] Display the `X-PII-Specialization` response header in the result
+  panel so users can confirm which path ran.
+- [ ] Smoke test: load the page in a browser, click each example, verify
+  the dropdown updates and the request goes to the right URL. (Manual —
+  no Playwright in this project today.)
+
+### 16.11 Documentation
+- [ ] New `docs/specializations.md`: what specializations are, when to
+  use them, table of built-in specs with their declared field
+  allowlists, how to select them per mode, and the failure-fallback
+  semantics.
+- [ ] Cross-link from DESIGN.md and from the HTTP API reference.
+- [ ] Update `docs/demo1.md` (or the equivalent demo walkthrough) to
+  mention the specialization selector and the auto-select behaviour.

@@ -278,6 +278,298 @@ existing rules (no PII in logs/metrics/responses) are unaffected.
 
 ---
 
+## Specializations
+
+A *specialization* is an adapter that knows the wire format of a specific
+third-party endpoint (Google Analytics 4 `/mp/collect`, Matomo
+`/matomo.php`, etc.), parses the payload, hands a curated subset of fields
+to the PII scanner, and re-encodes the result. Specializations sit between
+the proxy's content-type routing and the scanner.
+
+### Why specializations exist
+
+Flat scanning of opaque, multi-layer-encoded payloads has two failure modes
+that specializations fix:
+
+1. **Encoding round-trip correctness.** Naive byte-level redaction inserts
+   the label (`[EMAIL]`) into the raw body regardless of surrounding
+   encoding. Inside `application/x-www-form-urlencoded`, `[EMAIL]` should
+   be `%5BEMAIL%5D`; inside a Matomo `url=` parameter (which is itself a
+   URL-encoded URL), the inner email needs to be re-encoded twice. A
+   specialization owns the codec, so each layer is re-encoded correctly.
+2. **Field-level relevance.** Analytics endpoints carry many opaque IDs
+   (`_id`, `cid`, session tokens, hashed identifiers) that look enough
+   like PII to produce false positives — and are not PII the operator
+   needs to act on. A specialization declares which fields are
+   PII-candidates and scans only those, eliminating false positives and
+   saving scanner cycles.
+
+### Selection
+
+Specializations are always selected **explicitly**. There is no
+auto-detection from path, User-Agent, or payload sniffing — guessing wrong
+in either direction (false positive or false negative) is worse than
+forcing the operator to declare intent.
+
+| Mode | Selection mechanism |
+|------|----------------------|
+| HTTP API | Query parameter on `POST /v1/scan` and `POST /v1/redact`: `?specialization=ga4` |
+| Reverse Proxy | Optional `specialization = "ga4"` field on each `[[reverse_proxy.routes]]` entry |
+| Forward Proxy | (Deferred — same field on the forward-proxy route table introduced in Phase 9) |
+
+Omitting `specialization` preserves today's behaviour: content-type
+routing picks flat or structured scanning, and the body is scanned as-is.
+
+### Contract
+
+A specialization owns the full decode → scan → encode loop for the parts
+of an HTTP request that the analytics platform itself defines. The proxy
+hands it the query string and the body together (a tracker call may put
+its payload in either, or split across both, depending on transport); the
+specialization returns re-encoded versions of both. The callback shape
+means specializations never expose raw byte offsets to the redaction
+code, which sidesteps the offset remapping bug class that drove the
+design in the first place.
+
+```text
+trait Specialization {
+    fn name(&self) -> &str;                          // stable id: "ga4", "matomo"
+
+    async fn process(
+        query: Option<&str>,                          // raw URL query string
+        body: Option<&[u8]>,                          // raw request body
+        body_content_type: Option<&str>,
+        scan: &ScanHandle,                            // borrows ScannerPool
+    ) -> Result<ProcessedRequest, SpecializationError>;
+}
+```
+
+`ScanHandle` exposes one async method: scan (and optionally redact) a
+single field value, returning the matched kinds and the redacted
+replacement (when redaction is enabled for the direction). The
+specialization calls this once per declared field and stitches the
+results back into the re-encoded payload.
+
+`ProcessedRequest` carries:
+
+- the re-encoded query string (`None` when input was `None` or when the
+  specialization left it untouched),
+- the re-encoded body bytes plus its content-type (same `None` semantics),
+- the aggregated `ScanResult` (detected kinds, total match count) for
+  metrics and downstream actions.
+
+Recursive decoding is natural in this shape: when Matomo sees `url=` or
+`urlref=`, it parses the value as a URL, recursively scans its query
+parameters via the same `ScanHandle`, and re-encodes both layers. GA4
+applies the same treatment to its `dl` (page_location) and `dr`
+(page_referrer) parameters.
+
+#### Boundary with default proxy scanning
+
+The specialization **replaces** the proxy's default scanning of the
+query string and the body for the matched request. It does **not**
+replace scanning of:
+
+- the URL **path** (governed by `scan.url_path`), or
+- request **headers** (governed by `scan.headers`).
+
+Those still go through the proxy's default scanner with their existing
+config. Rationale: the analytics platform owns the meaning of its query
+parameters and body schema, but it does not own request headers or the
+URL path component that routes the request. Path/header PII is an
+operator concern that applies equally with or without a specialization.
+
+In response-direction scanning, the specialization is offered the body
+only (no query). For tracker endpoints this almost always returns
+`UnsupportedContentType` (1x1 `image/gif` or `204`), and processing falls
+through to default scanning — see "Response-path note" below.
+
+### Failure handling
+
+When a specialization returns `SpecializationError` (malformed payload,
+unexpected shape, unsupported content-type for that specialization):
+
+1. The proxy falls back to the existing scanning path (flat or
+   structured, based on content-type) using the raw body. The request
+   completes normally.
+2. The proxy emits one log line per specialization per minute, at most
+   (rate-limited per process). Log message names the specialization and
+   the failure category; **never** logs payload contents.
+3. `pii_proxy_specialization_errors_total{specialization, reason}` is
+   incremented unconditionally on every failure (no rate limit).
+4. `on_error` is **not** consulted. Specialization decoding failure is
+   recoverable — scanning still happens against raw bytes — so it is
+   distinct from a true scanner crash. `on_error` continues to govern
+   only scanner failures and limit violations.
+
+### Built-in specializations
+
+The initial set ships with the proxy. Field allowlists are declared in
+code, not config — adding a field is a code change with a unit test, so
+the documented behaviour cannot drift from deployment to deployment.
+
+The allowlists below are derived from the existing GA4 and Matomo
+integration tests under `crates/proxy/tests/`. Every field shown to leak
+PII in those tests is allowlisted, so enabling a specialization on a
+route that already passes those tests must not regress detection
+coverage — only improve precision (fewer false positives on opaque IDs)
+and encoding correctness (proper percent-encoding of redaction labels).
+
+#### `ga4`
+
+Targets: `/g/collect` (browser `gtag.js`, short keys in query string or
+form-encoded POST body), `/mp/collect` (Measurement Protocol, JSON
+body), `/debug/mp/collect`, and `/batch`.
+
+**Query string and `/g/collect` POST form body** (short-key transport):
+
+| Field | Treatment |
+|-------|-----------|
+| `dl` (page_location) | Recursively decoded as a URL; each inner query parameter scanned individually and re-encoded |
+| `dr` (page_referrer) | Same recursive URL treatment as `dl` |
+| `dt` (page_title) | Scanned as a flat string |
+| `uid` | Scanned (raw email in `uid` is a canonical leak) |
+| `en` (event name) | Scanned (sometimes carries semantic PII) |
+| `ep.*` (event params) | Every parameter whose name starts with `ep.` scanned as a flat string |
+| `up.*` (user properties) | Same as `ep.*` |
+| `cu` (currency), `cm` (campaign-medium), `cs` (campaign-source) | Scanned as flat strings — short, but devs occasionally substitute identifiers |
+| `_uip` / `ip_override` | Scanned (raw client IP override) |
+
+Skipped: `v` (version), `tid` (measurement ID), `cid` (auto-generated
+client ID), `_s`, `_et`, `_p`, `_z`, `gtm`, `sid`, `seg`, `sct` —
+opaque/numeric identifiers that match no real PII but generate noise.
+
+**JSON body** (`/mp/collect`, `/debug/mp/collect`, `/batch`):
+
+| Path | Treatment |
+|------|-----------|
+| `client_id` | Scanned (devs occasionally substitute email) |
+| `user_id` | Scanned |
+| `user_data.*` (all string leaves: `email_address`, `phone_number`, `address.*`, `sha256_*`) | Scanned. `sha256_*` fields generally won't match, but cost is trivial and protects against unhashed-by-mistake leaks |
+| `user_properties.*.value` (all string leaves under each user property) | Scanned |
+| `ip_override` | Scanned |
+| `user_location.*` (all string leaves: `city`, `region_id`, `country_id`) | Scanned |
+| `events[].name` | Scanned (event names sometimes encode user intent like `"email_capture"`) |
+| `events[].params.*` (all string leaves, including `page_title`, `page_location`, `search_term`, `transaction_id`, `coupon`, `affiliation`, `link_url`, `form_destination`, `description`, custom keys) | Scanned. `page_location` and `link_url` are also recursively decoded as URLs |
+| `events[].params.items[].*` (all string leaves: `item_id`, `item_name`, `item_brand`, `item_category*`, `item_variant`, `affiliation`, `coupon`, custom strings) | Scanned |
+
+Skipped: numeric/boolean/null leaves anywhere in the tree;
+`timestamp_micros`, `message_id`, `non_personalized_ads`, `consent.*`,
+and the analytics platform's own diagnostic flags.
+
+**Batch endpoint (`/batch`).** Treated identically to `/mp/collect` —
+the JSON body shape is the same with multiple events in `events[]`.
+There is no separate batch-of-bodies wrapper at this endpoint.
+
+#### `matomo`
+
+Targets: `/matomo.php`, `/piwik.php` (legacy alias). Payloads come in
+three transports: GET query string, POST form-encoded body, and POST
+JSON body for the bulk endpoint (`{"requests": ["?idsite=1&...", ...]}`).
+
+**Query string and form-encoded body fields:**
+
+| Field | Treatment |
+|-------|-----------|
+| `url` | Recursively decoded as a URL; inner query parameters scanned and re-encoded; path scanned as a flat string for embedded PII (SPA routing leaks) |
+| `urlref` | Same recursive URL treatment as `url` |
+| `action_name` | Scanned |
+| `uid` | Scanned (raw user-id leak) |
+| `cip` | Scanned (override IP) |
+| `dimension<N>` (any `dimension` followed by digits) | Scanned |
+| `cvar`, `_cvar` | JSON values; parsed and each inner string scanned |
+| `e_c`, `e_a`, `e_n`, `e_v` (event category / action / name / value) | Scanned |
+| `search`, `search_cat` | Scanned (search-box leaks) |
+| `link`, `download` | Recursively decoded as URLs; inner query parameters scanned and re-encoded |
+| `ec_id` | Scanned (ecommerce order ID) |
+| `ec_items` | JSON array of `[sku, name, category, price, quantity]` tuples; each string element scanned |
+| `cra`, `cra_st`, `cra_ru` (crash analytics: message, stack trace, source URI) | Scanned. `cra_ru` recursively decoded as a URL |
+| `c_n`, `c_p`, `c_i` (heatmap / form-input content) | Scanned |
+| `pv_id`, `gt_ms`, page generation time | Skipped |
+
+Skipped: `idsite`, `rec`, `apiv`, `_id`, `rand`, `revenue`, `idgoal`,
+`res`, `h`, `m`, `s`, `fla`, `qt`, `realp`, `wma`, `dir`, `java`,
+`cookie`, screen/time/capability metadata, numeric fields.
+
+**Bulk endpoint (JSON body).** When the body is
+`{"requests": [...], "token_auth": "..."}`, the specialization unwraps
+each request entry (a query-string starting with `?`) and processes it
+through the same field allowlist as a flat tracker call, then re-emits
+the bulk JSON envelope with each entry's redacted query string in
+place. `token_auth` is not scanned (operator credential, not subject
+PII) but is preserved verbatim on output.
+
+#### General rules
+
+Fields outside the allowlist pass through unchanged. Fields inside the
+allowlist that contain no PII also pass through unchanged. Adding a
+field requires a code change and a corresponding test asserting either
+(a) the field is now scanned with PII redacted, or (b) the field is
+explicitly skipped with a comment explaining why.
+
+**Response-path note.** Both GA4 and Matomo answer tracking calls with a
+1x1 `image/gif` pixel or `204 No Content`. Configuring a route's
+specialization therefore applies meaningfully to the *request* direction
+only; on the response, the specialization will reject the unfamiliar
+content-type and the proxy falls through to its normal content-type
+allowlist (which skips images). This is the expected common case — it
+does **not** count toward `pii_proxy_specialization_errors_total` and
+does **not** emit a warning.
+
+### Metrics
+
+A `specialization` label is added to detection-related counters:
+
+- `pii_proxy_detections_total{specialization, …}` — value is the
+  specialization name when active, `"none"` otherwise.
+- `pii_proxy_redacted_total{specialization, …}` — same.
+- `pii_proxy_specialization_errors_total{specialization, reason}` — new
+  counter for decode failures. Distinct from `pii_proxy_errors_total`
+  because failure here means *fallback succeeded*, not that the request
+  errored.
+
+The `specialization` label is operator-controlled (config + built-in
+names), so cardinality is bounded.
+
+### Configuration
+
+```toml
+[[reverse_proxy.routes]]
+path_prefix = "/mp/collect"
+upstream    = "https://www.google-analytics.com"
+specialization = "ga4"
+
+[[reverse_proxy.routes]]
+path_prefix = "/matomo.php"
+upstream    = "http://matomo.internal:8080"
+specialization = "matomo"
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream    = "http://backend-api:8080"
+# specialization omitted — content-type routing applies as today
+```
+
+Validation:
+
+| Rule | Description |
+|------|-------------|
+| Known name | `specialization` value must match a built-in specialization. Unknown names rejected at startup. |
+| Optional | `specialization` is optional; omitting it preserves existing scanning behaviour. |
+| API-level | `?specialization=` on `/v1/scan` and `/v1/redact` is validated per-request; unknown name returns `400`. |
+
+### Non-goals (initial release)
+
+- **Auto-detection** of specialization from path or User-Agent.
+- **Operator-defined specializations.** Custom decoders are a much bigger
+  surface (sandboxing, error model, perf) and are out of scope. Operators
+  who need a new format file an issue or contribute a Rust impl.
+- **Per-field action overrides** (e.g., "block on `uid`, redact on
+  `email`"). The specialization picks which fields are scannable; the
+  route's existing action set still governs what happens on detection.
+
+---
+
 ## Metrics
 
 Prometheus metrics are **always** updated when PII is detected, regardless of
@@ -421,9 +713,15 @@ The `[scan]` allowlist (`content_types`) and `max_body_size` apply identically
 to the API. CSV/TSV without a detectable header row falls back to flat text
 scanning, matching proxy-mode behaviour.
 
+An optional `?specialization=<name>` query parameter selects a built-in
+specialization (see § "Specializations"). When set, the specialization owns
+parsing, field selection, and re-encoding; content-type routing is
+bypassed. Unknown specialization names return `400`. Omitting the
+parameter preserves content-type-based routing.
+
 | Status | When |
 |--------|------|
-| `400` | Body cannot be parsed as the declared `Content-Type` |
+| `400` | Body cannot be parsed as the declared `Content-Type`, or `?specialization=` value is unknown |
 | `413` | Body exceeds `max_body_size` |
 | `415` | `Content-Type` not in `scan.content_types` |
 | `500` | Scanner error and `on_error = "fail_close"` |
@@ -709,6 +1007,7 @@ error message if any rule is violated.
 | Valid upstream URLs | Each `upstream` must be a valid URL |
 | Per-route scan override | If a route specifies `scan`, it fully replaces the defaults (no merging) |
 | No per-route actions | Routes must not define `request` or `response` action overrides — actions are set at the mode level only |
+| Known specialization | If a route specifies `specialization`, its value must match a built-in specialization name |
 
 ### Pre-flight Validation
 
@@ -784,16 +1083,18 @@ validation is the correct pair.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `pii_proxy_detections_total` | counter | `pii_kind`, `mode`, `route`, `direction` | PII detections (always incremented, regardless of actions) |
+| `pii_proxy_detections_total` | counter | `pii_kind`, `mode`, `route`, `direction`, `specialization` | PII detections (always incremented, regardless of actions) |
 | `pii_proxy_blocked_total` | counter | `mode`, `route`, `direction` | Blocked requests/responses |
-| `pii_proxy_redacted_total` | counter | `pii_kind`, `mode`, `route`, `direction` | Redacted PII instances |
+| `pii_proxy_redacted_total` | counter | `pii_kind`, `mode`, `route`, `direction`, `specialization` | Redacted PII instances |
 | `pii_proxy_requests_total` | counter | `mode`, `route`, `method`, `status` | Total requests |
 | `pii_proxy_request_duration_seconds` | histogram | `mode`, `route` | Processing time |
 | `pii_proxy_errors_total` | counter | `outcome` (`passed`, `blocked`), `reason` | Scanner failures, body size exceeded, and other errors with fail-open/close outcome |
+| `pii_proxy_specialization_errors_total` | counter | `specialization`, `reason` | Specialization decoder failures (fallback to raw scan succeeded) |
 
 The `mode` label is one of: `reverse_proxy`, `forward_proxy`, `http_api`.
 The `route` label is the path prefix for reverse proxy, or `global` for other modes.
 The `direction` label is `request` or `response`.
+The `specialization` label is the active specialization name (e.g. `ga4`, `matomo`) or `none` when no specialization is selected.
 
 ---
 
