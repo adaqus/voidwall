@@ -67,17 +67,28 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 PII Proxy — a multi-mode HTTP proxy that inspects HTTP traffic for PII using the `pii` crate. Except proxy, it also offers REST API to check/redact data in terms if PII presence.
 Design: `DESIGN.md`. Tasks: `TASKS.md`. Load testing: `docs/load-testing.md`.
 
+## Workspace
+
+Cargo workspace with two members:
+- `crates/proxy/` — this binary (package `pii-proxy`). Integration tests, k6 load tests, and bench scripts live under `crates/proxy/tests/` and `crates/proxy/benches/`.
+- `crates/pii/` — the detection library. Library-internal rules (Vectorscan, detector chain, keyword-context patterns, overlap resolution, adding a new language/country) live in `crates/pii/CLAUDE.md`. Read it before editing anything under `crates/pii/`.
+
+The pii library docs are under `docs/pii/`. Proxy docs are under `docs/`.
+
 ## Platform
 
 Only Linux is supported. Do not add platform-conditional code for other OSes.
 
 ## Build
 
+Commands run from the workspace root. `--workspace` covers both crates; `-p <name>` scopes to one.
+
 ```bash
-cargo check 2>&1 | tail -n 20m
-cargo test 2>&1 | tail -n 20m
-cargo test <name> 2>&1 | tail -n 20m        # single test
-cargo clippy 2>&1 | tail -n 20m             # lint — treat warnings as errors
+cargo check --workspace 2>&1 | tail -n 20m
+cargo test --workspace 2>&1 | tail -n 20m
+cargo test -p pii-proxy <name> 2>&1 | tail -n 20m      # single proxy test
+cargo test -p pii <name> 2>&1 | tail -n 20m            # single pii test
+cargo clippy --workspace --all-targets 2>&1 | tail -n 20m  # lint — treat warnings as errors
 ```
 
 Rust edition: 2024.
@@ -107,7 +118,7 @@ These are non-negotiable and apply everywhere:
 - Prometheus `pii_detections_total{kind=…}` increments per resolved match.
 - Same value at distinct byte offsets stays as distinct matches — those are separate PII instances.
 
-Policy and priority groups live in the `pii` crate (`overlap.rs` + that crate's CLAUDE.md). Don't reimplement resolution here.
+Policy and priority groups live in the `pii` crate (`crates/pii/src/overlap.rs` + `crates/pii/CLAUDE.md`). Don't reimplement resolution here.
 
 ## Threading Model
 
@@ -135,10 +146,10 @@ for responses. Never call `pii::Scanner` from an async context.
 ## Testing
 
 - Unit tests go in the same file as the code they test (`#[cfg(test)] mod tests`).
-- Integration tests (in `tests/`) start from Phase 4 (Admin server) onward.
+- Integration tests (in `crates/proxy/tests/`) start from Phase 4 (Admin server) onward.
   They spin up actual servers and make real HTTP requests.
 - use #[test_case()] wherever applicable to reduce amount of testing code and save tokens
-- Load tests live in `benches/` — see `docs/load-testing.md` for scenario design.
+- Load tests live in `crates/proxy/benches/` — see `docs/load-testing.md` for scenario design.
 
 ## Action Precedence
 
