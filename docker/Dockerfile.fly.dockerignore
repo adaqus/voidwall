@@ -1,0 +1,12 @@
+# Overrides the strict repo-root .dockerignore (which is tuned for
+# docker/Dockerfile.proxy's prebuilt-binary copy). For the from-source Fly
+# build, we need the crates/ tree in the context.
+
+target/
+.git/
+.idea/
+.vscode/
+.claude/
+docs/
+*.md
+benches/results/

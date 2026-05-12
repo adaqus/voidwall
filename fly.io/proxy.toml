@@ -1,0 +1,21 @@
+# Fly.io-specific proxy config.
+#
+# Only the REST API and Admin listeners are enabled — the reverse and forward
+# proxy modes need upstreams to be useful and aren't part of the Fly deploy
+# (which exists to host the public API + demo page).
+
+[pii]
+countries = []
+languages = []
+scanner_threads = 2
+
+[scan]
+on_error = "fail_open"
+
+[http_api]
+enabled = true
+listen = "0.0.0.0:8083"
+redact_strategy = "type_label"
+
+[admin]
+listen = "0.0.0.0:9090"

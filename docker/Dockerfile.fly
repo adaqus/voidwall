@@ -1,0 +1,46 @@
+# Self-contained multi-stage build for Fly.io.
+#
+# Unlike docker/Dockerfile.proxy (which is used by docker-compose and expects
+# host-built binaries copied in), this Dockerfile builds pii-proxy from source
+# inside the image. Required for Fly's remote builder, which has no access to
+# pre-built artifacts.
+#
+# Build context is the repo root (set by fly.toml). The sibling
+# Dockerfile.fly.dockerignore overrides the strict root .dockerignore so the
+# crates/ source tree is included.
+
+ARG RUST_VERSION=1
+ARG DEBIAN_RELEASE=bookworm
+
+FROM rust:${RUST_VERSION}-${DEBIAN_RELEASE} AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake \
+        build-essential \
+        ragel \
+        pkg-config \
+        libboost-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo build --release -p pii-proxy --bin pii-proxy
+
+FROM debian:${DEBIAN_RELEASE}-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/pii-proxy /usr/local/bin/pii-proxy
+COPY fly.io/proxy.toml /etc/pii-proxy/proxy.toml
+COPY docker/demo/index.html /srv/demo/index.html
+
+# Static config.js for the demo. Same-origin: the demo and the REST API share
+# the Fly hostname, so window.location.origin resolves to the right base URL
+# without env-var substitution (which docker-compose handles via nginx).
+RUN printf 'window.PII_API_URL = window.location.origin;\n' > /srv/demo/config.js
+
+ENTRYPOINT ["pii-proxy"]
+CMD ["--config", "/etc/pii-proxy/proxy.toml"]
