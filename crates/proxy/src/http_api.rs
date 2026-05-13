@@ -21,6 +21,7 @@ use crate::scanner::{
     RedactWith, SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, ScanRequest, ScannerPool,
     classify_body, to_redact_with,
 };
+use crate::specialization::Specialization;
 
 const MODE: &str = "http_api";
 const ROUTE: &str = "global";
@@ -178,7 +179,7 @@ struct InfoResponse {
     ),
 )]
 async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
-    process(state, headers, body, Mode::Scan).await
+    process(state, headers, body, Mode::Scan, None).await
 }
 
 /// Redact PII in a request body
@@ -222,7 +223,7 @@ async fn redact_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    process(state, headers, body, Mode::Redact).await
+    process(state, headers, body, Mode::Redact, None).await
 }
 
 /// List supported PII kinds and languages
@@ -383,7 +384,19 @@ enum Mode {
     Redact,
 }
 
-async fn process(state: ApiState, headers: HeaderMap, body: Bytes, mode: Mode) -> Response {
+async fn process(
+    state: ApiState,
+    headers: HeaderMap,
+    body: Bytes,
+    mode: Mode,
+    spec: Option<&'static dyn Specialization>,
+) -> Response {
+    // Specialization wiring is plumbed here in TASKS.md § 16.2; the
+    // per-request `?specialization=` parameter that populates it is wired
+    // up in § 16.6. Until then the parameter is always `None`, so the spec
+    // branch is dead code on the request path.
+    let _ = spec;
+
     let content_type = headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())

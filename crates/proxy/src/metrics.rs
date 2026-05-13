@@ -50,6 +50,16 @@ lazy_static! {
     )
     .unwrap();
 
+    /// Specialization decoder failures (fallback to raw scan succeeded).
+    pub static ref SPECIALIZATION_ERRORS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "pii_proxy_specialization_errors_total",
+            "Specialization decoder failures (fallback to raw scan succeeded)"
+        ),
+        &["specialization", "reason"]
+    )
+    .unwrap();
+
     // --- Process metrics ---
 
     pub static ref PROCESS_RSS_BYTES: Gauge = register_gauge!(
@@ -121,6 +131,15 @@ pub fn observe_duration(mode: &str, route: &str, duration_secs: f64) {
 /// Record an error with its outcome (passed/blocked) and reason.
 pub fn inc_error(outcome: &str, reason: &str) {
     ERRORS_TOTAL.with_label_values(&[outcome, reason]).inc();
+}
+
+/// Record a specialization decoder failure. The proxy falls back to default
+/// scanning whenever a specialization returns an error; this counter tracks
+/// how often that happens so operators can spot pathological payloads.
+pub fn inc_specialization_error(specialization: &str, reason: &str) {
+    SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&[specialization, reason])
+        .inc();
 }
 
 /// Update process metrics from /proc/self. Called on each /metrics scrape.
@@ -220,6 +239,19 @@ mod tests {
         let before = ERRORS_TOTAL.with_label_values(&[outcome, reason]).get();
         inc_error(outcome, reason);
         let after = ERRORS_TOTAL.with_label_values(&[outcome, reason]).get();
+        assert_eq!(after, before + 1);
+    }
+
+    #[test_case("ga4", "decode" ; "ga4 decode failure")]
+    #[test_case("matomo", "recursion_limit" ; "matomo recursion limit")]
+    fn inc_specialization_error_increments(specialization: &str, reason: &str) {
+        let before = SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&[specialization, reason])
+            .get();
+        inc_specialization_error(specialization, reason);
+        let after = SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&[specialization, reason])
+            .get();
         assert_eq!(after, before + 1);
     }
 

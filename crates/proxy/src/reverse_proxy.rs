@@ -19,7 +19,10 @@ use crate::config::{AppConfig, OnError, ScanConfig};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::SCANNER_ERROR_LIMITER;
-use crate::scanner::{BodyFormat, ScanRequest, ScannerPool, classify_body};
+use crate::scanner::{BodyFormat, ScanRequest, ScanResult, ScannerPool, classify_body};
+use crate::specialization::{
+    self, ScanHandle, SpecDirection, Specialization, merge_with_default_scan,
+};
 
 // ---------------------------------------------------------------------------
 // Hop-by-hop headers to strip when proxying
@@ -51,6 +54,10 @@ struct ResolvedRoute {
     path_prefix: String,
     upstream: String,
     scan: ScanConfig,
+    /// Optional specialization that owns query+body decoding for this route.
+    /// Wired up by config in TASKS.md § 16.5; always `None` at this stage so
+    /// existing behaviour is unchanged.
+    specialization: Option<&'static dyn Specialization>,
 }
 
 /// Shared state for the reverse proxy handlers.
@@ -110,6 +117,7 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProx
             path_prefix: r.path_prefix.clone(),
             upstream: r.upstream.clone(),
             scan: r.scan.clone().unwrap_or_else(|| config.scan.clone()),
+            specialization: None,
         })
         .collect();
 
@@ -240,6 +248,7 @@ async fn handle_proxied_request(
             } else {
                 None
             },
+            route.specialization,
         )
         .await
         {
@@ -349,6 +358,7 @@ async fn handle_proxied_request(
             } else {
                 None
             },
+            route.specialization,
         )
         .await
         {
@@ -419,7 +429,55 @@ async fn scan_and_act(
     uri: &Uri,
     headers: &HeaderMap,
     body: Option<&Bytes>,
+    spec: Option<&'static dyn Specialization>,
 ) -> PipelineResult {
+    // Specialization path: it owns query+body decoding for this request.
+    // URL path and request headers still go through the default scan path
+    // (their detections are merged into the final ScanResult).
+    if let Some(spec) = spec {
+        let handle = ScanHandle::new(
+            scanner,
+            action_set.redact,
+            redact_strategy.clone(),
+            scan_config.on_error,
+        );
+        let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
+        let query_str = uri.query();
+        let body_slice = body.map(|b| b.as_ref());
+
+        let dispatch_result = specialization::dispatch(
+            spec,
+            SpecDirection::Request,
+            query_str,
+            body_slice,
+            content_type,
+            &handle,
+        )
+        .await;
+
+        if let Ok(processed) = dispatch_result {
+            let ph_result = match run_path_headers_scan(
+                scanner,
+                scan_config,
+                action_set,
+                redact_strategy,
+                Some(uri),
+                headers,
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(pr) => return pr,
+            };
+            let redact_enabled = handle.redact_enabled();
+            let merged = merge_with_default_scan(processed, ph_result, redact_enabled);
+            return pipeline_result_from_outcome(action::execute(merged, action_set, ctx));
+        }
+        // Spec errored — fall through to the default scan path. The
+        // dispatch() helper already recorded the metric + rate-limited warn
+        // when appropriate.
+    }
+
     let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
         Ok(b) => b,
         Err(resp) => return *resp,
@@ -473,6 +531,7 @@ async fn scan_and_act(
 }
 
 /// Scan response direction and execute actions.
+#[allow(clippy::too_many_arguments)]
 async fn scan_and_act_response(
     scanner: &ScannerPool,
     scan_config: &ScanConfig,
@@ -481,7 +540,53 @@ async fn scan_and_act_response(
     ctx: &ActionContext<'_>,
     headers: &HeaderMap,
     body: Option<&Bytes>,
+    spec: Option<&'static dyn Specialization>,
 ) -> PipelineResult {
+    // Specialization path: response receives the body only (no query). For
+    // tracker endpoints the upstream typically replies with a 1x1 gif or
+    // 204, so UnsupportedContentType is the common case — dispatch() keeps
+    // that silent and the proxy falls through to the default scan path
+    // (where the response Content-Type allowlist filters it out).
+    if let Some(spec) = spec {
+        let handle = ScanHandle::new(
+            scanner,
+            action_set.redact,
+            redact_strategy.clone(),
+            scan_config.on_error,
+        );
+        let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
+        let body_slice = body.map(|b| b.as_ref());
+
+        let dispatch_result = specialization::dispatch(
+            spec,
+            SpecDirection::Response,
+            None,
+            body_slice,
+            content_type,
+            &handle,
+        )
+        .await;
+
+        if let Ok(processed) = dispatch_result {
+            let ph_result = match run_path_headers_scan(
+                scanner,
+                scan_config,
+                action_set,
+                redact_strategy,
+                None,
+                headers,
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(pr) => return pr,
+            };
+            let redact_enabled = handle.redact_enabled();
+            let merged = merge_with_default_scan(processed, ph_result, redact_enabled);
+            return pipeline_result_from_outcome(action::execute(merged, action_set, ctx));
+        }
+    }
+
     let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
         Ok(b) => b,
         Err(resp) => return *resp,
@@ -512,6 +617,62 @@ async fn scan_and_act_response(
     };
 
     pipeline_result_from_outcome(action::execute(scan_result, action_set, ctx))
+}
+
+/// Run the default scan path covering only the URL path (when `uri` is
+/// `Some`) and configured request headers. Used by the specialization
+/// branch: spec owns query+body, the proxy still scans path+headers and
+/// merges results. Returns an empty `ScanResult` when both are disabled
+/// (avoids a round-trip through the scanner pool).
+#[allow(clippy::too_many_arguments)]
+async fn run_path_headers_scan(
+    scanner: &ScannerPool,
+    scan_config: &ScanConfig,
+    action_set: &ActionSet,
+    redact_strategy: Option<crate::scanner::RedactWith>,
+    uri: Option<&Uri>,
+    headers: &HeaderMap,
+) -> Result<ScanResult, PipelineResult> {
+    let scan_path = match uri {
+        Some(u) if scan_config.url_path => Some(u.path().to_string()),
+        _ => None,
+    };
+    let scan_headers = collect_scan_headers(scan_config, headers);
+
+    if scan_path.is_none() && scan_headers.is_none() {
+        return Ok(empty_scan_result());
+    }
+
+    let req = ScanRequest {
+        body: None,
+        path: scan_path,
+        query: None,
+        headers: scan_headers,
+        redact: action_set.redact,
+        redact_strategy,
+    };
+
+    scanner
+        .process(req, scan_config.on_error)
+        .await
+        .map_err(|e| {
+            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+                warn!(dropped, error = %e, "scanner error during path/headers scan");
+            }
+            handle_scan_error(e, scan_config.on_error)
+        })
+}
+
+fn empty_scan_result() -> ScanResult {
+    ScanResult {
+        detected: false,
+        kinds: Vec::new(),
+        matches_count: 0,
+        redacted_body: None,
+        redacted_path: None,
+        redacted_query: None,
+        redacted_headers: None,
+    }
 }
 
 /// Classify the body bytes into a `BodyFormat` based on Content-Type, applying
@@ -722,6 +883,7 @@ mod tests {
                 path_prefix: p.to_string(),
                 upstream: format!("http://upstream{p}"),
                 scan: ScanConfig::default(),
+                specialization: None,
             })
             .collect()
     }
@@ -915,5 +1077,313 @@ mod tests {
         let headers = HeaderMap::new();
         let scan_config = ScanConfig::default();
         assert!(collect_scan_headers(&scan_config, &headers).is_none());
+    }
+
+    // --- Specialization pipeline integration (16.2) ---
+
+    use crate::config::PiiConfig;
+    use crate::specialization::{
+        AggregatedScan, ProcessFuture, ProcessedPart, ProcessedRequest, ScanHandle,
+        SpecializationError,
+    };
+    use bytes::Bytes;
+
+    fn pool_for_tests() -> ScannerPool {
+        ScannerPool::new(&PiiConfig {
+            countries: vec![pii::Country::International],
+            languages: vec![pii::Language::En],
+            scanner_threads: Some(1),
+            detect: None,
+            ignore: None,
+            custom: Vec::new(),
+        })
+        .expect("pool starts")
+    }
+
+    /// Mock spec that returns a re-encoded query + body plus one EMAIL kind,
+    /// regardless of input. Lets us verify the merge path: the proxy still
+    /// runs path/headers default scanning, and the final ScanResult contains
+    /// both the spec's EMAIL and any additional kinds from the path/header
+    /// scan.
+    struct PipelineOkSpec;
+    impl Specialization for PipelineOkSpec {
+        fn name(&self) -> &'static str {
+            "pipeline_ok"
+        }
+        fn process<'a>(
+            &'a self,
+            _query: Option<&'a str>,
+            _body: Option<&'a [u8]>,
+            _ct: Option<&'a str>,
+            _scan: &'a ScanHandle<'a>,
+        ) -> ProcessFuture<'a> {
+            Box::pin(async move {
+                Ok(ProcessedRequest {
+                    query: Some(ProcessedPart {
+                        bytes: Bytes::from_static(b"redacted=query"),
+                        content_type: None,
+                    }),
+                    body: Some(ProcessedPart {
+                        bytes: Bytes::from_static(b"redacted-body"),
+                        content_type: Some("text/plain".into()),
+                    }),
+                    scan_result: AggregatedScan {
+                        kinds: vec!["EMAIL".into()],
+                        matches_count: 1,
+                    },
+                })
+            })
+        }
+    }
+
+    struct PipelineDecodeSpec;
+    impl Specialization for PipelineDecodeSpec {
+        fn name(&self) -> &'static str {
+            "pipeline_decode"
+        }
+        fn process<'a>(
+            &'a self,
+            _query: Option<&'a str>,
+            _body: Option<&'a [u8]>,
+            _ct: Option<&'a str>,
+            _scan: &'a ScanHandle<'a>,
+        ) -> ProcessFuture<'a> {
+            Box::pin(async move {
+                Err(SpecializationError::Decode {
+                    reason: "invalid".into(),
+                })
+            })
+        }
+    }
+
+    struct PipelineUnsupportedSpec;
+    impl Specialization for PipelineUnsupportedSpec {
+        fn name(&self) -> &'static str {
+            "pipeline_unsupported"
+        }
+        fn process<'a>(
+            &'a self,
+            _query: Option<&'a str>,
+            _body: Option<&'a [u8]>,
+            _ct: Option<&'a str>,
+            _scan: &'a ScanHandle<'a>,
+        ) -> ProcessFuture<'a> {
+            Box::pin(async move { Err(SpecializationError::UnsupportedContentType) })
+        }
+    }
+
+    fn header_action_ctx() -> ActionContext<'static> {
+        ActionContext {
+            mode: "reverse_proxy",
+            route: "/pipeline-test",
+            direction: "request",
+        }
+    }
+
+    fn header_action_set() -> ActionSet {
+        ActionSet {
+            block: false,
+            redact: true,
+            header: true,
+            block_status: 403,
+            block_body: None,
+            block_headers: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_and_act_runs_spec_then_merges_path_and_headers() {
+        let pool = pool_for_tests();
+        let scan_config = ScanConfig {
+            // We want URL-path scanning to pick up the EMAIL embedded in the
+            // path so we can confirm path/header detections still merge into
+            // the final ScanResult.
+            url_path: true,
+            query_params: true,
+            headers: vec!["X-Custom".into()],
+            ..ScanConfig::default()
+        };
+
+        let uri: Uri = "/api/v1/users/user@example.com?cid=123".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        // PII in a configured request header.
+        headers.insert("x-custom", "contact me at hr@example.com".parse().unwrap());
+
+        let body = Bytes::from(r#"{"raw":"shouldn't matter — spec replaces"}"#);
+
+        let static_spec: &'static dyn Specialization = &PipelineOkSpec;
+        let outcome = scan_and_act(
+            &pool,
+            &scan_config,
+            &header_action_set(),
+            Some(crate::scanner::RedactWith::TypeLabel),
+            &header_action_ctx(),
+            &uri,
+            &headers,
+            Some(&body),
+            Some(static_spec),
+        )
+        .await;
+
+        match outcome {
+            PipelineResult::Forward {
+                body,
+                redacted_path,
+                redacted_query,
+                redacted_headers,
+                extra_headers,
+            } => {
+                // Spec re-encoded body wins (redact_enabled propagates the
+                // bytes onto the action layer as the new forward body).
+                assert_eq!(body.as_deref(), Some(b"redacted-body".as_ref()));
+                // Spec re-encoded query string wins.
+                assert_eq!(redacted_query.as_deref(), Some("redacted=query"));
+                // Default URL-path scan still ran — the EMAIL embedded in
+                // the path was detected and redacted in place.
+                let rp = redacted_path.expect("path scanned by default path");
+                assert!(rp.contains("[EMAIL]"), "expected [EMAIL] in path: {rp}");
+                // Default header scan still ran — the EMAIL in X-Custom was
+                // detected and redacted.
+                let rh = redacted_headers.expect("headers scanned by default path");
+                let custom = rh
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case("X-Custom"))
+                    .expect("X-Custom present");
+                assert!(custom.1.contains("[EMAIL]"));
+                // header action populated X-PII-Detected with the merged
+                // kinds (just EMAIL here since spec + path/header all hit
+                // EMAIL — dedup must apply).
+                let val = extra_headers
+                    .get("x-pii-detected")
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                assert_eq!(val, "EMAIL");
+            }
+            _ => panic!("expected Forward outcome"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_and_act_decode_failure_falls_back_and_records_metric() {
+        let pool = pool_for_tests();
+        let scan_config = ScanConfig {
+            url_path: false,
+            query_params: false,
+            headers: Vec::new(),
+            body: true,
+            content_types: vec!["text/plain".into()],
+            ..ScanConfig::default()
+        };
+        let uri: Uri = "/api".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+
+        // PII in the raw body; default scan path must still catch it after
+        // the spec falls back.
+        let body = Bytes::from("contact user@example.com");
+
+        let before = crate::metrics::SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&["pipeline_decode", "decode"])
+            .get();
+
+        let static_spec: &'static dyn Specialization = &PipelineDecodeSpec;
+        let outcome = scan_and_act(
+            &pool,
+            &scan_config,
+            &header_action_set(),
+            Some(crate::scanner::RedactWith::TypeLabel),
+            &ActionContext {
+                mode: "reverse_proxy",
+                route: "/pipeline-test",
+                direction: "request",
+            },
+            &uri,
+            &headers,
+            Some(&body),
+            Some(static_spec),
+        )
+        .await;
+
+        match outcome {
+            PipelineResult::Forward { body: out, .. } => {
+                // Fallback path scanned the body normally — EMAIL must be
+                // redacted in the forwarded body.
+                let bytes = out.expect("fallback redacted body");
+                let text = std::str::from_utf8(&bytes).unwrap();
+                assert!(text.contains("[EMAIL]"), "got: {text}");
+            }
+            _ => panic!("expected Forward on fallback"),
+        }
+
+        let after = crate::metrics::SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&["pipeline_decode", "decode"])
+            .get();
+        assert_eq!(
+            after,
+            before + 1,
+            "spec decode failure must record an error counter on the request side"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_and_act_response_unsupported_content_type_is_silent() {
+        let pool = pool_for_tests();
+        let scan_config = ScanConfig {
+            url_path: false,
+            query_params: false,
+            headers: Vec::new(),
+            body: true,
+            // The default content-type allowlist would skip image/gif anyway
+            // — this exercises the silent-fallback path for the spec.
+            content_types: vec!["text/plain".into()],
+            ..ScanConfig::default()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "image/gif".parse().unwrap());
+
+        let body = Bytes::from_static(&[0x47, 0x49, 0x46]); // "GIF" magic.
+
+        let before = crate::metrics::SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&["pipeline_unsupported", "unsupported_content_type"])
+            .get();
+
+        let static_spec: &'static dyn Specialization = &PipelineUnsupportedSpec;
+        let outcome = scan_and_act_response(
+            &pool,
+            &scan_config,
+            &ActionSet {
+                block: false,
+                redact: true,
+                header: false,
+                block_status: 403,
+                block_body: None,
+                block_headers: vec![],
+            },
+            Some(crate::scanner::RedactWith::TypeLabel),
+            &ActionContext {
+                mode: "reverse_proxy",
+                route: "/pipeline-test",
+                direction: "response",
+            },
+            &headers,
+            Some(&body),
+            Some(static_spec),
+        )
+        .await;
+
+        // Spec returned UnsupportedContentType → silent fallback → default
+        // scan path runs but the body's image/gif content-type is not in the
+        // allowlist, so no scanning happens and the outcome is Pass.
+        assert!(matches!(outcome, PipelineResult::Pass));
+
+        let after = crate::metrics::SPECIALIZATION_ERRORS_TOTAL
+            .with_label_values(&["pipeline_unsupported", "unsupported_content_type"])
+            .get();
+        assert_eq!(
+            after, before,
+            "response-side UnsupportedContentType must NOT increment the error counter"
+        );
     }
 }

@@ -705,11 +705,11 @@ Matomo's `url=` parameter) and false positives on opaque IDs.
   shape, rate-limiter emits once then suppresses within window.
 
 ### 16.2 Pipeline integration
-- [ ] Plumb a per-route / per-API-request `Option<&dyn Specialization>`
+- [x] Plumb a per-route / per-API-request `Option<&dyn Specialization>`
   into the request-side scan path (`scan_and_act` in reverse proxy, the
   equivalent in http_api). The response-side path receives the same
   specialization but only the body slot is populated.
-- [ ] When a specialization is active:
+- [x] When a specialization is active:
   - The proxy's default scanning of the **query string** and the
     **request body** is bypassed for that request — the specialization
     is the sole entry point for those parts.
@@ -717,17 +717,17 @@ Matomo's `url=` parameter) and false positives on opaque IDs.
     path with their existing `scan_config` controls. They are scanned
     *in addition to* the specialization's output (one combined
     `ScanResult` is assembled for downstream actions).
-- [ ] On `SpecializationError`:
+- [x] On `SpecializationError`:
   - fall back to default scanning of query+body (existing content-type
     routing) for that request,
   - emit rate-limited warning,
   - increment `pii_proxy_specialization_errors_total{specialization, reason}`.
-- [ ] `UnsupportedContentType` on the response direction is the
+- [x] `UnsupportedContentType` on the response direction is the
   expected common case (1x1 gif / 204) — silent fallback, **no** log
   line, **no** counter increment.
-- [ ] Do **not** consult `on_error` for specialization decode failures —
+- [x] Do **not** consult `on_error` for specialization decode failures —
   fallback is always taken on the request side.
-- [ ] Unit tests:
+- [x] Unit tests:
   - success path: spec returns re-encoded query+body and aggregated
     kinds; default URL-path and header scanning still runs and its
     detections merge into the final `ScanResult`
