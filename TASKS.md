@@ -926,26 +926,26 @@ matomo" as the canonical list.
   which is the canonical sample.)*
 
 ### 16.6 HTTP API
-- [ ] Accept `?specialization=<name>` on `POST /v1/scan` and
+- [x] Accept `?specialization=<name>` on `POST /v1/scan` and
   `POST /v1/redact`. Unknown name → `400` with a structured error body
   naming the unknown value.
-- [ ] When set, specialization owns parsing and content-type routing is
+- [x] When set, specialization owns parsing and content-type routing is
   bypassed (DESIGN.md § HTTP API). In API mode the specialization
   receives `query=None` (the API's own `?specialization=` is consumed
   by the handler, not handed to the spec); the payload comes entirely
   in the request body. Callers that want to test a `/g/collect`-style
   query-string payload pass it as an `application/x-www-form-urlencoded`
   body — the spec handles form-encoded bodies the same way.
-- [ ] `Content-Type` allowlist still enforced for the *outer* content
+- [x] `Content-Type` allowlist still enforced for the *outer* content
   type — calling `/v1/scan?specialization=ga4` with a non-JSON body
   yields a `415` (or the specialization's own `400` for decode failure,
   whichever fires first; pick the cheapest check).
-- [ ] `X-PII-Specialization: <name>` response header on both endpoints
+- [x] `X-PII-Specialization: <name>` response header on both endpoints
   when a specialization processed the body (omitted otherwise) — lets
   callers verify which path ran.
-- [ ] Update the OpenAPI annotations: document the query parameter on
+- [x] Update the OpenAPI annotations: document the query parameter on
   both routes, list the accepted values, document the response header.
-- [ ] Integration tests:
+- [x] Integration tests:
   - GA4 JSON payload → kinds returned, body redacted on `/v1/redact`
   - Matomo form-encoded payload → kinds returned, redacted body is
     valid form-encoded data with correctly-encoded redaction labels
