@@ -831,9 +831,9 @@ confirm coverage before checking the box.
 must be allowlisted. Use the table in DESIGN.md § "Specializations →
 matomo" as the canonical list.
 
-- [ ] Implement `MatomoSpecialization`
+- [x] Implement `MatomoSpecialization`
   (`crates/proxy/src/specialization/matomo.rs`).
-- [ ] **Form/query transport** (the common case — GET query string or
+- [x] **Form/query transport** (the common case — GET query string or
   POST `application/x-www-form-urlencoded` body):
   - Parse fields. For each declared field, call `ScanHandle`.
   - Flat-string scan: `action_name`, `uid`, `cip`, every parameter
@@ -851,7 +851,7 @@ matomo" as the canonical list.
   - Re-encode form/query bytes with each scanned field replaced; opaque
     fields pass through verbatim. Redaction labels properly
     percent-encoded.
-- [ ] **Bulk JSON transport** (`{"requests": ["?...", "?..."],
+- [x] **Bulk JSON transport** (`{"requests": ["?...", "?..."],
   "token_auth": "..."}`):
   - Parse top-level JSON.
   - For each entry in `requests`, strip the leading `?`, process the
@@ -865,12 +865,12 @@ matomo" as the canonical list.
   specialization is selected by route config, so the alias is an
   operator config concern, not a spec concern. Document it in
   `docs/specializations.md` so operators remember to route both paths.
-- [ ] Error categories: `invalid_form_encoding`, `invalid_bulk_json`,
+- [x] Error categories: `invalid_form_encoding`, `invalid_bulk_json`,
   `invalid_inner_url` (per offending field — not fatal; falls back to
   flat scan of that field's raw value), `invalid_inner_json` (same
   per-field fallback for `cvar` / `_cvar` / `ec_items`),
   `recursion_limit`.
-- [ ] **Unit tests** — one per allowlisted field family:
+- [x] **Unit tests** — one per allowlisted field family:
   - `url` with `email=` and `card=` in inner query → both detected,
     output doubly-encoded
   - `urlref` recursive scan
@@ -903,11 +903,14 @@ matomo" as the canonical list.
   `specialization = "matomo"`. Same parity rules as for GA4: same PII
   kinds detected, byte-equivalent output outside redacted spans,
   redaction labels percent-encoded.
-- [ ] **False-positive regression** — confirm the specialization does
+  *(deferred — depends on 16.5 adding `specialization` to `Route` and
+  on a `build_state` resolver wiring it up; the spec itself is exercised
+  end-to-end by the unit tests in `specialization::matomo::tests`.)*
+- [x] **False-positive regression** — confirm the specialization does
   not scan `_id`, `rand`, `idsite`, `revenue`, `res`, even when their
   values match a PII shape (e.g. construct an `_id` whose hex digits
   happen to form an IBAN-shaped string).
-- [ ] **Encoding bug regression** — the canonical test for the user's
+- [x] **Encoding bug regression** — the canonical test for the user's
   reported issue: the demo's Matomo payload (with `url=` containing a
   URL-encoded email and `dimension2` containing a URL-encoded phone
   number) must redact such that the output is valid form-encoded data,

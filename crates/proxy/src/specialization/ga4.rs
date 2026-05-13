@@ -1144,4 +1144,62 @@ mod tests {
         assert!(!out.contains("jane.doe%40example.com"));
         assert!(out.contains("%5BEMAIL%5D"));
     }
+
+    // Protocol-evolution regression: if GA4 ships a new tracker field
+    // we haven't allowlisted yet, it must round-trip verbatim through the
+    // re-encoded output. The cost is that PII in the new field goes
+    // undetected until the allowlist is updated — explicit deal per
+    // DESIGN.md ("Adding a field requires a code change").
+    #[tokio::test]
+    async fn unknown_form_fields_round_trip_verbatim() {
+        let h = redact_handle();
+        let q = "v=2&tid=G-X&cid=1.1&en=page_view&new_field_alpha=hello%20world&dt=Home&new_field_beta=path%2Fwith%2Fslash";
+        let pr = run_spec(&h, Some(q), None, None).await.unwrap();
+        let out = query_str(&pr);
+        let pairs = parse_form_pairs(&out).unwrap();
+        let by_key = |k: &str| {
+            pairs
+                .iter()
+                .find(|p| p.key == k)
+                .unwrap_or_else(|| panic!("missing `{k}` in output: {out}"))
+        };
+        assert_eq!(by_key("new_field_alpha").value, "hello world");
+        assert_eq!(by_key("new_field_beta").value, "path/with/slash");
+        // Known fields still present and unaffected.
+        assert_eq!(by_key("dt").value, "Home");
+        assert_eq!(by_key("v").value, "2");
+        assert_eq!(by_key("tid").value, "G-X");
+    }
+
+    // JSON top-level evolution: any new key the GA4 MP schema grows
+    // (beyond `client_id`, `user_id`, `user_data`, `user_properties`,
+    // `ip_override`, `user_location`, `events`, …) must pass through.
+    // Note: keys *under* `events[].params` are walked as a generic JSON
+    // tree by design, so new custom params are scanned automatically —
+    // this test only covers the top-level allowlist.
+    #[tokio::test]
+    async fn unknown_top_level_json_keys_round_trip() {
+        let h = redact_handle();
+        let body = br#"{
+            "client_id":"1.1",
+            "events":[{"name":"page_view","params":{}}],
+            "future_top_field":"future-value",
+            "future_object":{"nested":"value"},
+            "future_number":42
+        }"#;
+        let pr = run_spec(&h, None, Some(body), Some("application/json"))
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&body_str(&pr)).unwrap();
+        assert_eq!(
+            parsed["future_top_field"],
+            Value::String("future-value".into())
+        );
+        assert_eq!(
+            parsed["future_object"],
+            serde_json::json!({"nested": "value"})
+        );
+        assert_eq!(parsed["future_number"], serde_json::json!(42));
+        assert_eq!(parsed["client_id"], Value::String("1.1".into()));
+    }
 }

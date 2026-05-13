@@ -551,7 +551,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stub_matomo_process_returns_decode_error_until_phase_16_4() {
+    async fn matomo_process_handles_empty_query() {
+        // Smoke test for the registry handoff post-16.4: a trivial query
+        // string goes through the Matomo specialization successfully and
+        // returns no detections. Field-level coverage lives in
+        // `specialization::matomo::tests`.
         let spec = lookup("matomo").unwrap();
         let pool = ScannerPool::new(&crate::config::PiiConfig {
             countries: vec![pii::Country::International],
@@ -563,11 +567,12 @@ mod tests {
         })
         .expect("pool starts");
         let handle = ScanHandle::new(&pool, false, None, OnError::FailOpen);
-        let err = spec
+        let processed = spec
             .process(Some("idsite=1"), None, None, &handle)
             .await
-            .expect_err("stub returns Err until 16.4 implements Matomo");
-        assert!(matches!(err, SpecializationError::Decode { .. }));
+            .expect("matomo accepts query");
+        assert!(processed.query.is_some());
+        assert_eq!(processed.scan_result.matches_count, 0);
     }
 
     // --- ScanHandle smoke test ---
