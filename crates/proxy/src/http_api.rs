@@ -321,7 +321,7 @@ fn inject_known_pii_kinds(spec: &mut serde_json::Value) {
     let labels_md = pii::PiiKind::all()
         .iter()
         .filter(|k| !matches!(k, pii::PiiKind::Custom))
-        .map(|k| format!("{}", k.label()))
+        .map(|k| k.label().to_string())
         .collect::<Vec<_>>()
         .join(", ");
 

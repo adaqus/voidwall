@@ -526,11 +526,12 @@ mod tests {
     // --- Stub specialization process() ---
 
     #[tokio::test]
-    async fn stub_ga4_process_returns_decode_error_until_phase_16_3() {
+    async fn ga4_process_handles_empty_json_object() {
+        // Smoke test for the registry handoff post-16.3: a trivial JSON
+        // object goes through the GA4 specialization successfully and
+        // returns no detections. Field-level coverage lives in
+        // `specialization::ga4::tests`.
         let spec = lookup("ga4").unwrap();
-        // We exercise the trait object without a real `ScanHandle`; the
-        // stub never touches it, so building one against a dropped pool
-        // would be wasted ceremony. Once 16.3 lands this assertion flips.
         let pool = ScannerPool::new(&crate::config::PiiConfig {
             countries: vec![pii::Country::International],
             languages: vec![pii::Language::En],
@@ -541,11 +542,12 @@ mod tests {
         })
         .expect("pool starts");
         let handle = ScanHandle::new(&pool, false, None, OnError::FailOpen);
-        let err = spec
+        let processed = spec
             .process(None, Some(b"{}"), Some("application/json"), &handle)
             .await
-            .expect_err("stub returns Err until 16.3 implements GA4");
-        assert!(matches!(err, SpecializationError::Decode { .. }));
+            .expect("ga4 accepts empty object");
+        assert!(processed.body.is_some());
+        assert_eq!(processed.scan_result.matches_count, 0);
     }
 
     #[tokio::test]

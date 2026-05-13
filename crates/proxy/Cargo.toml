@@ -51,6 +51,7 @@ tikv-jemallocator = "0.6"
 # PII scanning
 pii = { path = "../pii" }
 regex = "1"
+percent-encoding = "2"
 
 # OpenAPI spec generation
 utoipa = "5"

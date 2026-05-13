@@ -504,7 +504,7 @@ async fn info_endpoint_returns_kinds_and_languages() {
     assert_eq!(resp.status(), 200);
     let info: serde_json::Value = resp.json().await.unwrap();
 
-    assert!(info["version"].as_str().unwrap().len() > 0);
+    assert!(!info["version"].as_str().unwrap().is_empty());
 
     let langs = info["languages"].as_array().unwrap();
     let lang_strs: Vec<&str> = langs.iter().map(|v| v.as_str().unwrap()).collect();

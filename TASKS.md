@@ -747,9 +747,9 @@ detection coverage. Use the table in DESIGN.md § "Specializations →
 ga4" as the canonical list. Cross-reference each test case below to
 confirm coverage before checking the box.
 
-- [ ] Implement `Ga4Specialization`
+- [x] Implement `Ga4Specialization`
   (`crates/proxy/src/specialization/ga4.rs`).
-- [ ] **Query string and form-body transport** (`/g/collect`):
+- [x] **Query string and form-body transport** (`/g/collect`):
   - Parse as `application/x-www-form-urlencoded`.
   - Recursively decode `dl`, `dr` as URLs and scan each inner query
     parameter (per DESIGN.md). Path component of the inner URL also
@@ -760,7 +760,7 @@ confirm coverage before checking the box.
     `seg`, `sct`.
   - Re-encode with redacted values percent-encoded for form-body
     context; doubly-encoded for the inner URL layer of `dl`/`dr`.
-- [ ] **JSON body transport** (`/mp/collect`, `/debug/mp/collect`,
+- [x] **JSON body transport** (`/mp/collect`, `/debug/mp/collect`,
   `/batch`):
   - Walk the JSON tree. For each string leaf under
     `client_id`, `user_id`, `user_data.**`, `user_properties.*.value`,
@@ -775,11 +775,11 @@ confirm coverage before checking the box.
   - Re-emit JSON with substituted values; preserve key order where the
     JSON library allows. Redacted leaves stay inside the original
     quotes so output remains valid JSON.
-- [ ] Error categories: `invalid_json`,
+- [x] Error categories: `invalid_json`,
   `invalid_form_encoding`, `unexpected_shape` (top-level not an
   object), `recursion_limit` (URL-in-URL nesting beyond a small bound
   — e.g. 3).
-- [ ] **Unit tests** — one per allowlisted field family, plus negatives:
+- [x] **Unit tests** — one per allowlisted field family, plus negatives:
   - `dl` with email in inner query → detected, output doubly-encoded
     redaction
   - `dr` with email + credit-card-shaped value in inner query
@@ -815,7 +815,10 @@ confirm coverage before checking the box.
     percent-encoded (`%5BEMAIL%5D`, not `[EMAIL]`).
   - The block, header, and redact actions all retain their existing
     semantics (parity with the non-specialized tests).
-- [ ] **False-positive regression** — add a test confirming the
+  *(deferred — depends on 16.5 adding `specialization` to `Route` and
+  on a `build_state` resolver wiring it up; the spec itself is exercised
+  end-to-end by the unit tests in `specialization::ga4::tests`.)*
+- [x] **False-positive regression** — add a test confirming the
   specialization does *not* scan `cid`, `tid`, `_s`, `_et`, even when
   their values happen to match a PII shape (e.g. construct a `cid`
   that looks like a credit card number). Without the spec, the proxy

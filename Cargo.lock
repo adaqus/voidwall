@@ -1326,6 +1326,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "lazy_static",
+ "percent-encoding",
  "pii",
  "procfs",
  "prometheus",
