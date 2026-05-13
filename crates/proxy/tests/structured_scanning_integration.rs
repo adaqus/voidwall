@@ -121,6 +121,7 @@ impl TestProxy {
                     path_prefix: "/".into(),
                     upstream: format!("http://{upstream}"),
                     scan: None,
+                    specialization: None,
                 }],
                 ..Default::default()
             },

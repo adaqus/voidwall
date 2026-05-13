@@ -171,6 +171,7 @@ impl TestProxy {
                     path_prefix: "/".to_string(),
                     upstream: format!("http://{upstream_addr}"),
                     scan: None,
+                    specialization: None,
                 }],
                 ..Default::default()
             },

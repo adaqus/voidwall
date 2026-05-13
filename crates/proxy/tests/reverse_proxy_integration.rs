@@ -224,6 +224,7 @@ impl TestProxy {
                 path_prefix: prefix.to_string(),
                 upstream: format!("http://{upstream_addr}{upstream_path}"),
                 scan: None,
+                specialization: None,
             })
             .collect();
 
@@ -882,6 +883,7 @@ async fn per_route_scan_override() {
                     headers: vec![],
                     ..ScanConfig::default()
                 }),
+                specialization: None,
             }],
             ..Default::default()
         },

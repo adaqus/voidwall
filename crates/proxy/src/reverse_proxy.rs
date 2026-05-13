@@ -109,7 +109,10 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProx
         }
     }
 
-    // Resolve per-route scan config (route override fully replaces defaults).
+    // Resolve per-route scan config (route override fully replaces defaults)
+    // and look up any configured specialization. Unknown names are rejected
+    // by `AppConfig::validate()` at config load, so `lookup` returns `Some`
+    // for every name that reaches here.
     let routes: Vec<ResolvedRoute> = rp
         .routes
         .iter()
@@ -117,7 +120,7 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProx
             path_prefix: r.path_prefix.clone(),
             upstream: r.upstream.clone(),
             scan: r.scan.clone().unwrap_or_else(|| config.scan.clone()),
-            specialization: None,
+            specialization: r.specialization.as_deref().and_then(specialization::lookup),
         })
         .collect();
 
@@ -901,6 +904,79 @@ mod tests {
     fn route_matching_no_match() {
         let rs = routes(&["/api", "/payments"]);
         assert!(match_route(&rs, "/other").is_none());
+    }
+
+    // --- build_state specialization resolution ---
+
+    #[test]
+    fn build_state_resolves_route_specialization() {
+        use crate::config::{AppConfig, PiiConfig, ReverseProxyConfig, Route};
+        let config = AppConfig {
+            pii: PiiConfig {
+                countries: vec![pii::Country::International],
+                languages: vec![pii::Language::En],
+                scanner_threads: Some(1),
+                detect: None,
+                ignore: None,
+                custom: Vec::new(),
+            },
+            scan: ScanConfig::default(),
+            reverse_proxy: ReverseProxyConfig {
+                enabled: true,
+                listen: "127.0.0.1:0".into(),
+                routes: vec![
+                    Route {
+                        path_prefix: "/g/collect".into(),
+                        upstream: "http://example.com".into(),
+                        scan: None,
+                        specialization: Some("ga4".into()),
+                    },
+                    Route {
+                        path_prefix: "/matomo.php".into(),
+                        upstream: "http://example.com".into(),
+                        scan: None,
+                        specialization: Some("matomo".into()),
+                    },
+                    Route {
+                        path_prefix: "/plain".into(),
+                        upstream: "http://example.com".into(),
+                        scan: None,
+                        specialization: None,
+                    },
+                ],
+                ..Default::default()
+            },
+            forward_proxy: Default::default(),
+            http_api: Default::default(),
+            admin: Default::default(),
+            shutdown_timeout_secs: 30,
+        };
+        let scanner = Arc::new(ScannerPool::new(&config.pii).expect("pool starts"));
+        let state = build_state(&config, scanner);
+
+        let ga4_route = state
+            .routes
+            .iter()
+            .find(|r| r.path_prefix == "/g/collect")
+            .unwrap();
+        assert_eq!(ga4_route.specialization.map(|s| s.name()), Some("ga4"));
+
+        let matomo_route = state
+            .routes
+            .iter()
+            .find(|r| r.path_prefix == "/matomo.php")
+            .unwrap();
+        assert_eq!(
+            matomo_route.specialization.map(|s| s.name()),
+            Some("matomo")
+        );
+
+        let plain_route = state
+            .routes
+            .iter()
+            .find(|r| r.path_prefix == "/plain")
+            .unwrap();
+        assert!(plain_route.specialization.is_none());
     }
 
     // --- URI building ---

@@ -295,6 +295,12 @@ pub struct Route {
     pub path_prefix: String,
     pub upstream: String,
     pub scan: Option<ScanConfig>,
+
+    /// Optional specialization name (e.g. `"ga4"`, `"matomo"`). When set,
+    /// the named specialization owns query+body decoding for this route.
+    /// Resolved against [`crate::specialization::lookup`] at startup; an
+    /// unknown name fails validation.
+    pub specialization: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +610,15 @@ impl AppConfig {
                 return Err(Error::Config(format!(
                     "reverse_proxy: invalid upstream URL '{}'",
                     route.upstream,
+                )));
+            }
+
+            if let Some(name) = &route.specialization
+                && crate::specialization::lookup(name).is_none()
+            {
+                return Err(Error::Config(format!(
+                    "reverse_proxy: route '{}' references unknown specialization '{}'",
+                    route.path_prefix, name,
                 )));
             }
         }
@@ -1309,6 +1324,97 @@ actions = []
 "#;
         let config = parse(toml).unwrap();
         assert_eq!(config.scan.on_error, OnError::FailClose);
+    }
+
+    // --- Route specialization ---
+
+    #[test]
+    fn valid_route_with_known_specialization() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
+[[reverse_proxy.routes]]
+path_prefix = "/g/collect"
+upstream = "http://localhost:8080"
+specialization = "ga4"
+
+[[reverse_proxy.routes]]
+path_prefix = "/matomo.php"
+upstream = "http://localhost:8081"
+specialization = "matomo"
+"#;
+        let config = parse(toml).expect("known specializations should validate");
+        assert_eq!(
+            config.reverse_proxy.routes[0].specialization.as_deref(),
+            Some("ga4")
+        );
+        assert_eq!(
+            config.reverse_proxy.routes[1].specialization.as_deref(),
+            Some("matomo")
+        );
+    }
+
+    #[test]
+    fn route_without_specialization_field_defaults_to_none() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+"#;
+        let config = parse(toml).expect("omitted specialization is accepted");
+        assert!(config.reverse_proxy.routes[0].specialization.is_none());
+    }
+
+    #[test]
+    fn invalid_unknown_specialization_is_rejected() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+actions = []
+
+[reverse_proxy.response]
+actions = []
+
+[[reverse_proxy.routes]]
+path_prefix = "/foo"
+upstream = "http://localhost:8080"
+specialization = "plausible"
+"#;
+        let err = parse(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown specialization"), "got: {msg}");
+        assert!(msg.contains("plausible"), "got: {msg}");
+        assert!(msg.contains("/foo"), "got: {msg}");
     }
 
     #[test]

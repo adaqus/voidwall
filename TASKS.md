@@ -804,7 +804,7 @@ confirm coverage before checking the box.
   - Top-level array → `Decode { reason: "unexpected_shape" }`
   - Recursion limit hit by an `dl` whose inner URL also contains a
     `dl=` → `RecursionLimit`
-- [ ] **Integration test parity** — port every numbered test in
+- [x] **Integration test parity** — port every numbered test in
   `crates/proxy/tests/ga4_integration.rs` (#1–#29 plus clean
   pass-through) to a new module that runs the same scenarios against a
   route configured with `specialization = "ga4"`. Each must:
@@ -815,9 +815,7 @@ confirm coverage before checking the box.
     percent-encoded (`%5BEMAIL%5D`, not `[EMAIL]`).
   - The block, header, and redact actions all retain their existing
     semantics (parity with the non-specialized tests).
-  *(deferred — depends on 16.5 adding `specialization` to `Route` and
-  on a `build_state` resolver wiring it up; the spec itself is exercised
-  end-to-end by the unit tests in `specialization::ga4::tests`.)*
+  Ported to `crates/proxy/tests/ga4_spec_integration.rs`.
 - [x] **False-positive regression** — add a test confirming the
   specialization does *not* scan `cid`, `tid`, `_s`, `_et`, even when
   their values happen to match a PII shape (e.g. construct a `cid`
@@ -896,16 +894,14 @@ matomo" as the canonical list.
   - Malformed top-level form encoding →
     `Decode { reason: "invalid_form_encoding" }`
   - Malformed bulk JSON → `Decode { reason: "invalid_bulk_json" }`
-- [ ] **Integration test parity** — port every numbered test in
+- [x] **Integration test parity** — port every numbered test in
   `crates/proxy/tests/matomo_integration.rs` (#1–#29 plus clean
   pass-through and `/piwik.php` alias) to a new module that runs the
   same scenarios against a route configured with
   `specialization = "matomo"`. Same parity rules as for GA4: same PII
   kinds detected, byte-equivalent output outside redacted spans,
   redaction labels percent-encoded.
-  *(deferred — depends on 16.5 adding `specialization` to `Route` and
-  on a `build_state` resolver wiring it up; the spec itself is exercised
-  end-to-end by the unit tests in `specialization::matomo::tests`.)*
+  Ported to `crates/proxy/tests/matomo_spec_integration.rs`.
 - [x] **False-positive regression** — confirm the specialization does
   not scan `_id`, `rand`, `idsite`, `revenue`, `res`, even when their
   values match a PII shape (e.g. construct an `_id` whose hex digits
@@ -919,13 +915,15 @@ matomo" as the canonical list.
   through a form-decoder must yield the redaction labels intact.
 
 ### 16.5 Config: reverse proxy
-- [ ] Add `specialization: Option<String>` to `Route` in `config.rs`.
-- [ ] Validation: if set, value must resolve via the registry; otherwise
+- [x] Add `specialization: Option<String>` to `Route` in `config.rs`.
+- [x] Validation: if set, value must resolve via the registry; otherwise
   startup error names the route and the unknown name.
-- [ ] Unit tests: route with known specialization parses + validates,
+- [x] Unit tests: route with known specialization parses + validates,
   unknown name rejected, omitted field accepted.
-- [ ] Extend the sample `proxy.toml` in `crates/proxy/configs/` (and the
+- [x] Extend the sample `proxy.toml` in `crates/proxy/configs/` (and the
   docker config) with a commented-out specialization example.
+  *(no `crates/proxy/configs/` directory exists; updated `docker/proxy.toml`
+  which is the canonical sample.)*
 
 ### 16.6 HTTP API
 - [ ] Accept `?specialization=<name>` on `POST /v1/scan` and
