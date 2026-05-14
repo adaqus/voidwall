@@ -191,9 +191,19 @@
       body: JSON.stringify({
         name: "Jane Doe",
         email: "jane.doe@example.com",
-        phones: {
-          "primary": "+1 415 555 1234",
-          "secondary": "+44 20 7946 0001"
+        contacts: {
+          primary: {
+            phone: {
+              number: "+1 415 555 1234",
+              verified: true
+            }
+          },
+          secondary: {
+            phone: {
+              number: "+44 20 7946 0001",
+              verified: false
+            }
+          }
         },
         ssn: "123-45-6789",
         note: "Customer prefers contact via email."
@@ -226,11 +236,11 @@
       ct: "application/x-www-form-urlencoded",
       spec: "ga4",
       body:
-        "v=1&tid=UA-12345-1&cid=35009a79-1a05-49d7-b876-2b884d0f825b" +
-        "&t=event&ec=account&ea=signup&el=newsletter" +
-        "&uid=jane.doe@example.com&uip=192.168.1.42" +
-        "&dp=%2Fcheckout&dt=Checkout" +
-        "&cd1=Jane%20Doe&cd2=%2B14155551234"
+        "v=2&tid=G-ABC1234567&cid=35009a79-1a05-49d7-b876-2b884d0f825b" +
+        "&en=signup&dt=Checkout" +
+        "&dl=https%3A%2F%2Fshop.example.com%2Fcheckout%3Femail%3Djane.doe%40example.com%26ssn%3D123-45-6789" +
+        "&uid=jane.doe@example.com&_uip=192.168.1.42" +
+        "&ep.full_name=Jane%20Doe&ep.phone=%2B14155551234"
     },
     matomo: {
       ct: "application/x-www-form-urlencoded",
