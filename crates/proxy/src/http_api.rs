@@ -522,7 +522,7 @@ async fn process(
                 let agg = processed.scan_result;
                 if !agg.kinds.is_empty() {
                     for kind in &agg.kinds {
-                        metrics::inc_detection(kind, MODE, ROUTE, "request");
+                        metrics::inc_detection(kind, MODE, ROUTE, "request", spec.name());
                     }
                 }
                 let resp = match mode {
@@ -531,7 +531,7 @@ async fn process(
                         let did_redact = want_redact && processed.body.is_some();
                         if did_redact {
                             for kind in &agg.kinds {
-                                metrics::inc_redacted(kind, MODE, ROUTE, "request");
+                                metrics::inc_redacted(kind, MODE, ROUTE, "request", spec.name());
                             }
                         }
                         build_spec_redact_response(
@@ -598,7 +598,7 @@ async fn process(
     // Always increment detection metrics when PII is detected.
     if scan_result.detected {
         for kind in &scan_result.kinds {
-            metrics::inc_detection(kind, MODE, ROUTE, "request");
+            metrics::inc_detection(kind, MODE, ROUTE, "request", "none");
         }
     }
 
@@ -608,7 +608,7 @@ async fn process(
             // Increment redaction metrics for kinds we replaced.
             if want_redact && scan_result.redacted_body.is_some() {
                 for kind in &scan_result.kinds {
-                    metrics::inc_redacted(kind, MODE, ROUTE, "request");
+                    metrics::inc_redacted(kind, MODE, ROUTE, "request", "none");
                 }
             }
             build_redact_response(&scan_result, &content_type, body)

@@ -231,6 +231,7 @@ async fn handle_proxied_request(
             mode: "reverse_proxy",
             route: &route.path_prefix,
             direction: "request",
+            specialization: route.specialization.map(|s| s.name()).unwrap_or("none"),
         };
 
         // Check content-type for body scanning.
@@ -343,6 +344,7 @@ async fn handle_proxied_request(
             mode: "reverse_proxy",
             route: &route.path_prefix,
             direction: "response",
+            specialization: route.specialization.map(|s| s.name()).unwrap_or("none"),
         };
 
         let should_scan_body = scan_config.body
@@ -1253,6 +1255,7 @@ mod tests {
             mode: "reverse_proxy",
             route: "/pipeline-test",
             direction: "request",
+            specialization: "none",
         }
     }
 
@@ -1374,6 +1377,7 @@ mod tests {
                 mode: "reverse_proxy",
                 route: "/pipeline-test",
                 direction: "request",
+                specialization: "none",
             },
             &uri,
             &headers,
@@ -1442,6 +1446,7 @@ mod tests {
                 mode: "reverse_proxy",
                 route: "/pipeline-test",
                 direction: "response",
+                specialization: "none",
             },
             &headers,
             Some(&body),

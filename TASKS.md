@@ -986,13 +986,13 @@ matomo" as the canonical list.
   dependency in `forward_proxy.rs` once that module exists.
 
 ### 16.9 Metrics
-- [ ] Add `specialization` label to `pii_proxy_detections_total` and
+- [x] Add `specialization` label to `pii_proxy_detections_total` and
   `pii_proxy_redacted_total`. Default value `"none"` when no
   specialization is active.
-- [ ] New counter `pii_proxy_specialization_errors_total` with labels
+- [x] New counter `pii_proxy_specialization_errors_total` with labels
   `specialization`, `reason`.
-- [ ] Update metric helper functions and call sites.
-- [ ] Unit tests for helper functions covering the new label.
+- [x] Update metric helper functions and call sites.
+- [x] Unit tests for helper functions covering the new label.
 
 ### 16.10 Demo page
 - [ ] Add a "Specialization" `<select>` to `docker/demo/index.html`,
