@@ -995,17 +995,17 @@ matomo" as the canonical list.
 - [x] Unit tests for helper functions covering the new label.
 
 ### 16.10 Demo page
-- [ ] Add a "Specialization" `<select>` to `docker/demo/index.html`,
+- [x] Add a "Specialization" `<select>` to `docker/demo/index.html`,
   placed alongside the existing endpoint and content-type selectors.
   Options: `(none)`, `ga4`, `matomo`.
-- [ ] When the user submits the form, append `?specialization=<value>`
+- [x] When the user submits the form, append `?specialization=<value>`
   to the request URL when the value is not `(none)`. The `(none)` option
   sends no query parameter.
-- [ ] Update the `examples` object so that selecting "GA4 tracking" or
+- [x] Update the `examples` object so that selecting "GA4 tracking" or
   "Matomo tracking" buttons sets the specialization dropdown to `ga4` or
   `matomo` respectively, in addition to setting endpoint/content-type/body.
   The JSON/CSV/TSV/text examples set specialization to `(none)`.
-- [ ] Display the `X-PII-Specialization` response header in the result
+- [x] Display the `X-PII-Specialization` response header in the result
   panel so users can confirm which path ran.
 - [ ] Smoke test: load the page in a browser, click each example, verify
   the dropdown updates and the request goes to the right URL. (Manual —

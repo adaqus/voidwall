@@ -127,9 +127,18 @@
           <label for="content-type">Content-Type</label>
           <select id="content-type">
             <option>application/json</option>
+            <option>application/x-www-form-urlencoded</option>
             <option>text/csv</option>
             <option>text/tab-separated-values</option>
             <option>text/plain</option>
+          </select>
+        </div>
+        <div>
+          <label for="specialization">Specialization</label>
+          <select id="specialization">
+            <option value="">(none)</option>
+            <option value="ga4">ga4</option>
+            <option value="matomo">matomo</option>
           </select>
         </div>
       </div>
@@ -178,6 +187,7 @@
   const examples = {
     json: {
       ct: "application/json",
+      spec: "",
       body: JSON.stringify({
         name: "Jane Doe",
         email: "jane.doe@example.com",
@@ -191,6 +201,7 @@
     },
     csv: {
       ct: "text/csv",
+      spec: "",
       body:
         "name,email,phone\n" +
         "Jane Doe,jane.doe@example.com,+1 415 555 1234\n" +
@@ -198,6 +209,7 @@
     },
     tsv: {
       ct: "text/tab-separated-values",
+      spec: "",
       body:
         "name\temail\tphone\n" +
         "Jane Doe\tjane.doe@example.com\t+1 415 555 1234\n" +
@@ -205,12 +217,14 @@
     },
     text: {
       ct: "text/plain",
+      spec: "",
       body:
         "Hi team — please reach out to Jane Doe at jane.doe@example.com " +
         "or call +1 415 555 1234. Her SSN on file is 123-45-6789."
     },
     ga4: {
-      ct: "text/plain",
+      ct: "application/x-www-form-urlencoded",
+      spec: "ga4",
       body:
         "v=1&tid=UA-12345-1&cid=35009a79-1a05-49d7-b876-2b884d0f825b" +
         "&t=event&ec=account&ea=signup&el=newsletter" +
@@ -219,7 +233,8 @@
         "&cd1=Jane%20Doe&cd2=%2B14155551234"
     },
     matomo: {
-      ct: "text/plain",
+      ct: "application/x-www-form-urlencoded",
+      spec: "matomo",
       body:
         "idsite=1&rec=1&action_name=Checkout" +
         "&url=https%3A%2F%2Fshop.example.com%2Fcheckout%3Femail%3Djane.doe%40example.com" +
@@ -235,6 +250,7 @@
     btn.addEventListener("click", () => {
       const ex = examples[btn.dataset.example];
       $("content-type").value = ex.ct;
+      $("specialization").value = ex.spec || "";
       $("body").value = ex.body;
     });
   });
@@ -247,8 +263,10 @@
     }
     const endpoint = $("endpoint").value;
     const ct = $("content-type").value;
+    const spec = $("specialization").value;
     const body = $("body").value;
-    const url = apiBase + endpoint;
+    const query = spec ? "?specialization=" + encodeURIComponent(spec) : "";
+    const url = apiBase + endpoint + query;
     const sendBtn = $("send");
     sendBtn.disabled = true;
     $("resp-meta").textContent = "Sending…";
@@ -264,6 +282,7 @@
       const text = await res.text();
       const respCt = res.headers.get("content-type") || "";
       const redacted = res.headers.get("x-pii-redacted-count");
+      const respSpec = res.headers.get("x-pii-specialization");
       let pretty = text;
       if (respCt.includes("application/json")) {
         try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
@@ -275,6 +294,7 @@
       ];
       if (respCt) parts.push(`Content-Type: ${respCt}`);
       if (redacted !== null) parts.push(`X-PII-Redacted-Count: ${redacted}`);
+      if (respSpec) parts.push(`X-PII-Specialization: ${respSpec}`);
       $("resp-meta").innerHTML = parts.join("  •  ");
       $("resp-body").textContent = pretty;
     } catch (e) {
