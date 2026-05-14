@@ -16,8 +16,19 @@ struct Args {
 }
 
 async fn echo_handler(req: Request) -> impl IntoResponse {
+    // Mirror the request's Content-Type back so the response body is
+    // labelled as what it actually is (form-encoded, csv, …). The proxy's
+    // response-side specialization dispatch uses this header to decide
+    // whether to decode the body, and a wrong label produces spurious
+    // decode failures on non-JSON benches.
+    let content_type = req
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
     let body = req.into_body().collect().await.unwrap().to_bytes();
-    (StatusCode::OK, [("content-type", "application/json")], body)
+    (StatusCode::OK, [("content-type", content_type)], body)
 }
 
 #[tokio::main]

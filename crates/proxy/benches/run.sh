@@ -43,7 +43,7 @@ PROXY_PID=""
 
 PAYLOADS_DIR="$SCRIPT_DIR/payloads"
 
-ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning http_api"
+ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning http_api ga4_g_collect ga4_mp_collect matomo_specialization"
 
 # --- Parse scenario filter ---
 
@@ -55,7 +55,7 @@ fi
 # Validate scenario names
 for s in "${SELECTED_SCENARIOS[@]}"; do
     case "$s" in
-        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning|http_api) ;;
+        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning|http_api|ga4_g_collect|ga4_mp_collect|matomo_specialization) ;;
         *)
             echo "ERROR: unknown scenario '$s'" >&2
             echo "Available scenarios: $ALL_SCENARIOS" >&2
@@ -344,6 +344,44 @@ if should_run http_api; then
             done
         done
     done
+fi
+
+# --- Scenario 8: GA4 /g/collect (browser tracker) ---
+# Reverse proxy with `specialization = "ga4"`. POST /g/collect with a
+# form-encoded body carrying the GA4 short-key payload (skip + flat +
+# recursive URL fields). This is the gtag.js browser shape — no JSON.
+
+if should_run ga4_g_collect; then
+    run_scenario \
+        "$CONFIGS_DIR/reverse_proxy_ga4.toml" \
+        "$K6_DIR/ga4_g_collect.js" \
+        "ga4_g_collect"
+fi
+
+# --- Scenario 9: GA4 /mp/collect (server-side Measurement Protocol) ---
+# Reverse proxy with `specialization = "ga4"`. POST /mp/collect with
+# only `?api_secret=…&measurement_id=G-…` in the query (credentials,
+# both opaque to the spec) and a JSON body covering the full MP
+# allowlist (client_id, user_id, user_data, user_location,
+# user_properties, events[]). Isolates the JSON processor.
+
+if should_run ga4_mp_collect; then
+    run_scenario \
+        "$CONFIGS_DIR/reverse_proxy_ga4.toml" \
+        "$K6_DIR/ga4_mp_collect.js" \
+        "ga4_mp_collect"
+fi
+
+# --- Scenario 10: Matomo Specialization ---
+# Reverse proxy with `specialization = "matomo"`. The k6 script POSTs a
+# form-encoded body to /matomo.php carrying a custom event (e_c/e_a/e_n/
+# e_v), content tracking (c_n/c_p/c_i), and `uid` set to an email.
+
+if should_run matomo_specialization; then
+    run_scenario \
+        "$CONFIGS_DIR/reverse_proxy_matomo.toml" \
+        "$K6_DIR/matomo_specialization.js" \
+        "matomo_specialization"
 fi
 
 # --- Summary ---
