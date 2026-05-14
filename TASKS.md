@@ -956,12 +956,12 @@ matomo" as the canonical list.
     when set, absent otherwise)
 
 ### 16.7 Reverse proxy
-- [ ] Wire specialization into the reverse proxy request path: when the
+- [x] Wire specialization into the reverse proxy request path: when the
   matched route carries `specialization`, run the request body through it
   before action evaluation. Redacted body replaces the forwarded body.
-- [ ] Apply the same specialization (if any) to the response body when
+- [x] Apply the same specialization (if any) to the response body when
   response actions are non-empty.
-- [ ] If the response `Content-Type` is not what the specialization
+- [x] If the response `Content-Type` is not what the specialization
   expects, the specialization returns
   `SpecializationError::UnsupportedContentType` and the response falls
   through to raw scanning (which the content-type allowlist then skips).
@@ -971,7 +971,7 @@ matomo" as the canonical list.
   noise, no `specialization_errors_total` increment. Only decode/shape
   failures on bodies the specialization claimed it could handle count
   toward the error counter.
-- [ ] Integration tests:
+- [x] Integration tests:
   - route with `specialization = "ga4"` against a payload containing
     PII in `user_id` → kinds detected, `[EMAIL]` redacted in forwarded
     body, metrics labelled `specialization="ga4"`

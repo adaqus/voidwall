@@ -64,6 +64,37 @@ async fn echo_handler(req: Request) -> impl IntoResponse {
     (StatusCode::OK, [("content-type", "text/plain")], resp_body)
 }
 
+// A 1x1 transparent GIF — the canonical real-world GA4/Matomo tracker
+// response. Used to exercise the response-side specialization fallback:
+// the spec sees `image/gif`, returns `UnsupportedContentType`, and the
+// proxy must pass the body through silently (no log, no error counter).
+const ONE_PX_GIF: &[u8] = &[
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0xFF, 0xFF,
+    0x00, 0x00, 0x00, 0x21, 0xF9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B,
+];
+
+async fn start_ga4_gif_upstream() -> SocketAddr {
+    async fn gif_handler() -> impl IntoResponse {
+        (StatusCode::OK, [("content-type", "image/gif")], ONE_PX_GIF)
+    }
+    let app = Router::new()
+        .route("/g/collect", any(gif_handler))
+        .route("/mp/collect", any(gif_handler))
+        .route("/debug/mp/collect", any(gif_handler))
+        .route("/batch", any(gif_handler));
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    wait_for_port(addr).await;
+    addr
+}
+
 // ---------------------------------------------------------------------------
 // Test scaffolding
 // ---------------------------------------------------------------------------
@@ -110,6 +141,10 @@ fn block_request() -> DirectionConfig {
 
 fn header_request() -> DirectionConfig {
     direction(vec![Action::Header], None)
+}
+
+fn redact_response() -> DirectionConfig {
+    direction(vec![Action::Redact], Some(RedactStrategy::TypeLabel))
 }
 
 fn empty_dir() -> DirectionConfig {
@@ -876,6 +911,108 @@ async fn auto_generated_cid_does_not_trigger_pii() {
     let (status, body) = get_g_collect(&proxy, q).await;
     assert_eq!(status, 200);
     assert!(!body.to_lowercase().contains("x-pii-detected"));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 16.7 — focused reverse-proxy wiring tests
+// ---------------------------------------------------------------------------
+
+/// 16.7 request-side wiring: a route configured with `specialization = "ga4"`
+/// must run the JSON body through the GA4 spec, detect PII in `user_id`, and
+/// redact the forwarded body. Mirrors the bullet from TASKS.md but adds a
+/// belt-and-braces check on the spec error counter — the success path must
+/// leave it untouched (proves we went down the spec path, not a fallback).
+#[tokio::test]
+async fn ga4_route_redacts_user_id_via_specialization() {
+    let upstream = start_ga4_upstream().await;
+    let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
+
+    let before_errors = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "decode"])
+        .get();
+
+    let payload = json!({
+        "client_id": "1.1",
+        "user_id": "jane.doe@example.com",
+        "events": [{ "name": "login", "params": {} }]
+    });
+    let (status, body) = post_mp_collect(&proxy, payload).await;
+    assert_eq!(status, 200);
+    assert!(!body.contains("jane.doe@example.com"));
+    assert!(
+        body.contains("[EMAIL]"),
+        "expected redaction label in forwarded body: {body}"
+    );
+
+    let after_errors = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "decode"])
+        .get();
+    assert_eq!(
+        before_errors, after_errors,
+        "successful spec processing must not increment the error counter"
+    );
+}
+
+/// 16.7 response-side wiring: when a route has response actions and the
+/// upstream returns `image/gif` (the canonical GA4 tracking-pixel response),
+/// the GA4 spec returns `UnsupportedContentType`. That fallback must be
+/// silent — no log, no `pii_proxy_specialization_errors_total` increment —
+/// because trackers responding with a 1x1 gif is the expected common case
+/// on the response path, not an error condition.
+#[tokio::test]
+async fn ga4_response_gif_silently_falls_back() {
+    let upstream = start_ga4_gif_upstream().await;
+    let proxy = TestProxy::start(upstream, redact_request(), redact_response()).await;
+
+    let before_unsupported = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "unsupported_content_type"])
+        .get();
+    let before_decode = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "decode"])
+        .get();
+
+    // A clean payload — no request-side PII to muddy the response check.
+    let payload = json!({
+        "client_id": "1234567890.9876543210",
+        "events": [{ "name": "page_view", "params": { "page_title": "Pricing" } }]
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/mp/collect?api_secret=fake&measurement_id=G-XXX"))
+        .header("content-type", "application/json")
+        .body(payload.to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .map(|v| v.to_str().unwrap()),
+        Some("image/gif"),
+        "upstream gif response should pass through unchanged"
+    );
+    let body = resp.bytes().await.unwrap();
+    assert_eq!(
+        body.as_ref(),
+        ONE_PX_GIF,
+        "gif bytes must round-trip intact"
+    );
+
+    let after_unsupported = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "unsupported_content_type"])
+        .get();
+    let after_decode = pii_proxy::metrics::SPECIALIZATION_ERRORS_TOTAL
+        .with_label_values(&["ga4", "decode"])
+        .get();
+    assert_eq!(
+        before_unsupported, after_unsupported,
+        "response-side UnsupportedContentType must NOT increment the spec error counter"
+    );
+    assert_eq!(
+        before_decode, after_decode,
+        "response-side fallback must not surface as a decode error either"
+    );
 }
 
 // ---------------------------------------------------------------------------
