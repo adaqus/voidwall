@@ -56,6 +56,22 @@ percent-encoding = "2"
 # OpenAPI spec generation
 utoipa = "5"
 
+# Rate limiting — only compiled when deploying to Fly.io (see docker/Dockerfile.fly).
+# The demo deployment is unauthenticated, so we cap clients at 3 req/s/IP to keep
+# a single noisy visitor from soaking up the small Fly machine's CPU budget.
+tower_governor = { version = "0.7", optional = true }
+# `governor` is pulled in transitively by `tower_governor`, but we name
+# `NoOpMiddleware` directly in our layer's return type so we depend on it
+# explicitly to keep the path stable.
+governor = { version = "0.8", optional = true }
+
+[features]
+default = []
+# Enables a per-IP rate-limit middleware on the HTTP API. Used by the Fly.io
+# build (the public demo) — not for self-hosted deployments, which are expected
+# to sit behind their own gateway.
+fly-rate-limit = ["dep:tower_governor", "dep:governor"]
+
 [[bin]]
 name = "echo-server"
 path = "benches/echo_server.rs"

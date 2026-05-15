@@ -75,14 +75,22 @@ pub fn router(state: ApiState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any)
         .expose_headers(Any);
-    Router::new()
+    let router = Router::new()
         .route("/v1/scan", post(scan_handler))
         .route("/v1/redact", post(redact_handler))
         .route("/v1/info", get(info_handler))
         .route("/openapi.json", get(openapi_handler))
-        .layer(DefaultBodyLimit::max(max_body))
-        .layer(cors)
-        .with_state(state)
+        .layer(DefaultBodyLimit::max(max_body));
+
+    // Per-IP rate limit for the public Fly.io demo. See `rate_limit` module
+    // for the threat model — the limit is intentionally absent from self-hosted
+    // builds, which run behind their own gateway. Applied inside CORS so that
+    // OPTIONS preflights short-circuit before the limiter and don't burn
+    // tokens against the user's real POST throughput.
+    #[cfg(feature = "fly-rate-limit")]
+    let router = router.layer(crate::rate_limit::layer());
+
+    router.layer(cors).with_state(state)
 }
 
 pub async fn serve(
