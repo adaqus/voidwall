@@ -87,6 +87,38 @@ fn json_param_is_url(name: &str) -> bool {
     matches!(name, "page_location" | "link_url")
 }
 
+/// True when a JSON string leaf is "Tier-A" — SDK-auto-captured from a
+/// closed vocabulary (ISO country/region, IETF language tag, ISO 4217
+/// currency, `WxH` screen metric). Scanning it is pure overhead.
+///
+/// Path arg is the dot-joined context built by the JSON walker, e.g.
+/// `events[3].params.screen_resolution`, `user_location.country_id`.
+///
+/// Carve-outs:
+/// - `user_data.address.country` stays scanned. `user_data` is the
+///   explicit "send us PII" envelope; defense-in-depth against
+///   integrators stuffing the wrong value into the wrong leaf.
+/// - `events[N].params.items[i].currency` stays scanned. Items[] is
+///   operator-controlled custom-vocabulary territory.
+fn json_leaf_is_tier_a(path: &str) -> bool {
+    if matches!(path, "user_location.country_id" | "user_location.region_id") {
+        return true;
+    }
+    // Anchored at the `]` so we only match the immediate child of
+    // `events[N].params`, never a nested `params` namespace inside a
+    // custom-named subtree.
+    let needle = "].params.";
+    let Some(idx) = path.rfind(needle) else {
+        return false;
+    };
+    let suffix = &path[idx + needle.len()..];
+    // Suffix must be the leaf name only — no further nesting.
+    if suffix.contains('.') || suffix.contains('[') {
+        return false;
+    }
+    matches!(suffix, "screen_resolution" | "language" | "currency")
+}
+
 // ---------------------------------------------------------------------------
 // Specialization impl
 // ---------------------------------------------------------------------------
@@ -602,6 +634,9 @@ fn scan_all_string_leaves<'a>(
     Box::pin(async move {
         match value {
             Value::String(s) => {
+                if json_leaf_is_tier_a(context) {
+                    return Ok(());
+                }
                 let new = scan_flat(context, s, scan, aggregated).await?;
                 if new != *s {
                     *s = new;
@@ -780,6 +815,27 @@ mod tests {
     #[test_case("ep.", FormFieldTreatment::Unknown ; "ep dot only unknown")]
     fn form_field_treatment_dispatch(key: &str, expected: FormFieldTreatment) {
         assert_eq!(form_field_treatment(key), expected);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tier-A JSON leaf classifier
+    // -----------------------------------------------------------------------
+
+    #[test_case("user_location.country_id", true ; "country_id skipped")]
+    #[test_case("user_location.region_id", true ; "region_id skipped")]
+    #[test_case("user_location.city", false ; "city scanned")]
+    #[test_case("events[0].params.screen_resolution", true ; "params screen_resolution skipped")]
+    #[test_case("events[3].params.language", true ; "params language skipped")]
+    #[test_case("events[2].params.currency", true ; "params currency skipped")]
+    #[test_case("events[0].params.page_title", false ; "params page_title scanned")]
+    #[test_case("events[0].params.page_referrer", false ; "params page_referrer scanned")]
+    #[test_case("events[2].params.items[0].currency", false ; "items currency still scanned")]
+    #[test_case("events[2].params.items[0].item_name", false ; "items item_name still scanned")]
+    #[test_case("user_data.address.country", false ; "user_data country still scanned")]
+    #[test_case("user_data.email_address", false ; "user_data email still scanned")]
+    #[test_case("events[0].params.custom.language", false ; "nested custom language scanned")]
+    fn json_leaf_tier_a_classifier(path: &str, expected: bool) {
+        assert_eq!(json_leaf_is_tier_a(path), expected);
     }
 
     // -----------------------------------------------------------------------
@@ -1063,6 +1119,50 @@ mod tests {
         let out = body_str(&pr);
         assert!(!out.contains("5551234567"));
         assert!(out.contains("Pricing"));
+    }
+
+    // Tier-A leaves bypass the scanner entirely. Planting a known PII
+    // shape into one of these leaves must produce zero detections (and
+    // round-trip verbatim), while the same shape in any adjacent
+    // scanned leaf must still fire.
+    #[tokio::test]
+    async fn tier_a_leaves_bypass_scanner() {
+        let h = scan_only_handle();
+        let body = br#"{
+            "client_id":"1.1",
+            "user_location":{
+                "city":"Vorname: Hans",
+                "country_id":"contact us at user@example.com",
+                "region_id":"contact us at user@example.com"
+            },
+            "events":[{
+                "name":"page_view",
+                "params":{
+                    "screen_resolution":"contact us at user@example.com",
+                    "language":"contact us at user@example.com",
+                    "currency":"contact us at user@example.com",
+                    "page_title":"Pricing"
+                }
+            }]
+        }"#;
+        let pr = run_spec(&h, None, Some(body), Some("application/json"))
+            .await
+            .unwrap();
+        // Only `user_location.city` (the German-keyword detector hit on
+        // "Vorname: Hans") should fire — five other PII-shaped strings
+        // sit inside Tier-A leaves and must be ignored.
+        assert_eq!(
+            pr.scan_result.matches_count, 1,
+            "tier-A leaves leaked into scan: {:?}",
+            pr.scan_result.kinds
+        );
+        // And the Tier-A values survive intact in the round-tripped body.
+        let out = body_str(&pr);
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            parsed["user_location"]["country_id"],
+            Value::String("contact us at user@example.com".into())
+        );
     }
 
     #[tokio::test]

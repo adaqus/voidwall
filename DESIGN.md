@@ -457,6 +457,22 @@ Skipped: numeric/boolean/null leaves anywhere in the tree;
 `timestamp_micros`, `message_id`, `non_personalized_ads`, `consent.*`,
 and the analytics platform's own diagnostic flags.
 
+**Tier-A skips** (SDK-auto-captured values from a closed vocabulary —
+scanning them is overhead with no realistic PII to find):
+
+| Path | Why |
+|------|-----|
+| `user_location.country_id` | ISO 3166 2-letter code |
+| `user_location.region_id` | ISO 3166-2 region code (`"US-OR"`) |
+| `events[].params.screen_resolution` | `WxH` metric from `window.screen` |
+| `events[].params.language` | IETF tag from `navigator.language` |
+| `events[].params.currency` | ISO 4217 3-letter code |
+
+Carve-outs (deliberately stay scanned):
+- `user_data.address.country` — `user_data` is the explicit PII envelope, so defense-in-depth catches integrators who substitute the wrong value into the wrong leaf.
+- `events[].params.items[].currency` — `items[]` is operator-controlled custom-vocabulary territory.
+- `events[].params.<custom>.language` (and similar nested names under custom subtrees) — the skip applies only to the direct child of `events[N].params`, never a nested namespace.
+
 **Batch endpoint (`/batch`).** Treated identically to `/mp/collect` —
 the JSON body shape is the same with multiple events in `events[]`.
 There is no separate batch-of-bodies wrapper at this endpoint.
