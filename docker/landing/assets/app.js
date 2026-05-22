@@ -3048,4 +3048,4 @@ function App() {
     className: "void-band vw-void"
   }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null), /*#__PURE__*/React.createElement(CustomPII, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Blog, null), /*#__PURE__*/React.createElement(CTA, null), /*#__PURE__*/React.createElement(Footer, null));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
+ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(App, null));
