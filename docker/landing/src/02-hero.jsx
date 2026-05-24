@@ -49,11 +49,15 @@ function Hero({ headlineKey = "wall" }) {
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
             margin: "0 0 36px",
           }}>
-            Voidwall is an HTTP reverse proxy and HTTP API that detects, filters, and sanitizes personal data in real time. Deploy it in front of any service — applications, analytics, third-party APIs — and stop sensitive data at the edge of your environment.
+            Voidwall is an HTTP reverse proxy and HTTP API that detects, redacts and warns about personal data in real time. It is especially suited for performance-demanding scenarios. Deploy it in front of any service — and stop sensitive data at the edge of your environment.
           </p>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <a href="#demo" className="vw-btn vw-btn--primary">Try the live demo <span className="arrow">→</span></a>
-            <a href="#blog" className="vw-btn vw-btn--ghost">Read the blog <span className="arrow">→</span></a>
+            <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
+              Try the live demo <Icon name="external-link" size={14}/>
+            </a>
+            <a href="#" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
+              Become early adopter <span className="arrow">→</span>
+            </a>
           </div>
         </div>
 
@@ -113,7 +117,7 @@ function Hero({ headlineKey = "wall" }) {
       </div>
 
       {/* Tracker-specific specializations — surfaces the two flagship integrations */}
-      <div style={{ marginTop: 56 }}>
+      {/* <div style={{ marginTop: 56 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18 }}>
           <span className="vw-eyebrow">Specializations</span>
           <a href="#integrations" style={{
@@ -137,7 +141,7 @@ function Hero({ headlineKey = "wall" }) {
             params={["_id", "uid", "urlref", "dimensionN", "custom_vars"]}
           />
         </div>
-      </div>
+      </div> */}
     </section>
   );
 }

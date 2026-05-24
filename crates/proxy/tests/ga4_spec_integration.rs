@@ -380,17 +380,21 @@ async fn g_collect_pii_in_page_referrer() {
     assert!(!body.contains("4111111111111111"));
 }
 
-// #4 — Raw email in `uid`
+// #4 — Raw email in `uid` is an operator-acknowledged channel: it must
+// round-trip verbatim, since redacting the deliberate user identifier
+// would break cross-device join in GA4.
 #[tokio::test]
-async fn g_collect_raw_email_in_uid() {
+async fn g_collect_uid_email_passes_through() {
     let upstream = start_ga4_upstream().await;
     let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
 
     let q = "v=2&tid=G-X&cid=1.1&en=login&uid=jane.doe%40example.com";
     let (status, body) = get_g_collect(&proxy, q).await;
     assert_eq!(status, 200);
-    assert!(!body.contains("jane.doe@example.com"));
-    assert!(!body.contains("jane.doe%40example.com"));
+    assert!(
+        body.contains("uid=jane.doe%40example.com"),
+        "uid must pass through unredacted: {body}"
+    );
 }
 
 // #5 — PII in `ep.<custom>` event param
@@ -436,9 +440,10 @@ async fn g_collect_post_form_body_pii() {
     );
 }
 
-// #8 — `mp/collect` with raw email in `user_id`
+// #8 — `mp/collect` with raw email in `user_id`: operator-acknowledged
+// channel, passes through verbatim (see g_collect_uid_email_passes_through).
 #[tokio::test]
-async fn mp_collect_raw_email_in_user_id() {
+async fn mp_collect_user_id_email_passes_through() {
     let upstream = start_ga4_upstream().await;
     let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
 
@@ -449,7 +454,10 @@ async fn mp_collect_raw_email_in_user_id() {
     });
     let (status, body) = post_mp_collect(&proxy, payload).await;
     assert_eq!(status, 200);
-    assert!(!body.contains("jane.doe@example.com"));
+    assert!(
+        body.contains("jane.doe@example.com"),
+        "user_id must pass through unredacted: {body}"
+    );
 }
 
 // #9 — `user_data.email_address` plaintext
@@ -591,20 +599,24 @@ async fn mp_collect_pii_in_exception_description() {
     assert!(!body.contains("AKIAIOSFODNN7EXAMPLE"));
 }
 
-// #16 — `ip_override` field carrying a raw client IP
+// #16 — `ip_override` is an operator-acknowledged IP-override channel and
+// passes through verbatim.
 #[tokio::test]
-async fn mp_collect_pii_in_ip_override() {
+async fn mp_collect_ip_override_passes_through() {
     let upstream = start_ga4_upstream().await;
     let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
 
     let payload = json!({
         "client_id": "1.1",
-        "ip_override": "IP: 10.0.0.255 ok",
+        "ip_override": "10.0.0.255",
         "events": [{ "name": "page_view", "params": {} }]
     });
     let (status, body) = post_mp_collect(&proxy, payload).await;
     assert_eq!(status, 200);
-    assert!(!body.contains("10.0.0.255"));
+    assert!(
+        body.contains("10.0.0.255"),
+        "ip_override must pass through unredacted: {body}"
+    );
 }
 
 // #17 — `user_location.city` carrying a PERSON_NAME
@@ -918,12 +930,13 @@ async fn auto_generated_cid_does_not_trigger_pii() {
 // ---------------------------------------------------------------------------
 
 /// 16.7 request-side wiring: a route configured with `specialization = "ga4"`
-/// must run the JSON body through the GA4 spec, detect PII in `user_id`, and
-/// redact the forwarded body. Mirrors the bullet from TASKS.md but adds a
-/// belt-and-braces check on the spec error counter — the success path must
-/// leave it untouched (proves we went down the spec path, not a fallback).
+/// must run the JSON body through the GA4 spec, detect PII in scanned leaves,
+/// and redact the forwarded body. `user_data.email_address` is the explicit
+/// PII envelope and stays scanned regardless of policy. Adds a belt-and-braces
+/// check on the spec error counter — the success path must leave it untouched
+/// (proves we went down the spec path, not a fallback).
 #[tokio::test]
-async fn ga4_route_redacts_user_id_via_specialization() {
+async fn ga4_route_redacts_user_data_email_via_specialization() {
     let upstream = start_ga4_upstream().await;
     let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
 
@@ -933,7 +946,7 @@ async fn ga4_route_redacts_user_id_via_specialization() {
 
     let payload = json!({
         "client_id": "1.1",
-        "user_id": "jane.doe@example.com",
+        "user_data": { "email_address": "jane.doe@example.com" },
         "events": [{ "name": "login", "params": {} }]
     });
     let (status, body) = post_mp_collect(&proxy, payload).await;

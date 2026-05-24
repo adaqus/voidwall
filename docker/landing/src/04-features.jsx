@@ -2,24 +2,25 @@
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
   const items = [
-    ["inspect",  "Inspect",  "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."],
-    ["enforce",  "Enforce",  "Apply policy rules per route, destination, and content type. Block or transform."],
-    ["sanitize", "Sanitize", "Redact, hash, mask, or tokenize matched fields inline. Originals never leave."],
-    ["audit",    "Audit",    "Stream structured findings to your logs. Every match is timestamped and traceable."],
+    ["scan",  "Scan",  "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."],
+    ["redact",  "Redact",  "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]..."],
+    ["mask", "Mask", "...or mask with configurable characters."],
+    ["block",    "Block",    "Block the entire request if contain sensitive data."],
+    ["alert",    "Alert",    "Warn when sensitive data leak is detected."],
   ];
   return (
     <section id="product" className="vw-container" style={{ padding: "96px var(--gutter) 60px" }}>
       <div style={{ marginBottom: 64, maxWidth: 720 }}>
-        <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>What Voidwall does</p>
+        {/* <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>What Voidwall does</p> */}
         <h2 style={{
           fontFamily: "var(--vw-font-display)", fontSize: 48, fontWeight: 600,
           letterSpacing: "-0.025em", lineHeight: 1.02,
           color: "var(--vw-void-ink)", margin: 0, textWrap: "balance",
         }}>
-          Four operations.<br/>One inline pass.
+          What Voidwall does
         </h2>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
         {items.map(([icon, title, body], i) => (
           <div key={title} style={{
             padding: "0 28px",

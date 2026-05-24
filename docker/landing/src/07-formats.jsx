@@ -1,4 +1,4 @@
-// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / plain text.
+// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
 // React state drives the active tab.
 function Formats() {
   const [tab, setTab] = React.useState("json");
@@ -10,41 +10,37 @@ function Formats() {
       before:
 `{
   "order_id": "A-2186",
-  "customer": {
-    "name": "Sarah Dupont",
-    "email": "s.dupont@acme.fr",
-    "phone": "+33 6 12 34 56 78",
-    "nir": "2 85 04 75 116 042 89"
-  },
+  "customer_name": "Sarah Dupont",
+  "email": "s.dupont@acme.fr",
+  "phone_number": "+33 6 12 34 56 78",
+  "nir": "1 85 05 78 006 084 91",
   "billing_iban": "FR76 3000 4012 3456 7890 1234 567",
-  "notes": "Address: 12 rue de Belleville, 75011 Paris"
+  "address": "12 rue de Belleville, 75011 Paris"
 }`,
       after:
 `{
   "order_id": "A-2186",
-  "customer": {
-    "name": "<name>",
-    "email": "<email>",
-    "phone": "<phone:fr>",
-    "nir": "<fr.nir>"
-  },
-  "billing_iban": "<iban>",
-  "notes": "Address: <address:fr>"
+  "customer_name": "[PERSON_NAME]",
+  "email": "[EMAIL]",
+  "phone_number": "[PHONE_NUMBER]",
+  "nir": "[FR_NIR]",
+  "billing_iban": "[IBAN]",
+  "address": "[FR_CH_ADDRESS]"
 }`,
     },
     csv: {
       label: "CSV",
       icon: "table",
       before:
-`order_id,customer_name,email,phone,iban,country
-A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567,FR
-A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00,DE
-A-2188,Anna Rossi,a.rossi@example.it,+39 320 555 11 22,IT60 X054 2811 1010 0000 0123 456,IT`,
+`order_id,customer_name,email,phone,iban
+A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567
+A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00
+A-2188,Lisa Müller,lisa.m@example.ch,+41 79 123 45 67,CH93 0076 2011 6238 5295 7`,
       after:
-`order_id,customer_name,email,phone,iban,country
-A-2186,<name>,<email>,<phone:fr>,<iban>,FR
-A-2187,<name>,<email>,<phone:de>,<iban>,DE
-A-2188,<name>,<email>,<phone:it>,<iban>,IT`,
+`order_id,customer_name,email,phone,iban
+A-2186,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
+A-2187,[PERSON_NAME],[EMAIL],[DE_PHONE_NUMBER],[IBAN]
+A-2188,[PERSON_NAME],[EMAIL],[CH_PHONE_NUMBER],[IBAN]`,
     },
     tsv: {
       label: "TSV",
@@ -52,13 +48,29 @@ A-2188,<name>,<email>,<phone:it>,<iban>,IT`,
       before:
 `event_id\tuser_id\temail\tip\tquery
 e_4471\t1822\talex@acme.io\t203.0.113.42\thotels in Berlin
-e_4472\t1923\tklaus.weber@example.de\t94.245.66.10\tbsn 1234 56 789
-e_4473\t1924\ta.rossi@example.it\t82.85.10.5\tcodice fiscale RSSMRA`,
+e_4472\t1923\tklaus.weber@example.de\t94.245.66.10\tIdNr 65929970489
+e_4473\t1924\tm.weber@example.at\t82.85.10.5\tSVNR 1238150185`,
       after:
 `event_id\tuser_id\temail\tip\tquery
-e_4471\tsha256:b1…\t<email>\t203.0.113.0\thotels in Berlin
-e_4472\tsha256:7c…\t<email>\t94.245.66.0\t<nl.bsn>
-e_4473\tsha256:9a…\t<email>\t82.85.10.0\t<it.codice_fiscale>`,
+e_4471\t1822\t[EMAIL]\t[IP_ADDRESS]\thotels in Berlin
+e_4472\t1923\t[EMAIL]\t[IP_ADDRESS]\tIdNr [DE_STEUER_ID]
+e_4473\t1924\t[EMAIL]\t[IP_ADDRESS]\tSVNR [AT_SVNR]`,
+    },
+    url: {
+      label: "URL",
+      icon: "link",
+      before:
+`GET /api/users/s.dupont@acme.fr/profile
+GET /lookup?ssn=123-45-6789&card=4111111111111111
+POST /track?uid=alex@acme.io&phone_number=555-123-4567
+GET /search?user[first_name]=Sarah&user[last_name]=Dupont
+GET /eth/0x1234567890abcdef1234567890abcdef12345678/balance`,
+      after:
+`GET /api/users/[EMAIL]/profile
+GET /lookup?ssn=[US_SSN]&card=[CREDIT_CARD]
+POST /track?uid=[EMAIL]&phone_number=[US_PHONE_NUMBER]
+GET /search?user[first_name]=[PERSON_NAME]&user[last_name]=[PERSON_NAME]
+GET /eth/[ETHEREUM_ADDRESS]/balance`,
     },
     text: {
       label: "Plain text",
@@ -70,22 +82,22 @@ I never received my order A-2186. My email on the account is
 s.dupont@acme.fr and my phone is +33 6 12 34 56 78. I paid with
 my Visa 4539 1488 0343 6467 on the 14th. Please check.
 
-— Sarah`,
+Thanks!`,
       after:
 `Hi support,
 
 I never received my order A-2186. My email on the account is
-<email> and my phone is <phone:fr>. I paid with
-my Visa <credit_card> on the 14th. Please check.
+[EMAIL] and my phone is [PHONE_NUMBER]. I paid with
+my Visa [CREDIT_CARD] on the 14th. Please check.
 
-— <name>`,
+Thanks!`,
     },
   };
 
   const current = samples[tab];
 
   return (
-    <section className="vw-container" style={{ padding: "60px var(--gutter) 80px", borderTop: "1px solid var(--vw-void-line)" }}>
+    <section id="formats" className="vw-container" style={{ padding: "60px var(--gutter) 80px", borderTop: "1px solid var(--vw-void-line)" }}>
       <div className="vw-section-head" style={{ marginBottom: 40 }}>
         <div>
           <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>Format-aware</p>
@@ -94,17 +106,17 @@ my Visa <credit_card> on the 14th. Please check.
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: 0, textWrap: "balance",
           }}>
-            Four payload formats.<br/>Same rules.
+            Works well even with nested data.
           </h2>
         </div>
         <p style={{
           fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
           color: "var(--vw-void-ink-2)", margin: 0, maxWidth: 460,
         }}>
-          Voidwall parses the body before it scans it. Whether the
-          payload is a nested JSON document, a flat CSV upload, a
-          tab-separated tracking hit, or free-form text in a support
-          message, the same matchers apply.
+          Voidwall parses the request before it scans it. Whether
+          the payload is a nested JSON, a flat CSV, a
+          tab-separated data, a URL packed with query
+          parameters, or free-form text, the same matchers apply.
         </p>
       </div>
 
@@ -185,14 +197,17 @@ function CodePane({ title, payload, bad }) {
 }
 
 // Crude highlighter — wraps sensitive runs in red, placeholders in violet.
+// Longer literals must come before substrings (e.g. "Sarah Dupont" before "Sarah")
+// so the alternation picks the wider match at any given position.
 function highlight(text, bad) {
   if (bad) {
-    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|2 85 04 75 116 042 89|FR76 3000 4012 3456 7890 1234 567|Address: 12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Anna Rossi|a\.rossi@example\.it|\+39 320 555 11 22|IT60 X054 2811 1010 0000 0123 456|alex@acme\.io|203\.0\.113\.42|klaus\.weber@example\.de|94\.245\.66\.10|82\.85\.10\.5|bsn 1234 56 789|codice fiscale RSSMRA|4539 1488 0343 6467)/g;
+    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 4012 3456 7890 1234 567|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Sarah|Dupont)/g;
     return splitWith(text, re, (m, i) => (
       <span key={i} style={{ color: "var(--vw-danger)", background: "rgba(229,86,75,0.12)", borderRadius: 3 }}>{m}</span>
     ));
   } else {
-    const re = /(<[^>]+>|sha256:[a-z0-9…]+)/g;
+    // Matches the proxy's TypeLabel redaction format: [SCREAMING_SNAKE_CASE].
+    const re = /\[[A-Z][A-Z_]*\]/g;
     return splitWith(text, re, (m, i) => (
       <span key={i} style={{ color: "var(--vw-violet-300)" }}>{m}</span>
     ));

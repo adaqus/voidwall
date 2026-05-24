@@ -2,15 +2,16 @@
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
   const items = [
-    ["80", "+", "PII types", "supported out of the box"],
+    ["88", "", "PII types", "supported out of the box"],
     ["3",  "",  "Languages", "English, French, German"],
-    ["11", "",  "Countries", "and growing every month"],
-    ["4",  "",  "Formats",   "JSON, CSV, TSV, plain text"],
+    ["11", "",  "Countries", "USA, UK, France, Germany..."],
+    ["2", "",  "Specializations", "Google Analytics, Matomo"],
+    ["5",  "",  "Formats",   "JSON, URL, CSV, TSV, plain text"],
   ];
   return (
     <div style={{ background: "var(--vw-paper-2)", borderTop: "1px solid var(--vw-paper-line)", borderBottom: "1px solid var(--vw-paper-line)" }}>
       <div className="vw-container" style={{ padding: "44px var(--gutter)" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
           {items.map(([n, suffix, label, sub], i) => (
             <div key={label} style={{
               padding: "0 28px",

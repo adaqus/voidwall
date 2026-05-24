@@ -12,11 +12,10 @@ function App() {
         <Coverage/>
         <Analytics/>
         <Formats/>
-        <CustomPII/>
       </div>
       <Performance/>
-      <Blog/>
-      <CTA/>
+      {/* <Blog/> */}
+      {/* <CTA/> */}
       <Footer/>
     </>
   );

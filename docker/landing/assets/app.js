@@ -61,7 +61,27 @@ function Icon({
         x2: "10.01",
         y2: "16"
       }));
-    case "inspect":
+    case "ram":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.8V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.8z"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M2 15h20"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M8 11V9"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M12 11V9"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M16 11V9"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M6 19v-3"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M10 19v-3"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M14 19v-3"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M18 19v-3"
+      }));
+    case "scan":
       return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("circle", {
         cx: "11",
         cy: "11",
@@ -69,13 +89,7 @@ function Icon({
       }), /*#__PURE__*/React.createElement("path", {
         d: "m21 21-4.35-4.35"
       }));
-    case "enforce":
-      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
-        d: "M12 22s-8-4.5-8-11V5l8-3 8 3v6c0 6.5-8 11-8 11z"
-      }), /*#__PURE__*/React.createElement("path", {
-        d: "m9 12 2 2 4-4"
-      }));
-    case "sanitize":
+    case "redact":
       return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
         d: "m12 3-1.9 5.8L4 10l5.8 1.9L12 18l1.9-6.1L20 10l-6.1-2.2z"
       }));
@@ -100,6 +114,41 @@ function Icon({
         d: "M12 22s-8-4.5-8-11V5l8-3 8 3v6c0 6.5-8 11-8 11z"
       }), /*#__PURE__*/React.createElement("path", {
         d: "M12 8v4M12 16h.01"
+      }));
+    case "alert":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "12",
+        y1: "8",
+        x2: "12",
+        y2: "12"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "12",
+        y1: "16",
+        x2: "12.01",
+        y2: "16"
+      }));
+    case "block":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "m14.5 9.5-5 5"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "m9.5 9.5 5 5"
+      }));
+    case "mask":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M9.88 9.88a3 3 0 1 0 4.24 4.24"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "2",
+        y1: "2",
+        x2: "22",
+        y2: "22"
       }));
     case "filter":
       return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("polygon", {
@@ -408,6 +457,17 @@ function Icon({
       }), /*#__PURE__*/React.createElement("polyline", {
         points: "12 5 19 12 12 19"
       }));
+    case "external-link":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+      }), /*#__PURE__*/React.createElement("polyline", {
+        points: "15 3 21 3 21 9"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "10",
+        y1: "14",
+        x2: "21",
+        y2: "3"
+      }));
     case "github":
       return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
         d: "M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
@@ -503,6 +563,12 @@ function Icon({
         x2: "12",
         y2: "20"
       }));
+    case "link":
+      return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
+        d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
+      }));
     case "wrench":
       return /*#__PURE__*/React.createElement("svg", common, /*#__PURE__*/React.createElement("path", {
         d: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-2.4z"
@@ -524,7 +590,9 @@ window.Icon = Icon;
 /* === 01-nav.jsx === */
 // Nav — paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
-  const links = [["Product", "#product"], ["Detection", "#detection"], ["Integrations", "#integrations"], ["Performance", "#performance"], ["Blog", "#blog"]];
+  const links = [["Product", "#product"], ["Detection", "#detection"], ["Specializations", "#specializations"], ["Formats", "#formats"], ["Performance", "#performance"]
+  // ["Blog", "#blog"],
+  ];
   return /*#__PURE__*/React.createElement("header", {
     style: {
       position: "sticky",
@@ -585,28 +653,24 @@ function Nav() {
       marginLeft: "auto",
       display: "flex",
       alignItems: "center",
-      gap: 16
+      gap: 12
     }
   }, /*#__PURE__*/React.createElement("a", {
-    href: "https://github.com/",
+    href: "/demo",
     target: "_blank",
-    rel: "noreferrer",
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 14,
-      color: "var(--vw-paper-ink)",
-      textDecoration: "none",
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "github",
-    size: 16
-  }), " GitHub"), /*#__PURE__*/React.createElement("a", {
-    href: "#demo",
+    rel: "noopener noreferrer",
     className: "vw-btn vw-btn--primary"
-  }, "Try the live demo ", /*#__PURE__*/React.createElement("span", {
+  }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
+    name: "external-link",
+    size: 14
+  })), /*#__PURE__*/React.createElement("a", {
+    href: "#",
+    className: "vw-btn vw-btn--primary",
+    style: {
+      background: "white",
+      color: "var(--vw-void)"
+    }
+  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
   }, "\u2192")))));
 }
@@ -717,21 +781,28 @@ function Hero({
       maxWidth: 480,
       margin: "0 0 36px"
     }
-  }, "Voidwall is an HTTP reverse proxy and HTTP API that detects, filters, and sanitizes personal data in real time. Deploy it in front of any service \u2014 applications, analytics, third-party APIs \u2014 and stop sensitive data at the edge of your environment."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall is an HTTP reverse proxy and HTTP API that detects, redacts and warns about personal data in real time. It is especially suited for performance-demanding scenarios. Deploy it in front of any service \u2014 and stop sensitive data at the edge of your environment."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
       alignItems: "center"
     }
   }, /*#__PURE__*/React.createElement("a", {
-    href: "#demo",
+    href: "/demo",
+    target: "_blank",
+    rel: "noopener noreferrer",
     className: "vw-btn vw-btn--primary"
-  }, "Try the live demo ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192")), /*#__PURE__*/React.createElement("a", {
-    href: "#blog",
-    className: "vw-btn vw-btn--ghost"
-  }, "Read the blog ", /*#__PURE__*/React.createElement("span", {
+  }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
+    name: "external-link",
+    size: 14
+  })), /*#__PURE__*/React.createElement("a", {
+    href: "#",
+    className: "vw-btn vw-btn--primary",
+    style: {
+      background: "white",
+      color: "var(--vw-void)"
+    }
+  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
   }, "\u2192")))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -825,50 +896,7 @@ function Hero({
   }, /*#__PURE__*/React.createElement(EnvItem, {
     icon: icon,
     label: label
-  }))))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 56
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 18
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "vw-eyebrow"
-  }, "Specializations"), /*#__PURE__*/React.createElement("a", {
-    href: "#integrations",
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 13,
-      color: "var(--vw-paper-ink-2)",
-      textDecoration: "none"
-    }
-  }, "All integrations ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-400)"
-    }
-  }, "\u2192"))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(2, minmax(0,1fr))",
-      gap: 20
-    }
-  }, /*#__PURE__*/React.createElement(SpecCard, {
-    mark: "GA4",
-    name: "Google Analytics 4",
-    tagline: "Sanitizes gtag and /collect payloads.",
-    details: "Strips client_id, user_id, user properties, and resolves the IP to a /24 before the request crosses your perimeter. Works inline against measurement protocol v2 and gtag.js.",
-    params: ["client_id", "user_id", "user_properties", "ip_override", "geo_*"]
-  }), /*#__PURE__*/React.createElement(SpecCard, {
-    mark: "Matomo",
-    name: "Matomo",
-    tagline: "Inspects /matomo.php and bulk tracking.",
-    details: "Filters _id, uid, urlref, and custom dimensions in real time. Honours per-site policies, including PiwikPro deployments, with zero changes to the tracking snippet.",
-    params: ["_id", "uid", "urlref", "dimensionN", "custom_vars"]
-  }))));
+  }))))));
 }
 function SpecCard({
   mark,
@@ -1066,7 +1094,7 @@ window.Hero = Hero;
 // Metrics strip — replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
-  const items = [["80", "+", "PII types", "supported out of the box"], ["3", "", "Languages", "English, French, German"], ["11", "", "Countries", "and growing every month"], ["4", "", "Formats", "JSON, CSV, TSV, plain text"]];
+  const items = [["88", "", "PII types", "supported out of the box"], ["3", "", "Languages", "English, French, German"], ["11", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--vw-paper-2)",
@@ -1081,7 +1109,7 @@ function Metrics() {
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "repeat(4, 1fr)"
+      gridTemplateColumns: "repeat(5, 1fr)"
     }
   }, items.map(([n, suffix, label, sub], i) => /*#__PURE__*/React.createElement("div", {
     key: label,
@@ -1127,7 +1155,7 @@ window.Metrics = Metrics;
 // Features — void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
-  const items = [["inspect", "Inspect", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."], ["enforce", "Enforce", "Apply policy rules per route, destination, and content type. Block or transform."], ["sanitize", "Sanitize", "Redact, hash, mask, or tokenize matched fields inline. Originals never leave."], ["audit", "Audit", "Stream structured findings to your logs. Every match is timestamped and traceable."]];
+  const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."], ["redact", "Redact", "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]..."], ["mask", "Mask", "...or mask with configurable characters."], ["block", "Block", "Block the entire request if contain sensitive data."], ["alert", "Alert", "Warn when sensitive data leak is detected."]];
   return /*#__PURE__*/React.createElement("section", {
     id: "product",
     className: "vw-container",
@@ -1139,12 +1167,7 @@ function Features() {
       marginBottom: 64,
       maxWidth: 720
     }
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "vw-eyebrow",
-    style: {
-      margin: "0 0 18px"
-    }
-  }, "What Voidwall does"), /*#__PURE__*/React.createElement("h2", {
+  }, /*#__PURE__*/React.createElement("h2", {
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 48,
@@ -1155,10 +1178,10 @@ function Features() {
       margin: 0,
       textWrap: "balance"
     }
-  }, "Four operations.", /*#__PURE__*/React.createElement("br", null), "One inline pass.")), /*#__PURE__*/React.createElement("div", {
+  }, "What Voidwall does")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "repeat(4, 1fr)"
+      gridTemplateColumns: "repeat(5, 1fr)"
     }
   }, items.map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
@@ -1207,24 +1230,32 @@ window.Features = Features;
 // 80+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
   const groups = [{
-    title: "Identity",
-    icon: "id-card",
-    items: [["Full name", true], ["Email", true], ["Phone number", true], ["Date of birth", false], ["Passport no.", true], ["National ID", true], ["Driver's licence", false], ["Tax ID", false]]
+    title: "Identity & Contact",
+    icon: "user",
+    items: [["Person name", true], ["Email", true], ["Phone number", true], ["Date of birth", false], ["Geolocation", false], ["Postal address", false], ["Postcode / ZIP", false]]
   }, {
-    title: "Financial",
-    icon: "credit-card",
-    items: [["IBAN", true], ["Credit card", true], ["SWIFT / BIC", false], ["Bank routing", false], ["VAT number", false], ["Crypto wallet", true], ["Account no.", false]]
-  }, {
-    title: "Locale-specific",
+    title: "National IDs",
     icon: "flag",
-    items: [["US — SSN", true], ["UK — NI no.", false], ["FR — NIR", true], ["FR — SIREN", false], ["DE — Steuer-ID", true], ["NL — BSN", false], ["IT — Codice Fiscale", false], ["PL — PESEL", false], ["ES — DNI", false], ["CA — SIN", false]]
+    items: [["US — SSN", true], ["US — ITIN", false], ["GB — NI no.", false], ["IE — PPSN", false], ["CA — SIN", false], ["FR — NIR", true], ["FR — CNI", false], ["DE — Steuer-ID", true], ["DE — Personalausweis", false], ["AT — SVNR", false], ["CH — AHV", false]]
   }, {
-    title: "Technical",
-    icon: "fingerprint",
-    items: [["IPv4 / IPv6", true], ["MAC address", false], ["URL with token", false], ["JWT", true], ["API key", true], ["Cookie ID", false], ["Device fingerprint", false]]
+    title: "Travel & Driving",
+    icon: "globe-2",
+    items: [["Passport", true], ["Driver's licence", true], ["US — Alien no.", false], ["US — USCIS receipt", false], ["VIN", false]]
+  }, {
+    title: "Health & Tax",
+    icon: "audit",
+    items: [["GB — NHS number", true], ["AU — Medicare", false], ["NZ — NHI", false], ["CA — OHIP", false], ["US — EIN", true], ["GB — UTR", false], ["AU — TFN", false], ["AU — ABN", false], ["FR — SIRET / SIREN", true], ["FR — NIF", false]]
+  }, {
+    title: "Financial & Crypto",
+    icon: "credit-card",
+    items: [["IBAN", true], ["Credit card", true], ["SWIFT / BIC", false], ["US — ABA routing", false], ["GB — Sort code", false], ["AU / CA — Bank account", false], ["Bitcoin", true], ["Ethereum", false]]
+  }, {
+    title: "Tech & Secrets",
+    icon: "key",
+    items: [["IPv4 / IPv6", true], ["MAC address", false], ["IMEI", false], ["AWS access key", true], ["AWS secret key", true], ["GitHub token", false]]
   }];
   const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"]];
-  const countries = ["United States", "United Kingdom", "France", "Germany", "Netherlands", "Italy", "Spain", "Poland", "Belgium", "Canada", "Switzerland"];
+  const countries = ["International", "United States", "Great Britain", "France", "Germany", "Ireland", "Canada", "Australia", "New Zealand", "Suth Africa", "Austria", "Switzerland"];
   return /*#__PURE__*/React.createElement("section", {
     id: "detection",
     className: "vw-container",
@@ -1260,7 +1291,7 @@ function Coverage() {
       margin: "0 0 22px",
       textWrap: "balance"
     }
-  }, "Over 80 PII types.", /*#__PURE__*/React.createElement("br", null), "Three languages.", /*#__PURE__*/React.createElement("br", null), "Eleven countries."), /*#__PURE__*/React.createElement("p", {
+  }, "88 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 15.5,
@@ -1269,7 +1300,7 @@ function Coverage() {
       margin: "0 0 28px",
       maxWidth: 400
     }
-  }, "Detectors are context-aware and locale-specific. A French NIR isn't a German Steuer-ID, even when the digits collide. Voidwall reads the field name, the values around it, and the route \u2014 then decides."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall is able to detect PIIs on a basis of pattern recognition, contextual analysis and validation, so it warns about real values, not just looks-like ones. Here are examples of what can be detected.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("br", null), "Custom types can be added via configuration file."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1305,7 +1336,28 @@ function Coverage() {
     style: {
       color: "var(--vw-void-ink-3)"
     }
-  }, name))))), /*#__PURE__*/React.createElement("div", {
+  }, name)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      height: 26,
+      padding: "0 10px",
+      borderRadius: 999,
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 12,
+      color: "var(--vw-violet-300)"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 12
+  }), " more soon"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1417,7 +1469,7 @@ window.Coverage = Coverage;
 // Shows the same tracking event in raw vs. sanitized form, for each platform.
 function Analytics() {
   return /*#__PURE__*/React.createElement("section", {
-    id: "integrations",
+    id: "specializations",
     className: "vw-container",
     style: {
       padding: "80px var(--gutter) 80px",
@@ -1453,10 +1505,10 @@ function Analytics() {
       margin: 0,
       maxWidth: 460
     }
-  }, "Front-end tracking is the leakiest path out of a product \u2014 marketing teams add events, developers add custom parameters, and personal data slips into Google or Matomo unnoticed. Voidwall sits in front of the collector and sanitizes every hit.")), /*#__PURE__*/React.createElement("div", {
+  }, "Front-end tracking is the leakiest path out of a product \u2014 marketing teams add events, users paste their PIIs to search bars, and personal data slips into Google or Matomo unnoticed. Even 20% of websites have this problem. Voidwall may be a proxy between your product and web analytics, preventing your users' personal data from leaking out.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "repeat(2, 1fr)",
+      gridTemplateColumns: "1fr",
       gap: 24
     }
   }, /*#__PURE__*/React.createElement(PlatformCard, {
@@ -1467,17 +1519,26 @@ function Analytics() {
     name: "Matomo",
     endpoint: "POST  /matomo.php",
     tag: "matomo"
-  })));
+  })), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 16,
+      lineHeight: 1.55,
+      color: "var(--vw-void-ink-2)",
+      margin: "32px 0 0",
+      maxWidth: 1120
+    }
+  }, "Specializations know what to scan \u2014 catching sensitive data even inside doubly-encoded payloads. They also know what ", /*#__PURE__*/React.createElement("em", null, "not"), " to scan, so the integration keeps working as intended."));
 }
 function PlatformCard({
   name,
   endpoint,
   tag
 }) {
-  const ga4Raw = [['v', '2'], ['tid', 'G-X8Q1ZRP'], ['cid', '1822941.1715'], ['uid', 'alex.miller@acme.io', true], ['ep.session_id', '6671'], ['ep.search_query', 'sarah dupont 06 12 34 56 78', true], ['ep.user_zip', '75011', true], ['uip', '203.0.113.42', true]];
-  const ga4San = [['v', '2'], ['tid', 'G-X8Q1ZRP'], ['cid', '1822941.1715'], ['uid', 'sha256:a4f9…', null, 'hashed'], ['ep.session_id', '6671'], ['ep.search_query', '<name> <phone:fr>', null, 'redacted'], ['ep.user_zip', '750**', null, 'masked'], ['uip', '203.0.113.0', null, 'truncated']];
-  const matomoRaw = [['idsite', '17'], ['rec', '1'], ['action_name', 'Checkout'], ['uid', 'klaus.weber@example.de', true], ['e_n', 'lead.submit'], ['cvar', '{"email":"klaus.weber@example.de"}', true], ['_id', '8b3f1a92ee44c1d2'], ['cip', '94.245.66.10', true]];
-  const matomoSan = [['idsite', '17'], ['rec', '1'], ['action_name', 'Checkout'], ['uid', 'sha256:7c12…', null, 'hashed'], ['e_n', 'lead.submit'], ['cvar', '{"email":"<email>"}', null, 'redacted'], ['_id', '8b3f1a92ee44c1d2'], ['cip', '94.245.66.0', null, 'truncated']];
+  const ga4Raw = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/alex.miller@acme.io', true], ['dt', 'Order #4711 — alex.miller@acme.io', true], ['en', 'login'], ['ep.contact_phone', '+33 6 12 34 56 78', true], ['uid', 'alex.miller@acme.io', true], ['_uip', '203.0.113.42', true]];
+  const ga4San = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/[EMAIL]'], ['dt', 'Order #4711 — [EMAIL]'], ['en', 'login'], ['ep.contact_phone', '[FR_PHONE_NUMBER]'], ['uid', 'alex.miller@acme.io', false, 'by design'], ['_uip', '203.0.113.42', false, 'by design']];
+  const matomoRaw = [['idsite', '17'], ['rec', '1'], ['url', 'https://shop.acme.de/?email=klaus.weber@example.de', true], ['action_name', 'Login · Acme'], ['dimension2', 'klaus.weber@example.de', true], ['_cvar', '{"1":["email","klaus.weber@example.de"]}', true], ['_id', '8b3f1a92ee44c1d2'], ['uid', 'klaus.weber@example.de', true], ['cip', '94.245.66.10', true]];
+  const matomoSan = [['idsite', '17'], ['rec', '1'], ['url', 'https://shop.acme.de/?email=[EMAIL]'], ['action_name', 'Login · Acme'], ['dimension2', '[EMAIL]'], ['_cvar', '{"1":["email","[EMAIL]"]}'], ['_id', '8b3f1a92ee44c1d2'], ['uid', 'klaus.weber@example.de', false, 'by design'], ['cip', '94.245.66.10', false, 'by design']];
   const raw = tag === "ga4" ? ga4Raw : matomoRaw;
   const san = tag === "ga4" ? ga4San : matomoSan;
   return /*#__PURE__*/React.createElement("div", {
@@ -1603,7 +1664,7 @@ function ParamColumn({
 window.Analytics = Analytics;
 
 /* === 07-formats.jsx === */
-// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / plain text.
+// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
 // React state drives the active tab.
 function Formats() {
   const [tab, setTab] = React.useState("json");
@@ -1613,50 +1674,60 @@ function Formats() {
       icon: "file-json",
       before: `{
   "order_id": "A-2186",
-  "customer": {
-    "name": "Sarah Dupont",
-    "email": "s.dupont@acme.fr",
-    "phone": "+33 6 12 34 56 78",
-    "nir": "2 85 04 75 116 042 89"
-  },
+  "customer_name": "Sarah Dupont",
+  "email": "s.dupont@acme.fr",
+  "phone_number": "+33 6 12 34 56 78",
+  "nir": "1 85 05 78 006 084 91",
   "billing_iban": "FR76 3000 4012 3456 7890 1234 567",
-  "notes": "Address: 12 rue de Belleville, 75011 Paris"
+  "address": "12 rue de Belleville, 75011 Paris"
 }`,
       after: `{
   "order_id": "A-2186",
-  "customer": {
-    "name": "<name>",
-    "email": "<email>",
-    "phone": "<phone:fr>",
-    "nir": "<fr.nir>"
-  },
-  "billing_iban": "<iban>",
-  "notes": "Address: <address:fr>"
+  "customer_name": "[PERSON_NAME]",
+  "email": "[EMAIL]",
+  "phone_number": "[PHONE_NUMBER]",
+  "nir": "[FR_NIR]",
+  "billing_iban": "[IBAN]",
+  "address": "[FR_CH_ADDRESS]"
 }`
     },
     csv: {
       label: "CSV",
       icon: "table",
-      before: `order_id,customer_name,email,phone,iban,country
-A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567,FR
-A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00,DE
-A-2188,Anna Rossi,a.rossi@example.it,+39 320 555 11 22,IT60 X054 2811 1010 0000 0123 456,IT`,
-      after: `order_id,customer_name,email,phone,iban,country
-A-2186,<name>,<email>,<phone:fr>,<iban>,FR
-A-2187,<name>,<email>,<phone:de>,<iban>,DE
-A-2188,<name>,<email>,<phone:it>,<iban>,IT`
+      before: `order_id,customer_name,email,phone,iban
+A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567
+A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00
+A-2188,Lisa Müller,lisa.m@example.ch,+41 79 123 45 67,CH93 0076 2011 6238 5295 7`,
+      after: `order_id,customer_name,email,phone,iban
+A-2186,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
+A-2187,[PERSON_NAME],[EMAIL],[DE_PHONE_NUMBER],[IBAN]
+A-2188,[PERSON_NAME],[EMAIL],[CH_PHONE_NUMBER],[IBAN]`
     },
     tsv: {
       label: "TSV",
       icon: "table",
       before: `event_id\tuser_id\temail\tip\tquery
 e_4471\t1822\talex@acme.io\t203.0.113.42\thotels in Berlin
-e_4472\t1923\tklaus.weber@example.de\t94.245.66.10\tbsn 1234 56 789
-e_4473\t1924\ta.rossi@example.it\t82.85.10.5\tcodice fiscale RSSMRA`,
+e_4472\t1923\tklaus.weber@example.de\t94.245.66.10\tIdNr 65929970489
+e_4473\t1924\tm.weber@example.at\t82.85.10.5\tSVNR 1238150185`,
       after: `event_id\tuser_id\temail\tip\tquery
-e_4471\tsha256:b1…\t<email>\t203.0.113.0\thotels in Berlin
-e_4472\tsha256:7c…\t<email>\t94.245.66.0\t<nl.bsn>
-e_4473\tsha256:9a…\t<email>\t82.85.10.0\t<it.codice_fiscale>`
+e_4471\t1822\t[EMAIL]\t[IP_ADDRESS]\thotels in Berlin
+e_4472\t1923\t[EMAIL]\t[IP_ADDRESS]\tIdNr [DE_STEUER_ID]
+e_4473\t1924\t[EMAIL]\t[IP_ADDRESS]\tSVNR [AT_SVNR]`
+    },
+    url: {
+      label: "URL",
+      icon: "link",
+      before: `GET /api/users/s.dupont@acme.fr/profile
+GET /lookup?ssn=123-45-6789&card=4111111111111111
+POST /track?uid=alex@acme.io&phone_number=555-123-4567
+GET /search?user[first_name]=Sarah&user[last_name]=Dupont
+GET /eth/0x1234567890abcdef1234567890abcdef12345678/balance`,
+      after: `GET /api/users/[EMAIL]/profile
+GET /lookup?ssn=[US_SSN]&card=[CREDIT_CARD]
+POST /track?uid=[EMAIL]&phone_number=[US_PHONE_NUMBER]
+GET /search?user[first_name]=[PERSON_NAME]&user[last_name]=[PERSON_NAME]
+GET /eth/[ETHEREUM_ADDRESS]/balance`
     },
     text: {
       label: "Plain text",
@@ -1667,18 +1738,19 @@ I never received my order A-2186. My email on the account is
 s.dupont@acme.fr and my phone is +33 6 12 34 56 78. I paid with
 my Visa 4539 1488 0343 6467 on the 14th. Please check.
 
-— Sarah`,
+Thanks!`,
       after: `Hi support,
 
 I never received my order A-2186. My email on the account is
-<email> and my phone is <phone:fr>. I paid with
-my Visa <credit_card> on the 14th. Please check.
+[EMAIL] and my phone is [PHONE_NUMBER]. I paid with
+my Visa [CREDIT_CARD] on the 14th. Please check.
 
-— <name>`
+Thanks!`
     }
   };
   const current = samples[tab];
   return /*#__PURE__*/React.createElement("section", {
+    id: "formats",
     className: "vw-container",
     style: {
       padding: "60px var(--gutter) 80px",
@@ -1705,7 +1777,7 @@ my Visa <credit_card> on the 14th. Please check.
       margin: 0,
       textWrap: "balance"
     }
-  }, "Four payload formats.", /*#__PURE__*/React.createElement("br", null), "Same rules.")), /*#__PURE__*/React.createElement("p", {
+  }, "Works well even with nested data.")), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 16,
@@ -1714,7 +1786,7 @@ my Visa <credit_card> on the 14th. Please check.
       margin: 0,
       maxWidth: 460
     }
-  }, "Voidwall parses the body before it scans it. Whether the payload is a nested JSON document, a flat CSV upload, a tab-separated tracking hit, or free-form text in a support message, the same matchers apply.")), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall parses the request before it scans it. Whether the payload is a nested JSON, a flat CSV, a tab-separated data, a URL packed with query parameters, or free-form text, the same matchers apply.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 4,
@@ -1812,9 +1884,11 @@ function CodePane({
 }
 
 // Crude highlighter — wraps sensitive runs in red, placeholders in violet.
+// Longer literals must come before substrings (e.g. "Sarah Dupont" before "Sarah")
+// so the alternation picks the wider match at any given position.
 function highlight(text, bad) {
   if (bad) {
-    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|2 85 04 75 116 042 89|FR76 3000 4012 3456 7890 1234 567|Address: 12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Anna Rossi|a\.rossi@example\.it|\+39 320 555 11 22|IT60 X054 2811 1010 0000 0123 456|alex@acme\.io|203\.0\.113\.42|klaus\.weber@example\.de|94\.245\.66\.10|82\.85\.10\.5|bsn 1234 56 789|codice fiscale RSSMRA|4539 1488 0343 6467)/g;
+    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 4012 3456 7890 1234 567|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Sarah|Dupont)/g;
     return splitWith(text, re, (m, i) => /*#__PURE__*/React.createElement("span", {
       key: i,
       style: {
@@ -1824,7 +1898,8 @@ function highlight(text, bad) {
       }
     }, m));
   } else {
-    const re = /(<[^>]+>|sha256:[a-z0-9…]+)/g;
+    // Matches the proxy's TypeLabel redaction format: [SCREAMING_SNAKE_CASE].
+    const re = /\[[A-Z][A-Z_]*\]/g;
     return splitWith(text, re, (m, i) => /*#__PURE__*/React.createElement("span", {
       key: i,
       style: {
@@ -1848,378 +1923,6 @@ function splitWith(text, regex, wrap) {
   return out;
 }
 window.Formats = Formats;
-
-/* === 08-custom-pii.jsx === */
-// CustomPII — void surface. YAML-style config + matched samples.
-// Demonstrates user-defined detectors.
-function CustomPII() {
-  const yaml = [{
-    t: "c",
-    v: "# detectors/acme.yaml"
-  }, {
-    t: "n"
-  }, {
-    t: "k",
-    v: "detector"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "acme_employee_id"
-  }, {
-    t: "n"
-  }, {
-    t: "k",
-    v: "language"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "[en, fr, de]"
-  }, {
-    t: "n"
-  }, {
-    t: "k",
-    v: "match"
-  }, {
-    t: "p",
-    v: ":"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "regex"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "s",
-    v: "ACME-[A-Z]{2}-\\d{6}"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "context"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "[employee, badge, staff]"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "confidence"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "high"
-  }, {
-    t: "n"
-  }, {
-    t: "k",
-    v: "action"
-  }, {
-    t: "p",
-    v: ":"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "transform"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "redact"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "placeholder"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "s",
-    v: "<acme.employee>"
-  }, {
-    t: "n"
-  }, {
-    t: "k",
-    v: "scope"
-  }, {
-    t: "p",
-    v: ":"
-  }, {
-    t: "n"
-  }, {
-    t: "p",
-    v: "  "
-  }, {
-    t: "k",
-    v: "routes"
-  }, {
-    t: "p",
-    v: ": "
-  }, {
-    t: "v",
-    v: "[\"/api/*\", \"/g/collect\"]"
-  }, {
-    t: "n"
-  }];
-  const matched = [{
-    ok: true,
-    v: "ACME-NY-018442"
-  }, {
-    ok: true,
-    v: "ACME-PR-720199"
-  }, {
-    ok: true,
-    v: "ACME-LD-005512"
-  }, {
-    ok: false,
-    v: "ACME-tickets-2025",
-    reason: "context missing"
-  }, {
-    ok: false,
-    v: "ACME-XX-00",
-    reason: "regex mismatch"
-  }];
-  return /*#__PURE__*/React.createElement("section", {
-    className: "vw-container",
-    style: {
-      padding: "60px var(--gutter) 80px",
-      borderTop: "1px solid var(--vw-void-line)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-      gap: 56,
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-    className: "vw-eyebrow",
-    style: {
-      margin: "0 0 18px"
-    }
-  }, "Your data, your rules"), /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontFamily: "var(--vw-font-display)",
-      fontSize: 44,
-      fontWeight: 600,
-      letterSpacing: "-0.025em",
-      lineHeight: 1.02,
-      color: "var(--vw-void-ink)",
-      margin: "0 0 22px",
-      textWrap: "balance"
-    }
-  }, "Define your own", /*#__PURE__*/React.createElement("br", null), "PII types in YAML."), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 16,
-      lineHeight: 1.6,
-      color: "var(--vw-void-ink-2)",
-      margin: "0 0 28px",
-      maxWidth: 440
-    }
-  }, "Every business has personal data the built-in detectors will not know: internal employee IDs, customer numbers, project codenames, partner references. Add as many user-defined matchers as you need \u2014 with regex, context keywords, confidence thresholds, and per-route scope."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      marginBottom: 28
-    }
-  }, ["Hot-reloaded — no restart, no redeploy.", "Composable with built-in detectors.", "Versioned alongside the rest of your config."].map(t => /*#__PURE__*/React.createElement("div", {
-    key: t,
-    style: {
-      display: "flex",
-      gap: 10,
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-300)"
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 14
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 14,
-      color: "var(--vw-void-ink)"
-    }
-  }, t)))), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    className: "vw-btn vw-btn--link",
-    style: {
-      color: "var(--vw-violet-300)"
-    }
-  }, "See the matcher reference ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--vw-void-2)",
-      border: "1px solid var(--vw-void-line)",
-      borderRadius: 14,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "12px 16px",
-      borderBottom: "1px solid var(--vw-void-line)",
-      fontFamily: "var(--vw-font-mono)",
-      fontSize: 12,
-      color: "var(--vw-void-ink-3)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "flex",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  })), "detectors/acme.yaml"), /*#__PURE__*/React.createElement("pre", {
-    style: {
-      margin: 0,
-      padding: "18px 20px",
-      fontFamily: "var(--vw-font-mono)",
-      fontSize: 12.5,
-      lineHeight: 1.7,
-      color: "var(--vw-void-ink)",
-      whiteSpace: "pre",
-      overflow: "auto"
-    }
-  }, yaml.map((tok, i) => {
-    if (tok.t === "n") return "\n";
-    if (tok.t === "c") return /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        color: "var(--vw-void-ink-3)"
-      }
-    }, tok.v);
-    if (tok.t === "k") return /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        color: "var(--vw-violet-300)"
-      }
-    }, tok.v);
-    if (tok.t === "s") return /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        color: "#C8A35F"
-      }
-    }, "\"", tok.v, "\"");
-    if (tok.t === "v") return /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        color: "var(--vw-void-ink)"
-      }
-    }, tok.v);
-    return /*#__PURE__*/React.createElement("span", {
-      key: i,
-      style: {
-        color: "var(--vw-void-ink-3)"
-      }
-    }, tok.v);
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 16,
-      background: "var(--vw-void-2)",
-      border: "1px solid var(--vw-void-line)",
-      borderRadius: 14,
-      padding: "16px 18px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 10.5,
-      letterSpacing: "0.14em",
-      textTransform: "uppercase",
-      color: "var(--vw-void-ink-3)",
-      marginBottom: 12
-    }
-  }, "Test results"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 8
-    }
-  }, matched.map((m, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      display: "grid",
-      gridTemplateColumns: "20px 1fr auto",
-      gap: 10,
-      alignItems: "center",
-      fontFamily: "var(--vw-font-mono)",
-      fontSize: 12.5
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: m.ok ? "var(--vw-success)" : "var(--vw-void-ink-3)"
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: m.ok ? "check" : "x",
-    size: 14
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink)"
-    }
-  }, m.v), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 11,
-      color: m.ok ? "var(--vw-success)" : "var(--vw-void-ink-3)"
-    }
-  }, m.ok ? "match" : m.reason))))))));
-}
-window.CustomPII = CustomPII;
 
 /* === 09-performance.jsx === */
 // Performance — paper-band section. Highlights latency, throughput, and cost.
@@ -2270,7 +1973,7 @@ function Performance() {
       margin: 0,
       maxWidth: 460
     }
-  }, "Voidwall is written to disappear behind the wire. It scales horizontally, runs in your cluster, and adds a budget you can measure in single-digit milliseconds. No external calls, no phone-home, no per-request fees.")), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall scales horizontally, runs in your cluster, and adds a budget you can measure in single-digit milliseconds. It's designed to be a lightweight, self-hosted service that doesn't break the bank as you grow.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(3, 1fr)",
@@ -2279,30 +1982,29 @@ function Performance() {
   }, /*#__PURE__*/React.createElement(PerfCard, {
     icon: "gauge",
     eyebrow: "Latency (p99)",
-    big: "1.2",
+    big: "9.2",
     unit: "ms",
-    sub: "added per request, JSON payloads under 4 KiB",
+    sub: "added per request, payload size 10 KiB",
     chart: /*#__PURE__*/React.createElement(Bars, {
-      values: [0.6, 0.8, 1.0, 1.1, 1.2],
-      labels: ["p50", "p75", "p90", "p95", "p99"]
+      values: [2.6, 3.9, 5.3, 9.2],
+      labels: ["p50", "p75", "p95", "p99"]
     })
   }), /*#__PURE__*/React.createElement(PerfCard, {
     icon: "trend-up",
-    eyebrow: "Throughput",
-    big: "38k",
+    eyebrow: "Request rate",
+    big: "32k",
     unit: "req/s",
-    sub: "sustained per pod, four logical cores",
+    sub: "single container, 6 logical cores, 10 KiB payload",
     chart: /*#__PURE__*/React.createElement(Bars, {
-      values: [8, 16, 24, 32, 38],
-      labels: ["1c", "2c", "3c", "4c", "4c+"]
+      values: [13, 22, 26, 32],
+      labels: ["1c", "2c", "4c", "6c"]
     })
   }), /*#__PURE__*/React.createElement(PerfCard, {
-    icon: "wallet",
-    eyebrow: "Cost",
-    big: "0.7",
-    unit: "\xA2 / million req",
-    sub: "self-hosted, commodity hardware",
-    chart: /*#__PURE__*/React.createElement(CostBars, null)
+    icon: "ram",
+    eyebrow: "Memory usage max",
+    big: "214",
+    unit: "MiB",
+    sub: "single container, 6 logical cores, 10 KiB payload"
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 56,
@@ -2310,7 +2012,7 @@ function Performance() {
       gridTemplateColumns: "repeat(3, 1fr)",
       gap: 0
     }
-  }, [["zap", "Streaming parser", "Bodies are scanned as they arrive — no buffering large uploads in memory."], ["layers", "Horizontal scaling", "Stateless workers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Runs where you do", "Kubernetes, ECS, Nomad, bare metal, or a single VM. No managed plane."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, [["layers", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Runs where you do", "Docker, Kubernetes, bare metal or a VM."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",
@@ -2444,11 +2146,12 @@ function Bars({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       width: "100%",
-      height: `${v / max * 100}%`,
+      height: `${v / max * 50}px`,
       background: i === values.length - 1 ? "var(--vw-violet-400)" : "var(--vw-paper-ink)",
       borderRadius: 3,
       minHeight: 6
-    }
+    },
+    title: values[i]
   }), /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: "var(--vw-font-mono)",
@@ -2871,18 +2574,8 @@ function Terminal() {
 window.CTA = CTA;
 
 /* === 12-footer.jsx === */
-// Footer — void surface. Multi-column with brand, status, and link sets.
+// Footer — void surface. Logo and copyright only.
 function Footer() {
-  const groups = [{
-    title: "Product",
-    links: ["Detection coverage", "Analytics scanning", "Custom matchers", "Performance", "Live demo"]
-  }, {
-    title: "Resources",
-    links: ["Blog", "GitHub", "Changelog", "Security", "Status"]
-  }, {
-    title: "Company",
-    links: ["About", "Contact", "Press", "Careers"]
-  }];
   return /*#__PURE__*/React.createElement("footer", {
     style: {
       background: "var(--vw-void)",
@@ -2892,24 +2585,27 @@ function Footer() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "vw-container",
     style: {
-      padding: "72px var(--gutter) 32px"
+      padding: "32px var(--gutter)"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "grid",
-      gridTemplateColumns: "minmax(0, 1.4fr) repeat(3, minmax(0, 1fr))",
-      gap: 48,
-      alignItems: "start"
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 16,
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 12.5,
+      color: "var(--vw-void-ink-3)",
+      flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("a", {
+  }, /*#__PURE__*/React.createElement("a", {
     href: "#",
     style: {
       display: "inline-flex",
       alignItems: "center",
       gap: 10,
       color: "var(--vw-violet-300)",
-      textDecoration: "none",
-      marginBottom: 22
+      textDecoration: "none"
     }
   }, /*#__PURE__*/React.createElement("img", {
     src: "assets/logo-mark-light.svg",
@@ -2924,116 +2620,7 @@ function Footer() {
       fontSize: 15,
       color: "var(--vw-void-ink)"
     }
-  }, "VOIDWALL")), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 13.5,
-      lineHeight: 1.55,
-      color: "var(--vw-void-ink-2)",
-      margin: "0 0 22px",
-      maxWidth: 320
-    }
-  }, "The invisible wall between your data and the outside. Self-hosted DLP proxy for HTTP traffic."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "8px 12px",
-      border: "1px solid var(--vw-void-line)",
-      borderRadius: 8,
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 12,
-      color: "var(--vw-void-ink-2)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 7,
-      height: 7,
-      borderRadius: 999,
-      background: "var(--vw-success)"
-    }
-  }), "Demo operational", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink-3)",
-      marginLeft: 6
-    }
-  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: "var(--vw-font-mono)",
-      color: "var(--vw-void-ink-3)"
-    }
-  }, "v0.4.2"))), groups.map(g => /*#__PURE__*/React.createElement("div", {
-    key: g.title
-  }, /*#__PURE__*/React.createElement("h4", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 11,
-      letterSpacing: "0.14em",
-      textTransform: "uppercase",
-      color: "var(--vw-void-ink-3)",
-      margin: "0 0 16px",
-      fontWeight: 500
-    }
-  }, g.title), /*#__PURE__*/React.createElement("ul", {
-    style: {
-      listStyle: "none",
-      padding: 0,
-      margin: 0,
-      display: "flex",
-      flexDirection: "column",
-      gap: 10
-    }
-  }, g.links.map(l => /*#__PURE__*/React.createElement("li", {
-    key: l
-  }, /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 13.5,
-      color: "var(--vw-void-ink-2)",
-      textDecoration: "none"
-    }
-  }, l))))))), /*#__PURE__*/React.createElement("hr", {
-    className: "vw-rule",
-    style: {
-      borderTopColor: "var(--vw-void-line)",
-      margin: "48px 0 22px"
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 16,
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 12.5,
-      color: "var(--vw-void-ink-3)",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall. Built in Paris and Berlin."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 20
-    }
-  }, /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    style: {
-      color: "var(--vw-void-ink-3)",
-      textDecoration: "none"
-    }
-  }, "Privacy"), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    style: {
-      color: "var(--vw-void-ink-3)",
-      textDecoration: "none"
-    }
-  }, "Terms"), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    style: {
-      color: "var(--vw-void-ink-3)",
-      textDecoration: "none"
-    }
-  }, "Security disclosure")))));
+  }, "VOIDWALL")), /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall"))));
 }
 window.Footer = Footer;
 
@@ -3046,6 +2633,6 @@ function App() {
     headlineKey: "intercepted"
   }), /*#__PURE__*/React.createElement(Metrics, null), /*#__PURE__*/React.createElement("div", {
     className: "void-band vw-void"
-  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null), /*#__PURE__*/React.createElement(CustomPII, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Blog, null), /*#__PURE__*/React.createElement(CTA, null), /*#__PURE__*/React.createElement(Footer, null));
+  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Footer, null));
 }
 ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(App, null));

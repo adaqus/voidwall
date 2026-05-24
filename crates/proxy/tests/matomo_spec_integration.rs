@@ -383,17 +383,21 @@ async fn get_pii_in_urlref() {
     assert!(!body.contains("4111111111111111"));
 }
 
-// #4 — Raw email in `uid`
+// #4 — Raw email in `uid` is an operator-acknowledged channel: it must
+// round-trip verbatim, since redacting the deliberate user identifier
+// would break Matomo's cross-visit join.
 #[tokio::test]
-async fn get_raw_email_in_uid() {
+async fn get_uid_email_passes_through() {
     let upstream = start_matomo_upstream().await;
     let proxy = TestProxy::start(upstream, redact_request(), empty_dir()).await;
 
     let q = "idsite=1&rec=1&apiv=1&_id=a1b2c3d4e5f6a7b8&url=https%3A%2F%2Fapp.example.com%2F&action_name=Login&uid=jane.doe%40example.com";
     let (status, body) = get_matomo(&proxy, q).await;
     assert_eq!(status, 200);
-    assert!(!body.contains("jane.doe@example.com"));
-    assert!(!body.contains("jane.doe%40example.com"));
+    assert!(
+        body.contains("uid=jane.doe%40example.com"),
+        "uid must pass through unredacted: {body}"
+    );
 }
 
 // #5 — PII in `_cvar`

@@ -661,12 +661,15 @@ async fn spec_unknown_name_on_redact_returns_400() {
 }
 
 #[tokio::test]
-async fn spec_ga4_json_scan_detects_pii_in_user_id() {
+async fn spec_ga4_json_scan_detects_pii_in_user_data_email() {
     let api = TestApi::start().await;
     let client = reqwest::Client::new();
-    // GA4 /mp/collect-shape payload: top-level object with user_id under the
-    // allowlist. Spec walks the JSON and feeds string leaves into the scanner.
-    let body = r#"{"client_id":"abc.123","user_id":"user@example.com","events":[]}"#;
+    // GA4 /mp/collect-shape payload: top-level object with `user_data` —
+    // the explicit PII envelope — under the allowlist. Spec walks the JSON
+    // and feeds string leaves into the scanner. `user_id` is an
+    // operator-acknowledged channel and skipped (see DESIGN.md § ga4).
+    let body =
+        r#"{"client_id":"abc.123","user_data":{"email_address":"user@example.com"},"events":[]}"#;
     let resp = client
         .post(api.url("/v1/scan?specialization=ga4"))
         .header("content-type", "application/json")
@@ -696,7 +699,8 @@ async fn spec_ga4_json_scan_detects_pii_in_user_id() {
 async fn spec_ga4_json_redact_returns_valid_json() {
     let api = TestApi::start().await;
     let client = reqwest::Client::new();
-    let body = r#"{"client_id":"abc.123","user_id":"user@example.com","events":[]}"#;
+    let body =
+        r#"{"client_id":"abc.123","user_data":{"email_address":"user@example.com"},"events":[]}"#;
     let resp = client
         .post(api.url("/v1/redact?specialization=ga4"))
         .header("content-type", "application/json")
@@ -722,7 +726,7 @@ async fn spec_ga4_json_redact_returns_valid_json() {
     let body_bytes = resp.bytes().await.unwrap();
     // Body must still parse as valid JSON, with the email replaced.
     let parsed: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(parsed["user_id"], "[EMAIL]");
+    assert_eq!(parsed["user_data"]["email_address"], "[EMAIL]");
     // Opaque IDs (cid) are not scanned by the spec and must pass through.
     assert_eq!(parsed["client_id"], "abc.123");
 }

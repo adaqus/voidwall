@@ -63,7 +63,7 @@ docker run --rm --network "$NET" \
   -v "$PWD":/work -w /work zenika/alpine-chrome \
   --no-sandbox --headless --disable-gpu \
   --virtual-time-budget=8000 \
-  --dump-dom "http://$NGINX/index.html" > index.html.tmp
+  --dump-dom "http://$NGINX/index.html" > index.html.tmp 2>/dev/null
 
 # --dump-dom emits the <html> element only; re-prepend the doctype.
 { printf '<!DOCTYPE html>\n'; cat index.html.tmp; } > index.html

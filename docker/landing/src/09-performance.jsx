@@ -22,10 +22,9 @@ function Performance() {
             fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
             color: "var(--vw-paper-ink-2)", margin: 0, maxWidth: 460,
           }}>
-            Voidwall is written to disappear behind the wire. It scales
-            horizontally, runs in your cluster, and adds a budget you can
-            measure in single-digit milliseconds. No external calls, no
-            phone-home, no per-request fees.
+            Voidwall scales horizontally, runs in your cluster, and adds a budget you can
+            measure in single-digit milliseconds. It's designed to be a lightweight, self-hosted service that 
+            doesn't break the bank as you grow.
           </p>
         </div>
 
@@ -33,26 +32,25 @@ function Performance() {
           <PerfCard
             icon="gauge"
             eyebrow="Latency (p99)"
-            big="1.2"
+            big="9.2"
             unit="ms"
-            sub="added per request, JSON payloads under 4 KiB"
-            chart={<Bars values={[0.6, 0.8, 1.0, 1.1, 1.2]} labels={["p50", "p75", "p90", "p95", "p99"]}/>}
+            sub="added per request, payload size 10 KiB"
+            chart={<Bars values={[2.6, 3.9, 5.3, 9.2]} labels={["p50", "p75", "p95", "p99"]}/>}
           />
           <PerfCard
             icon="trend-up"
-            eyebrow="Throughput"
-            big="38k"
+            eyebrow="Request rate"
+            big="32k"
             unit="req/s"
-            sub="sustained per pod, four logical cores"
-            chart={<Bars values={[8, 16, 24, 32, 38]} labels={["1c", "2c", "3c", "4c", "4c+"]}/>}
+            sub="single container, 6 logical cores, 10 KiB payload"
+            chart={<Bars values={[13, 22, 26, 32]} labels={["1c", "2c", "4c", "6c"]}/>}
           />
           <PerfCard
-            icon="wallet"
-            eyebrow="Cost"
-            big="0.7"
-            unit="¢ / million req"
-            sub="self-hosted, commodity hardware"
-            chart={<CostBars/>}
+            icon="ram"
+            eyebrow="Memory usage max"
+            big="214"
+            unit="MiB"
+            sub="single container, 6 logical cores, 10 KiB payload"
           />
         </div>
 
@@ -62,9 +60,8 @@ function Performance() {
           gap: 0,
         }}>
           {[
-            ["zap", "Streaming parser", "Bodies are scanned as they arrive — no buffering large uploads in memory."],
-            ["layers", "Horizontal scaling", "Stateless workers. Add a pod, get throughput. Drain a pod, get nothing else."],
-            ["server", "Runs where you do", "Kubernetes, ECS, Nomad, bare metal, or a single VM. No managed plane."],
+            ["layers", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."],
+            ["server", "Runs where you do", "Docker, Kubernetes, bare metal or a VM."],
           ].map(([icon, title, body], i) => (
             <div key={title} style={{
               padding: "0 28px",
@@ -142,11 +139,11 @@ function Bars({ values, labels }) {
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
           <div style={{
             width: "100%",
-            height: `${(v / max) * 100}%`,
+            height: `${(v / max) * 50}px`,
             background: i === values.length - 1 ? "var(--vw-violet-400)" : "var(--vw-paper-ink)",
             borderRadius: 3,
             minHeight: 6,
-          }}/>
+          }} title={values[i]} />
           <span style={{
             fontFamily: "var(--vw-font-mono)", fontSize: 10,
             color: "var(--vw-paper-ink-3)",

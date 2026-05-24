@@ -73,8 +73,16 @@ fn form_field_treatment(name: &str) -> FormFieldTreatment {
     }
 
     match name {
-        "action_name" | "uid" | "cip" | "e_c" | "e_a" | "e_n" | "e_v" | "search" | "search_cat"
-        | "cra" | "cra_st" | "c_n" | "c_p" | "c_i" | "ec_id" => FormFieldTreatment::Flat,
+        "action_name" | "e_c" | "e_a" | "e_n" | "e_v" | "search" | "search_cat" | "cra"
+        | "cra_st" | "c_n" | "c_p" | "c_i" | "ec_id" => FormFieldTreatment::Flat,
+        // Operator-acknowledged identifier / IP-override channels:
+        // `uid` is the integrator's chosen user identifier (frequently an
+        // email by design — cross-device join key); `cip` is the explicit
+        // client-IP override used by server-side gateways and edge
+        // anonymisation. Redacting these doesn't catch a leak, it breaks
+        // the integration. Other allowlist entries still catch accidental
+        // PII in fields not designed to carry identifiers.
+        "uid" | "cip" => FormFieldTreatment::Skip,
         // Opaque identifiers, capability flags, and platform diagnostics —
         // never scanned. Matches DESIGN.md's "Skipped" list.
         "idsite" | "rec" | "apiv" | "_id" | "rand" | "revenue" | "idgoal" | "res" | "h" | "m"
@@ -654,8 +662,6 @@ mod tests {
     #[test_case("_cvar", FormFieldTreatment::JsonValue ; "_cvar json")]
     #[test_case("ec_items", FormFieldTreatment::JsonValue ; "ec_items json")]
     #[test_case("action_name", FormFieldTreatment::Flat ; "action_name flat")]
-    #[test_case("uid", FormFieldTreatment::Flat ; "uid flat")]
-    #[test_case("cip", FormFieldTreatment::Flat ; "cip flat")]
     #[test_case("e_c", FormFieldTreatment::Flat ; "e_c flat")]
     #[test_case("e_a", FormFieldTreatment::Flat ; "e_a flat")]
     #[test_case("e_n", FormFieldTreatment::Flat ; "e_n flat")]
@@ -671,6 +677,8 @@ mod tests {
     #[test_case("dimension1", FormFieldTreatment::Flat ; "dimension1 flat")]
     #[test_case("dimension42", FormFieldTreatment::Flat ; "dimension42 flat")]
     #[test_case("dimension999", FormFieldTreatment::Flat ; "dimension999 flat")]
+    #[test_case("uid", FormFieldTreatment::Skip ; "uid skip operator-acknowledged")]
+    #[test_case("cip", FormFieldTreatment::Skip ; "cip skip ip override")]
     #[test_case("idsite", FormFieldTreatment::Skip ; "idsite skip")]
     #[test_case("rec", FormFieldTreatment::Skip ; "rec skip")]
     #[test_case("apiv", FormFieldTreatment::Skip ; "apiv skip")]
@@ -754,16 +762,10 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test_case(
-        "idsite=1&rec=1&apiv=1&_id=a1b2c3d4e5f6a7b8&action_name=Order%20for%20jane.doe%40example.com&uid=jane.doe%40example.com",
+        "idsite=1&rec=1&apiv=1&_id=a1b2c3d4e5f6a7b8&action_name=Order%20for%20jane.doe%40example.com",
         "jane.doe@example.com",
         Some("%5BEMAIL%5D")
-        ; "action_name and uid flat"
-    )]
-    #[test_case(
-        "idsite=1&rec=1&apiv=1&cip=10.0.0.255",
-        "10.0.0.255",
-        None
-        ; "cip flat"
+        ; "action_name flat"
     )]
     #[test_case(
         "idsite=1&rec=1&apiv=1&e_c=newsletter&e_a=submit&e_n=user%40example.com&e_v=1",
@@ -1001,7 +1003,7 @@ mod tests {
         let payload = json!({
             "requests": [
                 "?idsite=1&rec=1&apiv=1&action_name=Pricing",
-                "?idsite=1&rec=1&apiv=1&uid=user%40example.com",
+                "?idsite=1&rec=1&apiv=1&action_name=Order%20for%20user%40example.com",
             ],
             "token_auth": "tok",
         });
@@ -1145,6 +1147,32 @@ mod tests {
         // The re-encoded query must be byte-identical to the input when no
         // PII fired: same key order, same encoding.
         assert_eq!(query_str(&pr), q);
+    }
+
+    // Operator-acknowledged identifier / IP-override channels (`uid`,
+    // `cip`) are explicitly excluded from scanning — an email in `uid` is
+    // a deliberate join key, and `cip` exists for the purpose of relaying
+    // a client IP. They must round-trip verbatim with zero detections.
+    #[tokio::test]
+    async fn operator_acknowledged_form_fields_pass_through() {
+        let h = redact_handle();
+        let q = "idsite=1&rec=1&apiv=1&uid=jane.doe%40example.com&cip=10.0.0.255";
+        let pr = run_spec(&h, Some(q), None, None).await.unwrap();
+        assert_eq!(
+            pr.scan_result.matches_count, 0,
+            "operator-acknowledged channels must not fire detections; got {:?}",
+            pr.scan_result.kinds
+        );
+        let out = query_str(&pr);
+        let pairs = parse_form_pairs(&out).unwrap();
+        let by_key = |k: &str| {
+            pairs
+                .iter()
+                .find(|p| p.key == k)
+                .unwrap_or_else(|| panic!("missing {k}"))
+        };
+        assert_eq!(by_key("uid").value, "jane.doe@example.com");
+        assert_eq!(by_key("cip").value, "10.0.0.255");
     }
 
     // Protocol-evolution regression: if Matomo ships a new tracker field

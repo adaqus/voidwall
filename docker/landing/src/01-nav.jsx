@@ -3,9 +3,10 @@ function Nav() {
   const links = [
     ["Product", "#product"],
     ["Detection", "#detection"],
-    ["Integrations", "#integrations"],
+    ["Specializations", "#specializations"],
+    ["Formats", "#formats"],
     ["Performance", "#performance"],
-    ["Blog", "#blog"],
+    // ["Blog", "#blog"],
   ];
   return (
     <header style={{
@@ -32,14 +33,13 @@ function Nav() {
             }}>{l}</a>
           ))}
         </nav>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
-          <a href="https://github.com/" target="_blank" rel="noreferrer" style={{
-            fontFamily: "var(--vw-font-body)", fontSize: 14, color: "var(--vw-paper-ink)", textDecoration: "none",
-            display: "inline-flex", alignItems: "center", gap: 6,
-          }}>
-            <Icon name="github" size={16}/> GitHub
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
+            Try the live demo <Icon name="external-link" size={14}/>
           </a>
-          <a href="#demo" className="vw-btn vw-btn--primary">Try the live demo <span className="arrow">→</span></a>
+          <a href="#" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
+            Become early adopter <span className="arrow">→</span>
+          </a>
         </div>
       </div>
     </header>

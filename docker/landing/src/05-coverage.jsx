@@ -3,59 +3,86 @@
 function Coverage() {
   const groups = [
     {
-      title: "Identity",
-      icon: "id-card",
+      title: "Identity & Contact",
+      icon: "user",
       items: [
-        ["Full name", true],
+        ["Person name", true],
         ["Email", true],
         ["Phone number", true],
         ["Date of birth", false],
-        ["Passport no.", true],
-        ["National ID", true],
-        ["Driver's licence", false],
-        ["Tax ID", false],
+        ["Geolocation", false],
+        ["Postal address", false],
+        ["Postcode / ZIP", false],
       ],
     },
     {
-      title: "Financial",
+      title: "National IDs",
+      icon: "flag",
+      items: [
+        ["US — SSN", true],
+        ["US — ITIN", false],
+        ["GB — NI no.", false],
+        ["IE — PPSN", false],
+        ["CA — SIN", false],
+        ["FR — NIR", true],
+        ["FR — CNI", false],
+        ["DE — Steuer-ID", true],
+        ["DE — Personalausweis", false],
+        ["AT — SVNR", false],
+        ["CH — AHV", false],
+      ],
+    },
+    {
+      title: "Travel & Driving",
+      icon: "globe-2",
+      items: [
+        ["Passport", true],
+        ["Driver's licence", true],
+        ["US — Alien no.", false],
+        ["US — USCIS receipt", false],
+        ["VIN", false],
+      ],
+    },
+    {
+      title: "Health & Tax",
+      icon: "audit",
+      items: [
+        ["GB — NHS number", true],
+        ["AU — Medicare", false],
+        ["NZ — NHI", false],
+        ["CA — OHIP", false],
+        ["US — EIN", true],
+        ["GB — UTR", false],
+        ["AU — TFN", false],
+        ["AU — ABN", false],
+        ["FR — SIRET / SIREN", true],
+        ["FR — NIF", false],
+      ],
+    },
+    {
+      title: "Financial & Crypto",
       icon: "credit-card",
       items: [
         ["IBAN", true],
         ["Credit card", true],
         ["SWIFT / BIC", false],
-        ["Bank routing", false],
-        ["VAT number", false],
-        ["Crypto wallet", true],
-        ["Account no.", false],
+        ["US — ABA routing", false],
+        ["GB — Sort code", false],
+        ["AU / CA — Bank account", false],
+        ["Bitcoin", true],
+        ["Ethereum", false],
       ],
     },
     {
-      title: "Locale-specific",
-      icon: "flag",
-      items: [
-        ["US — SSN", true],
-        ["UK — NI no.", false],
-        ["FR — NIR", true],
-        ["FR — SIREN", false],
-        ["DE — Steuer-ID", true],
-        ["NL — BSN", false],
-        ["IT — Codice Fiscale", false],
-        ["PL — PESEL", false],
-        ["ES — DNI", false],
-        ["CA — SIN", false],
-      ],
-    },
-    {
-      title: "Technical",
-      icon: "fingerprint",
+      title: "Tech & Secrets",
+      icon: "key",
       items: [
         ["IPv4 / IPv6", true],
         ["MAC address", false],
-        ["URL with token", false],
-        ["JWT", true],
-        ["API key", true],
-        ["Cookie ID", false],
-        ["Device fingerprint", false],
+        ["IMEI", false],
+        ["AWS access key", true],
+        ["AWS secret key", true],
+        ["GitHub token", false],
       ],
     },
   ];
@@ -67,9 +94,9 @@ function Coverage() {
   ];
 
   const countries = [
-    "United States", "United Kingdom", "France", "Germany",
-    "Netherlands", "Italy", "Spain", "Poland",
-    "Belgium", "Canada", "Switzerland",
+    "International", "United States", "Great Britain", "France", "Germany",
+    "Ireland", "Canada", "Australia", "New Zealand", "Suth Africa",
+    "Austria", "Switzerland",
   ];
 
   return (
@@ -85,16 +112,15 @@ function Coverage() {
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: "0 0 22px", textWrap: "balance",
           }}>
-            Over 80 PII types.<br/>Three languages.<br/>Eleven countries.
+            88 PII types.<br/>And growing.
           </h2>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 15.5, lineHeight: 1.6,
             color: "var(--vw-void-ink-2)", margin: "0 0 28px", maxWidth: 400,
           }}>
-            Detectors are context-aware and locale-specific. A French
-            NIR isn't a German Steuer-ID, even when the digits collide.
-            Voidwall reads the field name, the values around it, and
-            the route — then decides.
+            Voidwall is able to detect PIIs on a basis of pattern recognition, contextual analysis and validation, 
+            so it warns about real values, not just looks-like ones. Here are examples of what can be detected.<br/><br/>
+            Custom types can be added via configuration file.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
             <span className="vw-eyebrow vw-eyebrow--muted">Languages</span>
@@ -112,6 +138,17 @@ function Coverage() {
                   <span style={{ color: "var(--vw-void-ink-3)" }}>{name}</span>
                 </div>
               ))}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                height: 26, padding: "0 10px",
+                borderRadius: 999,
+                fontFamily: "var(--vw-font-body)", fontSize: 12,
+                color: "var(--vw-violet-300)",
+              }}>
+                <Icon name="plus" size={12}/> more soon
+              </span>
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

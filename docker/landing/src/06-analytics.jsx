@@ -2,7 +2,7 @@
 // Shows the same tracking event in raw vs. sanitized form, for each platform.
 function Analytics() {
   return (
-    <section id="integrations" className="vw-container" style={{ padding: "80px var(--gutter) 80px", borderTop: "1px solid var(--vw-void-line)" }}>
+    <section id="specializations" className="vw-container" style={{ padding: "80px var(--gutter) 80px", borderTop: "1px solid var(--vw-void-line)" }}>
       <div className="vw-section-head" style={{ marginBottom: 56 }}>
         <div>
           <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>Analytics, sanitized</p>
@@ -19,13 +19,14 @@ function Analytics() {
           color: "var(--vw-void-ink-2)", margin: 0, maxWidth: 460,
         }}>
           Front-end tracking is the leakiest path out of a product —
-          marketing teams add events, developers add custom parameters,
-          and personal data slips into Google or Matomo unnoticed.
-          Voidwall sits in front of the collector and sanitizes every hit.
+          marketing teams add events, users paste their PIIs to search bars,
+          and personal data slips into Google or Matomo unnoticed. Even 20% of websites
+          have this problem. Voidwall may be a proxy between your product and web analytics,
+          preventing your users' personal data from leaking out.
         </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 24 }}>
         <PlatformCard
           name="Google Analytics 4"
           endpoint="POST  /g/collect"
@@ -37,6 +38,15 @@ function Analytics() {
           tag="matomo"
         />
       </div>
+
+      <p style={{
+        fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
+        color: "var(--vw-void-ink-2)", margin: "32px 0 0", maxWidth: 1120,
+      }}>
+        Specializations know what to scan — catching sensitive data even
+        inside doubly-encoded payloads. They also know what <em>not</em> to
+        scan, so the integration keeps working as intended.
+      </p>
     </section>
   );
 }
@@ -44,43 +54,47 @@ function Analytics() {
 function PlatformCard({ name, endpoint, tag }) {
   const ga4Raw = [
     ['v', '2'],
-    ['tid', 'G-X8Q1ZRP'],
-    ['cid', '1822941.1715'],
+    ['tid', 'G-X8Q1ZRP7M2'],
+    ['cid', '1822941715.1719583924'],
+    ['dl', 'https://shop.acme.io/u/alex.miller@acme.io', true],
+    ['dt', 'Order #4711 — alex.miller@acme.io', true],
+    ['en', 'login'],
+    ['ep.contact_phone', '+33 6 12 34 56 78', true],
     ['uid', 'alex.miller@acme.io', true],
-    ['ep.session_id', '6671'],
-    ['ep.search_query', 'sarah dupont 06 12 34 56 78', true],
-    ['ep.user_zip', '75011', true],
-    ['uip', '203.0.113.42', true],
+    ['_uip', '203.0.113.42', true],
   ];
   const ga4San = [
     ['v', '2'],
-    ['tid', 'G-X8Q1ZRP'],
-    ['cid', '1822941.1715'],
-    ['uid', 'sha256:a4f9…', null, 'hashed'],
-    ['ep.session_id', '6671'],
-    ['ep.search_query', '<name> <phone:fr>', null, 'redacted'],
-    ['ep.user_zip', '750**', null, 'masked'],
-    ['uip', '203.0.113.0', null, 'truncated'],
+    ['tid', 'G-X8Q1ZRP7M2'],
+    ['cid', '1822941715.1719583924'],
+    ['dl', 'https://shop.acme.io/u/[EMAIL]'],
+    ['dt', 'Order #4711 — [EMAIL]'],
+    ['en', 'login'],
+    ['ep.contact_phone', '[FR_PHONE_NUMBER]'],
+    ['uid', 'alex.miller@acme.io', false, 'by design'],
+    ['_uip', '203.0.113.42', false, 'by design'],
   ];
   const matomoRaw = [
     ['idsite', '17'],
     ['rec', '1'],
-    ['action_name', 'Checkout'],
-    ['uid', 'klaus.weber@example.de', true],
-    ['e_n', 'lead.submit'],
-    ['cvar', '{"email":"klaus.weber@example.de"}', true],
+    ['url', 'https://shop.acme.de/?email=klaus.weber@example.de', true],
+    ['action_name', 'Login · Acme'],
+    ['dimension2', 'klaus.weber@example.de', true],
+    ['_cvar', '{"1":["email","klaus.weber@example.de"]}', true],
     ['_id', '8b3f1a92ee44c1d2'],
+    ['uid', 'klaus.weber@example.de', true],
     ['cip', '94.245.66.10', true],
   ];
   const matomoSan = [
     ['idsite', '17'],
     ['rec', '1'],
-    ['action_name', 'Checkout'],
-    ['uid', 'sha256:7c12…', null, 'hashed'],
-    ['e_n', 'lead.submit'],
-    ['cvar', '{"email":"<email>"}', null, 'redacted'],
+    ['url', 'https://shop.acme.de/?email=[EMAIL]'],
+    ['action_name', 'Login · Acme'],
+    ['dimension2', '[EMAIL]'],
+    ['_cvar', '{"1":["email","[EMAIL]"]}'],
     ['_id', '8b3f1a92ee44c1d2'],
-    ['cip', '94.245.66.0', null, 'truncated'],
+    ['uid', 'klaus.weber@example.de', false, 'by design'],
+    ['cip', '94.245.66.10', false, 'by design'],
   ];
 
   const raw = tag === "ga4" ? ga4Raw : matomoRaw;
