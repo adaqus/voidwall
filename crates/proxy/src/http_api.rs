@@ -148,7 +148,7 @@ struct ErrorResponse {
     "kinds": ["EMAIL", "US_SSN", "CREDIT_CARD"],
 }))]
 struct InfoResponse {
-    /// Veilflow build version.
+    /// Voidwall build version.
     version: &'static str,
     /// Languages supported by keyword-context detectors.
     languages: Vec<&'static str>,
@@ -375,7 +375,7 @@ async fn openapi_handler(State(state): State<ApiState>) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Veilflow HTTP API",
+        title = "Voidwall HTTP API",
         description = "Detect and redact PII in arbitrary text, JSON, CSV, and \
             TSV bodies. The body itself is the content to scan — there is no \
             JSON envelope. The `Content-Type` header drives parsing.",
