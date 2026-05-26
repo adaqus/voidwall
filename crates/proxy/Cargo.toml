@@ -71,6 +71,10 @@ default = []
 # build (the public demo) — not for self-hosted deployments, which are expected
 # to sit behind their own gateway.
 fly-rate-limit = ["dep:tower_governor", "dep:governor"]
+# Serves the Voidwall landing page at / from a fixed image directory
+# (/srv/landing). Used by the Fly.io build — not for self-hosted or local
+# deployments, which have no landing page to serve.
+fly-landing = ["tower-http/fs"]
 
 [[bin]]
 name = "echo-server"
