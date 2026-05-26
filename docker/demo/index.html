@@ -181,7 +181,7 @@
 <script src="config.js"></script>
 <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
 <script>
-  const apiBase = (window.PII_API_URL || "").replace(/\/+$/, "");
+  const apiBase = (window.PII_API_URL || window.location.origin || "").replace(/\/+$/, "");
   document.getElementById("api-url-display").textContent = apiBase || "(unset)";
 
   const examples = {
