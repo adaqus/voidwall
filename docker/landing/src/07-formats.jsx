@@ -10,22 +10,26 @@ function Formats() {
       before:
 `{
   "order_id": "A-2186",
-  "customer_name": "Sarah Dupont",
-  "email": "s.dupont@acme.fr",
-  "phone_number": "+33 6 12 34 56 78",
-  "nir": "1 85 05 78 006 084 91",
-  "billing_iban": "FR76 3000 4012 3456 7890 1234 567",
-  "address": "12 rue de Belleville, 75011 Paris"
+  "customer": {
+    "full_name": { "value": "Sarah Dupont" },
+    "phone_number": { "primary": "+33 6 12 34 56 78" },
+    "national_id": { "nir": "1 85 05 78 006 084 91" }
+  },
+  "billing": {
+    "iban": { "formatted": "FR76 3000 6000 0112 3456 7890 189" }
+  }
 }`,
       after:
 `{
   "order_id": "A-2186",
-  "customer_name": "[PERSON_NAME]",
-  "email": "[EMAIL]",
-  "phone_number": "[PHONE_NUMBER]",
-  "nir": "[FR_NIR]",
-  "billing_iban": "[IBAN]",
-  "address": "[FR_CH_ADDRESS]"
+  "customer": {
+    "full_name": { "value": "[PERSON_NAME]" },
+    "phone_number": { "primary": "[PHONE_NUMBER]" },
+    "national_id": { "nir": "[FR_NIR]" }
+  },
+  "billing": {
+    "iban": { "formatted": "[IBAN]" }
+  }
 }`,
     },
     csv: {
@@ -33,13 +37,13 @@ function Formats() {
       icon: "table",
       before:
 `order_id,customer_name,email,phone,iban
-A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567
+A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 6000 0112 3456 7890 189
 A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00
 A-2188,Lisa Müller,lisa.m@example.ch,+41 79 123 45 67,CH93 0076 2011 6238 5295 7`,
       after:
 `order_id,customer_name,email,phone,iban
 A-2186,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
-A-2187,[PERSON_NAME],[EMAIL],[DE_PHONE_NUMBER],[IBAN]
+A-2187,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
 A-2188,[PERSON_NAME],[EMAIL],[CH_PHONE_NUMBER],[IBAN]`,
     },
     tsv: {
@@ -69,7 +73,7 @@ GET /eth/0x1234567890abcdef1234567890abcdef12345678/balance`,
 `GET /api/users/[EMAIL]/profile
 GET /lookup?ssn=[US_SSN]&card=[CREDIT_CARD]
 POST /track?uid=[EMAIL]&phone_number=[US_PHONE_NUMBER]
-GET /search?user[first_name]=[PERSON_NAME]&user[last_name]=[PERSON_NAME]
+GET /search?user[first_name]=Sarah&user[last_name]=[PERSON_NAME]
 GET /eth/[ETHEREUM_ADDRESS]/balance`,
     },
     text: {
@@ -201,7 +205,7 @@ function CodePane({ title, payload, bad }) {
 // so the alternation picks the wider match at any given position.
 function highlight(text, bad) {
   if (bad) {
-    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 4012 3456 7890 1234 567|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Sarah|Dupont)/g;
+    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 6000 0112 3456 7890 189|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Dupont)/g;
     return splitWith(text, re, (m, i) => (
       <span key={i} style={{ color: "var(--vw-danger)", background: "rgba(229,86,75,0.12)", borderRadius: 3 }}>{m}</span>
     ));

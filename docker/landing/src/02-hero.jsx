@@ -1,17 +1,6 @@
 // Hero — paper surface, left text column, right "wall" illustration with traffic flow.
-// Headline variants — exposed so the Tweaks panel can cycle between options.
-// `lead` / `accent` are sized at the same scale; `lead` ends with a period or fragment,
-// `accent` is the violet kicker on its own line.
-const HEADLINE_VARIANTS = {
-  "wall":         { lead: "Stop personal data at the wall.", accent: "In every direction.", size: 68 },
-  "intercepted":  { lead: "Personal data, intercepted at the edge of every request.", accent: "Inbound and outbound.", size: 60 },
-  "in-out":       { lead: "Sensitive data in. Sanitized data out.", accent: "Nothing you can't audit in between.", size: 60 },
-  "performance":  { lead: "Protects performance-demanding systems from sensitive data leaks.", accent: "Both in and out.", size: 56 },
-};
-window.HEADLINE_VARIANTS = HEADLINE_VARIANTS;
 
-function Hero({ headlineKey = "wall" }) {
-  const h = HEADLINE_VARIANTS[headlineKey] || HEADLINE_VARIANTS["wall"];
+function Hero() {
   return (
     <section className="vw-container" style={{ paddingTop: 56, paddingBottom: 88 }}>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 48, alignItems: "center" }}>
@@ -32,32 +21,32 @@ function Hero({ headlineKey = "wall" }) {
               Live demo available — early access
             </span>
           </div>
-          <p className="vw-eyebrow" style={{ margin: "0 0 22px" }}>DLP proxy. Data stays protected.</p>
+          <p className="vw-eyebrow" style={{ margin: "0 0 22px" }}>Stop privacy debt at the edge.</p>
           <h1 style={{
             fontFamily: "var(--vw-font-display)",
-            fontWeight: 600, fontSize: h.size, lineHeight: 1.0,
+            fontWeight: 600, fontSize: 60, lineHeight: 1.0,
             letterSpacing: "-0.025em",
             color: "var(--vw-paper-ink)",
             margin: "0 0 28px",
             textWrap: "balance",
             minHeight: 220,
           }}>
-            {h.lead} <span style={{ color: "var(--vw-violet-400)" }}>{h.accent}</span>
+            The cheapest sensitive data to delete is data <span style={{ color: "var(--vw-violet-400)" }}>never stored</span>.
           </h1>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 17, lineHeight: 1.55,
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
             margin: "0 0 36px",
           }}>
-            Voidwall is an HTTP reverse proxy and HTTP API that detects, redacts and warns about personal data in real time. It is especially suited for performance-demanding scenarios. Deploy it in front of any service — and stop sensitive data at the edge of your environment.
+            Voidwall stops sensitive data at the edge of every request — inbound and outbound — before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers.
           </p>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
               Try the live demo <Icon name="external-link" size={14}/>
             </a>
-            <a href="#" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
+            {/* <a href="#" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
               Become early adopter <span className="arrow">→</span>
-            </a>
+            </a> */}
           </div>
         </div>
 

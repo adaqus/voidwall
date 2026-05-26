@@ -5,7 +5,7 @@ function App() {
   return (
     <>
       <Nav/>
-      <Hero headlineKey="intercepted"/>
+      <Hero/>
       <Metrics/>
       <div className="void-band vw-void">
         <Features/>

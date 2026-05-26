@@ -663,51 +663,14 @@ function Nav() {
   }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
     name: "external-link",
     size: 14
-  })), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    className: "vw-btn vw-btn--primary",
-    style: {
-      background: "white",
-      color: "var(--vw-void)"
-    }
-  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192")))));
+  })))));
 }
 window.Nav = Nav;
 
 /* === 02-hero.jsx === */
 // Hero — paper surface, left text column, right "wall" illustration with traffic flow.
-// Headline variants — exposed so the Tweaks panel can cycle between options.
-// `lead` / `accent` are sized at the same scale; `lead` ends with a period or fragment,
-// `accent` is the violet kicker on its own line.
-const HEADLINE_VARIANTS = {
-  "wall": {
-    lead: "Stop personal data at the wall.",
-    accent: "In every direction.",
-    size: 68
-  },
-  "intercepted": {
-    lead: "Personal data, intercepted at the edge of every request.",
-    accent: "Inbound and outbound.",
-    size: 60
-  },
-  "in-out": {
-    lead: "Sensitive data in. Sanitized data out.",
-    accent: "Nothing you can't audit in between.",
-    size: 60
-  },
-  "performance": {
-    lead: "Protects performance-demanding systems from sensitive data leaks.",
-    accent: "Both in and out.",
-    size: 56
-  }
-};
-window.HEADLINE_VARIANTS = HEADLINE_VARIANTS;
-function Hero({
-  headlineKey = "wall"
-}) {
-  const h = HEADLINE_VARIANTS[headlineKey] || HEADLINE_VARIANTS["wall"];
+
+function Hero() {
   return /*#__PURE__*/React.createElement("section", {
     className: "vw-container",
     style: {
@@ -756,11 +719,11 @@ function Hero({
     style: {
       margin: "0 0 22px"
     }
-  }, "DLP proxy. Data stays protected."), /*#__PURE__*/React.createElement("h1", {
+  }, "Stop privacy debt at the edge."), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "var(--vw-font-display)",
       fontWeight: 600,
-      fontSize: h.size,
+      fontSize: 60,
       lineHeight: 1.0,
       letterSpacing: "-0.025em",
       color: "var(--vw-paper-ink)",
@@ -768,11 +731,11 @@ function Hero({
       textWrap: "balance",
       minHeight: 220
     }
-  }, h.lead, " ", /*#__PURE__*/React.createElement("span", {
+  }, "The cheapest sensitive data to delete is data ", /*#__PURE__*/React.createElement("span", {
     style: {
       color: "var(--vw-violet-400)"
     }
-  }, h.accent)), /*#__PURE__*/React.createElement("p", {
+  }, "never stored"), "."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 17,
@@ -781,7 +744,7 @@ function Hero({
       maxWidth: 480,
       margin: "0 0 36px"
     }
-  }, "Voidwall is an HTTP reverse proxy and HTTP API that detects, redacts and warns about personal data in real time. It is especially suited for performance-demanding scenarios. Deploy it in front of any service \u2014 and stop sensitive data at the edge of your environment."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall stops sensitive data at the edge of every request \u2014 inbound and outbound \u2014 before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -795,16 +758,7 @@ function Hero({
   }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
     name: "external-link",
     size: 14
-  })), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    className: "vw-btn vw-btn--primary",
-    style: {
-      background: "white",
-      color: "var(--vw-void)"
-    }
-  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192")))), /*#__PURE__*/React.createElement("div", {
+  })))), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "relative",
       width: "100%",
@@ -1155,7 +1109,7 @@ window.Metrics = Metrics;
 // Features — void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
-  const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."], ["redact", "Redact", "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]..."], ["mask", "Mask", "...or mask with configurable characters."], ["block", "Block", "Block the entire request if contain sensitive data."], ["alert", "Alert", "Warn when sensitive data leak is detected."]];
+  const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"], ["redact", "Redact", "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]...", "both"], ["mask", "Mask", "...or mask with configurable characters.", "both"], ["block", "Block", "Block the entire request if contain sensitive data.", "proxy"], ["alert", "Alert", "Warn when sensitive data leak is detected.", "proxy"]];
   return /*#__PURE__*/React.createElement("section", {
     id: "product",
     className: "vw-container",
@@ -1178,12 +1132,31 @@ function Features() {
       margin: 0,
       textWrap: "balance"
     }
-  }, "What Voidwall does")), /*#__PURE__*/React.createElement("div", {
+  }, "What Voidwall does"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 16,
+      lineHeight: 1.55,
+      color: "var(--vw-void-ink-2)",
+      margin: "20px 0 0",
+      maxWidth: 600
+    }
+  }, "Run it two ways: inline as an ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: "var(--vw-void-ink)",
+      fontWeight: 600
+    }
+  }, "HTTP proxy"), " that filters live traffic, or as a ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: "var(--vw-void-ink)",
+      fontWeight: 600
+    }
+  }, "REST API"), " you call to scan and redact on demand. The tag on each card shows where it applies.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(5, 1fr)"
     }
-  }, items.map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, items.map(([icon, title, body, mode], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",
@@ -1204,16 +1177,26 @@ function Features() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: icon,
     size: 22
-  })), /*#__PURE__*/React.createElement("h3", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      margin: "0 0 10px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 19,
       fontWeight: 600,
       letterSpacing: "-0.015em",
       color: "var(--vw-void-ink)",
-      margin: "0 0 10px"
+      margin: 0
     }
-  }, title), /*#__PURE__*/React.createElement("p", {
+  }, title), /*#__PURE__*/React.createElement(ModeTag, {
+    mode: mode
+  })), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 14,
@@ -1222,6 +1205,29 @@ function Features() {
       margin: 0
     }
   }, body)))));
+}
+// Mode tag — marks whether a verb is available via both interfaces or proxy-only.
+function ModeTag({
+  mode
+}) {
+  const both = mode === "both";
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      height: 18,
+      padding: "0 7px",
+      borderRadius: 999,
+      fontFamily: "var(--vw-font-mono)",
+      fontSize: 9.5,
+      letterSpacing: "0.06em",
+      textTransform: "uppercase",
+      whiteSpace: "nowrap",
+      color: "var(--vw-void-ink-2)",
+      border: "1px solid var(--vw-void-ink-3)",
+      background: "transparent"
+    }
+  }, both ? "Proxy + API" : "Proxy only");
 }
 window.Features = Features;
 
@@ -1674,33 +1680,37 @@ function Formats() {
       icon: "file-json",
       before: `{
   "order_id": "A-2186",
-  "customer_name": "Sarah Dupont",
-  "email": "s.dupont@acme.fr",
-  "phone_number": "+33 6 12 34 56 78",
-  "nir": "1 85 05 78 006 084 91",
-  "billing_iban": "FR76 3000 4012 3456 7890 1234 567",
-  "address": "12 rue de Belleville, 75011 Paris"
+  "customer": {
+    "full_name": { "value": "Sarah Dupont" },
+    "phone_number": { "primary": "+33 6 12 34 56 78" },
+    "national_id": { "nir": "1 85 05 78 006 084 91" }
+  },
+  "billing": {
+    "iban": { "formatted": "FR76 3000 6000 0112 3456 7890 189" }
+  }
 }`,
       after: `{
   "order_id": "A-2186",
-  "customer_name": "[PERSON_NAME]",
-  "email": "[EMAIL]",
-  "phone_number": "[PHONE_NUMBER]",
-  "nir": "[FR_NIR]",
-  "billing_iban": "[IBAN]",
-  "address": "[FR_CH_ADDRESS]"
+  "customer": {
+    "full_name": { "value": "[PERSON_NAME]" },
+    "phone_number": { "primary": "[PHONE_NUMBER]" },
+    "national_id": { "nir": "[FR_NIR]" }
+  },
+  "billing": {
+    "iban": { "formatted": "[IBAN]" }
+  }
 }`
     },
     csv: {
       label: "CSV",
       icon: "table",
       before: `order_id,customer_name,email,phone,iban
-A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 4012 3456 7890 1234 567
+A-2186,Sarah Dupont,s.dupont@acme.fr,+33 6 12 34 56 78,FR76 3000 6000 0112 3456 7890 189
 A-2187,Klaus Weber,klaus.w@example.de,+49 30 9876 5432,DE89 3704 0044 0532 0130 00
 A-2188,Lisa Müller,lisa.m@example.ch,+41 79 123 45 67,CH93 0076 2011 6238 5295 7`,
       after: `order_id,customer_name,email,phone,iban
 A-2186,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
-A-2187,[PERSON_NAME],[EMAIL],[DE_PHONE_NUMBER],[IBAN]
+A-2187,[PERSON_NAME],[EMAIL],[PHONE_NUMBER],[IBAN]
 A-2188,[PERSON_NAME],[EMAIL],[CH_PHONE_NUMBER],[IBAN]`
     },
     tsv: {
@@ -1726,7 +1736,7 @@ GET /eth/0x1234567890abcdef1234567890abcdef12345678/balance`,
       after: `GET /api/users/[EMAIL]/profile
 GET /lookup?ssn=[US_SSN]&card=[CREDIT_CARD]
 POST /track?uid=[EMAIL]&phone_number=[US_PHONE_NUMBER]
-GET /search?user[first_name]=[PERSON_NAME]&user[last_name]=[PERSON_NAME]
+GET /search?user[first_name]=Sarah&user[last_name]=[PERSON_NAME]
 GET /eth/[ETHEREUM_ADDRESS]/balance`
     },
     text: {
@@ -1888,7 +1898,7 @@ function CodePane({
 // so the alternation picks the wider match at any given position.
 function highlight(text, bad) {
   if (bad) {
-    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 4012 3456 7890 1234 567|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Sarah|Dupont)/g;
+    const re = /(Sarah Dupont|s\.dupont@acme\.fr|\+33 6 12 34 56 78|1 85 05 78 006 084 91|FR76 3000 6000 0112 3456 7890 189|12 rue de Belleville, 75011 Paris|Klaus Weber|klaus\.w@example\.de|klaus\.weber@example\.de|\+49 30 9876 5432|DE89 3704 0044 0532 0130 00|Lisa Müller|lisa\.m@example\.ch|\+41 79 123 45 67|CH93 0076 2011 6238 5295 7|alex@acme\.io|203\.0\.113\.42|94\.245\.66\.10|m\.weber@example\.at|82\.85\.10\.5|65929970489|1238150185|4539 1488 0343 6467|123-45-6789|4111111111111111|555-123-4567|0x1234567890abcdef1234567890abcdef12345678|Dupont)/g;
     return splitWith(text, re, (m, i) => /*#__PURE__*/React.createElement("span", {
       key: i,
       style: {
@@ -2012,7 +2022,7 @@ function Performance() {
       gridTemplateColumns: "repeat(3, 1fr)",
       gap: 0
     }
-  }, [["layers", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Runs where you do", "Docker, Kubernetes, bare metal or a VM."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, [["scaling", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Ships as a single container", "Pull the image and go — run it in Docker, Kubernetes, or any container-based environment. No agents, no sidecars, no lock-in."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",
@@ -2629,9 +2639,7 @@ window.Footer = Footer;
 // used a Tweaks editor panel; the production build renders the components
 // directly with a fixed headline variant.
 function App() {
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement(Hero, {
-    headlineKey: "intercepted"
-  }), /*#__PURE__*/React.createElement(Metrics, null), /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement(Hero, null), /*#__PURE__*/React.createElement(Metrics, null), /*#__PURE__*/React.createElement("div", {
     className: "void-band vw-void"
   }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Footer, null));
 }

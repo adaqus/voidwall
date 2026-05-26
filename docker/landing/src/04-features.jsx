@@ -2,11 +2,11 @@
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
   const items = [
-    ["scan",  "Scan",  "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text."],
-    ["redact",  "Redact",  "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]..."],
-    ["mask", "Mask", "...or mask with configurable characters."],
-    ["block",    "Block",    "Block the entire request if contain sensitive data."],
-    ["alert",    "Alert",    "Warn when sensitive data leak is detected."],
+    ["scan",  "Scan",  "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"],
+    ["redact",  "Redact",  "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]...", "both"],
+    ["mask", "Mask", "...or mask with configurable characters.", "both"],
+    ["block",    "Block",    "Block the entire request if contain sensitive data.", "proxy"],
+    ["alert",    "Alert",    "Warn when sensitive data leak is detected.", "proxy"],
   ];
   return (
     <section id="product" className="vw-container" style={{ padding: "96px var(--gutter) 60px" }}>
@@ -19,9 +19,17 @@ function Features() {
         }}>
           What Voidwall does
         </h2>
+        <p style={{
+          fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
+          color: "var(--vw-void-ink-2)", margin: "20px 0 0", maxWidth: 600,
+        }}>
+          Run it two ways: inline as an <strong style={{ color: "var(--vw-void-ink)", fontWeight: 600 }}>HTTP proxy</strong> that
+          filters live traffic, or as a <strong style={{ color: "var(--vw-void-ink)", fontWeight: 600 }}>REST API</strong> you
+          call to scan and redact on demand. The tag on each card shows where it applies.
+        </p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
-        {items.map(([icon, title, body], i) => (
+        {items.map(([icon, title, body, mode], i) => (
           <div key={title} style={{
             padding: "0 28px",
             borderLeft: i === 0 ? "0" : "1px solid var(--vw-void-line)",
@@ -34,10 +42,13 @@ function Features() {
             }}>
               <Icon name={icon} size={22}/>
             </span>
-            <h3 style={{
-              fontFamily: "var(--vw-font-display)", fontSize: 19, fontWeight: 600,
-              letterSpacing: "-0.015em", color: "var(--vw-void-ink)", margin: "0 0 10px",
-            }}>{title}</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 10px", flexWrap: "wrap" }}>
+              <h3 style={{
+                fontFamily: "var(--vw-font-display)", fontSize: 19, fontWeight: 600,
+                letterSpacing: "-0.015em", color: "var(--vw-void-ink)", margin: 0,
+              }}>{title}</h3>
+              <ModeTag mode={mode}/>
+            </div>
             <p style={{
               fontFamily: "var(--vw-font-body)", fontSize: 14, lineHeight: 1.6,
               color: "var(--vw-void-ink-2)", margin: 0,
@@ -48,4 +59,22 @@ function Features() {
     </section>
   );
 }
+// Mode tag — marks whether a verb is available via both interfaces or proxy-only.
+function ModeTag({ mode }) {
+  const both = mode === "both";
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      height: 18, padding: "0 7px", borderRadius: 999,
+      fontFamily: "var(--vw-font-mono)", fontSize: 9.5,
+      letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap",
+      color: "var(--vw-void-ink-2)",
+      border: "1px solid var(--vw-void-ink-3)",
+      background: "transparent",
+    }}>
+      {both ? "Proxy + API" : "Proxy only"}
+    </span>
+  );
+}
+
 window.Features = Features;
