@@ -1109,7 +1109,7 @@ window.Metrics = Metrics;
 // Features — void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
-  const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"], ["redact", "Redact", "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]...", "both"], ["mask", "Mask", "...or mask with configurable characters.", "both"], ["block", "Block", "Block the entire request if contain sensitive data.", "proxy"], ["alert", "Alert", "Warn when sensitive data leak is detected.", "proxy"]];
+  const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"], ["redact", "Redact", "Replace detected PII with placeholders like [EMAIL], [US_SSN], [FR_NIR]...", "both"], ["mask", "Mask", "...or mask with configurable characters.", "both"], ["block", "Block", "Block the entire request if contains sensitive data.", "proxy"], ["alert", "Alert", "Warn when sensitive data leak is detected.", "proxy"]];
   return /*#__PURE__*/React.createElement("section", {
     id: "product",
     className: "vw-container",
@@ -1261,7 +1261,7 @@ function Coverage() {
     items: [["IPv4 / IPv6", true], ["MAC address", false], ["IMEI", false], ["AWS access key", true], ["AWS secret key", true], ["GitHub token", false]]
   }];
   const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"]];
-  const countries = ["International", "United States", "Great Britain", "France", "Germany", "Ireland", "Canada", "Australia", "New Zealand", "Suth Africa", "Austria", "Switzerland"];
+  const countries = ["International", "United States", "Great Britain", "France", "Germany", "Ireland", "Canada", "Australia", "New Zealand", "South Africa", "Austria", "Switzerland"];
   return /*#__PURE__*/React.createElement("section", {
     id: "detection",
     className: "vw-container",
@@ -1306,7 +1306,7 @@ function Coverage() {
       margin: "0 0 28px",
       maxWidth: 400
     }
-  }, "Voidwall is able to detect PIIs on a basis of pattern recognition, contextual analysis and validation, so it warns about real values, not just looks-like ones. Here are examples of what can be detected.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("br", null), "Custom types can be added via configuration file."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall is able to detect PII using pattern recognition, contextual analysis and validation, so it warns about real values, not just looks-like ones. Here are examples of what can be detected.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("br", null), "Custom types can be added via configuration file."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1511,7 +1511,7 @@ function Analytics() {
       margin: 0,
       maxWidth: 460
     }
-  }, "Front-end tracking is the leakiest path out of a product \u2014 marketing teams add events, users paste their PIIs to search bars, and personal data slips into Google or Matomo unnoticed. Even 20% of websites have this problem. Voidwall may be a proxy between your product and web analytics, preventing your users' personal data from leaking out.")), /*#__PURE__*/React.createElement("div", {
+  }, "Front-end tracking is the leakiest path out of a product \u2014 marketing teams add events, users paste their PII to search bars, and personal data slips into Google or Matomo unnoticed. Even 20% of websites have this problem. Voidwall may be a proxy between your product and web analytics, preventing your users' personal data from leaking out.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr",
@@ -2022,7 +2022,7 @@ function Performance() {
       gridTemplateColumns: "repeat(3, 1fr)",
       gap: 0
     }
-  }, [["scaling", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Ships as a single container", "Pull the image and go — run it in Docker, Kubernetes, or any container-based environment. No agents, no sidecars, no lock-in."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, [["scaling", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",

@@ -19,7 +19,7 @@ function Analytics() {
           color: "var(--vw-void-ink-2)", margin: 0, maxWidth: 460,
         }}>
           Front-end tracking is the leakiest path out of a product —
-          marketing teams add events, users paste their PIIs to search bars,
+          marketing teams add events, users paste their PII to search bars,
           and personal data slips into Google or Matomo unnoticed. Even 20% of websites
           have this problem. Voidwall may be a proxy between your product and web analytics,
           preventing your users' personal data from leaking out.

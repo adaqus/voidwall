@@ -95,7 +95,7 @@ function Coverage() {
 
   const countries = [
     "International", "United States", "Great Britain", "France", "Germany",
-    "Ireland", "Canada", "Australia", "New Zealand", "Suth Africa",
+    "Ireland", "Canada", "Australia", "New Zealand", "South Africa",
     "Austria", "Switzerland",
   ];
 
@@ -118,7 +118,7 @@ function Coverage() {
             fontFamily: "var(--vw-font-body)", fontSize: 15.5, lineHeight: 1.6,
             color: "var(--vw-void-ink-2)", margin: "0 0 28px", maxWidth: 400,
           }}>
-            Voidwall is able to detect PIIs on a basis of pattern recognition, contextual analysis and validation, 
+            Voidwall is able to detect PII using pattern recognition, contextual analysis and validation, 
             so it warns about real values, not just looks-like ones. Here are examples of what can be detected.<br/><br/>
             Custom types can be added via configuration file.
           </p>

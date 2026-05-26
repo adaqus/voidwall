@@ -3,9 +3,9 @@
 function Features() {
   const items = [
     ["scan",  "Scan",  "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"],
-    ["redact",  "Redact",  "Replace detected PIIs with placeholers like [EMAIL], [US_SSN], [FR_NIR]...", "both"],
+    ["redact",  "Redact",  "Replace detected PII with placeholders like [EMAIL], [US_SSN], [FR_NIR]...", "both"],
     ["mask", "Mask", "...or mask with configurable characters.", "both"],
-    ["block",    "Block",    "Block the entire request if contain sensitive data.", "proxy"],
+    ["block",    "Block",    "Block the entire request if contains sensitive data.", "proxy"],
     ["alert",    "Alert",    "Warn when sensitive data leak is detected.", "proxy"],
   ];
   return (
