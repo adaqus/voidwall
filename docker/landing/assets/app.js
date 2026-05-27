@@ -2022,7 +2022,7 @@ function Performance() {
       gridTemplateColumns: "repeat(3, 1fr)",
       gap: 0
     }
-  }, [["scaling", "Horizontal scaling", "Stateless containers. Add a pod, get throughput. Drain a pod, get nothing else."], ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, [["scaling", "Horizontal scaling", "Stateless by design. No shared database, no coordination between containers, no dependencies to provision first."], ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",
