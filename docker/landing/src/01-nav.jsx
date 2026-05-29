@@ -37,9 +37,9 @@ function Nav() {
           <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
             Try the live demo <Icon name="external-link" size={14}/>
           </a>
-          {/* <a href="#" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
+          <a href="#early-adopters" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
             Become early adopter <span className="arrow">→</span>
-          </a> */}
+          </a>
         </div>
       </div>
     </header>

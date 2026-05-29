@@ -663,7 +663,16 @@ function Nav() {
   }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
     name: "external-link",
     size: 14
-  })))));
+  })), /*#__PURE__*/React.createElement("a", {
+    href: "#early-adopters",
+    className: "vw-btn vw-btn--primary",
+    style: {
+      background: "white",
+      color: "var(--vw-void)"
+    }
+  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
+    className: "arrow"
+  }, "\u2192")))));
 }
 window.Nav = Nav;
 
@@ -758,7 +767,16 @@ function Hero() {
   }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
     name: "external-link",
     size: 14
-  })))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("a", {
+    href: "#early-adopters",
+    className: "vw-btn vw-btn--primary",
+    style: {
+      background: "white",
+      color: "var(--vw-void)"
+    }
+  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
+    className: "arrow"
+  }, "\u2192")))), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "relative",
       width: "100%",
@@ -2388,10 +2406,10 @@ function PostCard({
 window.Blog = Blog;
 
 /* === 11-cta.jsx === */
-// CTA — void surface. Big "Try the live demo" with a small terminal-style preview.
+// CTA — void surface. Subscription for for early access, embedded from MailerLite.
 function CTA() {
   return /*#__PURE__*/React.createElement("section", {
-    id: "demo",
+    id: "early-adopters",
     style: {
       background: "var(--vw-void)",
       color: "var(--vw-void-ink)",
@@ -2403,183 +2421,9 @@ function CTA() {
       padding: "120px var(--gutter)"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-      gap: 80,
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-    className: "vw-eyebrow",
-    style: {
-      margin: "0 0 22px",
-      color: "var(--vw-violet-300)"
-    }
-  }, "Available now \u2014 early access"), /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontFamily: "var(--vw-font-display)",
-      fontSize: 64,
-      fontWeight: 600,
-      letterSpacing: "-0.025em",
-      lineHeight: 0.98,
-      color: "var(--vw-void-ink)",
-      margin: "0 0 24px",
-      textWrap: "balance"
-    }
-  }, "Send a request.", /*#__PURE__*/React.createElement("br", null), "Watch it come back", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-400)"
-    }
-  }, "clean.")), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontFamily: "var(--vw-font-body)",
-      fontSize: 17,
-      lineHeight: 1.55,
-      color: "var(--vw-void-ink-2)",
-      margin: "0 0 36px",
-      maxWidth: 460
-    }
-  }, "The hosted demo accepts any JSON, CSV, TSV, or text payload \u2014 or a real GA4 / Matomo tracking hit \u2014 and returns it sanitized. No signup, no email, no install."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 12,
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    className: "vw-btn vw-btn--primary"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "play",
-    size: 14
-  }), " Open the demo ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192")), /*#__PURE__*/React.createElement("a", {
-    href: "#",
-    className: "vw-btn vw-btn--ghost",
-    style: {
-      color: "var(--vw-void-ink)"
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "github",
-    size: 16
-  }), " View on GitHub ", /*#__PURE__*/React.createElement("span", {
-    className: "arrow"
-  }, "\u2192")))), /*#__PURE__*/React.createElement(Terminal, null))));
-}
-function Terminal() {
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--vw-void-2)",
-      border: "1px solid var(--vw-void-line)",
-      borderRadius: 14,
-      overflow: "hidden",
-      boxShadow: "0 28px 60px -24px rgba(139,125,246,0.35)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "12px 16px",
-      borderBottom: "1px solid var(--vw-void-line)",
-      fontFamily: "var(--vw-font-mono)",
-      fontSize: 12,
-      color: "var(--vw-void-ink-3)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "flex",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 9,
-      height: 9,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 9,
-      height: 9,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 9,
-      height: 9,
-      borderRadius: 999,
-      background: "var(--vw-void-line)"
-    }
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1
-    }
-  }, "demo.voidwall.io \u2014 curl")), /*#__PURE__*/React.createElement("pre", {
-    style: {
-      margin: 0,
-      padding: "20px 22px",
-      fontFamily: "var(--vw-font-mono)",
-      fontSize: 12.5,
-      lineHeight: 1.6,
-      color: "var(--vw-void-ink)",
-      whiteSpace: "pre-wrap",
-      wordBreak: "break-word"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink-3)"
-    }
-  }, "$ "), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-300)"
-    }
-  }, "curl"), " -sX POST https://demo.voidwall.io/v1/scan \\", "\n  -H 'content-type: application/json' \\", "\n  -d '{\"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#C8A35F"
-    }
-  }, "email"), "\":\"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-danger)"
-    }
-  }, "s.dupont@acme.fr"), "\",\"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#C8A35F"
-    }
-  }, "phone"), "\":\"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-danger)"
-    }
-  }, "+33 6 12 34 56 78"), "\"}'\n\n", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink-3)"
-    }
-  }, "HTTP/1.1 200 OK"), "\n", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink-3)"
-    }
-  }, "x-voidwall-findings: 2 matches, 0 blocked"), "\n", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-void-ink-3)"
-    }
-  }, "x-voidwall-latency: 0.9ms"), "\n\n", "{\n  \"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#C8A35F"
-    }
-  }, "email"), "\": \"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-300)"
-    }
-  }, "<email>"), "\",\n  \"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#C8A35F"
-    }
-  }, "phone"), "\": \"", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--vw-violet-300)"
-    }
-  }, "<phone:fr>"), "\"\n}"));
+    class: "ml-embedded",
+    "data-form": "GUKjOD"
+  })));
 }
 window.CTA = CTA;
 
@@ -2641,6 +2485,6 @@ window.Footer = Footer;
 function App() {
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement(Hero, null), /*#__PURE__*/React.createElement(Metrics, null), /*#__PURE__*/React.createElement("div", {
     className: "void-band vw-void"
-  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Footer, null));
+  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(CTA, null), /*#__PURE__*/React.createElement(Footer, null));
 }
 ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(App, null));

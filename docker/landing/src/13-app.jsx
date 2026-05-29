@@ -15,7 +15,7 @@ function App() {
       </div>
       <Performance/>
       {/* <Blog/> */}
-      {/* <CTA/> */}
+      <CTA/>
       <Footer/>
     </>
   );
