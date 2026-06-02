@@ -1,4 +1,4 @@
-// Blog index — paper surface. Full list of every post, reusing PostCard.
+// Blog index - paper surface. Full list of every post, reusing PostCard.
 // Rendered at /blog/ (see the router in 15-app.jsx). Posts come from
 // window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function BlogIndex() {

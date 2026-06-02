@@ -1,4 +1,4 @@
-// Entry point — renders the landing page. The original standalone export
+// Entry point - renders the landing page. The original standalone export
 // used a Tweaks editor panel; the production build renders the components
 // directly with a fixed headline variant.
 function App() {
@@ -26,7 +26,7 @@ function App() {
 //
 // We can't trust location.pathname directly: opened from disk (file://) it's an
 // absolute filesystem path, not the site path. Instead we reconstruct the
-// site-relative path from the page depth — the number of "../" in the asset
+// site-relative path from the page depth - the number of "../" in the asset
 // base (set in 00-base.jsx) tells us how many trailing path segments belong to
 // the site. That gives the same answer whether served or opened locally.
 function Root() {

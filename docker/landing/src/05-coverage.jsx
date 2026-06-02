@@ -1,4 +1,4 @@
-// Coverage — void surface. The breadth-of-detection story.
+// Coverage - void surface. The breadth-of-detection story.
 // 80+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
   const groups = [
@@ -19,17 +19,17 @@ function Coverage() {
       title: "National IDs",
       icon: "flag",
       items: [
-        ["US — SSN", true],
-        ["US — ITIN", false],
-        ["GB — NI no.", false],
-        ["IE — PPSN", false],
-        ["CA — SIN", false],
-        ["FR — NIR", true],
-        ["FR — CNI", false],
-        ["DE — Steuer-ID", true],
-        ["DE — Personalausweis", false],
-        ["AT — SVNR", false],
-        ["CH — AHV", false],
+        ["US - SSN", true],
+        ["US - ITIN", false],
+        ["GB - NI no.", false],
+        ["IE - PPSN", false],
+        ["CA - SIN", false],
+        ["FR - NIR", true],
+        ["FR - CNI", false],
+        ["DE - Steuer-ID", true],
+        ["DE - Personalausweis", false],
+        ["AT - SVNR", false],
+        ["CH - AHV", false],
       ],
     },
     {
@@ -38,8 +38,8 @@ function Coverage() {
       items: [
         ["Passport", true],
         ["Driver's licence", true],
-        ["US — Alien no.", false],
-        ["US — USCIS receipt", false],
+        ["US - Alien no.", false],
+        ["US - USCIS receipt", false],
         ["VIN", false],
       ],
     },
@@ -47,16 +47,16 @@ function Coverage() {
       title: "Health & Tax",
       icon: "audit",
       items: [
-        ["GB — NHS number", true],
-        ["AU — Medicare", false],
-        ["NZ — NHI", false],
-        ["CA — OHIP", false],
-        ["US — EIN", true],
-        ["GB — UTR", false],
-        ["AU — TFN", false],
-        ["AU — ABN", false],
-        ["FR — SIRET / SIREN", true],
-        ["FR — NIF", false],
+        ["GB - NHS number", true],
+        ["AU - Medicare", false],
+        ["NZ - NHI", false],
+        ["CA - OHIP", false],
+        ["US - EIN", true],
+        ["GB - UTR", false],
+        ["AU - TFN", false],
+        ["AU - ABN", false],
+        ["FR - SIRET / SIREN", true],
+        ["FR - NIF", false],
       ],
     },
     {
@@ -66,9 +66,9 @@ function Coverage() {
         ["IBAN", true],
         ["Credit card", true],
         ["SWIFT / BIC", false],
-        ["US — ABA routing", false],
-        ["GB — Sort code", false],
-        ["AU / CA — Bank account", false],
+        ["US - ABA routing", false],
+        ["GB - Sort code", false],
+        ["AU / CA - Bank account", false],
         ["Bitcoin", true],
         ["Ethereum", false],
       ],
@@ -152,7 +152,7 @@ function Coverage() {
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <span className="vw-eyebrow vw-eyebrow--muted">Countries — and growing</span>
+            <span className="vw-eyebrow vw-eyebrow--muted">Countries - and growing</span>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {countries.map(c => (
                 <span key={c} style={{

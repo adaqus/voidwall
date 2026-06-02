@@ -1,4 +1,4 @@
-// Metrics strip — replaces "trusted by" since the product is pre-launch.
+// Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
   const items = [

@@ -1,4 +1,4 @@
-// Footer — void surface. Logo and copyright only.
+// Footer - void surface. Logo and copyright only.
 function Footer() {
   return (
     <footer style={{ background: "var(--vw-void)", color: "var(--vw-void-ink)", borderTop: "1px solid var(--vw-void-line)" }}>

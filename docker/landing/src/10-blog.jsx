@@ -1,4 +1,4 @@
-// Blog — paper surface. Three teaser cards + link to the index.
+// Blog - paper surface. Three teaser cards + link to the index.
 // Posts come from window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function Blog() {
   const posts = (window.POSTS || []).slice(0, 3);

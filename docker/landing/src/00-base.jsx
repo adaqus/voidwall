@@ -1,5 +1,5 @@
 // Asset base prefix. Pages live at different depths (/, /blog/, /blog/<slug>/),
-// so asset URLs need a matching number of "../" to stay relative — which is
+// so asset URLs need a matching number of "../" to stay relative - which is
 // what lets the generated files open straight from disk (file://) as well as
 // when served. We derive the prefix from this very bundle's own <script src>,
 // which build.sh has already rewritten to the right depth (e.g. ../assets/app.js).

@@ -1,4 +1,4 @@
-// Nav — paper surface, wall mark + wordmark on the left, links + CTA on the right.
+// Nav - paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
   // Anchors are written as "/#id" so they also work from subpages (e.g. the
   // blog), where the target sections don't exist on the current document.

@@ -1,4 +1,4 @@
-// Features — void surface, 4-up row separated by hairlines.
+// Features - void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
   const items = [
@@ -59,7 +59,7 @@ function Features() {
     </section>
   );
 }
-// Mode tag — marks whether a verb is available via both interfaces or proxy-only.
+// Mode tag - marks whether a verb is available via both interfaces or proxy-only.
 function ModeTag({ mode }) {
   const both = mode === "both";
   return (

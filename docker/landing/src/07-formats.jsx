@@ -1,4 +1,4 @@
-// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
+// Formats - void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
 // React state drives the active tab.
 function Formats() {
   const [tab, setTab] = React.useState("json");
@@ -200,7 +200,7 @@ function CodePane({ title, payload, bad }) {
   );
 }
 
-// Crude highlighter — wraps sensitive runs in red, placeholders in violet.
+// Crude highlighter - wraps sensitive runs in red, placeholders in violet.
 // Longer literals must come before substrings (e.g. "Sarah Dupont" before "Sarah")
 // so the alternation picks the wider match at any given position.
 function highlight(text, bad) {

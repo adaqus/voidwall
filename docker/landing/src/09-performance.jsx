@@ -1,4 +1,4 @@
-// Performance — paper-band section. Highlights latency, throughput, and cost.
+// Performance - paper-band section. Highlights latency, throughput, and cost.
 // Numbers are illustrative (no benchmarks shipped yet); keep them measured and lower-case.
 function Performance() {
   return (
@@ -62,7 +62,7 @@ function Performance() {
           {[
             ["scaling", "Horizontal scaling", "Stateless by design. No shared database, no coordination between containers, no dependencies to provision first."],
             ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."],
-            ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."],
+            ["code", "Proxy or API - your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."],
           ].map(([icon, title, body], i) => (
             <div key={title} style={{
               padding: "0 28px",

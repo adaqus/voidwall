@@ -1,4 +1,4 @@
-// Hero — paper surface, left text column, right "wall" illustration with traffic flow.
+// Hero - paper surface, left text column, right "wall" illustration with traffic flow.
 
 function Hero() {
   return (
@@ -18,7 +18,7 @@ function Hero() {
               background: "rgba(255,255,255,0.5)",
             }}>
               <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--vw-violet-400)" }}/>
-              Live demo available — early access
+              Live demo available - early access
             </span>
           </div>
           <p className="vw-eyebrow" style={{ margin: "0 0 22px" }}>Stop privacy debt at the edge.</p>
@@ -38,7 +38,7 @@ function Hero() {
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
             margin: "0 0 36px",
           }}>
-            Voidwall stops sensitive data at the edge of every request — inbound and outbound — before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers.
+            Voidwall stops sensitive data at the edge of every request - inbound and outbound - before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers.
           </p>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
@@ -50,11 +50,11 @@ function Hero() {
           </div>
         </div>
 
-        {/* Right — wall illustration + traffic flow */}
+        {/* Right - wall illustration + traffic flow */}
         <div style={{ position: "relative", width: "100%", aspectRatio: "600/520" }}>
           <img src="assets/hero-wall.svg" alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}/>
 
-          {/* Voidwall logo — centered on the vertical axis of the wall below (wall center ≈ 57% across 600px viewBox) */}
+          {/* Voidwall logo - centered on the vertical axis of the wall below (wall center ≈ 57% across 600px viewBox) */}
           <img src="assets/logo.svg" alt="Voidwall" style={{
             position: "absolute",
             top: "0.5%",
@@ -65,7 +65,7 @@ function Hero() {
             pointerEvents: "none",
           }}/>
 
-          {/* Sample data crossing the wall — y% matches line origins in hero-wall.svg (viewBox 600×520) */}
+          {/* Sample data crossing the wall - y% matches line origins in hero-wall.svg (viewBox 600×520) */}
           {[
             { label: "JSON",       topPct: 170 / 520 },
             { label: "URL",        topPct: 220 / 520 },
@@ -84,7 +84,7 @@ function Hero() {
             </div>
           ))}
 
-          {/* Env list — protected side (right of the wall). Y% matches outgoing lines in hero-wall.svg. */}
+          {/* Env list - protected side (right of the wall). Y% matches outgoing lines in hero-wall.svg. */}
           {[
             { icon: "chart",      label: "Web Analytics",        topPct: 170 / 520 },
             { icon: "server",     label: "CDPs",                  topPct: 220 / 520 },
@@ -105,7 +105,7 @@ function Hero() {
         </div>
       </div>
 
-      {/* Tracker-specific specializations — surfaces the two flagship integrations */}
+      {/* Tracker-specific specializations - surfaces the two flagship integrations */}
       {/* <div style={{ marginTop: 56 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18 }}>
           <span className="vw-eyebrow">Specializations</span>

@@ -1,4 +1,4 @@
-// Single blog post — paper surface, narrow reading column. Rendered at
+// Single blog post - paper surface, narrow reading column. Rendered at
 // /blog/<slug>/ (see the router in 15-app.jsx). The post body is pre-rendered
 // HTML (markdown → HTML at build time) injected into a .vw-prose container.
 function BlogPost({ slug }) {

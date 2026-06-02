@@ -1,4 +1,4 @@
-// Centralized icon registry — Lucide-aligned stroke set. currentColor only.
+// Centralized icon registry - Lucide-aligned stroke set. currentColor only.
 function Icon({ name, size = 20 }) {
   const common = {
     width: size, height: size, viewBox: "0 0 24 24",

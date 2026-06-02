@@ -1,7 +1,7 @@
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 /* === 00-base.jsx === */
 // Asset base prefix. Pages live at different depths (/, /blog/, /blog/<slug>/),
-// so asset URLs need a matching number of "../" to stay relative — which is
+// so asset URLs need a matching number of "../" to stay relative - which is
 // what lets the generated files open straight from disk (file://) as well as
 // when served. We derive the prefix from this very bundle's own <script src>,
 // which build.sh has already rewritten to the right depth (e.g. ../assets/app.js).
@@ -18,7 +18,7 @@ function vwAsset(name) {
 window.vwAsset = vwAsset;
 
 /* === 00-icons.jsx === */
-// Centralized icon registry — Lucide-aligned stroke set. currentColor only.
+// Centralized icon registry - Lucide-aligned stroke set. currentColor only.
 function Icon({
   name,
   size = 20
@@ -606,7 +606,7 @@ function Icon({
 window.Icon = Icon;
 
 /* === 01-nav.jsx === */
-// Nav — paper surface, wall mark + wordmark on the left, links + CTA on the right.
+// Nav - paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
   // Anchors are written as "/#id" so they also work from subpages (e.g. the
   // blog), where the target sections don't exist on the current document.
@@ -695,7 +695,7 @@ function Nav() {
 window.Nav = Nav;
 
 /* === 02-hero.jsx === */
-// Hero — paper surface, left text column, right "wall" illustration with traffic flow.
+// Hero - paper surface, left text column, right "wall" illustration with traffic flow.
 
 function Hero() {
   return /*#__PURE__*/React.createElement("section", {
@@ -741,7 +741,7 @@ function Hero() {
       borderRadius: 999,
       background: "var(--vw-violet-400)"
     }
-  }), "Live demo available \u2014 early access")), /*#__PURE__*/React.createElement("p", {
+  }), "Live demo available - early access")), /*#__PURE__*/React.createElement("p", {
     className: "vw-eyebrow",
     style: {
       margin: "0 0 22px"
@@ -771,7 +771,7 @@ function Hero() {
       maxWidth: 480,
       margin: "0 0 36px"
     }
-  }, "Voidwall stops sensitive data at the edge of every request \u2014 inbound and outbound \u2014 before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall stops sensitive data at the edge of every request - inbound and outbound - before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -1081,7 +1081,7 @@ function EnvItem({
 window.Hero = Hero;
 
 /* === 03-metrics.jsx === */
-// Metrics strip — replaces "trusted by" since the product is pre-launch.
+// Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
   const items = [["88", "", "PII types", "supported out of the box"], ["3", "", "Languages", "English, French, German"], ["11", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
@@ -1142,7 +1142,7 @@ function Metrics() {
 window.Metrics = Metrics;
 
 /* === 04-features.jsx === */
-// Features — void surface, 4-up row separated by hairlines.
+// Features - void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
   const items = [["scan", "Scan", "Parse and scan every outgoing payload across JSON, CSV, TSV, and plain text.", "both"], ["redact", "Redact", "Replace detected PII with placeholders like [EMAIL], [US_SSN], [FR_NIR]...", "both"], ["mask", "Mask", "...or mask with configurable characters.", "both"], ["block", "Block", "Block the entire request if contains sensitive data.", "proxy"], ["alert", "Alert", "Warn when sensitive data leak is detected.", "proxy"]];
@@ -1242,7 +1242,7 @@ function Features() {
     }
   }, body)))));
 }
-// Mode tag — marks whether a verb is available via both interfaces or proxy-only.
+// Mode tag - marks whether a verb is available via both interfaces or proxy-only.
 function ModeTag({
   mode
 }) {
@@ -1268,7 +1268,7 @@ function ModeTag({
 window.Features = Features;
 
 /* === 05-coverage.jsx === */
-// Coverage — void surface. The breadth-of-detection story.
+// Coverage - void surface. The breadth-of-detection story.
 // 80+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
   const groups = [{
@@ -1278,19 +1278,19 @@ function Coverage() {
   }, {
     title: "National IDs",
     icon: "flag",
-    items: [["US — SSN", true], ["US — ITIN", false], ["GB — NI no.", false], ["IE — PPSN", false], ["CA — SIN", false], ["FR — NIR", true], ["FR — CNI", false], ["DE — Steuer-ID", true], ["DE — Personalausweis", false], ["AT — SVNR", false], ["CH — AHV", false]]
+    items: [["US - SSN", true], ["US - ITIN", false], ["GB - NI no.", false], ["IE - PPSN", false], ["CA - SIN", false], ["FR - NIR", true], ["FR - CNI", false], ["DE - Steuer-ID", true], ["DE - Personalausweis", false], ["AT - SVNR", false], ["CH - AHV", false]]
   }, {
     title: "Travel & Driving",
     icon: "globe-2",
-    items: [["Passport", true], ["Driver's licence", true], ["US — Alien no.", false], ["US — USCIS receipt", false], ["VIN", false]]
+    items: [["Passport", true], ["Driver's licence", true], ["US - Alien no.", false], ["US - USCIS receipt", false], ["VIN", false]]
   }, {
     title: "Health & Tax",
     icon: "audit",
-    items: [["GB — NHS number", true], ["AU — Medicare", false], ["NZ — NHI", false], ["CA — OHIP", false], ["US — EIN", true], ["GB — UTR", false], ["AU — TFN", false], ["AU — ABN", false], ["FR — SIRET / SIREN", true], ["FR — NIF", false]]
+    items: [["GB - NHS number", true], ["AU - Medicare", false], ["NZ - NHI", false], ["CA - OHIP", false], ["US - EIN", true], ["GB - UTR", false], ["AU - TFN", false], ["AU - ABN", false], ["FR - SIRET / SIREN", true], ["FR - NIF", false]]
   }, {
     title: "Financial & Crypto",
     icon: "credit-card",
-    items: [["IBAN", true], ["Credit card", true], ["SWIFT / BIC", false], ["US — ABA routing", false], ["GB — Sort code", false], ["AU / CA — Bank account", false], ["Bitcoin", true], ["Ethereum", false]]
+    items: [["IBAN", true], ["Credit card", true], ["SWIFT / BIC", false], ["US - ABA routing", false], ["GB - Sort code", false], ["AU / CA - Bank account", false], ["Bitcoin", true], ["Ethereum", false]]
   }, {
     title: "Tech & Secrets",
     icon: "key",
@@ -1407,7 +1407,7 @@ function Coverage() {
     }
   }, /*#__PURE__*/React.createElement("span", {
     className: "vw-eyebrow vw-eyebrow--muted"
-  }, "Countries \u2014 and growing"), /*#__PURE__*/React.createElement("div", {
+  }, "Countries - and growing"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -1507,7 +1507,7 @@ function Coverage() {
 window.Coverage = Coverage;
 
 /* === 06-analytics.jsx === */
-// Analytics — void surface. GA4 + Matomo real-time scanning.
+// Analytics - void surface. GA4 + Matomo real-time scanning.
 // Shows the same tracking event in raw vs. sanitized form, for each platform.
 function Analytics() {
   return /*#__PURE__*/React.createElement("section", {
@@ -1547,7 +1547,7 @@ function Analytics() {
       margin: 0,
       maxWidth: 460
     }
-  }, "Front-end tracking is the leakiest path out of a product \u2014 marketing teams add events, users paste their PII to search bars, and personal data slips into Google or Matomo unnoticed. Even 20% of websites have this problem. Voidwall may be a proxy between your product and web analytics, preventing your users' personal data from leaking out.")), /*#__PURE__*/React.createElement("div", {
+  }, "Front-end tracking is the leakiest path out of a product - marketing teams add events, users paste their PII to search bars, and personal data slips into Google or Matomo unnoticed. Even 20% of websites have this problem. Voidwall may be a proxy between your product and web analytics, preventing your users' personal data from leaking out.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr",
@@ -1570,15 +1570,15 @@ function Analytics() {
       margin: "32px 0 0",
       maxWidth: 1120
     }
-  }, "Specializations know what to scan \u2014 catching sensitive data even inside doubly-encoded payloads. They also know what ", /*#__PURE__*/React.createElement("em", null, "not"), " to scan, so the integration keeps working as intended."));
+  }, "Specializations know what to scan - catching sensitive data even inside doubly-encoded payloads. They also know what ", /*#__PURE__*/React.createElement("em", null, "not"), " to scan, so the integration keeps working as intended."));
 }
 function PlatformCard({
   name,
   endpoint,
   tag
 }) {
-  const ga4Raw = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/alex.miller@acme.io', true], ['dt', 'Order #4711 — alex.miller@acme.io', true], ['en', 'login'], ['ep.contact_phone', '+33 6 12 34 56 78', true], ['uid', 'alex.miller@acme.io', true], ['_uip', '203.0.113.42', true]];
-  const ga4San = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/[EMAIL]'], ['dt', 'Order #4711 — [EMAIL]'], ['en', 'login'], ['ep.contact_phone', '[FR_PHONE_NUMBER]'], ['uid', 'alex.miller@acme.io', false, 'by design'], ['_uip', '203.0.113.42', false, 'by design']];
+  const ga4Raw = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/alex.miller@acme.io', true], ['dt', 'Order #4711 - alex.miller@acme.io', true], ['en', 'login'], ['ep.contact_phone', '+33 6 12 34 56 78', true], ['uid', 'alex.miller@acme.io', true], ['_uip', '203.0.113.42', true]];
+  const ga4San = [['v', '2'], ['tid', 'G-X8Q1ZRP7M2'], ['cid', '1822941715.1719583924'], ['dl', 'https://shop.acme.io/u/[EMAIL]'], ['dt', 'Order #4711 - [EMAIL]'], ['en', 'login'], ['ep.contact_phone', '[FR_PHONE_NUMBER]'], ['uid', 'alex.miller@acme.io', false, 'by design'], ['_uip', '203.0.113.42', false, 'by design']];
   const matomoRaw = [['idsite', '17'], ['rec', '1'], ['url', 'https://shop.acme.de/?email=klaus.weber@example.de', true], ['action_name', 'Login · Acme'], ['dimension2', 'klaus.weber@example.de', true], ['_cvar', '{"1":["email","klaus.weber@example.de"]}', true], ['_id', '8b3f1a92ee44c1d2'], ['uid', 'klaus.weber@example.de', true], ['cip', '94.245.66.10', true]];
   const matomoSan = [['idsite', '17'], ['rec', '1'], ['url', 'https://shop.acme.de/?email=[EMAIL]'], ['action_name', 'Login · Acme'], ['dimension2', '[EMAIL]'], ['_cvar', '{"1":["email","[EMAIL]"]}'], ['_id', '8b3f1a92ee44c1d2'], ['uid', 'klaus.weber@example.de', false, 'by design'], ['cip', '94.245.66.10', false, 'by design']];
   const raw = tag === "ga4" ? ga4Raw : matomoRaw;
@@ -1706,7 +1706,7 @@ function ParamColumn({
 window.Analytics = Analytics;
 
 /* === 07-formats.jsx === */
-// Formats — void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
+// Formats - void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
 // React state drives the active tab.
 function Formats() {
   const [tab, setTab] = React.useState("json");
@@ -1929,7 +1929,7 @@ function CodePane({
   }, highlight(payload, bad)));
 }
 
-// Crude highlighter — wraps sensitive runs in red, placeholders in violet.
+// Crude highlighter - wraps sensitive runs in red, placeholders in violet.
 // Longer literals must come before substrings (e.g. "Sarah Dupont" before "Sarah")
 // so the alternation picks the wider match at any given position.
 function highlight(text, bad) {
@@ -1971,7 +1971,7 @@ function splitWith(text, regex, wrap) {
 window.Formats = Formats;
 
 /* === 09-performance.jsx === */
-// Performance — paper-band section. Highlights latency, throughput, and cost.
+// Performance - paper-band section. Highlights latency, throughput, and cost.
 // Numbers are illustrative (no benchmarks shipped yet); keep them measured and lower-case.
 function Performance() {
   return /*#__PURE__*/React.createElement("section", {
@@ -2058,7 +2058,7 @@ function Performance() {
       gridTemplateColumns: "repeat(3, 1fr)",
       gap: 0
     }
-  }, [["scaling", "Horizontal scaling", "Stateless by design. No shared database, no coordination between containers, no dependencies to provision first."], ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."], ["code", "Proxy or API — your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
+  }, [["scaling", "Horizontal scaling", "Stateless by design. No shared database, no coordination between containers, no dependencies to provision first."], ["server", "Ships as a single container", "Pull the image and go. Runs entirely in your environment. No payloads leave your infrastructure."], ["code", "Proxy or API - your call", "Drop it inline as a reverse or forward proxy, or call the HTTP API to scan and redact on demand. Same engine, three ways to plug in."]].map(([icon, title, body], i) => /*#__PURE__*/React.createElement("div", {
     key: title,
     style: {
       padding: "0 28px",
@@ -2250,7 +2250,7 @@ function CostBars() {
 window.Performance = Performance;
 
 /* === 10-blog.jsx === */
-// Blog — paper surface. Three teaser cards + link to the index.
+// Blog - paper surface. Three teaser cards + link to the index.
 // Posts come from window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function Blog() {
   const posts = (window.POSTS || []).slice(0, 3);
@@ -2409,7 +2409,7 @@ window.Blog = Blog;
 window.PostCard = PostCard;
 
 /* === 11-cta.jsx === */
-// CTA — void surface. Subscription for for early access, embedded from MailerLite.
+// CTA - void surface. Subscription for for early access, embedded from MailerLite.
 function CTA() {
   return /*#__PURE__*/React.createElement("section", {
     id: "early-adopters",
@@ -2431,7 +2431,7 @@ function CTA() {
 window.CTA = CTA;
 
 /* === 12-footer.jsx === */
-// Footer — void surface. Logo and copyright only.
+// Footer - void surface. Logo and copyright only.
 function Footer() {
   return /*#__PURE__*/React.createElement("footer", {
     style: {
@@ -2482,7 +2482,7 @@ function Footer() {
 window.Footer = Footer;
 
 /* === 13-blog-index.jsx === */
-// Blog index — paper surface. Full list of every post, reusing PostCard.
+// Blog index - paper surface. Full list of every post, reusing PostCard.
 // Rendered at /blog/ (see the router in 15-app.jsx). Posts come from
 // window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function BlogIndex() {
@@ -2540,7 +2540,7 @@ function BlogIndex() {
 window.BlogIndex = BlogIndex;
 
 /* === 14-blog-post.jsx === */
-// Single blog post — paper surface, narrow reading column. Rendered at
+// Single blog post - paper surface, narrow reading column. Rendered at
 // /blog/<slug>/ (see the router in 15-app.jsx). The post body is pre-rendered
 // HTML (markdown → HTML at build time) injected into a .vw-prose container.
 function BlogPost({
@@ -2645,7 +2645,7 @@ function BlogPost({
 window.BlogPost = BlogPost;
 
 /* === 15-app.jsx === */
-// Entry point — renders the landing page. The original standalone export
+// Entry point - renders the landing page. The original standalone export
 // used a Tweaks editor panel; the production build renders the components
 // directly with a fixed headline variant.
 function App() {
@@ -2659,7 +2659,7 @@ function App() {
 //
 // We can't trust location.pathname directly: opened from disk (file://) it's an
 // absolute filesystem path, not the site path. Instead we reconstruct the
-// site-relative path from the page depth — the number of "../" in the asset
+// site-relative path from the page depth - the number of "../" in the asset
 // base (set in 00-base.jsx) tells us how many trailing path segments belong to
 // the site. That gives the same answer whether served or opened locally.
 function Root() {

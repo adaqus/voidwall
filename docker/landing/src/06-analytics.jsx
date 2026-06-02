@@ -1,4 +1,4 @@
-// Analytics — void surface. GA4 + Matomo real-time scanning.
+// Analytics - void surface. GA4 + Matomo real-time scanning.
 // Shows the same tracking event in raw vs. sanitized form, for each platform.
 function Analytics() {
   return (
@@ -18,7 +18,7 @@ function Analytics() {
           fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
           color: "var(--vw-void-ink-2)", margin: 0, maxWidth: 460,
         }}>
-          Front-end tracking is the leakiest path out of a product —
+          Front-end tracking is the leakiest path out of a product -
           marketing teams add events, users paste their PII to search bars,
           and personal data slips into Google or Matomo unnoticed. Even 20% of websites
           have this problem. Voidwall may be a proxy between your product and web analytics,
@@ -43,7 +43,7 @@ function Analytics() {
         fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.55,
         color: "var(--vw-void-ink-2)", margin: "32px 0 0", maxWidth: 1120,
       }}>
-        Specializations know what to scan — catching sensitive data even
+        Specializations know what to scan - catching sensitive data even
         inside doubly-encoded payloads. They also know what <em>not</em> to
         scan, so the integration keeps working as intended.
       </p>
@@ -57,7 +57,7 @@ function PlatformCard({ name, endpoint, tag }) {
     ['tid', 'G-X8Q1ZRP7M2'],
     ['cid', '1822941715.1719583924'],
     ['dl', 'https://shop.acme.io/u/alex.miller@acme.io', true],
-    ['dt', 'Order #4711 — alex.miller@acme.io', true],
+    ['dt', 'Order #4711 - alex.miller@acme.io', true],
     ['en', 'login'],
     ['ep.contact_phone', '+33 6 12 34 56 78', true],
     ['uid', 'alex.miller@acme.io', true],
@@ -68,7 +68,7 @@ function PlatformCard({ name, endpoint, tag }) {
     ['tid', 'G-X8Q1ZRP7M2'],
     ['cid', '1822941715.1719583924'],
     ['dl', 'https://shop.acme.io/u/[EMAIL]'],
-    ['dt', 'Order #4711 — [EMAIL]'],
+    ['dt', 'Order #4711 - [EMAIL]'],
     ['en', 'login'],
     ['ep.contact_phone', '[FR_PHONE_NUMBER]'],
     ['uid', 'alex.miller@acme.io', false, 'by design'],
