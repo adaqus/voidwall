@@ -36,7 +36,7 @@ Once sensitive data has propagated, cleanup becomes an investigation. Which serv
 
 Tools for discovery, classification, lineage, retention, and deletion help. They are necessary parts of a mature data protection program. But many of them operate after ingestion. They detect, map, alert, and help teams respond after sensitive data has already crossed the boundary. They do their job, but they are **reactive**.
 
-## The architectural principle
+## Why Voidwall
 
 The goal is not to stop using the systems described above. The goal is to avoid sending them sensitive data they should never receive. A billing service may legitimately need billing details. An identity system may need identity attributes. A healthcare workflow may need health information. But an analytics endpoint may not need raw identifiers. A logging pipeline should not become a store for access tokens. An external API should not receive fields that only make sense inside the company’s own environment.
 
