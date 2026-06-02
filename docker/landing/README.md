@@ -27,12 +27,20 @@ the order it appears on the page.
 | `src/07-formats.jsx`       | Tabbed JSON / CSV / TSV / plain-text panel (only interactive part) |
 | `src/08-custom-pii.jsx`    | Custom PII detector demo                                           |
 | `src/09-performance.jsx`   | Performance numbers                                                |
-| `src/10-blog.jsx`          | Blog teaser cards                                                  |
+| `src/10-blog.jsx`          | Blog teaser cards (home page) + the shared `PostCard`              |
 | `src/11-cta.jsx`           | Bottom call-to-action                                              |
 | `src/12-footer.jsx`        | Footer                                                             |
-| `src/13-app.jsx`           | Top-level component order; hydrates the page                       |
+| `src/13-blog-index.jsx`    | Blog listing page rendered at `/blog/`                             |
+| `src/14-blog-post.jsx`     | Single blog post rendered at `/blog/<slug>/`                       |
+| `src/15-app.jsx`           | Top-level component order + path router; hydrates the page         |
+| `src/blog/posts/*.md`      | Blog post content (markdown + frontmatter). Filename = URL slug.   |
+| `build-posts.cjs`          | Build step: markdown → `assets/posts.js` (`window.POSTS`).         |
 | `src/index.template.html`  | HTML shell (title, viewport, asset links). No content goes here.   |
 | `assets/styles.css`        | All design-system styles. Hand-edit for layout/color tweaks.       |
+
+The `15-app.jsx` entry point must stay the highest-numbered file: it calls
+`hydrateRoot`, which renders the view components, so every component file has to
+be concatenated before it.
 
 ## Editing workflow
 
@@ -55,6 +63,55 @@ Pre-rendering is what makes the page indexable by Google and visible to
 crawlers / social previews that don't run JavaScript. After the build,
 `index.html` is the canonical artifact to serve — it contains the full page
 content directly, not just a `<div id="root">`.
+
+The build pre-renders **one file per route**: the home page (`index.html`),
+the blog index (`blog/index.html`), and one page per post
+(`blog/<slug>/index.html`). All of them are build artifacts — commit them
+alongside `assets/app.js`. In production, tower-http `ServeDir` resolves a
+directory request (`/blog/`, `/blog/<slug>/`) to that directory's
+`index.html`, so no router config is needed; `docker/Dockerfile.fly` copies the
+whole `blog/` tree into the image.
+
+Each generated page links its assets with **relative** paths (`assets/…`,
+`../assets/…`, …), rewritten by `build.sh` to match how deep the file sits.
+That keeps the files openable directly from disk (`file://`) as well as when
+served. Navigation links between pages stay root-absolute (`/blog/`) so served
+URLs stay clean. (Cross-page navigation via `file://` won't resolve those clean
+URLs — to click through the blog locally, serve the folder, e.g.
+`python3 -m http.server` from `docker/landing/`.)
+
+## The blog
+
+Posts live as markdown files under `src/blog/posts/`. The **filename is the
+slug** and the URL segment: `src/blog/posts/why-proxy.md` → `/blog/why-proxy/`.
+Each file starts with a frontmatter block:
+
+```markdown
+---
+title: Why we built Voidwall as a proxy, not a library.
+tag: Engineering
+date: 2026-05-12
+read: 8 min read
+excerpt: One-sentence summary shown on the cards.
+---
+
+Markdown body. `##` becomes a section heading, lists and code fences are
+styled by `.vw-prose` in assets/styles.css.
+```
+
+`build.sh` converts every post to HTML and writes `assets/posts.js`
+(`window.POSTS`), the single source the home-page teaser, the `/blog/` index,
+and each post page all read from.
+
+### Add a post
+
+1. Create `src/blog/posts/<slug>.md` with the frontmatter above.
+2. Run `./build.sh`.
+3. The post appears at `/blog/<slug>/`, in the `/blog/` index, and (if it's one
+   of the three newest) in the home-page teaser — all automatically.
+
+All five frontmatter fields are required; the build fails loudly if one is
+missing. Posts are ordered newest-first by `date`.
 
 ## Worked example — update the supported-country count
 
@@ -82,16 +139,16 @@ To add Sweden as the twelfth country:
 
 ## Adding a whole new section
 
-1. Create `src/14-new-section.jsx` (use a number that places it where you
-   want in the page). Define one React component and publish it on
-   `window`, matching the pattern in the existing files:
+1. Create e.g. `src/08-new-section.jsx` (use a number that places it where you
+   want in the page, but **below `15-app.jsx`**). Define one React component and
+   publish it on `window`, matching the pattern in the existing files:
    ```jsx
    function NewSection() {
      return <section className="vw-container">…</section>;
    }
    window.NewSection = NewSection;
    ```
-2. Add `<NewSection/>` to the JSX in `src/13-app.jsx` at the right spot.
+2. Add `<NewSection/>` to the `App` JSX in `src/15-app.jsx` at the right spot.
 3. `./build.sh`.
 
 ## Styling

@@ -1,12 +1,14 @@
 // Nav — paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
+  // Anchors are written as "/#id" so they also work from subpages (e.g. the
+  // blog), where the target sections don't exist on the current document.
   const links = [
-    ["Product", "#product"],
-    ["Detection", "#detection"],
-    ["Specializations", "#specializations"],
-    ["Formats", "#formats"],
-    ["Performance", "#performance"],
-    // ["Blog", "#blog"],
+    ["Product", "/#product"],
+    ["Detection", "/#detection"],
+    ["Specializations", "/#specializations"],
+    ["Formats", "/#formats"],
+    ["Performance", "/#performance"],
+    ["Blog", "/blog/"],
   ];
   return (
     <header style={{
@@ -21,8 +23,8 @@ function Nav() {
         padding: "16px var(--gutter)",
         display: "flex", alignItems: "center", gap: 32,
       }}>
-        <a href="#" style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "var(--vw-paper-ink)", textDecoration: "none" }}>
-          <img src="assets/logo-mark.svg" width="26" height="26" alt=""/>
+        <a href="/" style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "var(--vw-paper-ink)", textDecoration: "none" }}>
+          <img src={vwAsset("logo-mark.svg")} width="26" height="26" alt=""/>
           <span style={{ fontFamily: "var(--vw-font-display)", fontWeight: 500, letterSpacing: "0.14em", fontSize: 15 }}>VOIDWALL</span>
         </a>
         <nav style={{ display: "flex", gap: 28, marginLeft: 24 }}>
@@ -37,7 +39,7 @@ function Nav() {
           <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
             Try the live demo <Icon name="external-link" size={14}/>
           </a>
-          <a href="#early-adopters" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
+          <a href="/#early-adopters" className="vw-btn vw-btn--primary" style={{ background: "white", color: "var(--vw-void)" }}>
             Become early adopter <span className="arrow">→</span>
           </a>
         </div>

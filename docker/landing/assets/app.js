@@ -1,4 +1,22 @@
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
+/* === 00-base.jsx === */
+// Asset base prefix. Pages live at different depths (/, /blog/, /blog/<slug>/),
+// so asset URLs need a matching number of "../" to stay relative — which is
+// what lets the generated files open straight from disk (file://) as well as
+// when served. We derive the prefix from this very bundle's own <script src>,
+// which build.sh has already rewritten to the right depth (e.g. ../assets/app.js).
+// Reading it back means the components render exactly the paths the
+// pre-rendered HTML already contains, so React hydration finds no mismatch and
+// never patches the live <img> back to an absolute path.
+window.__VW_BASE__ = function () {
+  var src = document.currentScript && document.currentScript.getAttribute("src") || "assets/app.js";
+  return src.replace(/assets\/app\.js$/, "");
+}();
+function vwAsset(name) {
+  return window.__VW_BASE__ + "assets/" + name;
+}
+window.vwAsset = vwAsset;
+
 /* === 00-icons.jsx === */
 // Centralized icon registry — Lucide-aligned stroke set. currentColor only.
 function Icon({
@@ -590,9 +608,9 @@ window.Icon = Icon;
 /* === 01-nav.jsx === */
 // Nav — paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
-  const links = [["Product", "#product"], ["Detection", "#detection"], ["Specializations", "#specializations"], ["Formats", "#formats"], ["Performance", "#performance"]
-  // ["Blog", "#blog"],
-  ];
+  // Anchors are written as "/#id" so they also work from subpages (e.g. the
+  // blog), where the target sections don't exist on the current document.
+  const links = [["Product", "/#product"], ["Detection", "/#detection"], ["Specializations", "/#specializations"], ["Formats", "/#formats"], ["Performance", "/#performance"], ["Blog", "/blog/"]];
   return /*#__PURE__*/React.createElement("header", {
     style: {
       position: "sticky",
@@ -613,7 +631,7 @@ function Nav() {
       gap: 32
     }
   }, /*#__PURE__*/React.createElement("a", {
-    href: "#",
+    href: "/",
     style: {
       display: "inline-flex",
       alignItems: "center",
@@ -622,7 +640,7 @@ function Nav() {
       textDecoration: "none"
     }
   }, /*#__PURE__*/React.createElement("img", {
-    src: "assets/logo-mark.svg",
+    src: vwAsset("logo-mark.svg"),
     width: "26",
     height: "26",
     alt: ""
@@ -664,7 +682,7 @@ function Nav() {
     name: "external-link",
     size: 14
   })), /*#__PURE__*/React.createElement("a", {
-    href: "#early-adopters",
+    href: "/#early-adopters",
     className: "vw-btn vw-btn--primary",
     style: {
       background: "white",
@@ -2233,26 +2251,9 @@ window.Performance = Performance;
 
 /* === 10-blog.jsx === */
 // Blog — paper surface. Three teaser cards + link to the index.
+// Posts come from window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function Blog() {
-  const posts = [{
-    tag: "Engineering",
-    date: "2026-05-12",
-    title: "Why we built Voidwall as a proxy, not a library.",
-    excerpt: "An inline DLP layer has to survive every protocol mistake in your stack. Here is why a proxy beats an SDK once teams scale.",
-    read: "8 min read"
-  }, {
-    tag: "Detection",
-    date: "2026-04-28",
-    title: "The case for locale-specific PII detectors.",
-    excerpt: "A French NIR and a German Steuer-ID share digit counts but mean different things. Context-free matching is a recipe for false positives — and worse.",
-    read: "6 min read"
-  }, {
-    tag: "Analytics",
-    date: "2026-04-10",
-    title: "Personal data is leaking into GA4. Here is what we found.",
-    excerpt: "We instrumented twelve production properties and counted the events that carried emails, phone numbers, and IPs. The result is not pretty.",
-    read: "11 min read"
-  }];
+  const posts = (window.POSTS || []).slice(0, 3);
   return /*#__PURE__*/React.createElement("section", {
     id: "blog",
     style: {
@@ -2291,7 +2292,7 @@ function Blog() {
       maxWidth: 560
     }
   }, "Notes from the wall.")), /*#__PURE__*/React.createElement("a", {
-    href: "#",
+    href: "/blog/",
     className: "vw-btn vw-btn--ghost"
   }, "All posts ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
@@ -2306,6 +2307,7 @@ function Blog() {
   }, p))))));
 }
 function PostCard({
+  slug,
   tag,
   date,
   title,
@@ -2313,7 +2315,7 @@ function PostCard({
   read
 }) {
   return /*#__PURE__*/React.createElement("a", {
-    href: "#",
+    href: `/blog/${slug}/`,
     style: {
       display: "flex",
       flexDirection: "column",
@@ -2404,6 +2406,7 @@ function PostCard({
   }))));
 }
 window.Blog = Blog;
+window.PostCard = PostCard;
 
 /* === 11-cta.jsx === */
 // CTA — void surface. Subscription for for early access, embedded from MailerLite.
@@ -2453,7 +2456,7 @@ function Footer() {
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("a", {
-    href: "#",
+    href: "/",
     style: {
       display: "inline-flex",
       alignItems: "center",
@@ -2462,7 +2465,7 @@ function Footer() {
       textDecoration: "none"
     }
   }, /*#__PURE__*/React.createElement("img", {
-    src: "assets/logo-mark-light.svg",
+    src: vwAsset("logo-mark-light.svg"),
     width: "24",
     height: "24",
     alt: ""
@@ -2478,13 +2481,208 @@ function Footer() {
 }
 window.Footer = Footer;
 
-/* === 13-app.jsx === */
+/* === 13-blog-index.jsx === */
+// Blog index — paper surface. Full list of every post, reusing PostCard.
+// Rendered at /blog/ (see the router in 15-app.jsx). Posts come from
+// window.POSTS (generated from src/blog/posts/*.md by build.sh).
+function BlogIndex() {
+  const posts = window.POSTS || [];
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement("main", {
+    style: {
+      background: "var(--vw-paper)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "vw-container",
+    style: {
+      padding: "96px var(--gutter)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 56,
+      maxWidth: 720
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "vw-eyebrow",
+    style: {
+      margin: "0 0 18px",
+      color: "var(--vw-violet-500)"
+    }
+  }, "Blog"), /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "var(--vw-font-display)",
+      fontSize: 56,
+      fontWeight: 600,
+      letterSpacing: "-0.025em",
+      lineHeight: 1.02,
+      color: "var(--vw-paper-ink)",
+      margin: "0 0 20px",
+      textWrap: "balance"
+    }
+  }, "Notes from the wall."), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 17,
+      lineHeight: 1.55,
+      color: "var(--vw-paper-ink-2)",
+      margin: 0,
+      textWrap: "pretty"
+    }
+  }, "Engineering notes, detection deep-dives, and what we learn watching personal data move through real systems.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3, 1fr)",
+      gap: 24
+    }
+  }, posts.map((p, i) => /*#__PURE__*/React.createElement(PostCard, _extends({
+    key: i
+  }, p)))))), /*#__PURE__*/React.createElement(Footer, null));
+}
+window.BlogIndex = BlogIndex;
+
+/* === 14-blog-post.jsx === */
+// Single blog post — paper surface, narrow reading column. Rendered at
+// /blog/<slug>/ (see the router in 15-app.jsx). The post body is pre-rendered
+// HTML (markdown → HTML at build time) injected into a .vw-prose container.
+function BlogPost({
+  slug
+}) {
+  const post = (window.POSTS || []).find(p => p.slug === slug);
+  if (!post) {
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement("main", {
+      style: {
+        background: "var(--vw-paper)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "vw-container",
+      style: {
+        padding: "120px var(--gutter)",
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("h1", {
+      style: {
+        fontFamily: "var(--vw-font-display)",
+        fontSize: 40,
+        fontWeight: 600,
+        color: "var(--vw-paper-ink)",
+        margin: "0 0 16px"
+      }
+    }, "Post not found."), /*#__PURE__*/React.createElement("a", {
+      href: "/blog/",
+      className: "vw-btn vw-btn--ghost"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "arrow"
+    }, "\u2190"), " All posts"))), /*#__PURE__*/React.createElement(Footer, null));
+  }
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement("main", {
+    style: {
+      background: "var(--vw-paper)"
+    }
+  }, /*#__PURE__*/React.createElement("article", {
+    className: "vw-container",
+    style: {
+      maxWidth: 760,
+      padding: "80px var(--gutter) 96px"
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: "/blog/",
+    className: "vw-btn vw-btn--ghost",
+    style: {
+      marginBottom: 40
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "arrow"
+  }, "\u2190"), " All posts"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 24
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      height: 22,
+      padding: "0 9px",
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 11,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color: "var(--vw-violet-500)",
+      background: "rgba(139,125,246,0.12)",
+      borderRadius: 4
+    }
+  }, post.tag), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--vw-font-mono)",
+      fontSize: 11.5,
+      color: "var(--vw-paper-ink-3)"
+    }
+  }, post.date), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 13,
+      color: "var(--vw-paper-ink-3)"
+    }
+  }, "\xB7 ", post.read)), /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "var(--vw-font-display)",
+      fontSize: 46,
+      fontWeight: 600,
+      letterSpacing: "-0.025em",
+      lineHeight: 1.04,
+      color: "var(--vw-paper-ink)",
+      margin: "0 0 40px",
+      textWrap: "balance"
+    }
+  }, post.title), /*#__PURE__*/React.createElement("div", {
+    className: "vw-prose",
+    dangerouslySetInnerHTML: {
+      __html: post.html
+    }
+  }))), /*#__PURE__*/React.createElement(Footer, null));
+}
+window.BlogPost = BlogPost;
+
+/* === 15-app.jsx === */
 // Entry point — renders the landing page. The original standalone export
 // used a Tweaks editor panel; the production build renders the components
 // directly with a fixed headline variant.
 function App() {
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement(Hero, null), /*#__PURE__*/React.createElement(Metrics, null), /*#__PURE__*/React.createElement("div", {
     className: "void-band vw-void"
-  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(CTA, null), /*#__PURE__*/React.createElement(Footer, null));
+  }, /*#__PURE__*/React.createElement(Features, null), /*#__PURE__*/React.createElement(Coverage, null), /*#__PURE__*/React.createElement(Analytics, null), /*#__PURE__*/React.createElement(Formats, null)), /*#__PURE__*/React.createElement(Performance, null), /*#__PURE__*/React.createElement(Blog, null), /*#__PURE__*/React.createElement(CTA, null), /*#__PURE__*/React.createElement(Footer, null));
 }
-ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(App, null));
+
+// Path-based router. Each route is pre-rendered to its own index.html by
+// build.sh, so this only has to pick the view for the current page.
+//
+// We can't trust location.pathname directly: opened from disk (file://) it's an
+// absolute filesystem path, not the site path. Instead we reconstruct the
+// site-relative path from the page depth — the number of "../" in the asset
+// base (set in 00-base.jsx) tells us how many trailing path segments belong to
+// the site. That gives the same answer whether served or opened locally.
+function Root() {
+  const base = window.__VW_BASE__;
+  const raw = window.location.pathname.replace(/\/index\.html$/, "/");
+  let path;
+  if (base.startsWith("/")) {
+    // Absolute base (build-time render, or served from the site root):
+    // location.pathname already is the site path.
+    path = raw;
+  } else {
+    // Relative base (runtime, including file://): keep only the trailing
+    // segments that belong to the site, one per "../" in the base.
+    const depth = (base.match(/\.\.\//g) || []).length;
+    const segs = raw.split("/").filter(Boolean);
+    path = "/" + segs.slice(segs.length - depth).join("/");
+    if (path !== "/") path += "/";
+  }
+  const post = path.match(/^\/blog\/([^/]+)\/$/);
+  if (post) return /*#__PURE__*/React.createElement(BlogPost, {
+    slug: post[1]
+  });
+  if (path === "/blog/") return /*#__PURE__*/React.createElement(BlogIndex, null);
+  return /*#__PURE__*/React.createElement(App, null);
+}
+ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(Root, null));

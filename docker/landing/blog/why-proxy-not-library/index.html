@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280">
+  <title>Voidwall - Prevent Sensitive-Data Propagation</title>
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/styles.css">
+  <!-- MailerLite Universal -->
+  <script async="" src="https://assets.mailerlite.com/js/universal.js"></script><script>
+    (function(w,d,e,u,f,l,n){w[f]=w[f]||function(){(w[f].q=w[f].q||[])
+    .push(arguments);},l=d.createElement(e),l.async=1,l.src=u,
+    n=d.getElementsByTagName(e)[0],n.parentNode.insertBefore(l,n);})
+    (window,document,'script','https://assets.mailerlite.com/js/universal.js','ml');
+    ml('account', '2387377');
+  </script>
+  <!-- End MailerLite Universal -->
+<link rel="stylesheet" type="text/css" media="all" href="https://assets.mailerlite.com/css/universal.css"><script src="https://assets.mailerlite.com/jsonp/2387377/forms?callback=ml.fn.renderPopupsAndPromotions" async="true"></script></head>
+<body data-screen-label="01 Voidwall landing">
+  <div id="root"><header style="position: sticky; top: 0px; z-index: 50; background: rgba(241, 238, 232, 0.86); backdrop-filter: blur(12px); border-bottom: 1px solid var(--vw-paper-line);"><div style="max-width: var(--max-w); margin: 0px auto; padding: 16px var(--gutter); display: flex; align-items: center; gap: 32px;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-paper-ink); text-decoration: none;"><img src="../../assets/logo-mark.svg" width="26" height="26" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px;">VOIDWALL</span></a><nav style="display: flex; gap: 28px; margin-left: 24px;"><a href="/#product" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Product</a><a href="/#detection" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Detection</a><a href="/#specializations" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Specializations</a><a href="/#formats" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Formats</a><a href="/#performance" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Performance</a><a href="/blog/" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Blog</a></nav><div style="margin-left: auto; display: flex; align-items: center; gap: 12px;"><a href="/demo" target="_blank" rel="noopener noreferrer" class="vw-btn vw-btn--primary">Try the live demo <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a><a href="/#early-adopters" class="vw-btn vw-btn--primary" style="background: white; color: var(--vw-void);">Become early adopter <span class="arrow">→</span></a></div></div></header><main style="background: var(--vw-paper);"><article class="vw-container" style="max-width: 760px; padding: 80px var(--gutter) 96px;"><a href="/blog/" class="vw-btn vw-btn--ghost" style="margin-bottom: 40px;"><span class="arrow">←</span> All posts</a><div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0px 9px; font-family: var(--vw-font-body); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vw-violet-500); background: rgba(139, 125, 246, 0.12); border-radius: 4px;">Engineering</span><span style="font-family: var(--vw-font-mono); font-size: 11.5px; color: var(--vw-paper-ink-3);">2026-05-12</span><span style="font-family: var(--vw-font-body); font-size: 13px; color: var(--vw-paper-ink-3);">· 8 min read</span></div><h1 style="font-family: var(--vw-font-display); font-size: 46px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.04; color: var(--vw-paper-ink); margin: 0px 0px 40px; text-wrap: balance;">Why we built Voidwall as a proxy, not a library.</h1><div class="vw-prose"><p>The obvious way to stop personal data from leaving your system is to check it
+at the point it's produced. Import an SDK, wrap the call, scan the payload. It
+works — until you have forty services, three languages, and a contractor who
+shipped the one path that forgot to wrap the call.</p>
+<h2 id="a-library-is-opt-in-a-proxy-is-not">A library is opt-in. A proxy is not.</h2>
+<p>An SDK protects the code that remembers to use it. That sounds fine until you
+count the ways data actually leaves a system: a debug log that got promoted to
+an analytics sink, a webhook added in a hurry, a third-party tag a marketer
+pasted into the page. None of those import your SDK.</p>
+<p>A proxy sits on the wire. Every request that crosses it is inspected, whether
+or not the author knew Voidwall existed. The default flips from <em>opt-in safety</em>
+to <em>opt-out exposure</em> — and exposure now requires someone to deliberately route
+around the wall.</p>
+<h2 id="the-protocol-is-the-contract">The protocol is the contract.</h2>
+<p>Libraries couple to your language and your framework version. A proxy couples
+to HTTP, which every service already speaks. That means:</p>
+<ul>
+<li>One detection policy, enforced identically across Go, Python, and Rust.</li>
+<li>No redeploy of forty services to change a redaction rule.</li>
+<li>A single place to audit what was inspected and what was blocked.</li>
+</ul>
+<h2 id="where-a-proxy-earns-its-keep">Where a proxy earns its keep</h2>
+<p>The hard part of inline DLP isn't matching a regex. It's doing it under load,
+without becoming the thing that takes your site down. That's why the scanner
+runs off the async runtime on dedicated threads, and why body buffers are
+dropped the moment a scan completes. The wall has to be invisible when it
+passes traffic and unmissable when it stops it.</p>
+<p>A library can be correct. A proxy can be <em>unavoidable</em>. At scale, unavoidable
+is the property that actually protects you.</p>
+</div></article></main><footer style="background: var(--vw-void); color: var(--vw-void-ink); border-top: 1px solid var(--vw-void-line);"><div class="vw-container" style="padding: 32px var(--gutter);"><div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; font-family: var(--vw-font-body); font-size: 12.5px; color: var(--vw-void-ink-3); flex-wrap: wrap;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-violet-300); text-decoration: none;"><img src="../../assets/logo-mark-light.svg" width="24" height="24" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px; color: var(--vw-void-ink);">VOIDWALL</span></a><span>© 2026 Voidwall</span></div></div></footer></div>
+  <noscript>
+    <div style="position:fixed;bottom:12px;left:12px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#999;background:rgba(255,255,255,0.9);padding:6px 12px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      This page requires JavaScript to display.
+    </div>
+  </noscript>
+  <script src="../../assets/vendor/react.production.min.js"></script>
+  <script src="../../assets/vendor/react-dom.production.min.js"></script>
+  <script src="../../assets/posts.js"></script>
+  <script src="../../assets/app.js"></script>
+
+
+</body></html>

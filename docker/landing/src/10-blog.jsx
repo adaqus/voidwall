@@ -1,28 +1,7 @@
 // Blog — paper surface. Three teaser cards + link to the index.
+// Posts come from window.POSTS (generated from src/blog/posts/*.md by build.sh).
 function Blog() {
-  const posts = [
-    {
-      tag: "Engineering",
-      date: "2026-05-12",
-      title: "Why we built Voidwall as a proxy, not a library.",
-      excerpt: "An inline DLP layer has to survive every protocol mistake in your stack. Here is why a proxy beats an SDK once teams scale.",
-      read: "8 min read",
-    },
-    {
-      tag: "Detection",
-      date: "2026-04-28",
-      title: "The case for locale-specific PII detectors.",
-      excerpt: "A French NIR and a German Steuer-ID share digit counts but mean different things. Context-free matching is a recipe for false positives — and worse.",
-      read: "6 min read",
-    },
-    {
-      tag: "Analytics",
-      date: "2026-04-10",
-      title: "Personal data is leaking into GA4. Here is what we found.",
-      excerpt: "We instrumented twelve production properties and counted the events that carried emails, phone numbers, and IPs. The result is not pretty.",
-      read: "11 min read",
-    },
-  ];
+  const posts = (window.POSTS || []).slice(0, 3);
 
   return (
     <section id="blog" style={{ background: "var(--vw-paper)", borderTop: "1px solid var(--vw-paper-line)" }}>
@@ -41,7 +20,7 @@ function Blog() {
               Notes from the wall.
             </h2>
           </div>
-          <a href="#" className="vw-btn vw-btn--ghost">All posts <span className="arrow">→</span></a>
+          <a href="/blog/" className="vw-btn vw-btn--ghost">All posts <span className="arrow">→</span></a>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
@@ -52,9 +31,9 @@ function Blog() {
   );
 }
 
-function PostCard({ tag, date, title, excerpt, read }) {
+function PostCard({ slug, tag, date, title, excerpt, read }) {
   return (
-    <a href="#" style={{
+    <a href={`/blog/${slug}/`} style={{
       display: "flex", flexDirection: "column",
       background: "#fff",
       border: "1px solid var(--vw-paper-line)",
@@ -106,3 +85,4 @@ function PostCard({ tag, date, title, excerpt, read }) {
 }
 
 window.Blog = Blog;
+window.PostCard = PostCard;

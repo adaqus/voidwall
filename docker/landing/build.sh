@@ -1,26 +1,28 @@
 #!/bin/sh
 # Build pipeline:
-#   1) Transpile src/*.jsx into assets/app.js (Babel in node:lts-alpine).
-#   2) Spin up nginx on a private docker network and pre-render the page
-#      with headless Chromium, writing the rendered DOM to index.html.
-#      The bundle uses ReactDOM.hydrateRoot, so React reuses the snapshot
-#      for interactivity without a flash-replace.
+#   1) Transpile src/*.jsx into assets/app.js (Babel in node:lts-alpine) and
+#      generate assets/posts.js from src/blog/posts/*.md (markdown → HTML).
+#   2) Spin up nginx on a private docker network and pre-render every page
+#      (home + /blog/ + one per post) with headless Chromium, writing each
+#      rendered DOM to its own index.html. The bundle uses ReactDOM.hydrateRoot,
+#      so React reuses the snapshot for interactivity without a flash-replace.
 set -eu
 cd "$(dirname "$0")"
 mkdir -p assets
 
-# ── 1) Transpile JSX ────────────────────────────────────────────────────────
-echo "[1/2] transpiling src/*.jsx → assets/app.js"
+# ── 1) Transpile JSX + build blog post data ─────────────────────────────────
+echo "[1/2] transpiling src/*.jsx → assets/app.js, building assets/posts.js"
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/src":/src:ro \
+  -v "$PWD/build-posts.cjs":/build-posts.cjs:ro \
   -v "$PWD/assets":/out \
   node:lts-alpine sh -c '
     set -eu
     cd /tmp
     npm init -y >/dev/null 2>&1
     npm install --silent --no-fund --no-audit \
-      @babel/cli@7 @babel/core@7 @babel/preset-react@7 >/dev/null
+      @babel/cli@7 @babel/core@7 @babel/preset-react@7 marked@4 >/dev/null
     : > bundle.jsx
     for f in /src/*.jsx; do
       printf "\n/* === %s === */\n" "$(basename "$f")" >> bundle.jsx
@@ -28,13 +30,36 @@ docker run --rm \
     done
     npx --no babel bundle.jsx --presets=@babel/preset-react --out-file /out/app.js
     echo "  built assets/app.js ($(wc -c < /out/app.js) bytes)"
+    NODE_PATH=/tmp/node_modules node /build-posts.cjs
   '
 
 # ── 2) Pre-render via headless Chromium ─────────────────────────────────────
 echo "[2/2] pre-rendering with headless Chromium"
 
-# Use the unrendered template while Chromium loads the page.
-cp src/index.template.html index.html
+# Route list: home, blog index, one page per post. The output path mirrors the
+# URL (/blog/<slug>/ → blog/<slug>/index.html) so both nginx (here) and
+# tower-http ServeDir (in production) resolve <route> to <route>/index.html.
+# The router in src/15-app.jsx picks the view from location.pathname.
+routes="/ /blog/"
+for f in src/blog/posts/*.md; do
+  [ -e "$f" ] || continue
+  routes="$routes /blog/$(basename "$f" .md)/"
+done
+
+route_to_out() {
+  case "$1" in
+    /) printf 'index.html' ;;
+    *) printf '%sindex.html' "${1#/}" ;;
+  esac
+}
+
+# Seed every output file with the unrendered template so nginx can serve the
+# page (and the bundle can load) before Chromium snapshots the rendered DOM.
+for route in $routes; do
+  out=$(route_to_out "$route")
+  mkdir -p "$(dirname "$out")"
+  cp src/index.template.html "$out"
+done
 
 NET="landing-prerender-$$"
 NGINX="landing-prerender-nginx-$$"
@@ -58,15 +83,32 @@ done
 
 # --dump-dom prints the serialized DOM after the load event. virtual-time-budget
 # lets the event loop run further so React's hydrate/render finishes before dump.
-docker run --rm --network "$NET" \
-  --user "$(id -u):$(id -g)" \
-  -v "$PWD":/work -w /work zenika/alpine-chrome \
-  --no-sandbox --headless --disable-gpu \
-  --virtual-time-budget=8000 \
-  --dump-dom "http://$NGINX/index.html" > index.html.tmp 2>/dev/null
+for route in $routes; do
+  out=$(route_to_out "$route")
+  docker run --rm --network "$NET" \
+    --user "$(id -u):$(id -g)" \
+    -v "$PWD":/work -w /work zenika/alpine-chrome \
+    --no-sandbox --headless --disable-gpu \
+    --virtual-time-budget=8000 \
+    --dump-dom "http://$NGINX$route" > "$out.tmp" 2>/dev/null
 
-# --dump-dom emits the <html> element only; re-prepend the doctype.
-{ printf '<!DOCTYPE html>\n'; cat index.html.tmp; } > index.html
-rm index.html.tmp
+  # --dump-dom emits the <html> element only; re-prepend the doctype.
+  { printf '<!DOCTYPE html>\n'; cat "$out.tmp"; } > "$out"
+  rm "$out.tmp"
 
-echo "  wrote index.html ($(wc -c < index.html) bytes)"
+  # Asset URLs are authored root-absolute (/assets/…) so nginx can serve them
+  # while pre-rendering any route depth above. Rewrite them to depth-correct
+  # relative paths in the final file so the page also renders when opened
+  # straight from disk (file://), where a leading "/" points at the filesystem
+  # root. One "../" per directory the file sits below the landing root:
+  #   index.html              -> assets/…
+  #   blog/index.html         -> ../assets/…
+  #   blog/<slug>/index.html  -> ../../assets/…
+  # Navigation links stay root-absolute, keeping clean URLs when served.
+  prefix=""
+  i=$(printf '%s' "$out" | tr -cd '/' | wc -c)
+  while [ "$i" -gt 0 ]; do prefix="../$prefix"; i=$((i - 1)); done
+  sed -i "s#\"/assets/#\"${prefix}assets/#g" "$out"
+
+  echo "  wrote $out ($(wc -c < "$out") bytes)"
+done

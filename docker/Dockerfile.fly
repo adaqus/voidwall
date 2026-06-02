@@ -43,11 +43,13 @@ COPY docker/demo/index.html /srv/demo/index.html
 RUN printf 'window.PII_API_URL = window.location.origin;\n' > /srv/demo/config.js
 
 # Landing page, served by the HTTP API at / — enabled by the fly-landing
-# feature above, which serves this fixed /srv/landing path. index.html
-# references its assets relatively (assets/…), so the whole directory is copied
-# as-is. The demo at /demo (Fly static) is unaffected.
+# feature above, which serves this fixed /srv/landing path. Pages reference
+# their assets with relative paths and ServeDir resolves a directory request to
+# <dir>/index.html — so /blog/ and /blog/<slug>/ work as-is. The demo at /demo
+# (Fly static) is unaffected.
 COPY docker/landing/index.html /srv/landing/index.html
 COPY docker/landing/assets /srv/landing/assets
+COPY docker/landing/blog /srv/landing/blog
 
 ENTRYPOINT ["pii-proxy"]
 CMD ["--config", "/etc/pii-proxy/proxy.toml"]
