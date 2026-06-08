@@ -817,28 +817,26 @@ pub(crate) fn dob_check(s: &str) -> bool {
         (1900..=MAX_YEAR).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d)
     };
 
+    // Month names across all supported languages (en, fr, de, nl), full names plus
+    // common abbreviations. to_lowercase() (not to_ascii_lowercase) so non-ASCII names
+    // like "février" and "märz" match.
     let month_from_name = |name: &str| -> Option<u32> {
         match name.to_lowercase().as_str() {
-            "jan" | "january" | "janvier" => Some(1),
-            "feb" | "february" | "février" | "fevrier" => Some(2),
-            "mar" | "march" | "mars" => Some(3),
-            "apr" | "april" | "avril" => Some(4),
-            "may" | "mai" => Some(5),
-            "jun" | "june" | "juin" => Some(6),
-            "jul" | "july" | "juillet" => Some(7),
-            "aug" | "august" | "août" | "aout" => Some(8),
-            "sep" | "september" | "septembre" => Some(9),
-            "oct" | "october" | "octobre" => Some(10),
+            "jan" | "january" | "janvier" | "janv" | "januar" | "januari" => Some(1),
+            "feb" | "february" | "février" | "fevrier" | "févr" | "fevr" | "februar"
+            | "februari" => Some(2),
+            "mar" | "march" | "mars" | "märz" | "maerz" | "mär" | "mrz" | "maart" | "mrt" => {
+                Some(3)
+            }
+            "apr" | "april" | "avril" | "avr" => Some(4),
+            "may" | "mai" | "mei" => Some(5),
+            "jun" | "june" | "juin" | "juni" => Some(6),
+            "jul" | "july" | "juillet" | "juil" | "juli" => Some(7),
+            "aug" | "august" | "août" | "aout" | "augustus" => Some(8),
+            "sep" | "september" | "septembre" | "sept" => Some(9),
+            "oct" | "october" | "octobre" | "oktober" | "okt" => Some(10),
             "nov" | "november" | "novembre" => Some(11),
-            "dec" | "december" | "décembre" | "decembre" | "dezember" => Some(12),
-            "januar" | "januari" => Some(1),
-            "februar" | "februari" => Some(2),
-            "märz" | "maerz" | "maart" => Some(3),
-            "mei" => Some(5),
-            "juni" => Some(6),
-            "juli" => Some(7),
-            "augustus" => Some(8),
-            "oktober" => Some(10),
+            "dec" | "december" | "décembre" | "decembre" | "déc" | "dezember" | "dez" => Some(12),
             _ => None,
         }
     };

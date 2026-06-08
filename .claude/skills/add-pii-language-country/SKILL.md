@@ -174,6 +174,17 @@ other lengths (e.g. `siren_luhn_check` for 9-digit SIREN, `siret_luhn_check` for
 closure in `dob_check`. Use `to_lowercase()` (not `to_ascii_lowercase()`) so non-ASCII names
 like "février" match.
 
+**Month names need abbreviation support where the language uses them.** Anywhere month
+names appear — both the `month_from_name` closure in `dob_check` *and* the month-name
+alternation in the DOB extraction regex (`keyword_context_detector.rs`) — add the
+language's common abbreviations alongside the full names (e.g. de `Mär`/`Mrz`/`Okt`/`Dez`,
+fr `janv`/`févr`/`déc`, nl `mrt`/`okt`). The two must stay in sync: `dob_check` only ever
+validates the string the extraction regex captured, so an abbreviation added to the
+validator alone is inert — the regex must capture it first, and the regex match is wasted
+if the validator then rejects it. List the longer form before the shorter in the regex
+alternation (`septembre|sept`, `M[aä]rz|M[aä]r`) so the full name is preferred. Cover each
+new abbreviation with a `#[test_case]` row in `detects_with_keyword`.
+
 **Complex patterns may silently fail in vectorscan's multi-pattern database** even if they
 compile and work in isolation. A month-name DOB pattern with 12+ alternations worked alone
 but didn't fire alongside 50+ other patterns. **Workaround:** Keep one combined pattern tuple

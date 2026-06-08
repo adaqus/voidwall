@@ -534,7 +534,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Fr,
-                r"(?i)(?:date[\s_-]?de[\s_-]?naissance|n[eé]e?[\s_-]?le|DDN|d\.d\.n\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|fevrier|f[eé]vrier|mars|avril|mai|juin|juillet|aout|ao[uû]t|septembre|octobre|novembre|decembre|d[eé]cembre)\s+\d{4})",
+                r"(?i)(?:date[\s_-]?de[\s_-]?naissance|n[eé]e?[\s_-]?le|DDN|d\.d\.n\.?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|janv|fevrier|f[eé]vrier|f[eé]vr|mars|avril|avr|mai|juin|juillet|juil|aout|ao[uû]t|septembre|sept|octobre|oct|novembre|nov|decembre|d[eé]cembre|d[eé]c)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -717,7 +717,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::De,
-                r"(?i)(?:Geburtsdatum|geboren[\s_-]?am|Geb\.?datum)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Februar|M[aä]rz|Maerz|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s+\d{4})",
+                r"(?i)(?:Geburtsdatum|geboren[\s_-]?am|Geb\.?datum)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Jan|Februar|Feb|M[aä]rz|Maerz|M[aä]r|Mrz|April|Apr|Mai|Juni|Jun|Juli|Jul|August|Aug|September|Sept|Sep|Oktober|Okt|November|Nov|Dezember|Dez)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -944,7 +944,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Nl,
-                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)\s+\d{4})",
+                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:januari|jan|februari|feb|maart|mrt|april|apr|mei|juni|jun|juli|jul|augustus|aug|september|sept|sep|oktober|okt|november|nov|december|dec)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1535,6 +1535,8 @@ mod tests {
     #[test_case("\"fr_taxpayer_id\":\"0123456789012\"", PiiKind::FrNif, "0123456789012" ; "fr nif en json taxpayer")]
     // French keywords for existing international types
     #[test_case("date de naissance: 15 mars 1990", PiiKind::DateOfBirth, "15 mars 1990" ; "fr dob")]
+    #[test_case("date de naissance: 15 déc 1990", PiiKind::DateOfBirth, "15 déc 1990" ; "fr dob abbrev dec")]
+    #[test_case("date de naissance: 3 janv 1990", PiiKind::DateOfBirth, "3 janv 1990" ; "fr dob abbrev janv")]
     #[test_case("rappel: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "fr keyword us phone")]
     #[test_case("document de voyage: 123456789", PiiKind::PassportNumber, "123456789" ; "fr keyword passport")]
     #[test_case("géolocalisation: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "fr keyword geolocation")]
@@ -1702,6 +1704,8 @@ mod tests {
     #[test_case("Passnummer: 987654321", PiiKind::PassportNumber, "987654321" ; "de keyword passport alt")]
     #[test_case("Geburtsdatum: 15.03.1990", PiiKind::DateOfBirth, "15.03.1990" ; "de keyword dob numeric")]
     #[test_case("Geburtsdatum: 15 März 1990", PiiKind::DateOfBirth, "15 März 1990" ; "de keyword dob month name")]
+    #[test_case("Geburtsdatum: 15 Okt 1990", PiiKind::DateOfBirth, "15 Okt 1990" ; "de keyword dob abbrev okt")]
+    #[test_case("Geburtsdatum: 3 Dez 1990", PiiKind::DateOfBirth, "3 Dez 1990" ; "de keyword dob abbrev dez")]
     #[test_case("geboren am: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "de keyword dob geboren am")]
     #[test_case("Gebdatum: 28/12/1975", PiiKind::DateOfBirth, "28/12/1975" ; "de keyword dob gebdatum")]
     #[test_case("Standort: 48.1351,11.5820", PiiKind::PreciseGeolocation, "48.1351,11.5820" ; "de keyword geolocation munich")]
@@ -1891,6 +1895,8 @@ mod tests {
     #[test_case("gsm: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "nl keyword us phone")]
     #[test_case("geboortedatum: 15-03-1990", PiiKind::DateOfBirth, "15-03-1990" ; "nl keyword dob numeric")]
     #[test_case("geboortedatum: 15 maart 1990", PiiKind::DateOfBirth, "15 maart 1990" ; "nl keyword dob month name")]
+    #[test_case("geboortedatum: 15 mrt 1990", PiiKind::DateOfBirth, "15 mrt 1990" ; "nl keyword dob abbrev mrt")]
+    #[test_case("geboortedatum: 3 okt 1990", PiiKind::DateOfBirth, "3 okt 1990" ; "nl keyword dob abbrev okt")]
     #[test_case("geboren op: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "nl keyword dob geboren op")]
     #[test_case("locatie: 52.3702,4.8952", PiiKind::PreciseGeolocation, "52.3702,4.8952" ; "nl keyword geolocation amsterdam")]
     #[test_case("bankidentificatiecode: ABNANL2A", PiiKind::SwiftBic, "ABNANL2A" ; "nl keyword swift abn amro")]
