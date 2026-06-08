@@ -28,6 +28,7 @@ const PRIORITY_GROUPS: &[&[PiiKind]] = &[
         PiiKind::DePhoneNumber,
         PiiKind::AtPhoneNumber,
         PiiKind::ChPhoneNumber,
+        PiiKind::NlPhoneNumber,
         PiiKind::InternationalPhoneNumber,
     ],
     // Passport: country-scoped beats generic.
@@ -39,6 +40,7 @@ const PRIORITY_GROUPS: &[&[PiiKind]] = &[
         PiiKind::IePassportNumber,
         PiiKind::FrPassportNumber,
         PiiKind::DePassportNumber,
+        PiiKind::NlPassportNumber,
         PiiKind::PassportNumber,
     ],
 ];
@@ -231,6 +233,7 @@ mod tests {
     #[test_case(PiiKind::GbPhoneNumber, PiiKind::InternationalPhoneNumber ; "gb beats intl")]
     #[test_case(PiiKind::FrPhoneNumber, PiiKind::InternationalPhoneNumber ; "fr beats intl")]
     #[test_case(PiiKind::DePhoneNumber, PiiKind::InternationalPhoneNumber ; "de beats intl")]
+    #[test_case(PiiKind::NlPhoneNumber, PiiKind::InternationalPhoneNumber ; "nl beats intl")]
     fn equal_span_phone_priority(winner: PiiKind, loser: PiiKind) {
         let input = vec![m(loser, 0, 12), m(winner, 0, 12)];
         let out = resolve_overlaps(input);
@@ -246,6 +249,7 @@ mod tests {
     #[test_case(PiiKind::AuPassportNumber, PiiKind::PassportNumber ; "au beats generic")]
     #[test_case(PiiKind::FrPassportNumber, PiiKind::PassportNumber ; "fr beats generic")]
     #[test_case(PiiKind::DePassportNumber, PiiKind::PassportNumber ; "de beats generic")]
+    #[test_case(PiiKind::NlPassportNumber, PiiKind::PassportNumber ; "nl beats generic")]
     fn equal_span_passport_priority(winner: PiiKind, loser: PiiKind) {
         let input = vec![m(loser, 5, 14), m(winner, 5, 14)];
         let out = resolve_overlaps(input);

@@ -79,6 +79,16 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: iban_check,
             needs_ucp: false,
         },
+        // Dutch BTW (VAT) number: NL + 9 digits + B + 2-digit sub-number.
+        // Structurally unique, so detected without a keyword. The validator
+        // enforces the sub-number range and case-insensitive letters.
+        PatternDef {
+            kind: PiiKind::NlBtw,
+            expr: r"\b[Nn][Ll]\d{9}[Bb]\d{2}\b",
+            som_fallback: false,
+            validator: nl_btw_check,
+            needs_ucp: false,
+        },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
@@ -564,6 +574,10 @@ mod tests {
     #[test_case("Eircode F92 AB12", PiiKind::IeEircode, "F92 AB12" ; "ie eircode donegal")]
     #[test_case("send to: 1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na", PiiKind::BitcoinAddress, "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf" ; "bitcoin legacy p2pkh")]
     #[test_case("wallet: 0x1234567890abcdef1234567890abcdef12345678", PiiKind::EthereumAddress, "0x1234567890abcdef1234567890abcdef12345678" ; "ethereum address")]
+    #[test_case("BTW: NL123456789B01", PiiKind::NlBtw, "NL123456789B01" ; "nl btw vat number")]
+    // NL000099998B57: official Belastingdienst (NL tax authority) example number
+    #[test_case("VAT NL000099998B57 applies", PiiKind::NlBtw, "NL000099998B57" ; "nl btw belastingdienst example")]
+    #[test_case("btw nl123456789b01", PiiKind::NlBtw, "nl123456789b01" ; "nl btw lowercase")]
     #[test_case("or call +1 415 555 1234.", PiiKind::InternationalPhoneNumber, "+1 415 555 1234" ; "intl phone us spaces")]
     #[test_case("ring +44 20 7946 0958 today", PiiKind::InternationalPhoneNumber, "+44 20 7946 0958" ; "intl phone uk spaces")]
     #[test_case("number: +1-415-555-1234", PiiKind::InternationalPhoneNumber, "+1-415-555-1234" ; "intl phone hyphens")]
@@ -623,6 +637,8 @@ mod tests {
     #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
     #[test_case("key: AKIAIOSFODNN7EXAMPL", PiiKind::AwsAccessKey ; "aws access key too short")]
     #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
+    #[test_case("BTW: NL123456789B00", PiiKind::NlBtw ; "nl btw sub number zero")]
+    #[test_case("BTW: NL12345678B01", PiiKind::NlBtw ; "nl btw too few digits")]
     #[test_case("0x1234567890abcdef1234567890abcdef1234567", PiiKind::EthereumAddress ; "ethereum too short")]
     #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]
     #[test_case("eircode: D2W X285", PiiKind::IeEircode ; "ie eircode invalid w not at d6")]

@@ -3,6 +3,8 @@ name: add-pii-language-country
 description: Add support for a new language and/or country to the `pii` crate (crates/pii). Use when asked to add a new country's PII types (e.g. national ID, postcode, phone, passport) or to add detection/keywords for a new language. Use also when language or country is already supported, but new PII type is added. Covers the full checklist, real-world validation, keyword-context pattern rules, test requirements, and known pitfalls.
 ---
 
+Add support for language $ARGUMENTS[0] and country $ARGUMENTS[1].
+
 # Adding a New Language + Country to the `pii` crate
 
 Distilled from the French (`Language::Fr`, `Country::Fr`) implementation. Read
@@ -121,6 +123,7 @@ rows covering all of:
 - snake_case (e.g. `phone_number: 555-1234`)
 - kebab-case (e.g. `phone-number: 555-1234`)
 - JSON `"key":"value"` shape (e.g. `"phone_number":"555-1234"`)
+- plain text (e.g. `call 555-1234`)
 
 Add these rows to the existing parametrized test functions (`detects_with_keyword`, etc.) —
 only fall back to a standalone test when the assertion shape genuinely differs.

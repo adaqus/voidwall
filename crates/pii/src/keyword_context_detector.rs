@@ -10,14 +10,15 @@ use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
-    au_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check, de_at_postfach_check,
-    de_packstation_check, de_passport_check, de_personalausweis_check, de_postal_check,
-    de_steuer_id_check, dob_check, ein_check, fr_ch_address_check, fr_ch_boite_postale_check,
-    fr_nif_check, fr_postal_check, gb_address_check, geolocation_check, ie_driver_check,
-    imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check, nz_dl_check,
-    ohip_check, passport_check, passport_new_check, person_name_check, phone_check,
-    siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
+    au_dl_check, bsn_check, ch_ahv_check, ch_postal_check, de_at_address_check,
+    de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
+    de_postal_check, de_steuer_id_check, dob_check, ein_check, fr_ch_address_check,
+    fr_ch_boite_postale_check, fr_nif_check, fr_postal_check, gb_address_check, geolocation_check,
+    ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check,
+    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_check,
+    passport_new_check, person_name_check, phone_check, siren_luhn_check, siret_luhn_check,
+    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
+    uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -843,6 +844,127 @@ impl KeywordContextDetector {
                 r"(?i)(?:german[\s_-]?parcel[\s_-]?lockers?|dhl[\s_-]?parcel[\s_-]?lockers?|parcel[\s_-]?lockers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
                 de_packstation_check,
             ),
+            // --- Netherlands-specific PII types (Language::Nl) ---
+            (
+                PiiKind::NlBsn,
+                Language::Nl,
+                r"(?i)(?:burgerservicenummers?|burger[\s_-]?service[\s_-]?nummers?|burgerservice|sofinummers?|sofi[\s_-]?nummers?|persoonsnummers?|persoonlijk[\s_-]?nummers?|persoonsgebonden[\s_-]?nummers?|identiteitsnummers?|BSN[\s_-]?nummers?|BSN)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\.\d{2}\.\d{3}|\d{8,9})\b",
+                bsn_check,
+            ),
+            // Substring-disjoint: no Dutch keyword contains "citizen" /
+            // "social" / "dutch" / "netherlands" / "nl"; no English keyword
+            // contains "bsn" / "burgerservice" / "sofinummer" / "persoon".
+            (
+                PiiKind::NlBsn,
+                Language::En,
+                r"(?i)(?:citizen[\s_-]?service[\s_-]?numbers?|dutch[\s_-]?citizen[\s_-]?service[\s_-]?numbers?|dutch[\s_-]?social[\s_-]?security[\s_-]?numbers?|netherlands[\s_-]?social[\s_-]?security[\s_-]?numbers?|nl[\s_-]?social[\s_-]?security[\s_-]?numbers?|dutch[\s_-]?citizen[\s_-]?numbers?|netherlands[\s_-]?citizen[\s_-]?numbers?|dutch[\s_-]?national[\s_-]?numbers?|netherlands[\s_-]?national[\s_-]?numbers?|dutch[\s_-]?personal[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\.\d{2}\.\d{3}|\d{8,9})\b",
+                bsn_check,
+            ),
+            (
+                PiiKind::NlPostalCode,
+                Language::Nl,
+                r"(?i)(?:postcodes?|post[\s_-]?codes?|postcodegebieden?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?[A-Za-z]{2})\b",
+                nl_postal_check,
+            ),
+            // Substring-disjoint: bare "postcode" is the Dutch keyword above;
+            // the English alternations use the two-word "postal code" / "zip
+            // code" forms only, which do not contain "postcode". Country-
+            // prefixed so they never collide with `UsZaPostalCode` semantics.
+            (
+                PiiKind::NlPostalCode,
+                Language::En,
+                r"(?i)(?:dutch[\s_-]?postal[\s_-]?codes?|netherlands[\s_-]?postal[\s_-]?codes?|nl[\s_-]?postal[\s_-]?codes?|holland[\s_-]?postal[\s_-]?codes?|dutch[\s_-]?zip[\s_-]?codes?|netherlands[\s_-]?zip[\s_-]?codes?|nl[\s_-]?zip[\s_-]?codes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{4}\s?[A-Za-z]{2})\b",
+                nl_postal_check,
+            ),
+            (
+                PiiKind::NlPhoneNumber,
+                Language::Nl,
+                r"(?i)(?:telefoonnummers?|telefoonnrs?|telefoons?|mobiele?[\s_-]?nummers?|mobiel|gsm[\s_-]?nummers?|gsm|vaste?[\s_-]?nummers?|vaste[\s_-]?lijn|vastnet|belnummers?|doorkiesnummers?|contactnummers?|zakelijk[\s_-]?nummers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?31[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            // Generic English phone keyword list shared with the other
+            // country phone kinds. The value regex requires the +31 country
+            // code, so a bare 0-prefixed number written with a Dutch keyword
+            // does not double-match here.
+            (
+                PiiKind::NlPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?nl|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?31[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
+                phone_check,
+            ),
+            (
+                PiiKind::NlPassportNumber,
+                Language::Nl,
+                r"(?i)(?:nederlands[\s_-]?paspoort|paspoortnummers?|paspoorten|paspoort|identiteitskaartnummers?|identiteitskaarten|identiteitskaart|documentnummers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z0-9]{9})\b",
+                nl_passport_check,
+            ),
+            // Substring-disjoint: Dutch "paspoort" does not contain the
+            // English "passport"; the English alternations are all country-
+            // prefixed and contain no Dutch stem.
+            (
+                PiiKind::NlPassportNumber,
+                Language::En,
+                r"(?i)(?:dutch[\s_-]?passports?|netherlands[\s_-]?passports?|nl[\s_-]?passports?|dutch[\s_-]?identity[\s_-]?cards?|netherlands[\s_-]?identity[\s_-]?cards?|nl[\s_-]?identity[\s_-]?cards?|dutch[\s_-]?id[\s_-]?cards?|dutch[\s_-]?travel[\s_-]?documents?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z0-9]{9})\b",
+                nl_passport_check,
+            ),
+            (
+                PiiKind::NlDriversLicense,
+                Language::Nl,
+                r"(?i)(?:rijbewijsnummers?|rijbewijs[\s_-]?nummers?|rijbewijs[\s_-]?nrs?|rijbewijzen|rijbewijs)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10})\b",
+                nl_dl_check,
+            ),
+            // Substring-disjoint: Dutch "rijbewijs" contains no English stem
+            // and the English alternations contain no Dutch stem.
+            (
+                PiiKind::NlDriversLicense,
+                Language::En,
+                r"(?i)(?:dutch[\s_-]?drivers?[\s_-]?licen[cs]es?|netherlands[\s_-]?drivers?[\s_-]?licen[cs]es?|nl[\s_-]?drivers?[\s_-]?licen[cs]es?|dutch[\s_-]?driving[\s_-]?licen[cs]es?|netherlands[\s_-]?driving[\s_-]?licen[cs]es?|nl[\s_-]?driving[\s_-]?licen[cs]es?|dutch[\s_-]?dl|netherlands[\s_-]?dl|nl[\s_-]?dl)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{10})\b",
+                nl_dl_check,
+            ),
+            // --- Dutch keywords for existing international types ---
+            (
+                PiiKind::UsPhoneNumber,
+                Language::Nl,
+                r"(?i)(?:telefoonnummers?|telefoonnrs?|telefoons?|mobiele?[\s_-]?nummers?|mobiel|gsm[\s_-]?nummers?|gsm|vaste?[\s_-]?nummers?|vaste[\s_-]?lijn|vastnet|belnummers?|doorkiesnummers?|contactnummers?|zakelijk[\s_-]?nummers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            // Complement to NlPassportNumber Nl: shares the "paspoort" keyword
+            // but captures the pure-9-digit form (generic passport), while
+            // NlPassportNumber captures the alphanumeric Dutch document number.
+            // The validators (digit-only vs ≥1-letter) make them disjoint.
+            (
+                PiiKind::PassportNumber,
+                Language::Nl,
+                r"(?i)(?:paspoortnummers?|paspoort|reisdocumentnummers?|reisdocument|documentnummers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                passport_check,
+            ),
+            // Note: the bare "geb. datum" abbreviation is intentionally absent —
+            // the German `Geb\.?datum` pattern already matches "Gebdatum"
+            // case-insensitively, so adding it here would double-match.
+            (
+                PiiKind::DateOfBirth,
+                Language::Nl,
+                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::Nl,
+                r"(?i)(?:GPS-co[öo]rdinaten|GPS-locatie|GPS-positie|geografische[\s_-]?co[öo]rdinaten|geolocatie|co[öo]rdinaten|positie|locatie)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::Nl,
+                r"(?i)(?:bankidentificatiecode|bankidentificatie)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::Nl,
+                r"(?i)(?:apparaatnummers?|toestelnummers?|toestelidentificatie|apparaatidentificatie)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         // Detection-only expressions for vectorscan, used instead of the full
@@ -860,6 +982,15 @@ impl KeywordContextDetector {
                 PiiKind::DeAtChPostfach,
                 Language::De,
                 r"(?i)(?:Postfach|PF)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
+            ),
+            // The 12-way Dutch month-name alternation silently fails in the
+            // combined vectorscan DFA (see the multi-pattern pitfall). Detect
+            // with a generic `[A-Za-z]{3,9}` month token; the full extraction
+            // regex (with literal month names) + dob_check still validates.
+            (
+                PiiKind::DateOfBirth,
+                Language::Nl,
+                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
         ];
 
@@ -1719,6 +1850,61 @@ mod tests {
     #[test_case("Packstation: 109, 01099 Dresden. Ihr Paket wird dort abgelegt.", PiiKind::DePackstation, "109, 01099 Dresden" ; "de packstation trailing prose")]
     // Multi-word city names must still be captured correctly
     #[test_case("Anschrift: Rathausplatz 1, 60311 Frankfurt am Main. Bitte bestätigen.", PiiKind::DeAtChAddress, "Rathausplatz 1, 60311 Frankfurt am Main" ; "de address multi word city trailing prose")]
+    // --- Netherlands-specific PII types ---
+    // BSN — values verified valid via the 11-test (elfproef): 111222333 and
+    // 123456782 are the commonly published Dutch test BSNs.
+    #[test_case("BSN: 111222333", PiiKind::NlBsn, "111222333" ; "nl bsn keyword")]
+    #[test_case("burgerservicenummer: 123456782", PiiKind::NlBsn, "123456782" ; "nl bsn long keyword")]
+    #[test_case("sofinummer: 111222333", PiiKind::NlBsn, "111222333" ; "nl bsn sofinummer")]
+    #[test_case("persoonsnummer: 123456782", PiiKind::NlBsn, "123456782" ; "nl bsn persoonsnummer")]
+    #[test_case("BSN: 1234.56.782", PiiKind::NlBsn, "1234.56.782" ; "nl bsn dotted")]
+    #[test_case("\"burgerservicenummer\":\"111222333\"", PiiKind::NlBsn, "111222333" ; "nl bsn json")]
+    // English keywords for NL BSN
+    #[test_case("citizen service number: 111222333", PiiKind::NlBsn, "111222333" ; "nl bsn en citizen service")]
+    #[test_case("dutch social security number: 123456782", PiiKind::NlBsn, "123456782" ; "nl bsn en social security")]
+    #[test_case("dutch_social_security_number: 111222333", PiiKind::NlBsn, "111222333" ; "nl bsn en snake_case")]
+    #[test_case("\"dutchCitizenNumber\":\"123456782\"", PiiKind::NlBsn, "123456782" ; "nl bsn en camelCase json")]
+    // Postal code
+    #[test_case("postcode: 1011 AB", PiiKind::NlPostalCode, "1011 AB" ; "nl postal amsterdam")]
+    #[test_case("postcode: 3062PA", PiiKind::NlPostalCode, "3062PA" ; "nl postal no space")]
+    #[test_case("dutch postal code: 1011 AB", PiiKind::NlPostalCode, "1011 AB" ; "nl postal en singular")]
+    #[test_case("dutch postal codes: 1011 AB", PiiKind::NlPostalCode, "1011 AB" ; "nl postal en plural")]
+    #[test_case("\"dutchZipCode\":\"3062 PA\"", PiiKind::NlPostalCode, "3062 PA" ; "nl postal en camelCase json")]
+    // Phone — Dutch keywords with local (0-prefix) numbers
+    #[test_case("mobiel: 0612345678", PiiKind::NlPhoneNumber, "0612345678" ; "nl phone mobile local")]
+    #[test_case("gsm: 0612345678", PiiKind::NlPhoneNumber, "0612345678" ; "nl phone gsm local")]
+    #[test_case("vast nummer: 0201234567", PiiKind::NlPhoneNumber, "0201234567" ; "nl phone landline local")]
+    // Phone — English keywords require the +31 country code
+    #[test_case("phone: +31 20 1234567", PiiKind::NlPhoneNumber, "+31 20 1234567" ; "nl phone en landline plus31")]
+    #[test_case("\"phone_nl\":\"+31 612345678\"", PiiKind::NlPhoneNumber, "+31 612345678" ; "nl phone en json mobile plus31")]
+    // Passport / identity-card document number (alphanumeric)
+    #[test_case("paspoort: BX1234567", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport")]
+    #[test_case("paspoortnummer: NP0A1B2C3", PiiKind::NlPassportNumber, "NP0A1B2C3" ; "nl passport alphanumeric")]
+    #[test_case("dutch passport: BX1234567", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport en")]
+    #[test_case("\"identiteitskaart\":\"BX1234567\"", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport id card json")]
+    // Driving licence
+    #[test_case("rijbewijs: 1234567890", PiiKind::NlDriversLicense, "1234567890" ; "nl driving licence")]
+    #[test_case("rijbewijsnummer: 1234567890", PiiKind::NlDriversLicense, "1234567890" ; "nl driving licence long keyword")]
+    #[test_case("dutch driving licence: 1234567890", PiiKind::NlDriversLicense, "1234567890" ; "nl driving licence en")]
+    // Dutch keywords for existing international types
+    #[test_case("paspoort: 123456789", PiiKind::PassportNumber, "123456789" ; "nl keyword generic passport digits")]
+    #[test_case("gsm: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "nl keyword us phone")]
+    #[test_case("geboortedatum: 15-03-1990", PiiKind::DateOfBirth, "15-03-1990" ; "nl keyword dob numeric")]
+    #[test_case("geboortedatum: 15 maart 1990", PiiKind::DateOfBirth, "15 maart 1990" ; "nl keyword dob month name")]
+    #[test_case("geboren op: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "nl keyword dob geboren op")]
+    #[test_case("locatie: 52.3702,4.8952", PiiKind::PreciseGeolocation, "52.3702,4.8952" ; "nl keyword geolocation amsterdam")]
+    #[test_case("bankidentificatiecode: ABNANL2A", PiiKind::SwiftBic, "ABNANL2A" ; "nl keyword swift abn amro")]
+    #[test_case("apparaatnummer: 490154203237518", PiiKind::Imei, "490154203237518" ; "nl keyword imei")]
+    // Natural-language Dutch sentences — keyword followed by " is " or a space.
+    #[test_case("Mijn burgerservicenummer is 111222333.", PiiKind::NlBsn, "111222333" ; "nl bsn natural sentence")]
+    #[test_case("Het paspoortnummer is BX1234567 op de kaart.", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport natural sentence")]
+    #[test_case("Mijn postcode is 1011 AB in Amsterdam.", PiiKind::NlPostalCode, "1011 AB" ; "nl postal natural sentence")]
+    #[test_case("Bel mij op mobiel 0612345678 voor vragen.", PiiKind::NlPhoneNumber, "0612345678" ; "nl phone natural sentence")]
+    #[test_case("Het rijbewijsnummer is 1234567890 en blijft geldig.", PiiKind::NlDriversLicense, "1234567890" ; "nl driving licence natural sentence")]
+    #[test_case("Mijn geboortedatum is 15 maart 1990 te Utrecht.", PiiKind::DateOfBirth, "15 maart 1990" ; "nl dob natural sentence")]
+    // Natural-language English sentences referencing Dutch identifiers.
+    #[test_case("The citizen service number is 111222333 for this file.", PiiKind::NlBsn, "111222333" ; "nl bsn natural sentence en")]
+    #[test_case("Her dutch passport is BX1234567 according to records.", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport natural sentence en")]
     // --- Plural keyword forms ---
     // English plurals (single -s suffix on the head noun)
     #[test_case("phone_numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers snakecase")]
@@ -2253,6 +2439,14 @@ mod tests {
     #[test_case("australian driver's licence: 0000000", PiiKind::AuDriversLicense ; "au dl all zeros")]
     #[test_case("ABN: 51824753557", PiiKind::AuAbn ; "au abn bad checksum")]
     #[test_case("ABN: 1234567890", PiiKind::AuAbn ; "au abn 10 digits")]
+    // Netherlands — keyword present but value fails validation
+    #[test_case("BSN: 111222334", PiiKind::NlBsn ; "nl bsn bad checksum")]
+    #[test_case("burgerservicenummer: 123456783", PiiKind::NlBsn ; "nl bsn bad checksum 2")]
+    #[test_case("BSN: 000000000", PiiKind::NlBsn ; "nl bsn all zeros")]
+    #[test_case("postcode: 0123 AB", PiiKind::NlPostalCode ; "nl postal leading zero")]
+    #[test_case("paspoort: 123456789", PiiKind::NlPassportNumber ; "nl passport pure digits is bsn")]
+    #[test_case("paspoort: ABCDEFGHI", PiiKind::NlPassportNumber ; "nl passport all letters")]
+    #[test_case("rijbewijs: 0000000000", PiiKind::NlDriversLicense ; "nl dl all zeros")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -2335,6 +2529,12 @@ mod tests {
     #[test_case("0001", PiiKind::UsZaPostalCode ; "za postal no keyword")]
     #[test_case("12345678", PiiKind::AuDriversLicense ; "au dl no keyword")]
     #[test_case("51824753556", PiiKind::AuAbn ; "au abn no keyword")]
+    // Netherlands — value present but no keyword
+    #[test_case("111222333", PiiKind::NlBsn ; "nl bsn no keyword")]
+    #[test_case("1011 AB", PiiKind::NlPostalCode ; "nl postal no keyword")]
+    #[test_case("0612345678", PiiKind::NlPhoneNumber ; "nl phone no keyword")]
+    #[test_case("BX1234567", PiiKind::NlPassportNumber ; "nl passport no keyword")]
+    #[test_case("1234567890", PiiKind::NlDriversLicense ; "nl dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

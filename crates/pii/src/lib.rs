@@ -68,6 +68,7 @@ pub enum Country {
     De,
     At,
     Ch,
+    Nl,
 }
 
 impl Country {
@@ -85,6 +86,7 @@ impl Country {
             Country::De,
             Country::At,
             Country::Ch,
+            Country::Nl,
         ]
     }
 }
@@ -95,11 +97,12 @@ pub enum Language {
     En,
     Fr,
     De,
+    Nl,
 }
 
 impl Language {
     pub fn all() -> &'static [Language] {
-        &[Language::En, Language::Fr, Language::De]
+        &[Language::En, Language::Fr, Language::De, Language::Nl]
     }
 }
 
@@ -197,6 +200,12 @@ pub enum PiiKind {
     AuDriversLicense,
     AuAbn,
     IeEircode,
+    NlBsn,
+    NlBtw,
+    NlPostalCode,
+    NlPhoneNumber,
+    NlPassportNumber,
+    NlDriversLicense,
     InternationalPhoneNumber,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
@@ -294,6 +303,12 @@ impl PiiKind {
             PiiKind::AuDriversLicense => "AU_DRIVERS_LICENSE",
             PiiKind::AuAbn => "AU_ABN",
             PiiKind::IeEircode => "IE_EIRCODE",
+            PiiKind::NlBsn => "NL_BSN",
+            PiiKind::NlBtw => "NL_BTW",
+            PiiKind::NlPostalCode => "NL_POSTAL_CODE",
+            PiiKind::NlPhoneNumber => "NL_PHONE_NUMBER",
+            PiiKind::NlPassportNumber => "NL_PASSPORT_NUMBER",
+            PiiKind::NlDriversLicense => "NL_DRIVERS_LICENSE",
             PiiKind::InternationalPhoneNumber => "PHONE_NUMBER",
             PiiKind::Custom => "CUSTOM",
         }
@@ -390,6 +405,13 @@ impl PiiKind {
             PiiKind::AtSvnr | PiiKind::AtPhoneNumber | PiiKind::AtPostalCode => Country::At,
 
             PiiKind::ChAhv | PiiKind::ChPhoneNumber | PiiKind::ChPostalCode => Country::Ch,
+
+            PiiKind::NlBsn
+            | PiiKind::NlBtw
+            | PiiKind::NlPostalCode
+            | PiiKind::NlPhoneNumber
+            | PiiKind::NlPassportNumber
+            | PiiKind::NlDriversLicense => Country::Nl,
 
             PiiKind::AwsAccessKey
             | PiiKind::GithubToken
@@ -493,6 +515,12 @@ impl PiiKind {
         PiiKind::AuDriversLicense,
         PiiKind::AuAbn,
         PiiKind::IeEircode,
+        PiiKind::NlBsn,
+        PiiKind::NlBtw,
+        PiiKind::NlPostalCode,
+        PiiKind::NlPhoneNumber,
+        PiiKind::NlPassportNumber,
+        PiiKind::NlDriversLicense,
         PiiKind::GbAddress,
         PiiKind::InternationalPhoneNumber,
     ];
@@ -522,6 +550,7 @@ impl PiiKind {
                 Country::De => &[Country::De],
                 Country::At => &[Country::At],
                 Country::Ch => &[Country::Ch],
+                Country::Nl => &[Country::Nl],
             },
         }
     }

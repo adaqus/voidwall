@@ -771,7 +771,15 @@ Tier 7 Germany/Austria/Switzerland Verification Records:\n\
   Postfach: 789, 5020 Salzburg\n\
   Lieferadresse: Bahnhofstrasse 1, 8001 Zürich\n\
   Postfach: 567, 6000 Luzern\n\n\
-Tier 8 Person Names:\n\
+Tier 8 Netherlands Verification Records:\n\
+  BSN: 111222333\n\
+  BTW: NL123456789B01\n\
+  Mobiel: 0612345678\n\
+  Postcode: 1011 AB\n\
+  Paspoort: BX1234567\n\
+  Rijbewijs: 1234567890\n\
+  Geboortedatum: 15 maart 1990\n\n\
+Tier 9 Person Names:\n\
   Full name: Jane Doe\n\
   Nom complet: Jean-Pierre Dupont\n\
   Nachname: Müller\n\n\
@@ -911,6 +919,42 @@ Boîtes et cases postales à vérifier :\n\
 - Client E: CP: 440, 1211 Genève\n\
 Toutes les boîtes postales doivent être enregistrées.\n\
 Contactez La Poste en cas de questions.";
+
+const NL_BSN_TEXT: &str = "\
+Belastingdienst — Burgerservicenummer-verificatie\n\n\
+De volgende BSN's moeten worden gecontroleerd:\n\
+- Persoon A: BSN: 111222333\n\
+- Persoon B: burgerservicenummer: 123456782\n\
+Alle burgerservicenummers moeten worden geverifieerd.\n\
+Neem contact op met de Belastingdienst bij vragen.";
+
+const NL_PHONE_TEXT: &str = "\
+Klantenservice — Belnotitie\n\n\
+Klant: Jan de Vries\n\
+Telefoonnummer: +31 20 1234567\n\
+Alternatief: mobiel: 0612345678\n\
+De klant belde over een factuurvraag.\n\
+Terugbellen gepland op vast nummer: 0201234567.";
+
+const NL_MIXED_TEXT: &str = "\
+KLANTDOSSIER #NL-2025-0042\n\
+Prioriteit: Hoog\n\
+Aangemaakt: 2025-01-15 09:23:41 UTC\n\n\
+Klantinformatie:\n\
+  Naam: Thomas de Boer\n\
+  Mobiel: 0612345678\n\
+  Postcode: 1011 AB\n\n\
+Identiteitscontrole:\n\
+  BSN: 111222333\n\
+  Paspoort: BX1234567\n\
+  Rijbewijs: 1234567890\n\n\
+Zakelijke gegevens:\n\
+  BTW: NL123456789B01\n\n\
+Internationale gegevens:\n\
+  Geboortedatum: 15 maart 1990\n\
+  Locatie: 52.3702,4.8952\n\
+  Apparaatnummer: 490154203237518\n\n\
+Einde van de notities.\n";
 
 // Text with 5 PIIs handled by HyperscanDetector (structurally unique, no keywords needed):
 // Email, CreditCard, UsSsn, Iban, IpAddress
@@ -1395,6 +1439,19 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("de_packstation", |b| {
         b.iter(|| scanner.mark_piis(DE_PACKSTATION_TEXT));
+    });
+
+    // Netherlands
+    group.bench_function("nl_bsn", |b| {
+        b.iter(|| scanner.mark_piis(NL_BSN_TEXT));
+    });
+
+    group.bench_function("nl_phone", |b| {
+        b.iter(|| scanner.mark_piis(NL_PHONE_TEXT));
+    });
+
+    group.bench_function("nl_mixed", |b| {
+        b.iter(|| scanner.mark_piis(NL_MIXED_TEXT));
     });
 
     // Person names

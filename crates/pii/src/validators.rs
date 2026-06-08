@@ -794,9 +794,19 @@ pub(crate) fn za_trn_check(s: &str) -> bool {
 /// Handles formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, "15 March 1990", "March 15, 1990".
 /// Rejects ISO timestamps (values containing 'T' after the date portion).
 pub(crate) fn dob_check(s: &str) -> bool {
-    // Reject ISO timestamps like "2024-10-15T12:00:00"
-    if s.contains('T') || s.contains('t') {
-        return false;
+    // Reject ISO timestamps like "2024-10-15T12:00:00" — the 'T'/'t' separator
+    // sits between two digits. A bare 't' inside a month name (e.g. "maart",
+    // "augustus", "oktober", "august") must NOT trigger rejection.
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len() {
+        if (bytes[i] == b'T' || bytes[i] == b't')
+            && i > 0
+            && bytes[i - 1].is_ascii_digit()
+            && i + 1 < bytes.len()
+            && bytes[i + 1].is_ascii_digit()
+        {
+            return false;
+        }
     }
 
     // Current year upper bound
@@ -821,11 +831,13 @@ pub(crate) fn dob_check(s: &str) -> bool {
             "oct" | "october" | "octobre" => Some(10),
             "nov" | "november" | "novembre" => Some(11),
             "dec" | "december" | "décembre" | "decembre" | "dezember" => Some(12),
-            "januar" => Some(1),
-            "februar" => Some(2),
-            "märz" | "maerz" => Some(3),
+            "januar" | "januari" => Some(1),
+            "februar" | "februari" => Some(2),
+            "märz" | "maerz" | "maart" => Some(3),
+            "mei" => Some(5),
             "juni" => Some(6),
             "juli" => Some(7),
+            "augustus" => Some(8),
             "oktober" => Some(10),
             _ => None,
         }
@@ -1439,6 +1451,93 @@ pub(crate) fn person_name_check(s: &str) -> bool {
     s.chars().any(|c| c.is_alphabetic())
 }
 
+/// Dutch BSN (Burgerservicenummer) check: 8 or 9 digits validated with the
+/// "11-proef" (eleven test). Weights 9,8,7,6,5,4,3,2 on the first eight digits
+/// and −1 on the check digit; valid when the weighted sum is divisible by 11.
+/// 8-digit numbers (leading zero dropped) are left-padded with a zero. The
+/// all-zero number is rejected.
+pub(crate) fn bsn_check(s: &str) -> bool {
+    let mut digits: Vec<i32> = s
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10).map(|d| d as i32))
+        .collect();
+    if digits.len() == 8 {
+        digits.insert(0, 0);
+    }
+    if digits.len() != 9 {
+        return false;
+    }
+    if digits.iter().all(|&d| d == 0) {
+        return false;
+    }
+    let weights: [i32; 9] = [9, 8, 7, 6, 5, 4, 3, 2, -1];
+    let sum: i32 = digits
+        .iter()
+        .zip(weights.iter())
+        .map(|(&d, &w)| d * w)
+        .sum();
+    sum % 11 == 0
+}
+
+/// Dutch BTW (VAT identification) number check: structural validation of the
+/// `NL` + 9 digits + `B` + 2-digit sub-number form (e.g. `NL123456789B01`).
+/// The post-2020 btw-id uses a randomly generated core that does not follow
+/// the 11-test, so only structure is validated. The sub-number must be 01–99.
+pub(crate) fn nl_btw_check(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.len() != 14 {
+        return false;
+    }
+    if !bytes[0].eq_ignore_ascii_case(&b'N') || !bytes[1].eq_ignore_ascii_case(&b'L') {
+        return false;
+    }
+    if !bytes[2..11].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    if !bytes[11].eq_ignore_ascii_case(&b'B') {
+        return false;
+    }
+    if !bytes[12..14].iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let sub: u32 = s[12..14].parse().unwrap_or(0);
+    (1..=99).contains(&sub)
+}
+
+/// Dutch postal code check: 4 digits (first digit 1–9) followed by 2 letters,
+/// optional whitespace between (e.g. `1011 AB`, `3062PA`). Structural only —
+/// there is no published checksum for Dutch postal codes.
+pub(crate) fn nl_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = clean.as_bytes();
+    if bytes.len() != 6 {
+        return false;
+    }
+    if !(b'1'..=b'9').contains(&bytes[0]) {
+        return false;
+    }
+    bytes[1..4].iter().all(|b| b.is_ascii_digit())
+        && bytes[4..6].iter().all(|b| b.is_ascii_alphabetic())
+}
+
+/// Dutch passport / identity-card document number check: 9 alphanumeric
+/// characters containing at least one letter and at least one digit. The
+/// letter requirement distinguishes it from the 9-digit BSN; the digit
+/// requirement keeps plain words from matching.
+pub(crate) fn nl_passport_check(s: &str) -> bool {
+    if s.len() != 9 || !s.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return false;
+    }
+    s.bytes().any(|b| b.is_ascii_alphabetic()) && s.bytes().any(|b| b.is_ascii_digit())
+}
+
+/// Dutch driving licence (rijbewijs) number check: exactly 10 digits, not all
+/// zero. Structural only — no published checksum.
+pub(crate) fn nl_dl_check(s: &str) -> bool {
+    s.len() == 10 && s.bytes().all(|b| b.is_ascii_digit()) && s.bytes().any(|b| b != b'0')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2016,5 +2115,73 @@ mod tests {
     #[test_case("123456789012", false ; "invalid 12 digits")]
     fn au_abn(input: &str, expected: bool) {
         assert_eq!(au_abn_check(input), expected);
+    }
+
+    // --- bsn_check ---
+    // Valid 11-test BSNs verified independently with a Python reimplementation
+    // of the eleven-test (weights 9..2,-1). 111222333 and 123456782 are the
+    // commonly published Dutch test BSNs; the others were generated and checked.
+    #[test_case("111222333", true ; "valid published test bsn")]
+    #[test_case("123456782", true ; "valid classic test bsn")]
+    #[test_case("100000009", true ; "valid low bsn")]
+    #[test_case("627861945", true ; "valid generated bsn")]
+    #[test_case("66279008", true ; "valid 8 digit leading zero dropped")] // 066279008
+    #[test_case("1234.56.782", true ; "valid with dot separators")]
+    #[test_case("111222334", false ; "invalid check digit off by one")]
+    #[test_case("123456783", false ; "invalid check digit")]
+    #[test_case("000000000", false ; "invalid all zeros")]
+    #[test_case("12345678", false ; "invalid 8 digit fails 11 test")] // 012345678 not divisible
+    #[test_case("1234567", false ; "invalid too short")]
+    #[test_case("1234567890", false ; "invalid too long")]
+    fn bsn(input: &str, expected: bool) {
+        assert_eq!(bsn_check(input), expected);
+    }
+
+    // --- nl_btw_check ---
+    #[test_case("NL000099998B57", true ; "valid belastingdienst example")] // official NL tax authority example
+    #[test_case("NL123456789B01", true ; "valid format example")]
+    #[test_case("nl123456789b01", true ; "valid lowercase")]
+    #[test_case("NL123456789B00", false ; "invalid sub number zero")]
+    #[test_case("NL123456789C01", false ; "invalid missing B")]
+    #[test_case("NL12345678B01", false ; "invalid too few digits")]
+    #[test_case("DE123456789B01", false ; "invalid wrong country")]
+    fn nl_btw(input: &str, expected: bool) {
+        assert_eq!(nl_btw_check(input), expected);
+    }
+
+    // --- nl_postal_check ---
+    #[test_case("1011 AB", true ; "valid amsterdam with space")] // Amsterdam centre
+    #[test_case("1011AB", true ; "valid no space")]
+    #[test_case("3062 PA", true ; "valid rotterdam")]
+    #[test_case("9999 ZZ", true ; "valid upper range")]
+    #[test_case("1000 aa", true ; "valid lowercase letters")]
+    #[test_case("0123 AB", false ; "invalid leading zero")]
+    #[test_case("123 AB", false ; "invalid three digits")]
+    #[test_case("1011 A", false ; "invalid one letter")]
+    #[test_case("1011 A1", false ; "invalid digit in letters")]
+    fn nl_postal(input: &str, expected: bool) {
+        assert_eq!(nl_postal_check(input), expected);
+    }
+
+    // --- nl_passport_check ---
+    #[test_case("BX1234567", true ; "valid two letters seven digits")]
+    #[test_case("NP0A1B2C3", true ; "valid mixed alphanumeric")]
+    #[test_case("123456789", false ; "invalid all digits is bsn")]
+    #[test_case("ABCDEFGHI", false ; "invalid all letters")]
+    #[test_case("BX123456", false ; "invalid too short")]
+    #[test_case("BX12345678", false ; "invalid too long")]
+    fn nl_passport(input: &str, expected: bool) {
+        assert_eq!(nl_passport_check(input), expected);
+    }
+
+    // --- nl_dl_check ---
+    #[test_case("1234567890", true ; "valid ten digits")]
+    #[test_case("0000000001", true ; "valid leading zeros")]
+    #[test_case("0000000000", false ; "invalid all zeros")]
+    #[test_case("123456789", false ; "invalid nine digits")]
+    #[test_case("12345678901", false ; "invalid eleven digits")]
+    #[test_case("123456789A", false ; "invalid contains letter")]
+    fn nl_dl(input: &str, expected: bool) {
+        assert_eq!(nl_dl_check(input), expected);
     }
 }
