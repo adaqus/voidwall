@@ -10,6 +10,45 @@ Distilled from the French (`Language::Fr`, `Country::Fr`) implementation. Read
 overlap resolution, detector chain). This skill is the authoritative workflow for
 the language/country task and is self-contained for it.
 
+## Step 0: Determine scope before touching code
+
+Do this first, every time — before reading source or editing anything.
+
+**1. Confirm the target language and country.** If the invocation did not name them
+explicitly, ask the user which country and which language to add (use `AskUserQuestion`).
+Do not guess or assume from context. A country and its keyword language are separate
+choices — confirm both (e.g. Switzerland uses German, French, and Italian; Belgium uses
+Dutch and French). Resolve each to the ISO 3166-1 alpha-2 `Country` variant and the
+`Language` variant you will add.
+
+**2. Research which PII types the country uses.** Once the country is fixed, search the
+web to determine which PII types belong to it — do not invent the list from memory.
+
+- Search official government / tax / health-authority pages and Wikipedia for the
+  country's national identifiers: national ID number, tax ID, social-security/health
+  number, passport/ID-card number, driver's licence, postal code, phone format,
+  company/VAT registration number, bank account/IBAN specifics.
+- For each candidate, capture its **format** (length, character set, separators) and
+  whether it carries a **checksum** (e.g. 11-test, Luhn, mod-97) — you will need this for
+  the validator and for sourcing real examples later.
+- Cross-check against the existing `PiiKind` variants in `src/lib.rs`. Skip anything
+  already covered internationally (e.g. `Iban`, `CreditCard`, `Email`, `SwiftBic`,
+  `Imei`) unless the country needs a stricter, country-scoped variant.
+- **Check the list for consistency with the countries already implemented.** Look at the
+  per-country `PiiKind` variants in `src/lib.rs` (the `country()` match arms) and note
+  which categories recur across most of them — national ID, tax ID, passport/ID-card
+  number, driver's licence, postal code, phone number. If a category is present for
+  almost every existing country but missing from your candidate list, that is a red flag:
+  re-research it for the new country before dropping it. Most countries have a national
+  ID, so a proposed list without one almost certainly has a gap. Only omit a recurring
+  category when you can confirm the country genuinely has no equivalent.
+- Present the researched candidate list back to the user (use `AskUserQuestion`,
+  `multiSelect`) and let them confirm the final scope before implementing. Note which
+  candidates have checksums so the user understands validation strength.
+
+Only after the country, language, and confirmed PII-type list are settled do you proceed
+to the files below.
+
 ## Files to modify
 
 1. **`src/lib.rs`** — Add `Country` variant + `Country::all()`, `Language` variant +
