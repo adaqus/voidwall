@@ -2,9 +2,9 @@
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
   const items = [
-    ["100", "", "PII types", "supported out of the box"],
-    ["5",  "",  "Languages", "English, French, German, Dutch, Italian"],
-    ["13", "",  "Countries", "USA, UK, France, Germany..."],
+    ["107", "", "PII types", "supported out of the box"],
+    ["6",  "",  "Languages", "English, French, German, Dutch, Italian, Spanish"],
+    ["14", "",  "Countries", "USA, UK, France, Germany..."],
     ["2", "",  "Specializations", "Google Analytics, Matomo"],
     ["5",  "",  "Formats",   "JSON, URL, CSV, TSV, plain text"],
   ];
