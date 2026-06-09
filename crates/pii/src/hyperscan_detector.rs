@@ -107,6 +107,37 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: it_codice_fiscale_check,
             needs_ucp: false,
         },
+        // Spanish DNI/NIF: 8 digits + control letter (mod-23), e.g. 12345678Z.
+        // Structurally distinctive and checksum-validated, so detected without
+        // a keyword. Uppercase-only letter keeps the pattern from matching the
+        // letter half of running prose; the mod-23 validator filters the rest.
+        PatternDef {
+            kind: PiiKind::EsDni,
+            expr: r"\b\d{8}[A-Z]\b",
+            som_fallback: false,
+            validator: es_dni_check,
+            needs_ucp: false,
+        },
+        // Spanish NIE (foreigner ID): X/Y/Z + 7 digits + control letter,
+        // e.g. X1234567L. The X/Y/Z literal prefix anchors detection; mod-23
+        // checksum validates.
+        PatternDef {
+            kind: PiiKind::EsNie,
+            expr: r"\b[XYZ]\d{7}[A-Z]\b",
+            som_fallback: false,
+            validator: es_nie_check,
+            needs_ucp: false,
+        },
+        // Spanish CIF (legal-entity tax ID): org-type letter + 7 digits +
+        // control char, e.g. A28015865. The restricted org-letter prefix plus
+        // the weighted control checksum keep false positives low.
+        PatternDef {
+            kind: PiiKind::EsCif,
+            expr: r"\b[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]\b",
+            som_fallback: false,
+            validator: es_cif_check,
+            needs_ucp: false,
+        },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
@@ -596,6 +627,14 @@ mod tests {
     // NL000099998B57: official Belastingdienst (NL tax authority) example number
     #[test_case("VAT NL000099998B57 applies", PiiKind::NlBtw, "NL000099998B57" ; "nl btw belastingdienst example")]
     #[test_case("btw nl123456789b01", PiiKind::NlBtw, "nl123456789b01" ; "nl btw lowercase")]
+    // Spanish DNI/NIE/CIF — keyword-less, checksum-validated.
+    #[test_case("DNI: 12345678Z", PiiKind::EsDni, "12345678Z" ; "es dni keyword")]
+    #[test_case("12345678Z is on file", PiiKind::EsDni, "12345678Z" ; "es dni no keyword")]
+    #[test_case("NIE: X1234567L", PiiKind::EsNie, "X1234567L" ; "es nie x prefix")]
+    #[test_case("residencia Y1234567X vigente", PiiKind::EsNie, "Y1234567X" ; "es nie y prefix no keyword")]
+    #[test_case("CIF: A28015865", PiiKind::EsCif, "A28015865" ; "es cif telefonica")]
+    #[test_case("empresa B67338921 registrada", PiiKind::EsCif, "B67338921" ; "es cif no keyword")]
+    #[test_case("CIF P2800000H del organismo", PiiKind::EsCif, "P2800000H" ; "es cif letter control")]
     #[test_case("CF: RSSMRA80A01H501U", PiiKind::ItCodiceFiscale, "RSSMRA80A01H501U" ; "it codice fiscale rome")]
     #[test_case("Codice fiscale RSSMRA85T10A562S valido", PiiKind::ItCodiceFiscale, "RSSMRA85T10A562S" ; "it codice fiscale a562")]
     // Keyword-less detection is uppercase-only (see build_patterns); a bare
@@ -661,6 +700,10 @@ mod tests {
     #[test_case("key: AKIAIOSFODNN7EXAMPL", PiiKind::AwsAccessKey ; "aws access key too short")]
     #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
     #[test_case("BTW: NL123456789B00", PiiKind::NlBtw ; "nl btw sub number zero")]
+    #[test_case("DNI: 12345678A", PiiKind::EsDni ; "es dni wrong control letter")]
+    #[test_case("NIE: X1234567A", PiiKind::EsNie ; "es nie wrong control letter")]
+    #[test_case("CIF: A28015860", PiiKind::EsCif ; "es cif wrong control digit")]
+    #[test_case("CIF: P28000008", PiiKind::EsCif ; "es cif p needs letter control")]
     #[test_case("CF: RSSMRA80A01H501Z", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char")]
     #[test_case("CF: RSSMRA85T10A562X", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char a562")]
     #[test_case("BTW: NL12345678B01", PiiKind::NlBtw ; "nl btw too few digits")]

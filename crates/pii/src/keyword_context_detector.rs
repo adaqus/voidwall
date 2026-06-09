@@ -12,14 +12,15 @@ use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
     au_dl_check, bsn_check, ch_ahv_check, ch_postal_check, de_at_address_check,
     de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
-    de_postal_check, de_steuer_id_check, dob_check, ein_check, fr_ch_address_check,
-    fr_ch_boite_postale_check, fr_nif_check, fr_postal_check, gb_address_check, geolocation_check,
-    ie_driver_check, imei_check, ird_check, it_codice_fiscale_check, it_dl_check,
-    it_partita_iva_check, it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check,
-    nir_check, nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check,
-    passport_check, passport_new_check, person_name_check, phone_check, siren_luhn_check,
-    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
-    uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
+    de_postal_check, de_steuer_id_check, dob_check, ein_check, es_nuss_check, es_passport_check,
+    es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
+    gb_address_check, geolocation_check, ie_driver_check, imei_check, ird_check,
+    it_codice_fiscale_check, it_dl_check, it_partita_iva_check, it_passport_check, it_postal_check,
+    medicare_check, nhi_check, nhs_check, nir_check, nl_dl_check, nl_passport_check,
+    nl_postal_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
+    person_name_check, phone_check, siren_luhn_check, siret_luhn_check, sort_code_check,
+    swift_bic_check, tfn_check, us_dl_check, us_za_postal_check, uscis_receipt_check, utr_check,
+    za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -1078,6 +1079,113 @@ impl KeywordContextDetector {
                 r"(?i)(?:numero[\s_-]?seriale[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?dispositivo|codice[\s_-]?dispositivo)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
+            // --- Spain-specific PII types (Language::Es) ---
+            // Spanish phone: 9 digits starting 6/7 (mobile) or 8/9 (landline),
+            // optional +34. Shares keywords with the UsPhoneNumber Es tuple but
+            // the value regexes are disjoint (9-digit [6-9] vs 10-digit US).
+            (
+                PiiKind::EsPhoneNumber,
+                Language::Es,
+                r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?tel[eé]fono|tel[eé]fonos?|m[oó]vil(?:es)?|celular(?:es)?|tlf|fijo|fax|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?34[\s\-.]?)?[6-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
+                phone_check,
+            ),
+            // Country-prefixed English keywords; value requires the +34 country
+            // code so a bare 9-digit number with a generic English keyword does
+            // not double-match here.
+            (
+                PiiKind::EsPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?es|spanish[\s_-]?phone[\s_-]?numbers?|spain[\s_-]?phone[\s_-]?numbers?|es[\s_-]?phone[\s_-]?numbers?|spanish[\s_-]?phones?|spain[\s_-]?phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?34[\s\-.]?[6-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
+                phone_check,
+            ),
+            (
+                PiiKind::EsPostalCode,
+                Language::Es,
+                r"(?i)(?:c[oó]digos?[\s_-]?postal(?:es)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                es_postal_check,
+            ),
+            // Substring-disjoint: Spanish "código postal" has a different word
+            // order than English "postal code", so it does not collide. The bare
+            // "CP" token is intentionally omitted — it is already owned by
+            // FrPostalCode (French "code postal"), and with no postal priority
+            // group a shared "CP" would resolve Spanish codes as FR_POSTAL_CODE.
+            // English alternations are country-prefixed only.
+            (
+                PiiKind::EsPostalCode,
+                Language::En,
+                r"(?i)(?:spanish[\s_-]?postal[\s_-]?codes?|spain[\s_-]?postal[\s_-]?codes?|es[\s_-]?postal[\s_-]?codes?|spanish[\s_-]?zip[\s_-]?codes?|spain[\s_-]?zip[\s_-]?codes?|spanish[\s_-]?postcodes?|spain[\s_-]?postcodes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                es_postal_check,
+            ),
+            (
+                PiiKind::EsNuss,
+                Language::Es,
+                r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?afiliaci[oó]n|n[uú]meros?[\s_-]?de[\s_-]?la[\s_-]?seguridad[\s_-]?social|n[uú]meros?[\s_-]?seguridad[\s_-]?social|seguridad[\s_-]?social|NUSS|NAF)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[\s/-]?\d{7,8}[\s/-]?\d{2})\b",
+                es_nuss_check,
+            ),
+            // Substring-disjoint: Spanish stems "afiliación" / "seguridad" /
+            // "social" / "NUSS" / "NAF" do not appear in the English literals;
+            // country-prefixed English forms only.
+            (
+                PiiKind::EsNuss,
+                Language::En,
+                r"(?i)(?:spanish[\s_-]?social[\s_-]?security[\s_-]?numbers?|spain[\s_-]?social[\s_-]?security[\s_-]?numbers?|es[\s_-]?social[\s_-]?security[\s_-]?numbers?|spanish[\s_-]?ssns?|spain[\s_-]?ssns?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}[\s/-]?\d{7,8}[\s/-]?\d{2})\b",
+                es_nuss_check,
+            ),
+            (
+                PiiKind::EsPassportNumber,
+                Language::Es,
+                r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?pasaporte|pasaportes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2,3}\d{6})\b",
+                es_passport_check,
+            ),
+            // Substring-disjoint: Spanish "pasaporte" does not contain the
+            // English "passport"; English alternations are country-prefixed and
+            // the value regex (2-3 letters + 6 digits) is disjoint from the
+            // generic PassportNumber value (\d{9}).
+            (
+                PiiKind::EsPassportNumber,
+                Language::En,
+                r"(?i)(?:spanish[\s_-]?passports?|spain[\s_-]?passports?|es[\s_-]?passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2,3}\d{6})\b",
+                es_passport_check,
+            ),
+            // --- Spanish keywords for existing international types ---
+            (
+                PiiKind::UsPhoneNumber,
+                Language::Es,
+                r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?tel[eé]fono|tel[eé]fonos?|m[oó]vil(?:es)?|celular(?:es)?|tlf|fijo|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            // Complement to EsPassportNumber Es: shares the "pasaporte" keyword
+            // but captures the generic 9-digit form; value regexes are disjoint.
+            (
+                PiiKind::PassportNumber,
+                Language::Es,
+                r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?pasaporte|pasaportes?|documento[\s_-]?de[\s_-]?viaje)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                passport_check,
+            ),
+            (
+                PiiKind::DateOfBirth,
+                Language::Es,
+                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|setiembre|sept|sep|set|octubre|oct|noviembre|nov|diciembre|dic)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::Es,
+                r"(?i)(?:geolocalizaci[oó]n|ubicaci[oó]n[\s_-]?exacta|posici[oó]n[\s_-]?exacta|coordenadas)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::Es,
+                r"(?i)(?:c[oó]digo[\s_-]?de[\s_-]?identificaci[oó]n[\s_-]?bancaria|identificador[\s_-]?bancario)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::Es,
+                r"(?i)(?:identificador[\s_-]?del[\s_-]?dispositivo|n[uú]meros?[\s_-]?de[\s_-]?serie[\s_-]?del[\s_-]?dispositivo|c[oó]digo[\s_-]?del[\s_-]?dispositivo)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         // Detection-only expressions for vectorscan, used instead of the full
@@ -1112,6 +1220,14 @@ impl KeywordContextDetector {
                 PiiKind::DateOfBirth,
                 Language::It,
                 r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+            ),
+            // The Spanish month-name alternation likewise silently fails in the
+            // combined vectorscan DFA; detect with a generic month token and let
+            // the full extraction regex + dob_check validate the value.
+            (
+                PiiKind::DateOfBirth,
+                Language::Es,
+                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
         ];
 
@@ -2085,6 +2201,50 @@ mod tests {
     #[test_case("Il numero di passaporto AA1234567 è sul documento.", PiiKind::ItPassportNumber, "AA1234567" ; "it passport natural sentence")]
     #[test_case("Chiamami al cellulare 320 1234567 per informazioni.", PiiKind::ItPhoneNumber, "320 1234567" ; "it phone natural sentence")]
     #[test_case("La data di nascita 15 marzo 1990 a Milano.", PiiKind::DateOfBirth, "15 marzo 1990" ; "it dob natural sentence")]
+    // --- Spanish keyword tests ---
+    // Phone (9 digits, mobile 6/7 or landline 8/9), local + +34 forms.
+    #[test_case("teléfono: 612 345 678", PiiKind::EsPhoneNumber, "612 345 678" ; "es phone mobile local")]
+    #[test_case("teléfonos: 912 345 678", PiiKind::EsPhoneNumber, "912 345 678" ; "es phone landline plural")]
+    #[test_case("telefono: 612345678", PiiKind::EsPhoneNumber, "612345678" ; "es phone no accent compact")]
+    #[test_case("número de teléfono: 712-345-678", PiiKind::EsPhoneNumber, "712-345-678" ; "es phone long keyword")]
+    #[test_case("móvil: 612 345 678", PiiKind::EsPhoneNumber, "612 345 678" ; "es phone movil")]
+    #[test_case("\"telefono\":\"612345678\"", PiiKind::EsPhoneNumber, "612345678" ; "es phone json")]
+    #[test_case("teléfono: +34 612 345 678", PiiKind::EsPhoneNumber, "+34 612 345 678" ; "es phone plus34")]
+    #[test_case("spanish phone: +34 912 345 678", PiiKind::EsPhoneNumber, "+34 912 345 678" ; "es phone en keyword plus34")]
+    // Postal code (5 digits, province 01-52).
+    #[test_case("código postal: 28001", PiiKind::EsPostalCode, "28001" ; "es postal madrid")]
+    #[test_case("códigos postales: 08001", PiiKind::EsPostalCode, "08001" ; "es postal barcelona plural")]
+    #[test_case("códigos postales: 52001", PiiKind::EsPostalCode, "52001" ; "es postal melilla")]
+    #[test_case("\"codigo_postal\":\"28001\"", PiiKind::EsPostalCode, "28001" ; "es postal json snakecase")]
+    #[test_case("spanish postal code: 28001", PiiKind::EsPostalCode, "28001" ; "es postal en singular")]
+    #[test_case("spain postcodes: 08001", PiiKind::EsPostalCode, "08001" ; "es postal en plural")]
+    // Social security (NUSS/NAF).
+    #[test_case("número de afiliación: 281234567840", PiiKind::EsNuss, "281234567840" ; "es nuss afiliacion")]
+    #[test_case("seguridad social: 28 1234567 84", PiiKind::EsNuss, "28 1234567 84" ; "es nuss separators")]
+    #[test_case("NUSS: 281234567840", PiiKind::EsNuss, "281234567840" ; "es nuss acronym")]
+    #[test_case("NAF: 28123456784", PiiKind::EsNuss, "28123456784" ; "es nuss naf eleven digits")]
+    #[test_case("spanish social security number: 281234567840", PiiKind::EsNuss, "281234567840" ; "es nuss en keyword")]
+    // Passport (2-3 letters + 6 digits).
+    #[test_case("pasaporte: ABC123456", PiiKind::EsPassportNumber, "ABC123456" ; "es passport three letters")]
+    #[test_case("pasaportes: AB123456", PiiKind::EsPassportNumber, "AB123456" ; "es passport two letters plural")]
+    #[test_case("número de pasaporte: XDA123456", PiiKind::EsPassportNumber, "XDA123456" ; "es passport long keyword")]
+    #[test_case("spanish passport: ABC123456", PiiKind::EsPassportNumber, "ABC123456" ; "es passport en keyword")]
+    // Spanish keywords for existing international types.
+    #[test_case("teléfono: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "es keyword us phone")]
+    #[test_case("pasaporte: 123456789", PiiKind::PassportNumber, "123456789" ; "es keyword generic passport digits")]
+    #[test_case("fecha de nacimiento: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "es keyword dob numeric")]
+    #[test_case("fecha de nacimiento: 15 marzo 1990", PiiKind::DateOfBirth, "15 marzo 1990" ; "es keyword dob month name")]
+    #[test_case("fecha de nacimiento: 15 mar 1990", PiiKind::DateOfBirth, "15 mar 1990" ; "es keyword dob abbrev mar")]
+    #[test_case("fecha de nacimiento: 3 oct 1990", PiiKind::DateOfBirth, "3 oct 1990" ; "es keyword dob abbrev oct")]
+    #[test_case("nacido el: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "es keyword dob nacido el")]
+    #[test_case("geolocalización: 40.4168,-3.7038", PiiKind::PreciseGeolocation, "40.4168,-3.7038" ; "es keyword geolocation madrid")]
+    #[test_case("identificador bancario: BBVAESMM", PiiKind::SwiftBic, "BBVAESMM" ; "es keyword swift bbva")]
+    #[test_case("identificador del dispositivo: 490154203237518", PiiKind::Imei, "490154203237518" ; "es keyword imei")]
+    // Natural-language Spanish sentences (value adjacent to keyword — no copula).
+    #[test_case("Mi código postal 28001 está en Madrid.", PiiKind::EsPostalCode, "28001" ; "es postal natural sentence")]
+    #[test_case("El pasaporte ABC123456 es válido.", PiiKind::EsPassportNumber, "ABC123456" ; "es passport natural sentence")]
+    #[test_case("Llámame al teléfono 612 345 678 por favor.", PiiKind::EsPhoneNumber, "612 345 678" ; "es phone natural sentence")]
+    #[test_case("La fecha de nacimiento 15 marzo 1990 en Sevilla.", PiiKind::DateOfBirth, "15 marzo 1990" ; "es dob natural sentence")]
     // --- Plural keyword forms ---
     // English plurals (single -s suffix on the head noun)
     #[test_case("phone_numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers snakecase")]
@@ -2634,6 +2794,12 @@ mod tests {
     #[test_case("CAP: 99999", PiiKind::ItPostalCode ; "it cap above range")]
     #[test_case("passaporto: 1234567AA", PiiKind::ItPassportNumber ; "it passport digits then letters")]
     #[test_case("patente: ABCDEFGHIJ", PiiKind::ItDriversLicense ; "it dl no digits")]
+    #[test_case("código postal: 53001", PiiKind::EsPostalCode ; "es postal province above 52")]
+    #[test_case("código postal: 00999", PiiKind::EsPostalCode ; "es postal province 00")]
+    #[test_case("teléfono: 123 456 789", PiiKind::EsPhoneNumber ; "es phone bad leading digit")]
+    #[test_case("número de afiliación: 671234567812", PiiKind::EsNuss ; "es nuss province above 66")]
+    #[test_case("NUSS: 2812345678", PiiKind::EsNuss ; "es nuss ten digits")]
+    #[test_case("pasaporte: A1234567", PiiKind::EsPassportNumber ; "es passport one letter seven digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -2729,6 +2895,11 @@ mod tests {
     #[test_case("320 1234567", PiiKind::ItPhoneNumber ; "it phone no keyword")]
     #[test_case("AA1234567", PiiKind::ItPassportNumber ; "it passport no keyword")]
     #[test_case("U1H68I903B", PiiKind::ItDriversLicense ; "it dl no keyword")]
+    // Spain — value present but no keyword
+    #[test_case("28001", PiiKind::EsPostalCode ; "es postal no keyword")]
+    #[test_case("612 345 678", PiiKind::EsPhoneNumber ; "es phone no keyword")]
+    #[test_case("281234567840", PiiKind::EsNuss ; "es nuss no keyword")]
+    #[test_case("ABC123456", PiiKind::EsPassportNumber ; "es passport no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

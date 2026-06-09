@@ -30,6 +30,7 @@ const PRIORITY_GROUPS: &[&[PiiKind]] = &[
         PiiKind::ChPhoneNumber,
         PiiKind::NlPhoneNumber,
         PiiKind::ItPhoneNumber,
+        PiiKind::EsPhoneNumber,
         PiiKind::InternationalPhoneNumber,
     ],
     // Passport: country-scoped beats generic.
@@ -236,6 +237,7 @@ mod tests {
     #[test_case(PiiKind::FrPhoneNumber, PiiKind::InternationalPhoneNumber ; "fr beats intl")]
     #[test_case(PiiKind::DePhoneNumber, PiiKind::InternationalPhoneNumber ; "de beats intl")]
     #[test_case(PiiKind::NlPhoneNumber, PiiKind::InternationalPhoneNumber ; "nl beats intl")]
+    #[test_case(PiiKind::EsPhoneNumber, PiiKind::InternationalPhoneNumber ; "es beats intl")]
     fn equal_span_phone_priority(winner: PiiKind, loser: PiiKind) {
         let input = vec![m(loser, 0, 12), m(winner, 0, 12)];
         let out = resolve_overlaps(input);

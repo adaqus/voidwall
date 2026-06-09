@@ -783,6 +783,14 @@ Tier 9 Person Names:\n\
   Full name: Jane Doe\n\
   Nom complet: Jean-Pierre Dupont\n\
   Nachname: Müller\n\n\
+Tier 10 Spain Verification Records:\n\
+  DNI: 12345678Z\n\
+  NIE: X1234567L\n\
+  CIF: A28015865\n\
+  Número de afiliación: 281234567840\n\
+  Pasaporte: ABC123456\n\
+  Teléfono: +34 612 345 678\n\
+  Código postal: 28001\n\n\
 End of ticket notes.\n";
 
 const DE_STEUER_ID_TEXT: &str = "\
@@ -991,6 +999,43 @@ Dati internazionali:\n\
   Geolocalizzazione: 41.9028,12.4964\n\
   Identificativo dispositivo: 490154203237518\n\n\
 Fine delle note.\n";
+
+const ES_DNI_TEXT: &str = "\
+Agencia Tributaria — Verificación de identidad\n\n\
+Documentos a comprobar:\n\
+- Persona física: DNI 12345678Z\n\
+- Residente extranjero: NIE X1234567L\n\
+- Entidad jurídica: CIF A28015865\n\
+Todos los documentos deben ser verificados.";
+
+const ES_PHONE_TEXT: &str = "\
+Servicio de atención al cliente — Nota de llamada\n\n\
+Cliente: María García\n\
+Teléfono: +34 612 345 678\n\
+Alternativo: móvil: 712 345 678\n\
+El cliente llamó por una consulta sobre la factura.\n\
+Llamar al fijo: 912 345 678.";
+
+const ES_MIXED_TEXT: &str = "\
+EXPEDIENTE DE CLIENTE #ES-2025-0042\n\
+Prioridad: Alta\n\
+Creado: 2025-01-15 09:23:41 UTC\n\n\
+Información del cliente:\n\
+  Nombre: Carlos Fernández\n\
+  Móvil: 612 345 678\n\
+  Código postal: 28001\n\n\
+Verificación de identidad:\n\
+  DNI: 12345678Z\n\
+  NIE: X1234567L\n\
+  Pasaporte: ABC123456\n\
+  Número de afiliación: 281234567840\n\n\
+Datos de empresa:\n\
+  CIF: A28015865\n\n\
+Datos internacionales:\n\
+  Fecha de nacimiento: 15 marzo 1990\n\
+  Geolocalización: 40.4168,-3.7038\n\
+  Identificador del dispositivo: 490154203237518\n\n\
+Fin de las notas.\n";
 
 // Text with 5 PIIs handled by HyperscanDetector (structurally unique, no keywords needed):
 // Email, CreditCard, UsSsn, Iban, IpAddress
@@ -1501,6 +1546,19 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("it_mixed", |b| {
         b.iter(|| scanner.mark_piis(IT_MIXED_TEXT));
+    });
+
+    // Spain
+    group.bench_function("es_dni", |b| {
+        b.iter(|| scanner.mark_piis(ES_DNI_TEXT));
+    });
+
+    group.bench_function("es_phone", |b| {
+        b.iter(|| scanner.mark_piis(ES_PHONE_TEXT));
+    });
+
+    group.bench_function("es_mixed", |b| {
+        b.iter(|| scanner.mark_piis(ES_MIXED_TEXT));
     });
 
     // Person names

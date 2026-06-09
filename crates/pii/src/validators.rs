@@ -822,23 +822,25 @@ pub(crate) fn dob_check(s: &str) -> bool {
     // like "février" and "märz" match.
     let month_from_name = |name: &str| -> Option<u32> {
         match name.to_lowercase().as_str() {
-            "jan" | "january" | "janvier" | "janv" | "januar" | "januari" | "gennaio" | "gen" => {
-                Some(1)
-            }
+            "jan" | "january" | "janvier" | "janv" | "januar" | "januari" | "gennaio" | "gen"
+            | "enero" | "ene" => Some(1),
             "feb" | "february" | "février" | "fevrier" | "févr" | "fevr" | "februar"
-            | "februari" | "febbraio" => Some(2),
+            | "februari" | "febbraio" | "febrero" => Some(2),
             "mar" | "march" | "mars" | "märz" | "maerz" | "mär" | "mrz" | "maart" | "mrt"
             | "marzo" => Some(3),
-            "apr" | "april" | "avril" | "avr" | "aprile" => Some(4),
-            "may" | "mai" | "mei" | "maggio" | "mag" => Some(5),
-            "jun" | "june" | "juin" | "juni" | "giugno" | "giu" => Some(6),
-            "jul" | "july" | "juillet" | "juil" | "juli" | "luglio" | "lug" => Some(7),
+            "apr" | "april" | "avril" | "avr" | "aprile" | "abril" | "abr" => Some(4),
+            "may" | "mai" | "mei" | "maggio" | "mag" | "mayo" => Some(5),
+            "jun" | "june" | "juin" | "juni" | "giugno" | "giu" | "junio" => Some(6),
+            "jul" | "july" | "juillet" | "juil" | "juli" | "luglio" | "lug" | "julio" => Some(7),
             "aug" | "august" | "août" | "aout" | "augustus" | "agosto" | "ago" => Some(8),
-            "sep" | "september" | "septembre" | "sept" | "settembre" | "sett" | "set" => Some(9),
-            "oct" | "october" | "octobre" | "oktober" | "okt" | "ottobre" | "ott" => Some(10),
-            "nov" | "november" | "novembre" => Some(11),
+            "sep" | "september" | "septembre" | "sept" | "settembre" | "sett" | "set"
+            | "septiembre" | "setiembre" => Some(9),
+            "oct" | "october" | "octobre" | "oktober" | "okt" | "ottobre" | "ott" | "octubre" => {
+                Some(10)
+            }
+            "nov" | "november" | "novembre" | "noviembre" => Some(11),
             "dec" | "december" | "décembre" | "decembre" | "déc" | "dezember" | "dez"
-            | "dicembre" | "dic" => Some(12),
+            | "dicembre" | "dic" | "diciembre" => Some(12),
             _ => None,
         }
     };
@@ -1666,6 +1668,128 @@ pub(crate) fn it_dl_check(s: &str) -> bool {
         && b.iter().any(|c| c.is_ascii_digit())
 }
 
+/// DNI/NIE control-letter table. The letter is the body number mod 23 indexed
+/// into this string. Same table for DNI and NIE.
+const ES_DNI_TABLE: &[u8; 23] = b"TRWAGMYFPDXBNJZSQVHLCKE";
+
+/// Spanish DNI / NIF (individual) check: 8 digits + control letter (mod-23).
+/// e.g. `12345678Z`. The letter is `ES_DNI_TABLE[number % 23]`.
+pub(crate) fn es_dni_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 9 || !b[..8].iter().all(|c| c.is_ascii_digit()) || !b[8].is_ascii_alphabetic() {
+        return false;
+    }
+    let num: u32 = s[..8].parse().unwrap_or(0);
+    ES_DNI_TABLE[(num % 23) as usize] == b[8].to_ascii_uppercase()
+}
+
+/// Spanish NIE (foreigner) check: leading X/Y/Z + 7 digits + control letter.
+/// The prefix maps X→0, Y→1, Z→2; the resulting 8-digit number is validated
+/// with the DNI mod-23 algorithm. e.g. `X1234567L`.
+pub(crate) fn es_nie_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 9 || !b[1..8].iter().all(|c| c.is_ascii_digit()) || !b[8].is_ascii_alphabetic() {
+        return false;
+    }
+    let prefix = match b[0].to_ascii_uppercase() {
+        b'X' => 0,
+        b'Y' => 1,
+        b'Z' => 2,
+        _ => return false,
+    };
+    let num: u32 = (prefix * 10_000_000) + s[1..8].parse::<u32>().unwrap_or(0);
+    ES_DNI_TABLE[(num % 23) as usize] == b[8].to_ascii_uppercase()
+}
+
+/// Spanish CIF (legal-entity tax ID) check: org-type letter + 7 digits +
+/// control character. The control is a weighted sum of the 7 digits (odd
+/// positions doubled, capped at 9). Depending on the org letter the control
+/// is a digit (`A,B,E,H`), a letter from `JABCDEFGHI` (`P,Q,S,W`), or either.
+pub(crate) fn es_cif_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 9 || !b[1..8].iter().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let org = b[0].to_ascii_uppercase();
+    if !matches!(
+        org,
+        b'A' | b'B'
+            | b'C'
+            | b'D'
+            | b'E'
+            | b'F'
+            | b'G'
+            | b'H'
+            | b'J'
+            | b'N'
+            | b'P'
+            | b'Q'
+            | b'R'
+            | b'S'
+            | b'U'
+            | b'V'
+            | b'W'
+    ) {
+        return false;
+    }
+    let mut sum: u32 = 0;
+    for (i, &c) in b[1..8].iter().enumerate() {
+        let d = (c - b'0') as u32;
+        if i % 2 == 0 {
+            // CIF positions 1,3,5,7 (1-indexed): doubled, digits summed if >9.
+            let v = d * 2;
+            sum += if v > 9 { v - 9 } else { v };
+        } else {
+            sum += d;
+        }
+    }
+    let last = sum % 10;
+    let ctrl = if last != 0 { 10 - last } else { 0 };
+    let ctrl_digit = b'0' + ctrl as u8;
+    let ctrl_letter = b"JABCDEFGHI"[ctrl as usize];
+    let given = b[8].to_ascii_uppercase();
+    match org {
+        b'P' | b'Q' | b'S' | b'W' => given == ctrl_letter,
+        b'A' | b'B' | b'E' | b'H' => given == ctrl_digit,
+        _ => given == ctrl_digit || given == ctrl_letter,
+    }
+}
+
+/// Spanish social-security number (NUSS/NAF) check: 11 or 12 digits, first two
+/// being the province of allocation (01–66). Structural only — the control-
+/// digit algorithm is not publicly documented.
+pub(crate) fn es_nuss_check(s: &str) -> bool {
+    let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() != 11 && digits.len() != 12 {
+        return false;
+    }
+    let prov: u32 = digits[..2].parse().unwrap_or(0);
+    (1..=66).contains(&prov)
+}
+
+/// Spanish passport number check: 2 or 3 letters followed by 6 digits
+/// (e.g. `ABC123456`). Structural only — no public checksum.
+pub(crate) fn es_passport_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 8 && b.len() != 9 {
+        return false;
+    }
+    let letters = b.len() - 6;
+    b[..letters].iter().all(|c| c.is_ascii_alphabetic())
+        && b[letters..].iter().all(|c| c.is_ascii_digit())
+}
+
+/// Spanish postal code check: 5 digits whose first two are the province
+/// (01–52), giving the range 01000–52999.
+pub(crate) fn es_postal_check(s: &str) -> bool {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 5 || !clean.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let prov: u32 = clean[..2].parse().unwrap_or(0);
+    (1..=52).contains(&prov)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2381,5 +2505,92 @@ mod tests {
     #[test_case("U1H68I903BB", false ; "invalid too long")]
     fn it_dl(input: &str, expected: bool) {
         assert_eq!(it_dl_check(input), expected);
+    }
+
+    // --- es_dni_check ---
+    // 12345678Z is the canonical worked example; others computed independently.
+    #[test_case("12345678Z", true ; "valid canonical")]
+    #[test_case("00000000T", true ; "valid all zeros")]
+    #[test_case("99999999R", true ; "valid all nines")]
+    #[test_case("01234567L", true ; "valid leading zero")]
+    #[test_case("12345678z", true ; "valid lowercase letter")]
+    #[test_case("12345678A", false ; "invalid wrong letter")]
+    #[test_case("1234567Z", false ; "invalid seven digits")]
+    #[test_case("123456789", false ; "invalid all digits")]
+    #[test_case("1234567 Z", false ; "invalid space")]
+    #[test_case("X1234567L", false ; "invalid nie shape")]
+    fn es_dni(input: &str, expected: bool) {
+        assert_eq!(es_dni_check(input), expected);
+    }
+
+    // --- es_nie_check ---
+    // X1234567L, Y1234567X, Z1234567R computed via X→0,Y→1,Z→2 + mod-23.
+    #[test_case("X1234567L", true ; "valid x prefix")]
+    #[test_case("Y1234567X", true ; "valid y prefix")]
+    #[test_case("Z1234567R", true ; "valid z prefix")]
+    #[test_case("x1234567l", true ; "valid lowercase")]
+    #[test_case("X1234567A", false ; "invalid wrong letter")]
+    #[test_case("W1234567L", false ; "invalid prefix w")]
+    #[test_case("X123456L", false ; "invalid six digits")]
+    #[test_case("12345678Z", false ; "invalid dni shape")]
+    fn es_nie(input: &str, expected: bool) {
+        assert_eq!(es_nie_check(input), expected);
+    }
+
+    // --- es_cif_check ---
+    // Real-world CIFs: A28015865 (Telefónica), A39000013 (Santander),
+    // A15022510 (Inditex), B67338921 computed. Letter-control forms computed.
+    #[test_case("A28015865", true ; "valid telefonica digit control")]
+    #[test_case("A39000013", true ; "valid santander digit control")]
+    #[test_case("A15022510", true ; "valid inditex digit control")]
+    #[test_case("B67338921", true ; "valid b digit control")]
+    #[test_case("P2800000H", true ; "valid p letter control")]
+    #[test_case("Q2818001F", true ; "valid q letter control")]
+    #[test_case("a28015865", true ; "valid lowercase org letter")]
+    #[test_case("A28015860", false ; "invalid wrong control digit")]
+    #[test_case("P28000008", false ; "invalid p needs letter control")]
+    #[test_case("A2801586", false ; "invalid too short")]
+    #[test_case("I28015865", false ; "invalid org letter i")]
+    fn es_cif(input: &str, expected: bool) {
+        assert_eq!(es_cif_check(input), expected);
+    }
+
+    // --- es_nuss_check ---
+    #[test_case("281234567840", true ; "valid 12 digits madrid province")]
+    #[test_case("28123456784", true ; "valid 11 digits")]
+    #[test_case("011234567812", true ; "valid province 01")]
+    #[test_case("661234567812", true ; "valid province 66 upper bound")]
+    #[test_case("671234567812", false ; "invalid province above 66")]
+    #[test_case("001234567812", false ; "invalid province 00")]
+    #[test_case("2812345678", false ; "invalid ten digits")]
+    #[test_case("2812345678123", false ; "invalid thirteen digits")]
+    fn es_nuss(input: &str, expected: bool) {
+        assert_eq!(es_nuss_check(input), expected);
+    }
+
+    // --- es_passport_check ---
+    #[test_case("ABC123456", true ; "valid three letters six digits")]
+    #[test_case("AB123456", true ; "valid two letters six digits")]
+    #[test_case("XDA123456", true ; "valid alt")]
+    #[test_case("A1234567", false ; "invalid one letter seven digits")]
+    #[test_case("ABCD12345", false ; "invalid four letters")]
+    #[test_case("ABC12345", false ; "invalid five digits")]
+    #[test_case("123456789", false ; "invalid all digits")]
+    fn es_passport(input: &str, expected: bool) {
+        assert_eq!(es_passport_check(input), expected);
+    }
+
+    // --- es_postal_check ---
+    #[test_case("28001", true ; "valid madrid")]
+    #[test_case("08001", true ; "valid barcelona")]
+    #[test_case("01000", true ; "valid lower bound province 01")]
+    #[test_case("52999", true ; "valid melilla upper bound")]
+    #[test_case("00999", false ; "invalid province 00")]
+    #[test_case("53000", false ; "invalid province above 52")]
+    #[test_case("2800", false ; "invalid four digits")]
+    #[test_case("280011", false ; "invalid six digits")]
+    #[test_case("2800A", false ; "invalid non digit")]
+    fn es_postal(input: &str, expected: bool) {
+        assert_eq!(es_postal_check(input), expected);
     }
 }
