@@ -1,5 +1,5 @@
 // Coverage - void surface. The breadth-of-detection story.
-// 80+ PII types organized by category, plus languages + countries strip.
+// 100+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
   const groups = [
     {
@@ -30,6 +30,8 @@ function Coverage() {
         ["DE - Personalausweis", false],
         ["AT - SVNR", false],
         ["CH - AHV", false],
+        ["NL - BSN", true],
+        ["IT - Codice Fiscale", true],
       ],
     },
     {
@@ -91,12 +93,14 @@ function Coverage() {
     ["EN", "English"],
     ["FR", "Français"],
     ["DE", "Deutsch"],
+    ["NL", "Nederlands"],
+    ["IT", "Italiano"],
   ];
 
   const countries = [
-    "International", "United States", "Great Britain", "France", "Germany",
-    "Ireland", "Canada", "Australia", "New Zealand", "South Africa",
-    "Austria", "Switzerland",
+    "International", "United States", "Great Britain", "Australia",
+    "New Zealand", "Canada", "Ireland", "South Africa", "France",
+    "Germany", "Austria", "Switzerland", "Netherlands", "Italy",
   ];
 
   return (
@@ -112,7 +116,7 @@ function Coverage() {
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: "0 0 22px", textWrap: "balance",
           }}>
-            88 PII types.<br/>And growing.
+            100 PII types.<br/>And growing.
           </h2>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 15.5, lineHeight: 1.6,
@@ -124,7 +128,7 @@ function Coverage() {
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
             <span className="vw-eyebrow vw-eyebrow--muted">Languages</span>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, max-content)", gap: 8 }}>
               {languages.map(([code, name]) => (
                 <div key={code} style={{
                   display: "inline-flex", alignItems: "center", gap: 8,
@@ -152,7 +156,7 @@ function Coverage() {
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <span className="vw-eyebrow vw-eyebrow--muted">Countries - and growing</span>
+            <span className="vw-eyebrow vw-eyebrow--muted">Countries</span>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {countries.map(c => (
                 <span key={c} style={{

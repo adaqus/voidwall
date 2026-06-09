@@ -1084,7 +1084,7 @@ window.Hero = Hero;
 // Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
-  const items = [["88", "", "PII types", "supported out of the box"], ["3", "", "Languages", "English, French, German"], ["11", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
+  const items = [["100", "", "PII types", "supported out of the box"], ["5", "", "Languages", "English, French, German, Dutch, Italian"], ["13", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--vw-paper-2)",
@@ -1269,7 +1269,7 @@ window.Features = Features;
 
 /* === 05-coverage.jsx === */
 // Coverage - void surface. The breadth-of-detection story.
-// 80+ PII types organized by category, plus languages + countries strip.
+// 100+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
   const groups = [{
     title: "Identity & Contact",
@@ -1278,7 +1278,7 @@ function Coverage() {
   }, {
     title: "National IDs",
     icon: "flag",
-    items: [["US - SSN", true], ["US - ITIN", false], ["GB - NI no.", false], ["IE - PPSN", false], ["CA - SIN", false], ["FR - NIR", true], ["FR - CNI", false], ["DE - Steuer-ID", true], ["DE - Personalausweis", false], ["AT - SVNR", false], ["CH - AHV", false]]
+    items: [["US - SSN", true], ["US - ITIN", false], ["GB - NI no.", false], ["IE - PPSN", false], ["CA - SIN", false], ["FR - NIR", true], ["FR - CNI", false], ["DE - Steuer-ID", true], ["DE - Personalausweis", false], ["AT - SVNR", false], ["CH - AHV", false], ["NL - BSN", true], ["IT - Codice Fiscale", true]]
   }, {
     title: "Travel & Driving",
     icon: "globe-2",
@@ -1296,8 +1296,8 @@ function Coverage() {
     icon: "key",
     items: [["IPv4 / IPv6", true], ["MAC address", false], ["IMEI", false], ["AWS access key", true], ["AWS secret key", true], ["GitHub token", false]]
   }];
-  const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"]];
-  const countries = ["International", "United States", "Great Britain", "France", "Germany", "Ireland", "Canada", "Australia", "New Zealand", "South Africa", "Austria", "Switzerland"];
+  const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"], ["NL", "Nederlands"], ["IT", "Italiano"]];
+  const countries = ["International", "United States", "Great Britain", "Australia", "New Zealand", "Canada", "Ireland", "South Africa", "France", "Germany", "Austria", "Switzerland", "Netherlands", "Italy"];
   return /*#__PURE__*/React.createElement("section", {
     id: "detection",
     className: "vw-container",
@@ -1333,7 +1333,7 @@ function Coverage() {
       margin: "0 0 22px",
       textWrap: "balance"
     }
-  }, "88 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
+  }, "100 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 15.5,
@@ -1353,7 +1353,8 @@ function Coverage() {
     className: "vw-eyebrow vw-eyebrow--muted"
   }, "Languages"), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
+      display: "grid",
+      gridTemplateColumns: "repeat(3, max-content)",
       gap: 8
     }
   }, languages.map(([code, name]) => /*#__PURE__*/React.createElement("div", {
@@ -1407,7 +1408,7 @@ function Coverage() {
     }
   }, /*#__PURE__*/React.createElement("span", {
     className: "vw-eyebrow vw-eyebrow--muted"
-  }, "Countries - and growing"), /*#__PURE__*/React.createElement("div", {
+  }, "Countries"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
