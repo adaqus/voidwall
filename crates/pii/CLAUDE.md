@@ -103,8 +103,8 @@ Earlier index in a group beats later. Across groups, no precedence is asserted �
 
 ### Adding a New Language + Country, keyword-context patterns, unit tests, pitfalls
 
-These workflows live in the **`add-pii-language-country`** Claude Code skill
-(`.claude/skills/add-pii-language-country/SKILL.md`, at the workspace root) — the single
+These workflows live in the **`add-pii`** Claude Code skill
+(`.claude/skills/add-pii/SKILL.md`, at the workspace root) — the single
 source of truth. Invoke it when adding a new language/country, a new PII type, or editing
 keyword-context patterns. It covers:
 

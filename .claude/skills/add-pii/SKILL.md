@@ -1,5 +1,5 @@
 ---
-name: add-pii-language-country
+name: add-pii
 description: Add support for a new language and/or country to the `pii` crate (crates/pii). Use when asked to add a new country's PII types (e.g. national ID, postcode, phone, passport) or to add detection/keywords for a new language. Use also when language or country is already supported, but new PII type is added. Covers the full checklist, real-world validation, keyword-context pattern rules, test requirements, and known pitfalls.
 ---
 
