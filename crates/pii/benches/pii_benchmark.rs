@@ -956,6 +956,42 @@ Internationale gegevens:\n\
   Apparaatnummer: 490154203237518\n\n\
 Einde van de notities.\n";
 
+const IT_CF_TEXT: &str = "\
+Agenzia delle Entrate — Verifica del codice fiscale\n\n\
+I seguenti codici fiscali devono essere controllati:\n\
+- Persona A: codice fiscale RSSMRA80A01H501U\n\
+- Persona B: CF: RSSMRA85T10A562S\n\
+Tutti i codici fiscali devono essere verificati.\n\
+Contattare l'Agenzia delle Entrate per domande.";
+
+const IT_PHONE_TEXT: &str = "\
+Servizio clienti — Nota di chiamata\n\n\
+Cliente: Mario Rossi\n\
+Telefono: +39 06 1234567\n\
+Alternativo: cellulare: 320 1234567\n\
+Il cliente ha chiamato per una domanda sulla fattura.\n\
+Richiamare al numero fisso: 06 7654321.";
+
+const IT_MIXED_TEXT: &str = "\
+FASCICOLO CLIENTE #IT-2025-0042\n\
+Priorità: Alta\n\
+Creato: 2025-01-15 09:23:41 UTC\n\n\
+Informazioni cliente:\n\
+  Nome: Giulia Bianchi\n\
+  Cellulare: 320 1234567\n\
+  CAP: 00184\n\n\
+Verifica identità:\n\
+  Codice fiscale: RSSMRA80A01H501U\n\
+  Passaporto: AA1234567\n\
+  Patente: U1H68I903B\n\n\
+Dati aziendali:\n\
+  Partita IVA: 00488410010\n\n\
+Dati internazionali:\n\
+  Data di nascita: 15 marzo 1990\n\
+  Geolocalizzazione: 41.9028,12.4964\n\
+  Identificativo dispositivo: 490154203237518\n\n\
+Fine delle note.\n";
+
 // Text with 5 PIIs handled by HyperscanDetector (structurally unique, no keywords needed):
 // Email, CreditCard, UsSsn, Iban, IpAddress
 const HYPERSCAN_5_TEXT: &str = "\
@@ -1452,6 +1488,19 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("nl_mixed", |b| {
         b.iter(|| scanner.mark_piis(NL_MIXED_TEXT));
+    });
+
+    // Italy
+    group.bench_function("it_codice_fiscale", |b| {
+        b.iter(|| scanner.mark_piis(IT_CF_TEXT));
+    });
+
+    group.bench_function("it_phone", |b| {
+        b.iter(|| scanner.mark_piis(IT_PHONE_TEXT));
+    });
+
+    group.bench_function("it_mixed", |b| {
+        b.iter(|| scanner.mark_piis(IT_MIXED_TEXT));
     });
 
     // Person names

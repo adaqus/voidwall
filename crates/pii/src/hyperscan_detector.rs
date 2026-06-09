@@ -89,6 +89,24 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: nl_btw_check,
             needs_ucp: false,
         },
+        // Italian codice fiscale: 16-char structural mask (6 letters, 2 digits,
+        // letter, 2 digits, letter, 3 digits, check letter). Structurally unique
+        // and checksum-validated, so detected without a keyword.
+        //
+        // Detection is uppercase-only by design: codice fiscale is officially
+        // rendered in uppercase, and a case-insensitive `[A-Za-z]{6}` prefix is a
+        // hot, unanchored run of the most common character class — it forces
+        // vectorscan to track a candidate at nearly every byte of clean text
+        // (~13% throughput loss). Uppercase 6-letter runs are rare in prose, so
+        // `[A-Z]{6}` stays cold. Lowercase CF is recovered by the keyword-context
+        // detector when a "codice fiscale"/"CF" label is present.
+        PatternDef {
+            kind: PiiKind::ItCodiceFiscale,
+            expr: r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b",
+            som_fallback: false,
+            validator: it_codice_fiscale_check,
+            needs_ucp: false,
+        },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
@@ -578,6 +596,11 @@ mod tests {
     // NL000099998B57: official Belastingdienst (NL tax authority) example number
     #[test_case("VAT NL000099998B57 applies", PiiKind::NlBtw, "NL000099998B57" ; "nl btw belastingdienst example")]
     #[test_case("btw nl123456789b01", PiiKind::NlBtw, "nl123456789b01" ; "nl btw lowercase")]
+    #[test_case("CF: RSSMRA80A01H501U", PiiKind::ItCodiceFiscale, "RSSMRA80A01H501U" ; "it codice fiscale rome")]
+    #[test_case("Codice fiscale RSSMRA85T10A562S valido", PiiKind::ItCodiceFiscale, "RSSMRA85T10A562S" ; "it codice fiscale a562")]
+    // Keyword-less detection is uppercase-only (see build_patterns); a bare
+    // uppercase CF with no keyword is still detected here.
+    #[test_case("RSSMRA80A01H501U is on file", PiiKind::ItCodiceFiscale, "RSSMRA80A01H501U" ; "it codice fiscale no keyword uppercase")]
     #[test_case("or call +1 415 555 1234.", PiiKind::InternationalPhoneNumber, "+1 415 555 1234" ; "intl phone us spaces")]
     #[test_case("ring +44 20 7946 0958 today", PiiKind::InternationalPhoneNumber, "+44 20 7946 0958" ; "intl phone uk spaces")]
     #[test_case("number: +1-415-555-1234", PiiKind::InternationalPhoneNumber, "+1-415-555-1234" ; "intl phone hyphens")]
@@ -638,6 +661,8 @@ mod tests {
     #[test_case("key: AKIAIOSFODNN7EXAMPL", PiiKind::AwsAccessKey ; "aws access key too short")]
     #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
     #[test_case("BTW: NL123456789B00", PiiKind::NlBtw ; "nl btw sub number zero")]
+    #[test_case("CF: RSSMRA80A01H501Z", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char")]
+    #[test_case("CF: RSSMRA85T10A562X", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char a562")]
     #[test_case("BTW: NL12345678B01", PiiKind::NlBtw ; "nl btw too few digits")]
     #[test_case("0x1234567890abcdef1234567890abcdef1234567", PiiKind::EthereumAddress ; "ethereum too short")]
     #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]

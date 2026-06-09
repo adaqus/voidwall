@@ -149,6 +149,45 @@ only phrases the existing pattern does **not** subsume — e.g.
 `austrian social security number`, `at insurance number`. This is the inverse of the
 substring-overlap pitfall below.
 
+**5. Connector words between keyword and value are English-only today.** Each pattern's
+keyword/value gap is `(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)` — a language-neutral *separator
+class* (colon, `=`, slash, quotes, whitespace…) that covers all structured payloads
+(JSON/CSV/URL), plus one hardcoded natural-language copula, the English `\s+is\s+`. Dutch
+gets this for free because Dutch "is" == English "is". **No other language's copula is
+matched.** So a prose sentence like `"… il CAP è 00184 …"` (Italian *è*), `"… mon CAP est
+75008 …"` (French *est*), or `"… die PLZ ist 10115 …"` (German *ist*) does **not** detect —
+the copula sits between keyword and value and isn't in the separator class.
+
+Practical consequence for this skill: when writing natural-sentence `#[test_case]` rows for
+a new language, **do not** put the native copula between the keyword and the value (the test
+will fail). Keep the value adjacent to the keyword, e.g. `"Il mio CAP 00184 si trova a
+Roma."` not `"Il mio CAP è 00184."`. This matches how the existing FR/DE/NL sentence tests
+are written.
+
+**Planned general approach (not yet implemented — `<<C>>` placeholder).** When we generalize
+connectors, the design is: make the copula a property of `Language` and expand it per
+pattern at build time, so each language carries only its *own* copulas in the vectorscan DFA
+(adding a connector to every pattern of every language would bloat the DFA and slow all
+scans — see "shared-keyword DFA bloat" below).
+
+- Add `Language::connector_words(&self) -> &'static str` returning a small regex word-branch,
+  e.g. `En | Nl => "is|are"`, `Fr => "est|sont"`, `De => "ist|sind"`, `It => "è|sono"`.
+  Keep each set tiny — one or two copulas; every entry is paid for across all that language's
+  patterns.
+- Write patterns with a `<<C>>` placeholder where the connector goes
+  (`…(?:keyword…)<<C>>(value)`), and in `KeywordContextDetector::new` expand it for the
+  pattern's `Language` before compiling:
+  `raw.replace("<<C>>", &format!(r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,\]\\]*?)", lang.connector_words()))`.
+  The expansion flows into both the detection string and the derived `value_regex`, keeping
+  the vectorscan and `regex`-crate dialects in sync.
+- Watch-outs when implementing: keep the `\s+…\s+` word framing (so `is` matches the word,
+  not the `is` inside `this`); vectorscan's caseless flag is ASCII-only, so a sentence-initial
+  non-ASCII copula like `È` won't fold — spell casing explicitly (`(?:è|È)`) or accept
+  lowercase-only; re-run the bench suite to confirm no DFA regression.
+
+Until that lands, adding a language adds **no** native connector support — only the
+separator class and English `is`.
+
 ## Writing unit tests
 
 1. ALWAYS try to merge similar test cases using the `test_case` macro. ALWAYS.
@@ -202,6 +241,28 @@ both countries (e.g. `\d{4,5}` for 4-digit AT / 5-digit DE PLZ). One pattern, on
 one validator that accepts both formats. This scales naturally: when CH addresses arrive,
 rename to `DeAtChAddress` with `\d{4,5}` still covering all three. The label will be
 `DE_AT_CH_ADDRESS`.
+
+**Unanchored keyword-less patterns with a common-class prefix regress throughput on
+*all* inputs.** A keyword-less `HyperscanDetector` pattern (`hyperscan_detector.rs`) that
+begins with an unanchored run of a common character class — e.g. the codice fiscale mask
+`\b[A-Za-z]{6}\d{2}[A-Za-z]…` — forces vectorscan to track a candidate match at nearly
+every byte of clean text, because letters are the most common characters and there is no
+literal to accelerate on. The codice fiscale pattern cost ~13% clean-input throughput.
+Switching to `som_fallback: true` (regex-crate extraction) is *worse* — the regex engine
+also has no literal to anchor on. **Prevention:** give the pattern a literal anchor
+(cf. `NlBtw` → `NL…`, `AwsAccessKey` → `AKIA…`, `EthereumAddress` → `0x…`), or restrict the
+leading class so it stays cold on prose. National ID codes are canonically uppercase, so
+`[A-Z]{6}…` (uppercase-only) almost never matches running text while still catching every
+real value; recover lowercase/lenient forms with a keyword-context pattern instead of a hot
+keyword-less one. If the value cannot be anchored or narrowed at all, make it keyword-gated
+(move it to `keyword_context_detector.rs`) rather than keyword-less.
+
+**Only the full-scanner benchmarks surface new-pattern regressions.** `throughput_mark_piis`
+and `throughput_has_piis` build via `Scanner::new()` (all kinds/languages) and *will* show a
+new pattern's cost on clean inputs. The per-detector benches
+(`throughput_hyperscan_detector`, `throughput_keyword_detector`) use hardcoded 5-kind subsets
+that exclude anything you add, so a green per-detector bench does **not** mean no regression —
+always check the clean-input rows of the full-scanner groups.
 
 **Always verify checksum/validation test data with a script.** Compute expected check digits
 independently before writing test values.

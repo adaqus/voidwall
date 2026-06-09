@@ -14,10 +14,11 @@ use crate::validators::{
     de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
     de_postal_check, de_steuer_id_check, dob_check, ein_check, fr_ch_address_check,
     fr_ch_boite_postale_check, fr_nif_check, fr_postal_check, gb_address_check, geolocation_check,
-    ie_driver_check, imei_check, ird_check, medicare_check, nhi_check, nhs_check, nir_check,
-    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_check,
-    passport_new_check, person_name_check, phone_check, siren_luhn_check, siret_luhn_check,
-    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
+    ie_driver_check, imei_check, ird_check, it_codice_fiscale_check, it_dl_check,
+    it_partita_iva_check, it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check,
+    nir_check, nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check,
+    passport_check, passport_new_check, person_name_check, phone_check, siren_luhn_check,
+    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
     uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
@@ -965,6 +966,118 @@ impl KeywordContextDetector {
                 r"(?i)(?:apparaatnummers?|toestelnummers?|toestelidentificatie|apparaatidentificatie)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
+            // --- Italy-specific PII types (Language::It) ---
+            // Codice fiscale is detected keyword-free by HyperscanDetector, but
+            // only in its canonical uppercase form (lowercase is too hot for the
+            // keyword-less vectorscan pass). This keyword pattern recovers any-case
+            // CF when a "codice fiscale"/"CF" label is present. The value regex is
+            // disjoint from every other Italian kind (16-char L/D mask) and the
+            // checksum validator rejects non-CF strings.
+            (
+                PiiKind::ItCodiceFiscale,
+                Language::It,
+                r"(?i)(?:codice[\s_-]?fiscale|codici[\s_-]?fiscali|cod\.?[\s_-]?fisc\.?|c\.?f\.?|cf)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{6}\d{2}[A-Za-z]\d{2}[A-Za-z]\d{3}[A-Za-z])\b",
+                it_codice_fiscale_check,
+            ),
+            (
+                PiiKind::ItPartitaIva,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?partita[\s_-]?iva|partit[ae][\s_-]?i\.?v\.?a\.?|p\.?[\s_-]?iva|piva|italian[\s_-]?vat[\s_-]?numbers?|italian[\s_-]?vat|vat[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:[Ii][Tt])?\d{11})\b",
+                it_partita_iva_check,
+            ),
+            (
+                PiiKind::ItPostalCode,
+                Language::It,
+                r"(?i)(?:codice[\s_-]?di[\s_-]?avviamento[\s_-]?postale|codici[\s_-]?di[\s_-]?avviamento[\s_-]?postale|codice[\s_-]?postale|codici[\s_-]?postali|CAP|C\.A\.P\.?|italian[\s_-]?postal[\s_-]?codes?|italy[\s_-]?postal[\s_-]?codes?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5})\b",
+                it_postal_check,
+            ),
+            (
+                PiiKind::ItPhoneNumber,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?telefono|numeri[\s_-]?di[\s_-]?telefono|telefon[oi]|cellular[ei]|cell|recapito[\s_-]?telefonico|recapiti[\s_-]?telefonici|fax|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?39[\s\-.]?)?(?:0\d{1,3}|3\d{2})[\s\-./]?\d{5,8})",
+                phone_check,
+            ),
+            // Generic English phone keyword list shared with the other country
+            // phone kinds. The value regex requires the +39 country code so a
+            // bare 0/3-prefixed number written with a Dutch/English keyword does
+            // not double-match here.
+            (
+                PiiKind::ItPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?it|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?39[\s\-.]?(?:0\d{1,3}|3\d{2})[\s\-./]?\d{5,8})",
+                phone_check,
+            ),
+            (
+                PiiKind::ItPassportNumber,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?passaporto|numero[\s_-]?del[\s_-]?passaporto|passaport[oi])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{7})\b",
+                it_passport_check,
+            ),
+            // Substring-disjoint: Italian "passaporto" does not contain the
+            // English "passport"; the English alternations are country-prefixed
+            // and the value regex (2 letters + 7 digits) is disjoint from the
+            // generic PassportNumber value (\d{9}).
+            (
+                PiiKind::ItPassportNumber,
+                Language::En,
+                r"(?i)(?:italian[\s_-]?passports?|italy[\s_-]?passports?|it[\s_-]?passports?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\d{7})\b",
+                it_passport_check,
+            ),
+            (
+                PiiKind::ItDriversLicense,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?patente|numero[\s_-]?patente|patente[\s_-]?di[\s_-]?guida|patent[ei])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[A-Za-z])\b",
+                it_dl_check,
+            ),
+            // Substring-disjoint: Italian "patente" contains no English stem and
+            // the English alternations contain no Italian stem.
+            (
+                PiiKind::ItDriversLicense,
+                Language::En,
+                r"(?i)(?:italian[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?|italy[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?|it[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z][A-Za-z0-9]{8}[A-Za-z])\b",
+                it_dl_check,
+            ),
+            // --- Italian keywords for existing international types ---
+            (
+                PiiKind::UsPhoneNumber,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?telefono|numeri[\s_-]?di[\s_-]?telefono|telefon[oi]|cellular[ei]|cell|recapito[\s_-]?telefonico|recapiti[\s_-]?telefonici|fax|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            // Complement to ItPassportNumber It: shares the "passaporto" keyword
+            // but captures the pure-9-digit generic passport form, while
+            // ItPassportNumber captures the 2-letter+7-digit Italian form. The
+            // value regexes make them disjoint.
+            (
+                PiiKind::PassportNumber,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?di[\s_-]?passaporto|passaport[oi]|documento[\s_-]?di[\s_-]?viaggio|numero[\s_-]?documento)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                passport_check,
+            ),
+            (
+                PiiKind::DateOfBirth,
+                Language::It,
+                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:gennaio|gen|febbraio|feb|marzo|mar|aprile|apr|maggio|mag|giugno|giu|luglio|lug|agosto|ago|settembre|sett|set|ottobre|ott|novembre|nov|dicembre|dic)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::It,
+                r"(?i)(?:geolocalizzazione|posizione[\s_-]?geografica|posizione[\s_-]?esatta|ubicazione)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::It,
+                r"(?i)(?:codice[\s_-]?identificativo[\s_-]?bancario|identificativo[\s_-]?bancario)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::It,
+                r"(?i)(?:numero[\s_-]?seriale[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?dispositivo|codice[\s_-]?dispositivo)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         // Detection-only expressions for vectorscan, used instead of the full
@@ -991,6 +1104,14 @@ impl KeywordContextDetector {
                 PiiKind::DateOfBirth,
                 Language::Nl,
                 r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+            ),
+            // The Italian month-name alternation likewise silently fails in the
+            // combined vectorscan DFA; detect with a generic month token and let
+            // the full extraction regex + dob_check validate the value.
+            (
+                PiiKind::DateOfBirth,
+                Language::It,
+                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
         ];
 
@@ -1911,6 +2032,59 @@ mod tests {
     // Natural-language English sentences referencing Dutch identifiers.
     #[test_case("The citizen service number is 111222333 for this file.", PiiKind::NlBsn, "111222333" ; "nl bsn natural sentence en")]
     #[test_case("Her dutch passport is BX1234567 according to records.", PiiKind::NlPassportNumber, "BX1234567" ; "nl passport natural sentence en")]
+    // --- Italy-specific PII types ---
+    // Codice fiscale — keyword-gated detection recovers any-case CF (the
+    // keyword-less HyperscanDetector path is uppercase-only).
+    #[test_case("cf: rssmra80a01h501u", PiiKind::ItCodiceFiscale, "rssmra80a01h501u" ; "it codice fiscale lowercase keyword")]
+    #[test_case("codice fiscale: RSSMRA85T10A562S", PiiKind::ItCodiceFiscale, "RSSMRA85T10A562S" ; "it codice fiscale keyword uppercase")]
+    #[test_case("codici fiscali: RSSMRA80A01H501U", PiiKind::ItCodiceFiscale, "RSSMRA80A01H501U" ; "it codice fiscale plural keyword")]
+    // Partita IVA (00488410010 documented; 12345678903 computed; Luhn-valid)
+    #[test_case("partita IVA: 00488410010", PiiKind::ItPartitaIva, "00488410010" ; "it partita iva keyword")]
+    #[test_case("p.iva 12345678903", PiiKind::ItPartitaIva, "12345678903" ; "it partita iva p.iva")]
+    #[test_case("piva: 00488410010", PiiKind::ItPartitaIva, "00488410010" ; "it partita iva piva")]
+    #[test_case("partita IVA: IT00488410010", PiiKind::ItPartitaIva, "IT00488410010" ; "it partita iva it prefix")]
+    #[test_case("partite IVA: 12345678903", PiiKind::ItPartitaIva, "12345678903" ; "it partita iva plural")]
+    #[test_case("\"partita_iva\":\"00488410010\"", PiiKind::ItPartitaIva, "00488410010" ; "it partita iva json")]
+    #[test_case("VAT number: IT12345678903", PiiKind::ItPartitaIva, "IT12345678903" ; "it partita iva en vat")]
+    // CAP (postal code)
+    #[test_case("CAP: 00184", PiiKind::ItPostalCode, "00184" ; "it cap rome")]
+    #[test_case("codice postale: 20121", PiiKind::ItPostalCode, "20121" ; "it cap codice postale milan")]
+    #[test_case("italian postal code: 00184", PiiKind::ItPostalCode, "00184" ; "it cap en singular")]
+    #[test_case("italian postal codes: 20121", PiiKind::ItPostalCode, "20121" ; "it cap en plural")]
+    #[test_case("\"cap\":\"00184\"", PiiKind::ItPostalCode, "00184" ; "it cap json")]
+    // Phone — Italian keyword tests use local (non +39) numbers so the
+    // +39-requiring English tuple does not double-match the same kind.
+    #[test_case("telefono: 06 1234567", PiiKind::ItPhoneNumber, "06 1234567" ; "it phone landline local")]
+    #[test_case("cellulare: 320 1234567", PiiKind::ItPhoneNumber, "320 1234567" ; "it phone mobile local")]
+    #[test_case("telefoni: 0612345678", PiiKind::ItPhoneNumber, "0612345678" ; "it phone plural local")]
+    #[test_case("numero di telefono: 3201234567", PiiKind::ItPhoneNumber, "3201234567" ; "it phone mobile compact")]
+    #[test_case("phone: +39 06 1234567", PiiKind::ItPhoneNumber, "+39 06 1234567" ; "it phone en landline plus39")]
+    #[test_case("\"phone_it\":\"+39 320 1234567\"", PiiKind::ItPhoneNumber, "+39 320 1234567" ; "it phone en json mobile plus39")]
+    // Passport (2 letters + 7 digits)
+    #[test_case("passaporto: AA1234567", PiiKind::ItPassportNumber, "AA1234567" ; "it passport")]
+    #[test_case("numero di passaporto: YA9876543", PiiKind::ItPassportNumber, "YA9876543" ; "it passport long keyword")]
+    #[test_case("italian passport: AA1234567", PiiKind::ItPassportNumber, "AA1234567" ; "it passport en")]
+    // Driving licence (patente)
+    #[test_case("patente: U1H68I903B", PiiKind::ItDriversLicense, "U1H68I903B" ; "it driving licence post 2011")]
+    #[test_case("numero patente: MI5023443R", PiiKind::ItDriversLicense, "MI5023443R" ; "it driving licence older")]
+    #[test_case("patente di guida: RM1234567A", PiiKind::ItDriversLicense, "RM1234567A" ; "it driving licence di guida")]
+    #[test_case("italian driving licence: U1H68I903B", PiiKind::ItDriversLicense, "U1H68I903B" ; "it driving licence en")]
+    // Italian keywords for existing international types
+    #[test_case("passaporto: 123456789", PiiKind::PassportNumber, "123456789" ; "it keyword generic passport digits")]
+    #[test_case("cellulare: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "it keyword us phone")]
+    #[test_case("data di nascita: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "it keyword dob numeric")]
+    #[test_case("data di nascita: 15 marzo 1990", PiiKind::DateOfBirth, "15 marzo 1990" ; "it keyword dob month name")]
+    #[test_case("data di nascita: 15 mar 1990", PiiKind::DateOfBirth, "15 mar 1990" ; "it keyword dob abbrev mar")]
+    #[test_case("data di nascita: 3 ott 1990", PiiKind::DateOfBirth, "3 ott 1990" ; "it keyword dob abbrev ott")]
+    #[test_case("nato il: 1985-07-22", PiiKind::DateOfBirth, "1985-07-22" ; "it keyword dob nato il")]
+    #[test_case("geolocalizzazione: 41.9028,12.4964", PiiKind::PreciseGeolocation, "41.9028,12.4964" ; "it keyword geolocation rome")]
+    #[test_case("identificativo bancario: UNCRITMM", PiiKind::SwiftBic, "UNCRITMM" ; "it keyword swift unicredit")]
+    #[test_case("identificativo dispositivo: 490154203237518", PiiKind::Imei, "490154203237518" ; "it keyword imei")]
+    // Natural-language Italian sentences
+    #[test_case("Il mio CAP 00184 si trova a Roma.", PiiKind::ItPostalCode, "00184" ; "it cap natural sentence")]
+    #[test_case("Il numero di passaporto AA1234567 è sul documento.", PiiKind::ItPassportNumber, "AA1234567" ; "it passport natural sentence")]
+    #[test_case("Chiamami al cellulare 320 1234567 per informazioni.", PiiKind::ItPhoneNumber, "320 1234567" ; "it phone natural sentence")]
+    #[test_case("La data di nascita 15 marzo 1990 a Milano.", PiiKind::DateOfBirth, "15 marzo 1990" ; "it dob natural sentence")]
     // --- Plural keyword forms ---
     // English plurals (single -s suffix on the head noun)
     #[test_case("phone_numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers snakecase")]
@@ -2453,6 +2627,13 @@ mod tests {
     #[test_case("paspoort: 123456789", PiiKind::NlPassportNumber ; "nl passport pure digits is bsn")]
     #[test_case("paspoort: ABCDEFGHI", PiiKind::NlPassportNumber ; "nl passport all letters")]
     #[test_case("rijbewijs: 0000000000", PiiKind::NlDriversLicense ; "nl dl all zeros")]
+    // Italy — keyword present but value fails validation
+    #[test_case("partita IVA: 00488410011", PiiKind::ItPartitaIva ; "it partita iva bad checksum")]
+    #[test_case("partita IVA: 1234567890", PiiKind::ItPartitaIva ; "it partita iva ten digits")]
+    #[test_case("CAP: 00009", PiiKind::ItPostalCode ; "it cap below range")]
+    #[test_case("CAP: 99999", PiiKind::ItPostalCode ; "it cap above range")]
+    #[test_case("passaporto: 1234567AA", PiiKind::ItPassportNumber ; "it passport digits then letters")]
+    #[test_case("patente: ABCDEFGHIJ", PiiKind::ItDriversLicense ; "it dl no digits")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -2541,6 +2722,13 @@ mod tests {
     #[test_case("0612345678", PiiKind::NlPhoneNumber ; "nl phone no keyword")]
     #[test_case("BX1234567", PiiKind::NlPassportNumber ; "nl passport no keyword")]
     #[test_case("1234567890", PiiKind::NlDriversLicense ; "nl dl no keyword")]
+    // Italy — value present but no keyword
+    #[test_case("rssmra80a01h501u", PiiKind::ItCodiceFiscale ; "it codice fiscale lowercase no keyword")]
+    #[test_case("00488410010", PiiKind::ItPartitaIva ; "it partita iva no keyword")]
+    #[test_case("00184", PiiKind::ItPostalCode ; "it cap no keyword")]
+    #[test_case("320 1234567", PiiKind::ItPhoneNumber ; "it phone no keyword")]
+    #[test_case("AA1234567", PiiKind::ItPassportNumber ; "it passport no keyword")]
+    #[test_case("U1H68I903B", PiiKind::ItDriversLicense ; "it dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

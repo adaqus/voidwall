@@ -1019,3 +1019,63 @@ matomo" as the canonical list.
 - [ ] Cross-link from DESIGN.md and from the HTTP API reference.
 - [ ] Update `docs/demo1.md` (or the equivalent demo walkthrough) to
   mention the specialization selector and the auto-select behaviour.
+
+---
+
+## Phase 17 — Italian Support Review Follow-ups
+
+Code-review findings on the (uncommitted) Italian language + Italy PII change.
+The performance regression that blocked the commit is already resolved
+(codice-fiscale uppercase-only hyperscan pattern + keyword fallback; the
+residual ~5-6% phone-pattern DFA-cliff cost was accepted). The items below are
+correctness and cleanup findings from reviewing the rest of the diff. Line
+numbers are approximate and will drift.
+
+### 17.1 Correctness
+- [ ] **English keywords for `ItPartitaIva` and `ItPostalCode` are tagged
+  `Language::It`** (`keyword_context_detector.rs` ~986, ~992), unlike
+  `ItPhoneNumber`/`ItPassportNumber`/`ItDriversLicense` which use a separate
+  `Language::En` tuple. The pattern filter gates on
+  `enabled_languages.contains(lang)`, so under a config with Country::It enabled
+  but languages = [En] only, `VAT number: IT12345678903` and
+  `italian postal code: 00184` are not detected at all (the whole tuple is
+  gated behind Italian). Split the English keywords into their own
+  `Language::En` tuples, consistent with the sibling Italian kinds. Add a
+  `Country::It` + `Language::En`-only test so the gap can't regress.
+- [ ] **`ItPartitaIva` keyword alternation includes the bare, non-country-scoped
+  `vat[\s_-]?numbers?`** (`keyword_context_detector.rs` ~986), binding any
+  generic "VAT number" label to the Italian kind + Italian Luhn. A non-Italian
+  11-digit EU VAT that happens to pass the Italian Luhn (e.g. a French-style
+  11-digit VAT with no `IT` prefix) is mislabelled `IT_PARTITA_IVA`. Country-
+  prefix the English alternations (`italian vat`, `it vat`) and drop the bare
+  `vat number(s)` token, per the skill convention.
+
+### 17.2 Cleanup (reuse / simplification / efficiency)
+- [ ] **`it_postal_check` duplicates `fr/de/at/ch_postal_check`**
+  (`validators.rs` ~1639) as a 5th near-verbatim copy of the
+  trim → length → all-digit → parse → inclusive-range shape, and diverges: it
+  only `trim()`s instead of filtering internal whitespace like the others, and
+  uses `parse().unwrap_or(0)`. Factor a shared `postal_range_check(s, len, lo,
+  hi)` helper and route the five callers through it.
+- [ ] **Italian phone keyword alternation duplicated verbatim** between the
+  `ItPhoneNumber`/`Language::It` tuple (~998) and the
+  `UsPhoneNumber`/`Language::It` tuple (~1043), differing only in the trailing
+  value regex. Editing one and not the other silently diverges which Italian
+  keywords trigger Italian vs US numbers. Share the keyword fragment.
+- [ ] **11th verbatim copy of the ~50-branch English phone keyword alternation**
+  (`keyword_context_detector.rs` ~1008, also at ~120/259/265/271/277/283/600/
+  647/689/894). Any change to the shared English phone vocabulary must be
+  hand-applied to 11 ~600-char string literals with no compiler help. (Also the
+  known DFA-cliff source; the perf cost was accepted, but the maintenance cost
+  stands.) Factor the shared alternation into a `const` fragment concatenated
+  into each country pattern. See `keyword-detector-vectorscan-cliff` memory.
+- [ ] **`it_codice_fiscale_check` allocates a `String` via
+  `s.trim().to_ascii_uppercase()` on every call** (`validators.rs` ~1546), while
+  the sibling Italian validators operate on `&[u8]` with no allocation. Fold
+  case per-byte inline (the odd/even tables already key on uppercase) so the
+  validator runs on the stack on the hot scanner thread.
+- [ ] **`it_partita_iva_check` `b.len() == 13` IT-prefix guard is redundant and
+  fragile** (`validators.rs` ~1612): it's subsumed by the later `core.len() !=
+  11` check and couples prefix-stripping to an exact total length, so e.g.
+  `IT 00488410010` (space after `IT`) skips the strip and returns false. Use a
+  length-independent case-insensitive two-byte `strip_prefix`.

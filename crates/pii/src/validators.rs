@@ -822,21 +822,23 @@ pub(crate) fn dob_check(s: &str) -> bool {
     // like "février" and "märz" match.
     let month_from_name = |name: &str| -> Option<u32> {
         match name.to_lowercase().as_str() {
-            "jan" | "january" | "janvier" | "janv" | "januar" | "januari" => Some(1),
-            "feb" | "february" | "février" | "fevrier" | "févr" | "fevr" | "februar"
-            | "februari" => Some(2),
-            "mar" | "march" | "mars" | "märz" | "maerz" | "mär" | "mrz" | "maart" | "mrt" => {
-                Some(3)
+            "jan" | "january" | "janvier" | "janv" | "januar" | "januari" | "gennaio" | "gen" => {
+                Some(1)
             }
-            "apr" | "april" | "avril" | "avr" => Some(4),
-            "may" | "mai" | "mei" => Some(5),
-            "jun" | "june" | "juin" | "juni" => Some(6),
-            "jul" | "july" | "juillet" | "juil" | "juli" => Some(7),
-            "aug" | "august" | "août" | "aout" | "augustus" => Some(8),
-            "sep" | "september" | "septembre" | "sept" => Some(9),
-            "oct" | "october" | "octobre" | "oktober" | "okt" => Some(10),
+            "feb" | "february" | "février" | "fevrier" | "févr" | "fevr" | "februar"
+            | "februari" | "febbraio" => Some(2),
+            "mar" | "march" | "mars" | "märz" | "maerz" | "mär" | "mrz" | "maart" | "mrt"
+            | "marzo" => Some(3),
+            "apr" | "april" | "avril" | "avr" | "aprile" => Some(4),
+            "may" | "mai" | "mei" | "maggio" | "mag" => Some(5),
+            "jun" | "june" | "juin" | "juni" | "giugno" | "giu" => Some(6),
+            "jul" | "july" | "juillet" | "juil" | "juli" | "luglio" | "lug" => Some(7),
+            "aug" | "august" | "août" | "aout" | "augustus" | "agosto" | "ago" => Some(8),
+            "sep" | "september" | "septembre" | "sept" | "settembre" | "sett" | "set" => Some(9),
+            "oct" | "october" | "octobre" | "oktober" | "okt" | "ottobre" | "ott" => Some(10),
             "nov" | "november" | "novembre" => Some(11),
-            "dec" | "december" | "décembre" | "decembre" | "déc" | "dezember" | "dez" => Some(12),
+            "dec" | "december" | "décembre" | "decembre" | "déc" | "dezember" | "dez"
+            | "dicembre" | "dic" => Some(12),
             _ => None,
         }
     };
@@ -1536,6 +1538,134 @@ pub(crate) fn nl_dl_check(s: &str) -> bool {
     s.len() == 10 && s.bytes().all(|b| b.is_ascii_digit()) && s.bytes().any(|b| b != b'0')
 }
 
+/// Italian codice fiscale check: 16 alphanumeric characters whose final
+/// character is a check letter computed from the first 15 via the odd/even
+/// conversion tables (DM 23/12/1976). Validates the structural mask
+/// (`LLLLLL DD L DD L DDD L`) and the check character.
+pub(crate) fn it_codice_fiscale_check(s: &str) -> bool {
+    let cf = s.trim().to_ascii_uppercase();
+    let bytes = cf.as_bytes();
+    if bytes.len() != 16 || !bytes.iter().all(|b| b.is_ascii_alphanumeric()) {
+        return false;
+    }
+    // Structural mask: L=letter, D=digit.
+    const MASK: &[u8; 16] = b"LLLLLLDDLDDLDDDL";
+    for (&b, &m) in bytes.iter().zip(MASK.iter()) {
+        match m {
+            b'L' if !b.is_ascii_alphabetic() => return false,
+            b'D' if !b.is_ascii_digit() => return false,
+            _ => {}
+        }
+    }
+    // Odd-position (1-indexed) conversion table.
+    let odd = |c: u8| -> u32 {
+        match c {
+            b'0' | b'A' => 1,
+            b'1' | b'B' => 0,
+            b'2' | b'C' => 5,
+            b'3' | b'D' => 7,
+            b'4' | b'E' => 9,
+            b'5' | b'F' => 13,
+            b'6' | b'G' => 15,
+            b'7' | b'H' => 17,
+            b'8' | b'I' => 19,
+            b'9' | b'J' => 21,
+            b'K' => 2,
+            b'L' => 4,
+            b'M' => 18,
+            b'N' => 20,
+            b'O' => 11,
+            b'P' => 3,
+            b'Q' => 6,
+            b'R' => 8,
+            b'S' => 12,
+            b'T' => 14,
+            b'U' => 16,
+            b'V' => 10,
+            b'W' => 22,
+            b'X' => 25,
+            b'Y' => 24,
+            _ => 23, // 'Z'
+        }
+    };
+    let even = |c: u8| -> u32 {
+        if c.is_ascii_digit() {
+            (c - b'0') as u32
+        } else {
+            (c - b'A') as u32
+        }
+    };
+    let sum: u32 = bytes[..15]
+        .iter()
+        .enumerate()
+        // 1-indexed position: index 0 is position 1 (odd).
+        .map(|(i, &c)| if i % 2 == 0 { odd(c) } else { even(c) })
+        .sum();
+    bytes[15] == b'A' + (sum % 26) as u8
+}
+
+/// Italian partita IVA (VAT) check: 11 digits validated with the Luhn (mod-10)
+/// algorithm. An optional `IT` country prefix is ignored.
+pub(crate) fn it_partita_iva_check(s: &str) -> bool {
+    let t = s.trim();
+    let b = t.as_bytes();
+    let core =
+        if b.len() == 13 && b[0].eq_ignore_ascii_case(&b'I') && b[1].eq_ignore_ascii_case(&b'T') {
+            &t[2..]
+        } else {
+            t
+        };
+    if core.len() != 11 || !core.bytes().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let sum: u32 = core
+        .bytes()
+        .enumerate()
+        .map(|(i, c)| {
+            let d = (c - b'0') as u32;
+            if i % 2 == 0 {
+                d
+            } else {
+                let x = d * 2;
+                if x > 9 { x - 9 } else { x }
+            }
+        })
+        .sum();
+    sum % 10 == 0
+}
+
+/// Italian CAP (postal code) check: exactly 5 digits within the assigned
+/// range 00010–98168. Structural/range only — there is no checksum.
+pub(crate) fn it_postal_check(s: &str) -> bool {
+    let t = s.trim();
+    if t.len() != 5 || !t.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let n: u32 = t.parse().unwrap_or(0);
+    (10..=98168).contains(&n)
+}
+
+/// Italian passport number check: 2 letters followed by 7 digits
+/// (e.g. `AA1234567`). Structural only — no public checksum.
+pub(crate) fn it_passport_check(s: &str) -> bool {
+    let b = s.trim().as_bytes();
+    b.len() == 9
+        && b[..2].iter().all(|c| c.is_ascii_alphabetic())
+        && b[2..].iter().all(|c| c.is_ascii_digit())
+}
+
+/// Italian driving licence (patente) number check: 10 alphanumeric characters
+/// beginning and ending with a letter and containing at least one digit
+/// (e.g. `U1H68I903B`, `MI5023443R`). Structural only — no public checksum.
+pub(crate) fn it_dl_check(s: &str) -> bool {
+    let b = s.trim().as_bytes();
+    b.len() == 10
+        && b.iter().all(|c| c.is_ascii_alphanumeric())
+        && b[0].is_ascii_alphabetic()
+        && b[9].is_ascii_alphabetic()
+        && b.iter().any(|c| c.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2181,5 +2311,75 @@ mod tests {
     #[test_case("123456789A", false ; "invalid contains letter")]
     fn nl_dl(input: &str, expected: bool) {
         assert_eq!(nl_dl_check(input), expected);
+    }
+
+    // --- it_codice_fiscale_check ---
+    // Real valid examples verified independently against the DM 23/12/1976
+    // check-character algorithm (see en.wikipedia.org/wiki/Italian_fiscal_code).
+    #[test_case("RSSMRA80A01H501U", true ; "valid rome h501")]
+    #[test_case("RSSMRA85T10A562S", true ; "valid a562")]
+    #[test_case("rssmra80a01h501u", true ; "valid lowercase")]
+    #[test_case("RSSMRA80A01H501Z", false ; "invalid check char")]
+    #[test_case("RSSMRA85T10A562X", false ; "invalid check char a562")]
+    #[test_case("RSSMRA80A01H501", false ; "invalid too short")]
+    #[test_case("RSSMRA80A01H501UX", false ; "invalid too long")]
+    #[test_case("1SSMRA80A01H501U", false ; "invalid digit in surname slot")]
+    #[test_case("RSSMRAA0A01H501U", false ; "invalid letter in year slot")]
+    fn it_codice_fiscale(input: &str, expected: bool) {
+        assert_eq!(it_codice_fiscale_check(input), expected);
+    }
+
+    // --- it_partita_iva_check ---
+    // 00488410010 documented at vatdb.com; 12345678903 computed independently.
+    #[test_case("00488410010", true ; "valid documented")]
+    #[test_case("12345678903", true ; "valid computed")]
+    #[test_case("IT00488410010", true ; "valid with it prefix")]
+    #[test_case("it12345678903", true ; "valid lowercase prefix")]
+    #[test_case("00488410011", false ; "invalid checksum")]
+    #[test_case("1234567890", false ; "invalid ten digits")]
+    #[test_case("123456789012", false ; "invalid twelve digits")]
+    #[test_case("1234567890A", false ; "invalid non digit")]
+    fn it_partita_iva(input: &str, expected: bool) {
+        assert_eq!(it_partita_iva_check(input), expected);
+    }
+
+    // --- it_postal_check ---
+    #[test_case("00184", true ; "valid rome")]
+    #[test_case("20121", true ; "valid milan")]
+    #[test_case("98168", true ; "valid messina upper bound")]
+    #[test_case("00010", true ; "valid lower bound")]
+    #[test_case("00009", false ; "invalid below range")]
+    #[test_case("98169", false ; "invalid above range")]
+    #[test_case("99999", false ; "invalid far above range")]
+    #[test_case("0018", false ; "invalid four digits")]
+    #[test_case("001844", false ; "invalid six digits")]
+    #[test_case("0018A", false ; "invalid non digit")]
+    fn it_postal(input: &str, expected: bool) {
+        assert_eq!(it_postal_check(input), expected);
+    }
+
+    // --- it_passport_check ---
+    #[test_case("AA1234567", true ; "valid two letters seven digits")]
+    #[test_case("YA9876543", true ; "valid alt")]
+    #[test_case("A12345678", false ; "invalid one letter")]
+    #[test_case("AAA123456", false ; "invalid three letters")]
+    #[test_case("AA123456", false ; "invalid too short")]
+    #[test_case("AA12345678", false ; "invalid too long")]
+    #[test_case("123456789", false ; "invalid all digits")]
+    fn it_passport(input: &str, expected: bool) {
+        assert_eq!(it_passport_check(input), expected);
+    }
+
+    // --- it_dl_check ---
+    #[test_case("U1H68I903B", true ; "valid post 2011 format")]
+    #[test_case("MI5023443R", true ; "valid older format")]
+    #[test_case("RM1234567A", true ; "valid rm series")]
+    #[test_case("1234567890", false ; "invalid starts with digit")]
+    #[test_case("U1H68I9035", false ; "invalid ends with digit")]
+    #[test_case("ABCDEFGHIJ", false ; "invalid no digit")]
+    #[test_case("U1H68I903", false ; "invalid too short")]
+    #[test_case("U1H68I903BB", false ; "invalid too long")]
+    fn it_dl(input: &str, expected: bool) {
+        assert_eq!(it_dl_check(input), expected);
     }
 }
