@@ -121,6 +121,46 @@ impl Language {
             Language::Pl,
         ]
     }
+
+    /// Natural-language connector words that may sit between a keyword and its
+    /// value, e.g. the copula in `"passport is X"` or the phrase in the Polish
+    /// `"dowodem osobistym o numerze X"`. Returned as a regex alternation
+    /// fragment (no outer group); multi-word entries join their words with
+    /// `\s+`. The keyword-context detector frames this with `\s+(?:…)\s+` and
+    /// OR-s it with the language-neutral punctuation separator class, then
+    /// expands it per pattern at build time (see `expand_connectors`).
+    ///
+    /// Each entry is paid for in the vectorscan DFA across every pattern of
+    /// this language, so the sets are kept small — common copulas plus the
+    /// idiomatic "number" connectors used in official documents. Entries are
+    /// lowercase: vectorscan's caseless matching is ASCII-only, so non-ASCII
+    /// letters (`è`, `ą`, …) match only their lowercase form, which is the
+    /// dominant form in prose.
+    pub fn connector_words(&self) -> &'static str {
+        match self {
+            Language::En => {
+                r"is|are|was|were|numbered|with\s+number|with\s+no\.?|bearing(?:\s+the)?\s+number|under\s+(?:the\s+)?number"
+            }
+            Language::Fr => {
+                r"est|sont|était|c'est|n°|num[eé]ro|de\s+num[eé]ro|portant\s+le\s+num[eé]ro|sous\s+le\s+num[eé]ro|sous\s+le\s+n°"
+            }
+            Language::De => {
+                r"ist|sind|war|waren|lautet|nummer|nr\.?|mit\s+der\s+nummer|mit\s+der\s+nr\.?|unter\s+der\s+nummer|tr[aä]gt\s+die\s+nummer"
+            }
+            Language::Nl => {
+                r"is|zijn|was|waren|nummer|nr\.?|met\s+nummer|met\s+het\s+nummer|onder\s+nummer|met\s+kenmerk"
+            }
+            Language::It => {
+                r"è|sono|era|erano|numero|n\.?|n°|con\s+numero|con\s+il\s+numero|recante\s+il\s+numero"
+            }
+            Language::Es => {
+                r"es|son|era|es\s+el|n[uú]mero|n[uú]m\.?|nº|con\s+n[uú]mero|con\s+el\s+n[uú]mero|bajo\s+el\s+n[uú]mero"
+            }
+            Language::Pl => {
+                r"jest|są|to|był|była|było|były|numer|nr|o\s+numerze|o\s+nr|pod\s+numerem|oznaczony\s+numerem|noszący\s+numer|seria\s+i\s+numer"
+            }
+        }
+    }
 }
 
 /// Classification of detected PII types.

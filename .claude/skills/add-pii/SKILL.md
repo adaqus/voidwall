@@ -175,44 +175,66 @@ only when its stem is **not** independently present (e.g. `numer identyfikacji p
 has no bare stem). Some existing tuples (Es/It) carry these dead branches as legacy — don't
 copy that.
 
-**5. Connector words between keyword and value are English-only today.** Each pattern's
-keyword/value gap is `(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)` — a language-neutral *separator
-class* (colon, `=`, slash, quotes, whitespace…) that covers all structured payloads
-(JSON/CSV/URL), plus one hardcoded natural-language copula, the English `\s+is\s+`. Dutch
-gets this for free because Dutch "is" == English "is". **No other language's copula is
-matched.** So a prose sentence like `"… il CAP è 00184 …"` (Italian *è*), `"… mon CAP est
-75008 …"` (French *est*), or `"… die PLZ ist 10115 …"` (German *ist*) does **not** detect —
-the copula sits between keyword and value and isn't in the separator class.
+**5. Write the keyword/value gap as the `<<C>>` placeholder, and give each language its own
+connector words.** Every keyword pattern marks the gap between the keyword group and the
+value group with the literal token `<<C>>`:
 
-Practical consequence for this skill: when writing natural-sentence `#[test_case]` rows for
-a new language, **do not** put the native copula between the keyword and the value (the test
-will fail). Keep the value adjacent to the keyword, e.g. `"Il mio CAP 00184 si trova a
-Roma."` not `"Il mio CAP è 00184."`. This matches how the existing FR/DE/NL sentence tests
-are written.
+```
+r"(?i)(?:keyword|keyword…)<<C>>(value)\b"
+```
 
-**Planned general approach (not yet implemented — `<<C>>` placeholder).** When we generalize
-connectors, the design is: make the copula a property of `Language` and expand it per
-pattern at build time, so each language carries only its *own* copulas in the vectorscan DFA
-(adding a connector to every pattern of every language would bloat the DFA and slow all
-scans — see "shared-keyword DFA bloat" below).
+`KeywordContextDetector::new` expands `<<C>>` per pattern, using the pattern's `Language`,
+into a language-neutral *separator class* (colon, `=`, slash, quotes, whitespace… — covers
+JSON/CSV/URL structured payloads) OR a word-framed alternation of that language's connector
+words (see `expand_connectors` + `Language::connector_words` in `lib.rs`):
 
-- Add `Language::connector_words(&self) -> &'static str` returning a small regex word-branch,
-  e.g. `En | Nl => "is|are"`, `Fr => "est|sont"`, `De => "ist|sind"`, `It => "è|sono"`.
-  Keep each set tiny — one or two copulas; every entry is paid for across all that language's
-  patterns.
-- Write patterns with a `<<C>>` placeholder where the connector goes
-  (`…(?:keyword…)<<C>>(value)`), and in `KeywordContextDetector::new` expand it for the
-  pattern's `Language` before compiling:
-  `raw.replace("<<C>>", &format!(r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,\]\\]*?)", lang.connector_words()))`.
-  The expansion flows into both the detection string and the derived `value_regex`, keeping
-  the vectorscan and `regex`-crate dialects in sync.
-- Watch-outs when implementing: keep the `\s+…\s+` word framing (so `is` matches the word,
-  not the `is` inside `this`); vectorscan's caseless flag is ASCII-only, so a sentence-initial
-  non-ASCII copula like `È` won't fold — spell casing explicitly (`(?:è|È)`) or accept
-  lowercase-only; re-run the bench suite to confirm no DFA regression.
+```
+(?:\s+(?:CONNECTORS)\s+|[\s:.#/\-\x22=,\]\\]*?)
+```
 
-Until that lands, adding a language adds **no** native connector support — only the
-separator class and English `is`.
+The expansion is applied only to the **detection** string handed to vectorscan. The derived
+`value_regex` is extracted from the value capture group, which sits after `<<C>>`, so the
+placeholder never reaches the `regex`-crate side — no separate handling needed there. **Do
+not** write the expanded gap literal in a pattern; always use `<<C>>`.
+
+Connector words make natural-language prose detect, in colloquial *and* official-document
+form, single- and multi-word:
+
+- copulas, present and past — `is`/`are`/`was` (En), `est`/`était` (Fr), `ist`/`war` (De),
+  `is`/`was` (Nl), `è`/`era` (It), `es`/`son` (Es), `jest`/`są`/`to` (Pl); plus colloquial
+  forms like French `c'est` and Spanish `es el`;
+- number abbreviations common in official text — `n°` (Fr/It), `nr.` (De/Nl), `n.` (It),
+  `nº` / `núm.` (Es). These were the biggest gap and use non-ASCII symbols (`°` U+00B0,
+  `º` U+00BA) — both are proven to compile in the vectorscan DB;
+- "number" phrases — e.g. Polish `o numerze` / `nr` / `seria i numer` / `pod numerem`
+  (so `"legitymujący się dowodem osobistym o numerze ABS123456"` detects), German
+  `mit der Nummer`, French `portant le numéro`, Italian `recante il numero`, Spanish
+  `con el número`.
+
+**To add or extend a language's connectors**, edit the one `match` arm in
+`Language::connector_words`:
+
+- Return a regex alternation fragment (no outer group). Join the words of a multi-word phrase
+  with `\s+`, e.g. `r"jest|są|o\s+numerze|seria\s+i\s+numer"`. The framing `\s+(?:…)\s+` is
+  added by `expand_connectors`, so a connector matches as whole words — `is` will not fire
+  inside `this`.
+- **Keep each set small** — every branch is paid for in the vectorscan DFA across *every*
+  pattern of that language, and the keyword DB sits near a DFA-size threshold (see
+  "shared-keyword DFA bloat" below and the `keyword-detector-vectorscan-cliff` memory).
+  English has the most patterns, so be most conservative there.
+- Entries are **lowercase**: vectorscan's caseless matching is ASCII-only, so a non-ASCII
+  copula (`è`, `są`, …) folds only its lowercase form — which is the dominant form in prose.
+  A sentence-initial capital like `È` won't fold; accept lowercase-only rather than bloating
+  the set. ASCII letters fold normally via the leading `(?i)`.
+- After editing, re-run the bench suite (`throughput_has_piis/clean`) to confirm no DFA
+  regression, and add `#[test_case]` rows (see below).
+
+Practical consequence for test rows: native copulas and "number" phrases now **do** detect,
+so a natural-sentence row like `"Il passaporto è YA1234567."` is valid. Add at least one
+`#[test_case]` to `detects_with_keyword` per connector branch you introduce, asserting the
+value span. Use a **keyword-context** kind for the assertion — kinds detected by the
+hyperscan detector (e.g. `EsDni`, `Email`) produce zero matches in the keyword-only
+`DETECTOR` and the row will fail.
 
 ## Writing unit tests
 
