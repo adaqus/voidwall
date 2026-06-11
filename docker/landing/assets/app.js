@@ -1084,7 +1084,7 @@ window.Hero = Hero;
 // Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
-  const items = [["107", "", "PII types", "supported out of the box"], ["6", "", "Languages", "English, French, German, Dutch, Italian, Spanish"], ["14", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
+  const items = [["115", "", "PII types", "supported out of the box"], ["7", "", "Languages", "English, French, German, Dutch, Italian, Spanish, Polish"], ["15", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--vw-paper-2)",
@@ -1278,7 +1278,7 @@ function Coverage() {
   }, {
     title: "National IDs",
     icon: "flag",
-    items: [["US - SSN", true], ["US - ITIN", false], ["GB - NI no.", false], ["IE - PPSN", false], ["CA - SIN", false], ["FR - NIR", true], ["FR - CNI", false], ["DE - Steuer-ID", true], ["DE - Personalausweis", false], ["AT - SVNR", false], ["CH - AHV", false], ["NL - BSN", true], ["IT - Codice Fiscale", true], ["ES - DNI", true]]
+    items: [["US - SSN", true], ["US - ITIN", false], ["GB - NI no.", false], ["IE - PPSN", false], ["CA - SIN", false], ["FR - NIR", true], ["FR - CNI", false], ["DE - Steuer-ID", true], ["DE - Personalausweis", false], ["AT - SVNR", false], ["CH - AHV", false], ["NL - BSN", true], ["IT - Codice Fiscale", true], ["ES - DNI", true], ["PL - PESEL", true]]
   }, {
     title: "Travel & Driving",
     icon: "globe-2",
@@ -1296,8 +1296,8 @@ function Coverage() {
     icon: "key",
     items: [["IPv4 / IPv6", true], ["MAC address", false], ["IMEI", false], ["AWS access key", true], ["AWS secret key", true], ["GitHub token", false]]
   }];
-  const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"], ["NL", "Nederlands"], ["IT", "Italiano"], ["ES", "Español"]];
-  const countries = ["International", "United States", "Great Britain", "Australia", "New Zealand", "Canada", "Ireland", "South Africa", "France", "Germany", "Austria", "Switzerland", "Netherlands", "Italy", "Spain"];
+  const languages = [["EN", "English"], ["FR", "Français"], ["DE", "Deutsch"], ["NL", "Nederlands"], ["IT", "Italiano"], ["ES", "Español"], ["PL", "Polski"]];
+  const countries = ["International", "United States", "Great Britain", "Australia", "New Zealand", "Canada", "Ireland", "South Africa", "France", "Germany", "Austria", "Switzerland", "Netherlands", "Italy", "Spain", "Poland"];
   return /*#__PURE__*/React.createElement("section", {
     id: "detection",
     className: "vw-container",
@@ -1333,7 +1333,7 @@ function Coverage() {
       margin: "0 0 22px",
       textWrap: "balance"
     }
-  }, "107 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
+  }, "115 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 15.5,

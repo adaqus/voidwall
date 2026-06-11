@@ -33,6 +33,7 @@ function Coverage() {
         ["NL - BSN", true],
         ["IT - Codice Fiscale", true],
         ["ES - DNI", true],
+        ["PL - PESEL", true],
       ],
     },
     {
@@ -97,12 +98,13 @@ function Coverage() {
     ["NL", "Nederlands"],
     ["IT", "Italiano"],
     ["ES", "Español"],
+    ["PL", "Polski"],
   ];
 
   const countries = [
     "International", "United States", "Great Britain", "Australia",
     "New Zealand", "Canada", "Ireland", "South Africa", "France",
-    "Germany", "Austria", "Switzerland", "Netherlands", "Italy", "Spain",
+    "Germany", "Austria", "Switzerland", "Netherlands", "Italy", "Spain", "Poland",
   ];
 
   return (
@@ -118,7 +120,7 @@ function Coverage() {
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: "0 0 22px", textWrap: "balance",
           }}>
-            107 PII types.<br/>And growing.
+            115 PII types.<br/>And growing.
           </h2>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 15.5, lineHeight: 1.6,
