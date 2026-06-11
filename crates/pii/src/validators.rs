@@ -823,24 +823,29 @@ pub(crate) fn dob_check(s: &str) -> bool {
     let month_from_name = |name: &str| -> Option<u32> {
         match name.to_lowercase().as_str() {
             "jan" | "january" | "janvier" | "janv" | "januar" | "januari" | "gennaio" | "gen"
-            | "enero" | "ene" => Some(1),
+            | "enero" | "ene" | "stycznia" | "styczeń" | "sty" => Some(1),
             "feb" | "february" | "février" | "fevrier" | "févr" | "fevr" | "februar"
-            | "februari" | "febbraio" | "febrero" => Some(2),
+            | "februari" | "febbraio" | "febrero" | "lutego" | "luty" | "lut" => Some(2),
             "mar" | "march" | "mars" | "märz" | "maerz" | "mär" | "mrz" | "maart" | "mrt"
-            | "marzo" => Some(3),
-            "apr" | "april" | "avril" | "avr" | "aprile" | "abril" | "abr" => Some(4),
-            "may" | "mai" | "mei" | "maggio" | "mag" | "mayo" => Some(5),
-            "jun" | "june" | "juin" | "juni" | "giugno" | "giu" | "junio" => Some(6),
-            "jul" | "july" | "juillet" | "juil" | "juli" | "luglio" | "lug" | "julio" => Some(7),
-            "aug" | "august" | "août" | "aout" | "augustus" | "agosto" | "ago" => Some(8),
+            | "marzo" | "marca" | "marzec" => Some(3),
+            "apr" | "april" | "avril" | "avr" | "aprile" | "abril" | "abr" | "kwietnia"
+            | "kwiecień" | "kwi" => Some(4),
+            "may" | "mai" | "mei" | "maggio" | "mag" | "mayo" | "maja" | "maj" => Some(5),
+            "jun" | "june" | "juin" | "juni" | "giugno" | "giu" | "junio" | "czerwca"
+            | "czerwiec" | "cze" => Some(6),
+            "jul" | "july" | "juillet" | "juil" | "juli" | "luglio" | "lug" | "julio" | "lipca"
+            | "lipiec" | "lip" => Some(7),
+            "aug" | "august" | "août" | "aout" | "augustus" | "agosto" | "ago" | "sierpnia"
+            | "sierpień" | "sie" => Some(8),
             "sep" | "september" | "septembre" | "sept" | "settembre" | "sett" | "set"
-            | "septiembre" | "setiembre" => Some(9),
-            "oct" | "october" | "octobre" | "oktober" | "okt" | "ottobre" | "ott" | "octubre" => {
-                Some(10)
+            | "septiembre" | "setiembre" | "września" | "wrzesień" | "wrz" => Some(9),
+            "oct" | "october" | "octobre" | "oktober" | "okt" | "ottobre" | "ott" | "octubre"
+            | "października" | "październik" | "paź" => Some(10),
+            "nov" | "november" | "novembre" | "noviembre" | "listopada" | "listopad" | "lis" => {
+                Some(11)
             }
-            "nov" | "november" | "novembre" | "noviembre" => Some(11),
             "dec" | "december" | "décembre" | "decembre" | "déc" | "dezember" | "dez"
-            | "dicembre" | "dic" | "diciembre" => Some(12),
+            | "dicembre" | "dic" | "diciembre" | "grudnia" | "grudzień" | "gru" => Some(12),
             _ => None,
         }
     };
@@ -1790,6 +1795,147 @@ pub(crate) fn es_postal_check(s: &str) -> bool {
     (1..=52).contains(&prov)
 }
 
+/// Polish PESEL check: 11 digits YYMMDDZZZXQ. Weighted mod-10 check digit
+/// (weights 1,3,7,9 repeating) plus birth-date validation — the month field
+/// encodes the century (+0 → 1900s, +20 → 2000s, +40 → 2100s, +60 → 2200s,
+/// +80 → 1800s).
+pub(crate) fn pl_pesel_check(s: &str) -> bool {
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    if digits.len() != 11 {
+        return false;
+    }
+    const WEIGHTS: [u32; 10] = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
+    let sum: u32 = digits[..10].iter().zip(WEIGHTS).map(|(d, w)| d * w).sum();
+    if (10 - sum % 10) % 10 != digits[10] {
+        return false;
+    }
+    let mm = digits[2] * 10 + digits[3];
+    let dd = digits[4] * 10 + digits[5];
+    (1..=12).contains(&(mm % 20)) && mm / 20 <= 4 && (1..=31).contains(&dd)
+}
+
+/// Polish NIP (tax ID) check: 10 digits (separators allowed, optional `PL`
+/// prefix in the EU-VAT form). Weighted mod-11 checksum with weights
+/// 6,5,7,2,3,4,5,6,7; a remainder of 10 is invalid by definition.
+pub(crate) fn pl_nip_check(s: &str) -> bool {
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    if digits.len() != 10 {
+        return false;
+    }
+    const WEIGHTS: [u32; 9] = [6, 5, 7, 2, 3, 4, 5, 6, 7];
+    let rem = digits[..9]
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(d, w)| d * w)
+        .sum::<u32>()
+        % 11;
+    rem != 10 && rem == digits[9]
+}
+
+fn pl_regon9_valid(digits: &[u32]) -> bool {
+    const WEIGHTS: [u32; 8] = [8, 9, 2, 3, 4, 5, 6, 7];
+    let rem = digits[..8]
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(d, w)| d * w)
+        .sum::<u32>()
+        % 11;
+    (if rem == 10 { 0 } else { rem }) == digits[8]
+}
+
+/// Polish REGON (business registry) check: 9 digits, or 14 digits for local
+/// units. Weighted mod-11 checksum (remainder 10 → check digit 0); the first
+/// 9 digits of a 14-digit REGON must themselves be a valid 9-digit REGON.
+pub(crate) fn pl_regon_check(s: &str) -> bool {
+    let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
+    match digits.len() {
+        9 => pl_regon9_valid(&digits),
+        14 => {
+            const WEIGHTS: [u32; 13] = [2, 4, 8, 5, 0, 9, 7, 3, 6, 1, 2, 4, 8];
+            let rem = digits[..13]
+                .iter()
+                .zip(WEIGHTS)
+                .map(|(d, w)| d * w)
+                .sum::<u32>()
+                % 11;
+            pl_regon9_valid(&digits[..9]) && (if rem == 10 { 0 } else { rem }) == digits[13]
+        }
+        _ => false,
+    }
+}
+
+// ICAO 9303-style character value: digits keep face value, letters A=10..Z=35.
+fn pl_mrz_char_value(c: u8) -> u32 {
+    if c.is_ascii_digit() {
+        (c - b'0') as u32
+    } else {
+        (c.to_ascii_uppercase() - b'A' + 10) as u32
+    }
+}
+
+/// Polish ID card (dowód osobisty) check: 3 letters + 6 digits, where the
+/// first digit is the check digit. ICAO-style weights 7,3,1,9,7,3,1,7,3 over
+/// all 9 characters; valid iff the weighted sum is divisible by 10
+/// (e.g. `ABS123456` from romek.info).
+pub(crate) fn pl_id_card_check(s: &str) -> bool {
+    let chars: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    if chars.len() != 9
+        || !chars[..3].iter().all(|c| c.is_ascii_alphabetic())
+        || !chars[3..].iter().all(|c| c.is_ascii_digit())
+    {
+        return false;
+    }
+    const WEIGHTS: [u32; 9] = [7, 3, 1, 9, 7, 3, 1, 7, 3];
+    let sum: u32 = chars
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(&c, w)| pl_mrz_char_value(c) * w)
+        .sum();
+    sum % 10 == 0
+}
+
+/// Polish passport number check: 2 letters + 7 digits, where the first digit
+/// is the check digit. ICAO-style weights 7,3,9,1,7,3,1,7,3 over all 9
+/// characters; valid iff the weighted sum is divisible by 10
+/// (e.g. `CC7999486` from romek.info).
+pub(crate) fn pl_passport_check(s: &str) -> bool {
+    let chars: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    if chars.len() != 9
+        || !chars[..2].iter().all(|c| c.is_ascii_alphabetic())
+        || !chars[2..].iter().all(|c| c.is_ascii_digit())
+    {
+        return false;
+    }
+    const WEIGHTS: [u32; 9] = [7, 3, 9, 1, 7, 3, 1, 7, 3];
+    let sum: u32 = chars
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(&c, w)| pl_mrz_char_value(c) * w)
+        .sum();
+    sum % 10 == 0
+}
+
+/// Polish postal code check: `dd-ddd` (e.g. `00-950` Warsaw). Structural
+/// only — all two-digit prefixes are in use.
+pub(crate) fn pl_postal_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 6
+        && b[..2].iter().all(|c| c.is_ascii_digit())
+        && b[2] == b'-'
+        && b[3..].iter().all(|c| c.is_ascii_digit())
+}
+
+/// Polish driving licence number check: 5 digits / 2 digits / 4 or 7 digits
+/// (e.g. `12345/67/8901`). Structural only — no public checksum.
+pub(crate) fn pl_dl_check(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+    parts.len() == 3
+        && parts[0].len() == 5
+        && parts[1].len() == 2
+        && (parts[2].len() == 4 || parts[2].len() == 7)
+        && parts.iter().all(|p| p.bytes().all(|b| b.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2592,5 +2738,113 @@ mod tests {
     #[test_case("2800A", false ; "invalid non digit")]
     fn es_postal(input: &str, expected: bool) {
         assert_eq!(es_postal_check(input), expected);
+    }
+
+    // --- pl_pesel_check ---
+    // 44051401359 is the canonical example from Wikipedia (born 1944-05-14).
+    // 02070803628 (born 1902) and the +20 month-offset values computed and
+    // verified against the published weights 1,3,7,9 repeating.
+    #[test_case("44051401359", true ; "valid wikipedia example")]
+    #[test_case("02070803628", true ; "valid 1900s")]
+    #[test_case("85051512346", true ; "valid 1985")]
+    #[test_case("03320145679", true ; "valid 2003 month offset 32")]
+    #[test_case("44051401358", false ; "invalid check digit")]
+    #[test_case("44131401350", false ; "invalid month 13 valid checksum")]
+    #[test_case("44053201353", false ; "invalid day 32 valid checksum")]
+    #[test_case("4405140135", false ; "invalid ten digits")]
+    #[test_case("440514013591", false ; "invalid twelve digits")]
+    #[test_case("4405140135A", false ; "invalid letter")]
+    fn pl_pesel(input: &str, expected: bool) {
+        assert_eq!(pl_pesel_check(input), expected);
+    }
+
+    // --- pl_nip_check ---
+    // Real-world NIPs: 7740001454 (PKN Orlen), 5250007738 (PKO BP),
+    // 5260250274 — all verified against the weights 6,5,7,2,3,4,5,6,7.
+    #[test_case("7740001454", true ; "valid orlen")]
+    #[test_case("5250007738", true ; "valid pko bp")]
+    #[test_case("5260250274", true ; "valid warsaw office")]
+    #[test_case("774-000-14-54", true ; "valid with separators")]
+    #[test_case("PL7740001454", true ; "valid eu vat form")]
+    #[test_case("7740001455", false ; "invalid check digit")]
+    #[test_case("1234567890", false ; "invalid remainder ten")]
+    #[test_case("774000145", false ; "invalid nine digits")]
+    #[test_case("77400014541", false ; "invalid eleven digits")]
+    fn pl_nip(input: &str, expected: bool) {
+        assert_eq!(pl_nip_check(input), expected);
+    }
+
+    // --- pl_regon_check ---
+    // Real-world REGONs: 610188201 (PKN Orlen), 016298263 (PKO BP) — verified
+    // against the weights 8,9,2,3,4,5,6,7. 14-digit values computed with the
+    // weights 2,4,8,5,0,9,7,3,6,1,2,4,8 over a valid 9-digit base.
+    #[test_case("610188201", true ; "valid orlen")]
+    #[test_case("016298263", true ; "valid pko bp")]
+    #[test_case("123456785", true ; "valid computed")]
+    #[test_case("61018820100010", true ; "valid fourteen digit local unit")]
+    #[test_case("12345678500010", true ; "valid fourteen digit computed")]
+    #[test_case("610188202", false ; "invalid check digit")]
+    #[test_case("61018820100011", false ; "invalid fourteenth digit")]
+    #[test_case("61018820200010", false ; "invalid nine digit base in fourteen")]
+    #[test_case("6101882010", false ; "invalid ten digits")]
+    fn pl_regon(input: &str, expected: bool) {
+        assert_eq!(pl_regon_check(input), expected);
+    }
+
+    // --- pl_id_card_check ---
+    // ABS123456 is the worked example from romek.info; AAA000000 covers the
+    // weighted-sum-is-zero edge; ZZC445678 computed and verified.
+    #[test_case("ABS123456", true ; "valid romek example")]
+    #[test_case("AAA000000", true ; "valid zero sum edge")]
+    #[test_case("ZZC445678", true ; "valid computed")]
+    #[test_case("abs123456", true ; "valid lowercase")]
+    #[test_case("ABS 123456", true ; "valid with space")]
+    #[test_case("ABS123457", false ; "invalid check digit")]
+    #[test_case("AB1234567", false ; "invalid two letters")]
+    #[test_case("ABCD12345", false ; "invalid four letters")]
+    #[test_case("ABS12345", false ; "invalid eight chars")]
+    fn pl_id_card(input: &str, expected: bool) {
+        assert_eq!(pl_id_card_check(input), expected);
+    }
+
+    // --- pl_passport_check ---
+    // CC7999486 is the worked example from romek.info; EH3222222 computed
+    // and verified against the weights 7,3,9,1,7,3,1,7,3.
+    #[test_case("CC7999486", true ; "valid romek example")]
+    #[test_case("EH3222222", true ; "valid computed")]
+    #[test_case("cc7999486", true ; "valid lowercase")]
+    #[test_case("CC 7999486", true ; "valid with space")]
+    #[test_case("CC7999487", false ; "invalid check digit")]
+    #[test_case("C17999486", false ; "invalid one letter")]
+    #[test_case("CCC999486", false ; "invalid three letters")]
+    #[test_case("CC799948", false ; "invalid eight chars")]
+    fn pl_passport(input: &str, expected: bool) {
+        assert_eq!(pl_passport_check(input), expected);
+    }
+
+    // --- pl_postal_check ---
+    #[test_case("00-950", true ; "valid warsaw")]
+    #[test_case("30-024", true ; "valid krakow")]
+    #[test_case("99-999", true ; "valid upper bound")]
+    #[test_case("00950", false ; "invalid no dash")]
+    #[test_case("000-95", false ; "invalid three two split")]
+    #[test_case("00-95A", false ; "invalid letter")]
+    #[test_case("0-0950", false ; "invalid one digit prefix")]
+    fn pl_postal(input: &str, expected: bool) {
+        assert_eq!(pl_postal_check(input), expected);
+    }
+
+    // --- pl_dl_check ---
+    #[test_case("12345/67/8901", true ; "valid four digit tail")]
+    #[test_case("12345/67/8901234", true ; "valid seven digit tail")]
+    #[test_case("00001/22/1234", true ; "valid leading zeros")]
+    #[test_case("1234/67/8901", false ; "invalid four digit head")]
+    #[test_case("12345/6/8901", false ; "invalid one digit middle")]
+    #[test_case("12345/67/89012", false ; "invalid five digit tail")]
+    #[test_case("12345/67/890123", false ; "invalid six digit tail")]
+    #[test_case("12345678901", false ; "invalid no slashes")]
+    #[test_case("12345/67/89A1", false ; "invalid letter")]
+    fn pl_dl(input: &str, expected: bool) {
+        assert_eq!(pl_dl_check(input), expected);
     }
 }

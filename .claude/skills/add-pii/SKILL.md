@@ -128,9 +128,26 @@ rows covering all of:
 Add these rows to the existing parametrized test functions (`detects_with_keyword`, etc.) —
 only fall back to a standalone test when the assertion shape genuinely differs.
 
-**3. Country/language tagging must match the kind.** A pattern's `Language::*` tag has to
-align with the kind's `applicable_countries()`. A French keyword on a US-only kind will
-silently fail under country filtering and mislead operators reading the patterns.
+**3. A pattern's `Language::*` tag must match the language of the KEYWORD TEXT — not the
+kind's country.** `enabled_languages` is filtered **independently** of country selection
+(`ScannerBuilder`), and the shipped example config uses `languages = ["En"]`. So the tag
+decides whether the keyword survives language filtering, regardless of which country the
+value belongs to. Two consequences:
+
+- A foreign keyword on the wrong-language kind still misleads operators (a French keyword
+  tagged `Language::De`), and a keyword whose tag is absent from a deployment's
+  `languages` list is silently dropped.
+- **English structured-key keywords belong in `Language::En`, even for a country-specific
+  kind.** Structured payloads pair English keys with local values, so `pesel_number`,
+  `nip_number`, `regon_number` are *English* keywords for Polish kinds and must live in the
+  `Language::En` tuple — putting them in the `Language::Pl` tuple makes
+  `{"pesel_number":"…"}` undetectable under `languages=["En"]` even though the kind is
+  enabled. The native structured key (`numer_pesel`) and the bare native token (`pesel`)
+  stay in the `Language::Pl` tuple. The two are extraction-disjoint: a bare token cannot
+  cross the `_` in the English compound (the separator class excludes `_`), so they do not
+  double-fire. **Verify with an En-only test:** build
+  `KeywordContextDetector::new(&kinds, &[Language::En])` and assert each English key is
+  detected and each bare native keyword is not.
 
 **4. When adding a new-language tuple for an existing kind, audit for substring overlap
 with the existing pattern's keywords.** Many country-specific PII kinds (e.g. `AtSvnr`,
@@ -148,6 +165,15 @@ English `AtSvnr` pattern must drop `svnr`, `at svnr`, `austrian svnr`, `svnr num
 only phrases the existing pattern does **not** subsume — e.g.
 `austrian social security number`, `at insurance number`. This is the inverse of the
 substring-overlap pitfall below.
+
+**4a. A prefix-phrase branch whose stem also appears bare in the same alternation is
+dead — omit it.** Patterns are unanchored and only the capture group is the returned span,
+so `regon(?:u|…)?` already matches inside `numer REGON: 610188201` (the engine starts at
+`regon`, the captured span is identical). Adding `numery?[\s_-]?regon|` alongside the bare
+`regon` stem contributes zero recall and just adds states to the DFA. Keep the prefix branch
+only when its stem is **not** independently present (e.g. `numer identyfikacji podatkowej`
+has no bare stem). Some existing tuples (Es/It) carry these dead branches as legacy — don't
+copy that.
 
 **5. Connector words between keyword and value are English-only today.** Each pattern's
 keyword/value gap is `(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)` — a language-neutral *separator
@@ -231,6 +257,16 @@ with both simple (numeric) and complex (month-name) alternations in the regex. V
 fires on the ASCII keyword, then the regex crate handles value extraction including complex
 alternations.
 
+**A detection-override token class for a non-ASCII language must be an explicit
+letter+diacritic class, never `\S`.** When a language's month names (or any value token)
+carry non-ASCII letters, it is tempting to widen the override's generic token to `\S{3,14}`.
+In vectorscan UTF-8 mode `\S` is a near-universal multi-byte class that compiles to far more
+NFA/DFA states than a bounded letter class, and it admits digit/punctuation junk tokens that
+then trigger pointless regex-crate extraction. Use the ASCII range plus the language's
+diacritics spelled out in **both** cases (vectorscan's caseless flag is ASCII-only), e.g.
+Polish `[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,14}`. This keeps the keyword DB off the DFA-size cliff
+while matching every real month name.
+
 **Shared keywords across countries cause DFA bloat.** When a new country shares keywords
 with an existing one (e.g. DE and AT both use "Adresse", "Postfach"), do NOT add separate
 vectorscan patterns with duplicate keyword prefixes. Each additional pattern enlarges the
@@ -273,3 +309,11 @@ independently before writing test values.
 - `cargo clippy -p pii --all-targets 2>&1 | tail -n 20` — no warnings.
 - Confirm new `PiiKind` variants appear in `country()`, `label()`, and `ALL`, and that
   `Country::all()` / `Language::all()` include the new entries.
+- If any English structured-key keyword was added (`<kind>_number` etc.), add an En-only
+  language test (see rule 3) so the `languages=["En"]` config keeps detecting it.
+- If you appended to `PRIORITY_GROUPS` in `overlap.rs`, update (or delete in favour of a
+  pointer to `overlap.rs`) the now-stale "Currently:" enumeration in `crates/pii/CLAUDE.md`
+  so the doc and code don't drift.
+- `cargo bench throughput  --bench pii_benchmark` - after every other task is finished, run 
+  benchmark for baseline before changes and compare with changed codebase (do not run the
+  command in paraller e.g. with tests as this will skew benchmark result).

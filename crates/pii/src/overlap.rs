@@ -31,6 +31,7 @@ const PRIORITY_GROUPS: &[&[PiiKind]] = &[
         PiiKind::NlPhoneNumber,
         PiiKind::ItPhoneNumber,
         PiiKind::EsPhoneNumber,
+        PiiKind::PlPhoneNumber,
         PiiKind::InternationalPhoneNumber,
     ],
     // Passport: country-scoped beats generic.
@@ -44,6 +45,7 @@ const PRIORITY_GROUPS: &[&[PiiKind]] = &[
         PiiKind::DePassportNumber,
         PiiKind::NlPassportNumber,
         PiiKind::ItPassportNumber,
+        PiiKind::PlPassportNumber,
         PiiKind::PassportNumber,
     ],
 ];

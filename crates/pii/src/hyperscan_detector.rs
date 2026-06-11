@@ -138,6 +138,18 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: es_cif_check,
             needs_ucp: false,
         },
+        // Polish NIP in its EU-VAT form: PL + 10 digits, e.g. PL7740001454.
+        // The PL literal prefix anchors detection (cf. NlBtw); the weighted
+        // mod-11 checksum validates. Bare 10-digit NIPs are keyword-gated in
+        // the keyword-context detector. A Polish IBAN (PL + 26 digits) cannot
+        // match — the trailing \b fails after 10 digits.
+        PatternDef {
+            kind: PiiKind::PlNip,
+            expr: r"\b[Pp][Ll]\d{10}\b",
+            som_fallback: false,
+            validator: pl_nip_check,
+            needs_ucp: false,
+        },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
@@ -635,6 +647,11 @@ mod tests {
     #[test_case("CIF: A28015865", PiiKind::EsCif, "A28015865" ; "es cif telefonica")]
     #[test_case("empresa B67338921 registrada", PiiKind::EsCif, "B67338921" ; "es cif no keyword")]
     #[test_case("CIF P2800000H del organismo", PiiKind::EsCif, "P2800000H" ; "es cif letter control")]
+    // Polish NIP in EU-VAT form — keyword-less, checksum-validated.
+    // PL7740001454 (PKN Orlen) and PL5250007738 (PKO BP) are real published NIPs.
+    #[test_case("VAT: PL7740001454", PiiKind::PlNip, "PL7740001454" ; "pl nip vat keyword")]
+    #[test_case("invoice PL5250007738 issued", PiiKind::PlNip, "PL5250007738" ; "pl nip vat no keyword")]
+    #[test_case("vat pl7740001454", PiiKind::PlNip, "pl7740001454" ; "pl nip vat lowercase")]
     #[test_case("CF: RSSMRA80A01H501U", PiiKind::ItCodiceFiscale, "RSSMRA80A01H501U" ; "it codice fiscale rome")]
     #[test_case("Codice fiscale RSSMRA85T10A562S valido", PiiKind::ItCodiceFiscale, "RSSMRA85T10A562S" ; "it codice fiscale a562")]
     // Keyword-less detection is uppercase-only (see build_patterns); a bare
@@ -707,6 +724,10 @@ mod tests {
     #[test_case("CF: RSSMRA80A01H501Z", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char")]
     #[test_case("CF: RSSMRA85T10A562X", PiiKind::ItCodiceFiscale ; "it codice fiscale wrong check char a562")]
     #[test_case("BTW: NL12345678B01", PiiKind::NlBtw ; "nl btw too few digits")]
+    #[test_case("VAT: PL7740001455", PiiKind::PlNip ; "pl nip vat wrong check digit")]
+    #[test_case("VAT: PL1234567890", PiiKind::PlNip ; "pl nip vat remainder ten")]
+    #[test_case("VAT: PL774000145", PiiKind::PlNip ; "pl nip vat nine digits")]
+    #[test_case("IBAN PL61109010140000071219812874 on file", PiiKind::PlNip ; "pl nip not matched inside iban")]
     #[test_case("0x1234567890abcdef1234567890abcdef1234567", PiiKind::EthereumAddress ; "ethereum too short")]
     #[test_case("0x1234567890abcdef1234567890abcdef123456789", PiiKind::EthereumAddress ; "ethereum too long")]
     #[test_case("eircode: D2W X285", PiiKind::IeEircode ; "ie eircode invalid w not at d6")]

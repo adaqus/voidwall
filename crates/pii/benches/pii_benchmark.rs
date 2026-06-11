@@ -791,6 +791,16 @@ Tier 10 Spain Verification Records:\n\
   Pasaporte: ABC123456\n\
   Teléfono: +34 612 345 678\n\
   Código postal: 28001\n\n\
+Tier 11 Poland Verification Records:\n\
+  PESEL: 44051401359\n\
+  NIP: 7740001454\n\
+  VAT: PL5250007738\n\
+  REGON: 610188201\n\
+  Dowód osobisty: ABS123456\n\
+  Paszport: CC7999486\n\
+  Telefon: +48 601 234 567\n\
+  Kod pocztowy: 00-950\n\
+  Prawo jazdy: 12345/67/8901\n\n\
 End of ticket notes.\n";
 
 const DE_STEUER_ID_TEXT: &str = "\
@@ -1036,6 +1046,45 @@ Datos internacionales:\n\
   Geolocalización: 40.4168,-3.7038\n\
   Identificador del dispositivo: 490154203237518\n\n\
 Fin de las notas.\n";
+
+const PL_PESEL_TEXT: &str = "\
+Urząd Skarbowy — Weryfikacja tożsamości\n\n\
+Dokumenty do sprawdzenia:\n\
+- Osoba fizyczna: PESEL 44051401359\n\
+- Podatnik: NIP 774-000-14-54\n\
+- Przedsiębiorstwo: REGON 610188201\n\
+- Faktura VAT: PL5250007738\n\
+Wszystkie dokumenty muszą zostać zweryfikowane.";
+
+const PL_PHONE_TEXT: &str = "\
+Obsługa klienta — Notatka z rozmowy\n\n\
+Klient: Jan Kowalski\n\
+Telefon: +48 601 234 567\n\
+Alternatywnie: komórka: 512 345 678\n\
+Klient dzwonił w sprawie faktury.\n\
+Oddzwonić na numer telefonu: 221234567.";
+
+const PL_MIXED_TEXT: &str = "\
+AKTA KLIENTA #PL-2025-0042\n\
+Priorytet: Wysoki\n\
+Utworzono: 2025-01-15 09:23:41 UTC\n\n\
+Informacje o kliencie:\n\
+  Imię i nazwisko: Anna Nowak\n\
+  Telefon: 601 234 567\n\
+  Kod pocztowy: 00-950\n\n\
+Weryfikacja tożsamości:\n\
+  PESEL: 44051401359\n\
+  Dowód osobisty: ABS123456\n\
+  Paszport: CC7999486\n\
+  Prawo jazdy: 12345/67/8901\n\n\
+Dane firmowe:\n\
+  NIP: 7740001454\n\
+  REGON: 610188201\n\n\
+Dane międzynarodowe:\n\
+  Data urodzenia: 15 maja 1990\n\
+  Współrzędne: 52.2297,21.0122\n\
+  Identyfikator urządzenia: 490154203237518\n\n\
+Koniec notatek.\n";
 
 // Text with 5 PIIs handled by HyperscanDetector (structurally unique, no keywords needed):
 // Email, CreditCard, UsSsn, Iban, IpAddress
@@ -1559,6 +1608,19 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("es_mixed", |b| {
         b.iter(|| scanner.mark_piis(ES_MIXED_TEXT));
+    });
+
+    // Poland
+    group.bench_function("pl_pesel", |b| {
+        b.iter(|| scanner.mark_piis(PL_PESEL_TEXT));
+    });
+
+    group.bench_function("pl_phone", |b| {
+        b.iter(|| scanner.mark_piis(PL_PHONE_TEXT));
+    });
+
+    group.bench_function("pl_mixed", |b| {
+        b.iter(|| scanner.mark_piis(PL_MIXED_TEXT));
     });
 
     // Person names

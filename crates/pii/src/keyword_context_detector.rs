@@ -18,9 +18,10 @@ use crate::validators::{
     it_codice_fiscale_check, it_dl_check, it_partita_iva_check, it_passport_check, it_postal_check,
     medicare_check, nhi_check, nhs_check, nir_check, nl_dl_check, nl_passport_check,
     nl_postal_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
-    person_name_check, phone_check, siren_luhn_check, siret_luhn_check, sort_code_check,
-    swift_bic_check, tfn_check, us_dl_check, us_za_postal_check, uscis_receipt_check, utr_check,
-    za_luhn13_check, za_trn_check,
+    person_name_check, phone_check, pl_dl_check, pl_id_card_check, pl_nip_check, pl_passport_check,
+    pl_pesel_check, pl_postal_check, pl_regon_check, siren_luhn_check, siret_luhn_check,
+    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
+    uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -1186,6 +1187,167 @@ impl KeywordContextDetector {
                 r"(?i)(?:identificador[\s_-]?del[\s_-]?dispositivo|n[uú]meros?[\s_-]?de[\s_-]?serie[\s_-]?del[\s_-]?dispositivo|c[oó]digo[\s_-]?del[\s_-]?dispositivo)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
                 imei_check,
             ),
+            // --- Poland-specific PII types (Language::Pl) ---
+            // The bare "PESEL" token and Polish "numer PESEL" form live in the
+            // Pl tuple; the English structured-key form "pesel_number" lives in
+            // the En tuple so it is detected under English-only language configs
+            // (the Polish structured key is "numer_pesel", matched by the Pl
+            // tuple). The two are substring-disjoint at extraction: bare "pesel"
+            // cannot cross the "_" before "number" (the separator class excludes
+            // "_"), so the En "pesel_number" form does not double-fire here.
+            (
+                PiiKind::PlPesel,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?pesel|pesel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
+                pl_pesel_check,
+            ),
+            (
+                PiiKind::PlPesel,
+                Language::En,
+                r"(?i)(?:pesel[\s_-]?numbers?|(?:polish|poland)[\s_-]?national[\s_-]?id(?:entification)?[\s_-]?numbers?|(?:polish|poland)[\s_-]?national[\s_-]?ids?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{11})\b",
+                pl_pesel_check,
+            ),
+            // The keyword-gated value deliberately excludes the PL-prefixed
+            // EU-VAT form — that one is caught keyword-less by the hyperscan
+            // pattern, and capturing it here too would duplicate the match.
+            (
+                PiiKind::PlNip,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?identyfikacji[\s_-]?podatkowej|nip(?:u|owi|em)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2,3})\b",
+                pl_nip_check,
+            ),
+            (
+                PiiKind::PlNip,
+                Language::En,
+                r"(?i)(?:nip[\s_-]?numbers?|(?:polish|poland|pl)[\s_-]?tax[\s_-]?id(?:entification)?(?:[\s_-]?numbers?)?|(?:polish|poland|pl)[\s_-]?vat[\s_-]?(?:numbers?|ids?))(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{3}[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2,3})\b",
+                pl_nip_check,
+            ),
+            // Bare "REGON" and "numer REGON" live in the Pl tuple; the English
+            // structured-key form "regon_number" lives in the En tuple (same
+            // split as PESEL above).
+            (
+                PiiKind::PlRegon,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?regon|regon(?:u|owi|em|y|ów)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14}|\d{9})\b",
+                pl_regon_check,
+            ),
+            (
+                PiiKind::PlRegon,
+                Language::En,
+                r"(?i)(?:regon[\s_-]?numbers?|(?:polish|poland)[\s_-]?(?:business|company|statistical)[\s_-]?registr(?:y|ation)[\s_-]?numbers?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{14}|\d{9})\b",
+                pl_regon_check,
+            ),
+            (
+                PiiKind::PlIdCard,
+                Language::Pl,
+                r"(?i)(?:dow[oó]d(?:u|owi|em|y|om)?[\s_-]?osobist(?:y|ego|emu|ym|e|ymi)?|dow[oó]d(?:u|owi|em|y|om)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{3}\s?\d{6})\b",
+                pl_id_card_check,
+            ),
+            (
+                PiiKind::PlIdCard,
+                Language::En,
+                r"(?i)(?:(?:polish|poland)[\s_-]?id(?:entity)?[\s_-]?cards?(?:[\s_-]?numbers?)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{3}\s?\d{6})\b",
+                pl_id_card_check,
+            ),
+            // Substring-disjoint: Polish "paszport" does not contain the
+            // English "passport" stem ("sz" vs "ss"); English alternations are
+            // country-prefixed and the value (2 letters + 7 digits) is
+            // disjoint from the generic PassportNumber value (\d{9}).
+            (
+                PiiKind::PlPassportNumber,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?paszport(?:u|ów)|paszport(?:u|owi|em|y|ów)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\s?\d{7})\b",
+                pl_passport_check,
+            ),
+            (
+                PiiKind::PlPassportNumber,
+                Language::En,
+                r"(?i)(?:(?:polish|poland|pl)[\s_-]?passports?(?:[\s_-]?numbers?)?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{2}\s?\d{7})\b",
+                pl_passport_check,
+            ),
+            // Polish phone: 9 digits not starting with 0, optional +48. Shares
+            // keywords with the UsPhoneNumber Pl tuple; the value regexes are
+            // disjoint (9-digit vs 10-digit US).
+            (
+                PiiKind::PlPhoneNumber,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?telefon(?:u|ów)|telefon(?:u|owi|em|y|ów)?|kom[oó]rk(?:a|i|owy|owego)|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?48[\s\-.]?)?[1-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
+                phone_check,
+            ),
+            // Country-prefixed English keywords; value requires the +48
+            // country code so a bare 9-digit number with a generic English
+            // keyword does not double-match here.
+            (
+                PiiKind::PlPhoneNumber,
+                Language::En,
+                r"(?i)(?:phone[\s_-]?pl|(?:polish|poland|pl)[\s_-]?phone[\s_-]?numbers?|(?:polish|poland)[\s_-]?phones?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\+?48[\s\-.]?[1-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
+                phone_check,
+            ),
+            (
+                PiiKind::PlPostalCode,
+                Language::Pl,
+                r"(?i)(?:kod(?:y|u|em|ów)?[\s_-]?pocztow(?:y|e|ego|emu|ym|ych))(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-\d{3})\b",
+                pl_postal_check,
+            ),
+            (
+                PiiKind::PlPostalCode,
+                Language::En,
+                r"(?i)(?:(?:polish|poland)[\s_-]?(?:postal[\s_-]?codes?|postcodes?|zip[\s_-]?codes?))(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-\d{3})\b",
+                pl_postal_check,
+            ),
+            // Substring-disjoint: Polish "prawo jazdy" contains no English
+            // stem; English alternations are country-prefixed.
+            (
+                PiiKind::PlDriversLicense,
+                Language::Pl,
+                r"(?i)(?:praw[oa][\s_-]?jazdy|prawem[\s_-]?jazdy)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5}/\d{2}/\d{4}(?:\d{3})?)\b",
+                pl_dl_check,
+            ),
+            (
+                PiiKind::PlDriversLicense,
+                Language::En,
+                r"(?i)(?:(?:polish|poland|pl)[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{5}/\d{2}/\d{4}(?:\d{3})?)\b",
+                pl_dl_check,
+            ),
+            // --- Polish keywords for existing international types ---
+            (
+                PiiKind::UsPhoneNumber,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?telefon(?:u|ów)|telefon(?:u|owi|em|y|ów)?|kom[oó]rk(?:a|i|owy|owego)|tel)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+                phone_check,
+            ),
+            // Complement to PlPassportNumber Pl: shares the "paszport" keyword
+            // but captures the generic 9-digit form; value regexes are disjoint.
+            (
+                PiiKind::PassportNumber,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?paszport(?:u|ów)|paszport(?:u|owi|em|y|ów)?|dokument[\s_-]?podr[oó][żz]y)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{9})\b",
+                passport_check,
+            ),
+            (
+                PiiKind::DateOfBirth,
+                Language::Pl,
+                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:stycznia|sty|lutego|lut|marca|mar|kwietnia|kwi|maja|maj|czerwca|cze|lipca|lip|sierpnia|sie|września|wrz|października|paź|listopada|lis|grudnia|gru)\s+\d{4})",
+                dob_check,
+            ),
+            (
+                PiiKind::PreciseGeolocation,
+                Language::Pl,
+                r"(?i)(?:geolokalizacj[aię]|wsp[oó][lł]rz[eę]dne|dok[lł]adna[\s_-]?lokalizacja)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                geolocation_check,
+            ),
+            (
+                PiiKind::SwiftBic,
+                Language::Pl,
+                r"(?i)(?:kod[\s_-]?identyfikacyjny[\s_-]?banku|identyfikator[\s_-]?bankowy)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
+                swift_bic_check,
+            ),
+            (
+                PiiKind::Imei,
+                Language::Pl,
+                r"(?i)(?:numery?[\s_-]?seryjn[ye][\s_-]?urz[aą]dzenia|identyfikator[\s_-]?urz[aą]dzenia|kod[\s_-]?urz[aą]dzenia)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{2}-?\d{6}-?\d{6}-?\d)",
+                imei_check,
+            ),
         ];
 
         // Detection-only expressions for vectorscan, used instead of the full
@@ -1228,6 +1390,19 @@ impl KeywordContextDetector {
                 PiiKind::DateOfBirth,
                 Language::Es,
                 r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+            ),
+            // The Polish month-name alternation likewise silently fails in the
+            // combined vectorscan DFA; detect with a generic month token and let
+            // the full extraction regex + dob_check validate the value. The token
+            // class is ASCII letters plus the Polish diacritics (e.g. "ś" in
+            // "września", "ź" in "października") — narrower than \S, which would
+            // add far more NFA/DFA states in UTF-8 mode and admit digit/punct
+            // junk tokens. vectorscan's caseless flag is ASCII-only, so both
+            // cases of the non-ASCII letters are listed explicitly.
+            (
+                PiiKind::DateOfBirth,
+                Language::Pl,
+                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])(?:\s+is\s+|[\s:.#/\-\x22=,\]\\]*?)(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,14}\s+\d{4})",
             ),
         ];
 
@@ -1513,6 +1688,41 @@ mod tests {
     // Global detector for unit tests optimization (otherwise veery slow)
     static DETECTOR: LazyLock<KeywordContextDetector> =
         LazyLock::new(|| KeywordContextDetector::new_all().unwrap());
+
+    // Regression: English structured-key forms for Polish kinds (pesel_number,
+    // nip_number, regon_number) must be detected when ONLY Language::En is
+    // enabled (e.g. a deployment scanning English JSON for Polish IDs). They
+    // live in the Language::En tuples, not Language::Pl, so language filtering
+    // does not drop them. The bare Polish keyword (`pesel:`) correctly does NOT
+    // fire under En-only since it is a Polish-language keyword.
+    #[test]
+    fn english_structured_keys_detected_under_en_only_language() {
+        let kinds: HashSet<PiiKind> = [PiiKind::PlPesel, PiiKind::PlNip, PiiKind::PlRegon]
+            .into_iter()
+            .collect();
+        let languages: HashSet<Language> = [Language::En].into_iter().collect();
+        let detector = KeywordContextDetector::new(&kinds, &languages).unwrap();
+
+        for (input, kind) in [
+            ("pesel_number: 44051401359", PiiKind::PlPesel),
+            ("nip_number: 7740001454", PiiKind::PlNip),
+            ("regon_number: 610188201", PiiKind::PlRegon),
+        ] {
+            assert!(
+                detector.mark_piis(input).iter().any(|m| m.kind == kind),
+                "expected {kind:?} under En-only for: {input}"
+            );
+        }
+
+        // Bare Polish keyword is Pl-tagged → not detected under En-only.
+        assert!(
+            detector
+                .mark_piis("pesel: 44051401359")
+                .iter()
+                .all(|m| m.kind != PiiKind::PlPesel),
+            "bare Polish `pesel:` keyword should not fire under En-only language"
+        );
+    }
 
     // --- Detection with span verification ---
 
@@ -2245,6 +2455,80 @@ mod tests {
     #[test_case("El pasaporte ABC123456 es válido.", PiiKind::EsPassportNumber, "ABC123456" ; "es passport natural sentence")]
     #[test_case("Llámame al teléfono 612 345 678 por favor.", PiiKind::EsPhoneNumber, "612 345 678" ; "es phone natural sentence")]
     #[test_case("La fecha de nacimiento 15 marzo 1990 en Sevilla.", PiiKind::DateOfBirth, "15 marzo 1990" ; "es dob natural sentence")]
+    // --- Poland (Language::Pl + country-prefixed English) ---
+    // PESEL — 44051401359 is the canonical Wikipedia example.
+    #[test_case("PESEL: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel keyword")]
+    #[test_case("numer PESEL: 02070803628", PiiKind::PlPesel, "02070803628" ; "pl pesel long keyword")]
+    #[test_case("numery PESEL: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel plural keyword")]
+    #[test_case("pesel_number: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel snakecase")]
+    #[test_case("peselNumber: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel camelcase")]
+    #[test_case("pesel-number: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel kebab")]
+    #[test_case(r#""pesel":"44051401359""#, PiiKind::PlPesel, "44051401359" ; "pl pesel json")]
+    #[test_case("polish national id number: 44051401359", PiiKind::PlPesel, "44051401359" ; "pl pesel en keyword")]
+    // NIP — 7740001454 (PKN Orlen), 5250007738 (PKO BP): real published NIPs.
+    #[test_case("NIP: 7740001454", PiiKind::PlNip, "7740001454" ; "pl nip keyword")]
+    #[test_case("NIP: 774-000-14-54", PiiKind::PlNip, "774-000-14-54" ; "pl nip separators 3-3-2-2")]
+    #[test_case("nipem: 5250007738", PiiKind::PlNip, "5250007738" ; "pl nip declined")]
+    #[test_case("numer identyfikacji podatkowej: 5250007738", PiiKind::PlNip, "5250007738" ; "pl nip long keyword")]
+    #[test_case("nip_number: 7740001454", PiiKind::PlNip, "7740001454" ; "pl nip snakecase")]
+    #[test_case(r#""nip":"7740001454""#, PiiKind::PlNip, "7740001454" ; "pl nip json")]
+    #[test_case("polish tax id: 7740001454", PiiKind::PlNip, "7740001454" ; "pl nip en tax id")]
+    #[test_case("pl vat number: 7740001454", PiiKind::PlNip, "7740001454" ; "pl nip en vat number")]
+    // REGON — 610188201 (PKN Orlen), 016298263 (PKO BP): real published REGONs.
+    #[test_case("REGON: 610188201", PiiKind::PlRegon, "610188201" ; "pl regon keyword")]
+    #[test_case("REGON: 61018820100010", PiiKind::PlRegon, "61018820100010" ; "pl regon fourteen digits")]
+    #[test_case("numery REGON: 016298263", PiiKind::PlRegon, "016298263" ; "pl regon plural keyword")]
+    #[test_case("regonu: 610188201", PiiKind::PlRegon, "610188201" ; "pl regon declined")]
+    #[test_case("regon_number: 610188201", PiiKind::PlRegon, "610188201" ; "pl regon snakecase")]
+    #[test_case(r#""regon":"016298263""#, PiiKind::PlRegon, "016298263" ; "pl regon json")]
+    #[test_case("poland business registry number: 610188201", PiiKind::PlRegon, "610188201" ; "pl regon en keyword")]
+    // ID card — ABS123456 is the worked example from romek.info.
+    #[test_case("dowód osobisty: ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl id card keyword")]
+    #[test_case("dowodu osobistego: ZZC445678", PiiKind::PlIdCard, "ZZC445678" ; "pl id card genitive")]
+    #[test_case("dowody osobiste: ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl id card plural")]
+    #[test_case("seria i numer dowodu: ABS 123456", PiiKind::PlIdCard, "ABS 123456" ; "pl id card series and number")]
+    #[test_case("dowod_osobisty: ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl id card snakecase no diacritic")]
+    #[test_case(r#""dowod":"AAA000000""#, PiiKind::PlIdCard, "AAA000000" ; "pl id card json")]
+    #[test_case("polish id card: ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl id card en keyword")]
+    // Passport — CC7999486 is the worked example from romek.info.
+    #[test_case("paszport: CC7999486", PiiKind::PlPassportNumber, "CC7999486" ; "pl passport keyword")]
+    #[test_case("numer paszportu: EH3222222", PiiKind::PlPassportNumber, "EH3222222" ; "pl passport long keyword")]
+    #[test_case("paszporty: CC7999486", PiiKind::PlPassportNumber, "CC7999486" ; "pl passport plural")]
+    #[test_case(r#""paszport":"CC7999486""#, PiiKind::PlPassportNumber, "CC7999486" ; "pl passport json")]
+    #[test_case("polish passport: CC 7999486", PiiKind::PlPassportNumber, "CC 7999486" ; "pl passport en keyword with space")]
+    // Phone — 9-digit national numbers, optional +48.
+    #[test_case("telefon: 601 234 567", PiiKind::PlPhoneNumber, "601 234 567" ; "pl phone mobile")]
+    #[test_case("komórka: 512345678", PiiKind::PlPhoneNumber, "512345678" ; "pl phone komorka compact")]
+    #[test_case("numer telefonu: +48 601 234 567", PiiKind::PlPhoneNumber, "+48 601 234 567" ; "pl phone long keyword plus48")]
+    #[test_case("telefony: 221234567", PiiKind::PlPhoneNumber, "221234567" ; "pl phone plural landline")]
+    #[test_case(r#""telefon":"601234567""#, PiiKind::PlPhoneNumber, "601234567" ; "pl phone json")]
+    #[test_case("polish phone: +48 512 345 678", PiiKind::PlPhoneNumber, "+48 512 345 678" ; "pl phone en keyword plus48")]
+    // Postal code — dd-ddd.
+    #[test_case("kod pocztowy: 00-950", PiiKind::PlPostalCode, "00-950" ; "pl postal warsaw")]
+    #[test_case("kody pocztowe: 30-024", PiiKind::PlPostalCode, "30-024" ; "pl postal plural krakow")]
+    #[test_case("kod_pocztowy: 00-950", PiiKind::PlPostalCode, "00-950" ; "pl postal snakecase")]
+    #[test_case(r#""kod_pocztowy":"00-950""#, PiiKind::PlPostalCode, "00-950" ; "pl postal json")]
+    #[test_case("poland postal code: 00-950", PiiKind::PlPostalCode, "00-950" ; "pl postal en keyword")]
+    // Driving licence — 5/2/4-or-7 digits.
+    #[test_case("prawo jazdy: 12345/67/8901", PiiKind::PlDriversLicense, "12345/67/8901" ; "pl driving licence")]
+    #[test_case("prawa jazdy: 12345/67/8901234", PiiKind::PlDriversLicense, "12345/67/8901234" ; "pl driving licence genitive seven digit tail")]
+    #[test_case(r#""prawo_jazdy":"12345/67/8901""#, PiiKind::PlDriversLicense, "12345/67/8901" ; "pl driving licence json")]
+    #[test_case("polish driving licence: 12345/67/8901", PiiKind::PlDriversLicense, "12345/67/8901" ; "pl driving licence en keyword")]
+    // Polish keywords for international types
+    #[test_case("telefon: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "pl keyword us phone")]
+    #[test_case("paszport: 123456789", PiiKind::PassportNumber, "123456789" ; "pl keyword generic passport")]
+    #[test_case("data urodzenia: 15.05.1985", PiiKind::DateOfBirth, "15.05.1985" ; "pl keyword dob numeric")]
+    #[test_case("data urodzenia: 15 maja 1985", PiiKind::DateOfBirth, "15 maja 1985" ; "pl keyword dob month name")]
+    #[test_case("urodzony: 3 października 1990", PiiKind::DateOfBirth, "3 października 1990" ; "pl keyword dob non ascii month")]
+    #[test_case("data urodzenia: 3 paź 1990", PiiKind::DateOfBirth, "3 paź 1990" ; "pl keyword dob abbrev paz")]
+    #[test_case("data urodzenia: 15 wrz 1985", PiiKind::DateOfBirth, "15 wrz 1985" ; "pl keyword dob abbrev wrz")]
+    #[test_case("współrzędne: 52.2297,21.0122", PiiKind::PreciseGeolocation, "52.2297,21.0122" ; "pl keyword geolocation warsaw")]
+    #[test_case("identyfikator bankowy: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "pl keyword swift")]
+    #[test_case("identyfikator urządzenia: 490154203237518", PiiKind::Imei, "490154203237518" ; "pl keyword imei")]
+    // Natural-language Polish sentences (value adjacent to keyword — no copula).
+    #[test_case("Mój numer PESEL 44051401359 jest poufny.", PiiKind::PlPesel, "44051401359" ; "pl pesel natural sentence")]
+    #[test_case("Zgubiłem dowód osobisty ABS123456 wczoraj.", PiiKind::PlIdCard, "ABS123456" ; "pl id card natural sentence")]
+    #[test_case("Zadzwoń na telefon 601 234 567 po południu.", PiiKind::PlPhoneNumber, "601 234 567" ; "pl phone natural sentence")]
     // --- Plural keyword forms ---
     // English plurals (single -s suffix on the head noun)
     #[test_case("phone_numbers: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "en plural phone_numbers snakecase")]
@@ -2800,6 +3084,19 @@ mod tests {
     #[test_case("número de afiliación: 671234567812", PiiKind::EsNuss ; "es nuss province above 66")]
     #[test_case("NUSS: 2812345678", PiiKind::EsNuss ; "es nuss ten digits")]
     #[test_case("pasaporte: A1234567", PiiKind::EsPassportNumber ; "es passport one letter seven digits")]
+    // Poland — keyword present but value fails validation
+    #[test_case("PESEL: 44051401358", PiiKind::PlPesel ; "pl pesel bad check digit")]
+    #[test_case("PESEL: 44131401350", PiiKind::PlPesel ; "pl pesel month 13 valid checksum")]
+    #[test_case("PESEL: 44053201353", PiiKind::PlPesel ; "pl pesel day 32 valid checksum")]
+    #[test_case("NIP: 7740001455", PiiKind::PlNip ; "pl nip bad check digit")]
+    #[test_case("NIP: 1234567890", PiiKind::PlNip ; "pl nip remainder ten")]
+    #[test_case("REGON: 610188202", PiiKind::PlRegon ; "pl regon bad check digit")]
+    #[test_case("REGON: 61018820100011", PiiKind::PlRegon ; "pl regon bad fourteenth digit")]
+    #[test_case("dowód osobisty: ABS123457", PiiKind::PlIdCard ; "pl id card bad check digit")]
+    #[test_case("paszport: CC7999487", PiiKind::PlPassportNumber ; "pl passport bad check digit")]
+    #[test_case("telefon: 012 345 678", PiiKind::PlPhoneNumber ; "pl phone leading zero")]
+    #[test_case("kod pocztowy: 00950", PiiKind::PlPostalCode ; "pl postal no dash")]
+    #[test_case("prawo jazdy: 12345/67/89012", PiiKind::PlDriversLicense ; "pl dl five digit tail")]
     fn rejects_invalid_with_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
@@ -2900,6 +3197,14 @@ mod tests {
     #[test_case("612 345 678", PiiKind::EsPhoneNumber ; "es phone no keyword")]
     #[test_case("281234567840", PiiKind::EsNuss ; "es nuss no keyword")]
     #[test_case("ABC123456", PiiKind::EsPassportNumber ; "es passport no keyword")]
+    #[test_case("number is 44051401359", PiiKind::PlPesel ; "pl pesel no keyword")]
+    #[test_case("number is 7740001454", PiiKind::PlNip ; "pl nip no keyword")]
+    #[test_case("number is 610188201", PiiKind::PlRegon ; "pl regon no keyword")]
+    #[test_case("ABS123456 on file", PiiKind::PlIdCard ; "pl id card no keyword")]
+    #[test_case("CC7999486 on file", PiiKind::PlPassportNumber ; "pl passport no keyword")]
+    #[test_case("call 601 234 567 today", PiiKind::PlPhoneNumber ; "pl phone no keyword")]
+    #[test_case("00-950 Warszawa", PiiKind::PlPostalCode ; "pl postal no keyword")]
+    #[test_case("ref 12345/67/8901", PiiKind::PlDriversLicense ; "pl dl no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

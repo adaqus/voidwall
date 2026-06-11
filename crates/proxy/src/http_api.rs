@@ -372,6 +372,7 @@ fn language_labels() -> Vec<&'static str> {
             pii::Language::Nl => "nl",
             pii::Language::It => "it",
             pii::Language::Es => "es",
+            pii::Language::Pl => "pl",
         })
         .collect()
 }
