@@ -1079,3 +1079,65 @@ numbers are approximate and will drift.
   11` check and couples prefix-stripping to an exact total length, so e.g.
   `IT 00488410010` (space after `IT`) skips the strip and returns false. Use a
   length-independent case-insensitive two-byte `strip_prefix`.
+
+---
+
+## Phase 18 — AI4Privacy Effectiveness Eval
+
+See DESIGN.md § "AI4Privacy Effectiveness Evaluation". A benchmarking harness
+that scores Voidwall's detection against the `ai4privacy/pii-masking-300k`
+dataset and reports span-level precision/recall/F1 per entity type + overall,
+comparable to other PII solutions' published numbers. It drives `POST /v1/redact`
+and recovers predicted spans by diffing the `type_label`-redacted body against
+the original. Reporting tool, not a `cargo test` target.
+
+### 18.1 Cargo wiring
+- [x] Add `reqwest` as an optional dependency and an `eval = ["dep:reqwest"]`
+  feature (off by default) so neither default builds nor the deployed proxy
+  image gain a client stack.
+- [x] Declare the explicit `[[bin]]` `ai4privacy-eval`
+  (`path = "benches/ai4privacy_eval.rs"`, `required-features = ["eval"]`),
+  mirroring the `echo-server` convention to avoid `src/bin` auto-discovery.
+
+### 18.2 Eval binary (`benches/ai4privacy_eval.rs`)
+- [ ] Args/env: `DATASET` (JSONL path, required), `API_URL`
+  (default `http://localhost:8083`), `MAX_ROWS`, `LANG`, `CONCURRENCY`
+  (default 32), `ENFORCE`. Clear error when `DATASET` is unset/missing.
+- [ ] Lenient serde row model: `source_text` (alias `unmasked_text`),
+  `privacy_mask: Vec<{label, start, end, value}>`, `language`. Extra fields
+  ignored. Handle the older stringified-`privacy_mask` form via a deserialize
+  shim.
+- [ ] Stream JSONL line-by-line (`BufReader::lines`), never fully buffered;
+  apply `LANG` / `MAX_ROWS` filters.
+- [ ] Bounded-concurrency driver over `tokio` semaphore + `JoinSet` (no `futures`
+  dep): POST each `source_text` to `{API_URL}/v1/redact` as `text/plain`.
+- [ ] `recover_spans(original, redacted) -> Vec<(start, end, kind)>`: split the
+  redacted body on the `\[[A-Z][A-Z0-9_]*\]` token regex, anchor literal
+  segments left-to-right in the original (char offsets), emit a predicted span
+  per token. Document the adjacent-token / literal-`[LABEL]` heuristic limits.
+- [ ] Ground-truth span resolution: use `start`/`end`, validating against
+  `value`; fall back to substring search when offsets don't line up
+  (byte/char coordinate mismatch guard).
+- [ ] Category mapping table (exact / keyword-gated / known-gaps) + per-category
+  expected-kind families; bucket unknown dataset labels as `unclassified` and
+  surface them.
+- [ ] Scoring: span-overlap TP/FP/FN for **detection** and **typed** variants;
+  aggregate per entity type + micro/macro overall; per-predicted-kind FP
+  breakdown. Treat per-row HTTP errors as all-FN and count them.
+- [ ] Report: stdout table (category · GT n · detection R · typed R) + overall
+  detection & typed P/R/F1 (all-categories and supported-only) + uncovered-gap
+  list. `ENFORCE=1` asserts committed per-category floors and exits non-zero on
+  breach.
+- [ ] Unit tests: `recover_spans` (single/multiple/leading/trailing/unicode
+  spans, adjacent tokens), span overlap, category lookup, GT-offset fallback.
+
+### 18.3 `docker/ctl eval` subcommand
+- [ ] Add `cmd_eval` mirroring `cmd_soak`: runs
+  `cargo run --release --features eval --bin ai4privacy-eval`, wiring the env
+  knobs and defaulting `API_URL` to the compose HTTP API (`:8083`). Add to the
+  dispatch `case` and `usage`.
+
+### 18.4 Documentation
+- [ ] `docs/ai4privacy-eval.md`: HF parquet → JSONL export one-liner, expected
+  row schema, how to run via `docker/ctl eval`, metric definitions, the
+  category mapping table, and the precision/span-recovery caveats.

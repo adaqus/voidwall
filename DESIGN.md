@@ -1189,3 +1189,108 @@ The forward proxy terminates client TLS and establishes new TLS connections to
 destination servers. This requires a CA certificate that clients trust. In
 Kubernetes, this is typically distributed via ConfigMap/Secret mounted into client
 containers.
+
+---
+
+## AI4Privacy Effectiveness Evaluation
+
+A benchmarking harness that measures how effectively Voidwall detects PII,
+scored against the public **`ai4privacy/pii-masking-300k`** dataset (HuggingFace
+— ~300k synthetic, multi-domain texts across English, French, German, Italian,
+Spanish, and Dutch, each annotated with character-offset PII spans across ~50+
+categories). The output is comparable to what other PII solutions report
+(AI4Privacy leaderboard, Presidio-style benchmarks): **precision / recall / F1
+per entity type and overall.**
+
+This is an *evaluation/reporting tool*, not a regression gate and not part of
+the proxy. It runs occasionally against a running proxy, the same lifecycle
+model as the k6 soak test.
+
+### Endpoint and scoring: `/v1/redact` + diff
+
+The eval drives `POST /v1/redact` (not `/v1/scan`). With
+`redact_strategy = "type_label"`, the redacted body is the original text with
+each detected span replaced by a `[KIND]` token and everything else
+byte-identical. Aligning original ↔ redacted recovers each predicted span's
+`(start, end, KIND)` — which `/v1/scan` cannot give (its response is a deduped
+`kinds[]` set with no offsets). Span recovery unlocks **both** precision and
+recall, scored at span level against the dataset's `privacy_mask` offsets:
+
+| Term | Definition |
+|------|------------|
+| **TP** | predicted span overlaps a ground-truth span |
+| **FP** | predicted span overlaps no ground-truth span → drives precision |
+| **FN** | ground-truth span with no overlapping predicted span → drives recall |
+
+Two metric variants are reported, both per entity type plus micro/macro overall:
+
+- **Detection P/R/F1** — was *anything* flagged on that span (type-agnostic).
+- **Typed P/R/F1** — flagged *and* the predicted `PiiKind` belongs to the family
+  expected for the ground-truth category (uses the mapping table below).
+
+`precision = matched_preds / total_preds`, `recall = hit_gts / total_gts`,
+`F1` the harmonic mean — the pragmatic entity-level convention. A per-predicted-
+kind FP breakdown is also emitted as a diagnostic.
+
+### Category → PiiKind mapping
+
+Three buckets. The mapping only affects the *typed* metric; detection metrics
+and recall are computed over every annotated category regardless of bucket.
+
+**Exact / family match (scored):** `EMAIL`→`EMAIL`, `CREDITCARDNUMBER`→
+`CREDIT_CARD`, `IBAN`→`IBAN`, `BIC`→`SWIFT_BIC`, `BITCOINADDRESS`→
+`BITCOIN_ADDRESS`, `ETHEREUMADDRESS`→`ETHEREUM_ADDRESS`,
+`IP`/`IPV4`/`IPV6`→`IP_ADDRESS`, `MAC`→`MAC_ADDRESS`, `VEHICLEVIN`→`VIN`,
+`PHONEIMEI`→`IMEI`, `SSN`→`US_SSN`, `DOB`→`DATE_OF_BIRTH`,
+`NEARBYGPSCOORDINATE`→`PRECISE_GEOLOCATION`,
+`FIRSTNAME`/`MIDDLENAME`/`LASTNAME`→`PERSON_NAME`.
+
+**Keyword-gated families (scored, reported separately — recall is structurally
+lower because these detectors require nearby keyword context):**
+`PHONENUMBER`→`{*_PHONE_NUMBER, PHONE_NUMBER}`,
+`ZIPCODE`→`{*_POSTAL_CODE, GB_POSTCODE, IE_EIRCODE}`,
+`STREET`/`SECONDARYADDRESS`/`BUILDINGNUMBER`→`{GB_ADDRESS, DE_AT_CH_ADDRESS,
+FR_CH_ADDRESS}`.
+
+**Known gaps (documented, not type-scored — Voidwall has no detector):**
+`ACCOUNTNAME, ACCOUNTNUMBER, AGE, AMOUNT, CITY, COMPANYNAME, COUNTY,
+CREDITCARDCVV, CREDITCARDISSUER, CURRENCY*, DATE (non-DOB), GENDER, SEX, HEIGHT,
+JOBAREA, JOBTITLE, JOBTYPE, LITECOINADDRESS, MASKEDNUMBER, ORDINALDIRECTION,
+PASSWORD, PIN, PREFIX, STATE, TIME, URL, USERAGENT, USERNAME, VEHICLEVRM`. The
+report lists their (usually near-zero) detection recall so the coverage gap is
+visible. A dataset label not present in any bucket is bucketed as
+`unclassified` and surfaced prominently so a dataset update can't be silently
+ignored.
+
+### Packaging
+
+- A **binary**, `crates/proxy/benches/ai4privacy_eval.rs`, declared as an
+  explicit `[[bin]]` named `ai4privacy-eval` (mirrors `echo-server`; avoids
+  `src/bin` auto-discovery). Gated behind a non-default `eval` cargo feature
+  (`eval = ["dep:reqwest"]`) so default builds and the deployed proxy image
+  carry no extra client stack.
+- Invoked by a **`docker/ctl eval`** subcommand (mirrors `cmd_soak`), targeting
+  the running HTTP API (`:8083`). Env knobs: `DATASET` (path to JSONL export —
+  required), `API_URL` (default `http://localhost:8083`), `MAX_ROWS`, `LANG`,
+  `CONCURRENCY` (default 32), `ENFORCE` (`1` turns committed per-category floors
+  into a non-zero exit for use as a future CI gate; default report-only).
+- **Dataset acquisition:** the dataset is too large to vendor. A `docs/` note
+  gives the one-liner to export the HF parquet to JSONL
+  (`load_dataset("ai4privacy/pii-masking-300k").to_json(...)`). The binary
+  streams the JSONL line-by-line (never fully buffered), parses rows leniently
+  with `serde_json` (extra fields ignored), and drives `/v1/redact` with
+  bounded concurrency (`tokio` semaphore + `JoinSet`, no `futures` dep).
+
+### Caveats and non-goals
+
+- **Precision is conservative.** The dataset annotates only listed PII, so a
+  real-but-unannotated catch counts as a false positive — a limitation shared by
+  every solution scored on this dataset.
+- **Span recovery is heuristic** for the rare cases of adjacent `[KIND]` tokens
+  or an original text that literally contains a `[LABEL]`-shaped substring; both
+  are negligible on synthetic data and documented in the binary.
+- The scanner is configured with **all countries and all languages enabled**
+  (the proxy's default), to measure full coverage.
+- Not a `cargo test` target — it needs the large external dataset and produces a
+  report, not a pass/fail. A thin gate-test asserting committed floors can be
+  layered on later via `ENFORCE=1`.
