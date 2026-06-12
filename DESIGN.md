@@ -1272,16 +1272,23 @@ ignored.
   (`eval = ["dep:reqwest"]`) so default builds and the deployed proxy image
   carry no extra client stack.
 - Invoked by a **`docker/ctl eval`** subcommand (mirrors `cmd_soak`), targeting
-  the running HTTP API (`:8083`). Env knobs: `DATASET` (path to JSONL export —
-  required), `API_URL` (default `http://localhost:8083`), `MAX_ROWS`, `LANG`,
-  `CONCURRENCY` (default 32), `ENFORCE` (`1` turns committed per-category floors
-  into a non-zero exit for use as a future CI gate; default report-only).
-- **Dataset acquisition:** the dataset is too large to vendor. A `docs/` note
-  gives the one-liner to export the HF parquet to JSONL
-  (`load_dataset("ai4privacy/pii-masking-300k").to_json(...)`). The binary
-  streams the JSONL line-by-line (never fully buffered), parses rows leniently
-  with `serde_json` (extra fields ignored), and drives `/v1/redact` with
-  bounded concurrency (`tokio` semaphore + `JoinSet`, no `futures` dep).
+  the running HTTP API (`:8083`). Env knobs: `DATASET` (path to a JSONL file or
+  directory; optional — defaults to the auto-fetch cache, see below), `API_URL`
+  (default `http://localhost:8083`), `MAX_ROWS`, `LANG`, `CONCURRENCY`
+  (default 32), `ENFORCE` (`1` turns committed per-category floors into a
+  non-zero exit for use as a future CI gate; default report-only).
+- **Dataset acquisition:** the dataset is too large to vendor, but it is public,
+  ungated, and **already published as JSONL** — one file per language under
+  `data/train/` (and `data/validation/`) in the HuggingFace repo, fetchable over
+  plain HTTPS with no auth token or `huggingface_hub`/Python dependency. There is
+  no parquet conversion step. On a missing `DATASET`, `docker/ctl eval`
+  auto-fetches the needed train file(s) with `curl` into a local cache
+  (`.cache/ai4privacy/`): just the `LANG` file when `LANG` is set, otherwise all
+  six train languages concatenated. A local `DATASET` override is honored as-is.
+  The binary streams the JSONL line-by-line (never fully buffered), applies the
+  `LANG`/`MAX_ROWS` filters, parses rows leniently with `serde_json` (extra
+  fields ignored), and drives `/v1/redact` with bounded concurrency (`tokio`
+  semaphore + `JoinSet`, no `futures` dep).
 
 ### Caveats and non-goals
 

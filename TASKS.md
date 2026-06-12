@@ -1100,9 +1100,11 @@ the original. Reporting tool, not a `cargo test` target.
   mirroring the `echo-server` convention to avoid `src/bin` auto-discovery.
 
 ### 18.2 Eval binary (`benches/ai4privacy_eval.rs`)
-- [ ] Args/env: `DATASET` (JSONL path, required), `API_URL`
-  (default `http://localhost:8083`), `MAX_ROWS`, `LANG`, `CONCURRENCY`
-  (default 32), `ENFORCE`. Clear error when `DATASET` is unset/missing.
+- [ ] Args/env: `DATASET` (JSONL file or directory; optional — defaults to the
+  ctl auto-fetch cache, see 18.3), `API_URL` (default `http://localhost:8083`),
+  `MAX_ROWS`, `LANG`, `CONCURRENCY` (default 32), `ENFORCE`. When `DATASET`
+  points at a directory, stream every `*.jsonl` in it. Clear error when the
+  resolved path is missing/empty.
 - [ ] Lenient serde row model: `source_text` (alias `unmasked_text`),
   `privacy_mask: Vec<{label, start, end, value}>`, `language`. Extra fields
   ignored. Handle the older stringified-`privacy_mask` form via a deserialize
@@ -1124,20 +1126,44 @@ the original. Reporting tool, not a `cargo test` target.
 - [ ] Scoring: span-overlap TP/FP/FN for **detection** and **typed** variants;
   aggregate per entity type + micro/macro overall; per-predicted-kind FP
   breakdown. Treat per-row HTTP errors as all-FN and count them.
+- [ ] Precision band: compute both `raw_precision` (every FP counted) and
+  `adjusted_precision` (FPs that pass a strict structural validator
+  re-classified as *unscored*, neither TP nor FP). Carve-out applies **only**
+  to strong-validator formats (`EMAIL`, `IBAN` mod-97, `CREDIT_CARD` Luhn,
+  `IP_ADDRESS`, `MAC_ADDRESS`, `BITCOIN_ADDRESS`, `ETHEREUM_ADDRESS`, `VIN`,
+  `IMEI`); for all other kinds `adjusted_precision` collapses to
+  `raw_precision`. Surface re-classified spans in a separate
+  `confirmed_unannotated` bucket so the carve-out is transparent.
 - [ ] Report: stdout table (category · GT n · detection R · typed R) + overall
-  detection & typed P/R/F1 (all-categories and supported-only) + uncovered-gap
-  list. `ENFORCE=1` asserts committed per-category floors and exits non-zero on
-  breach.
+  detection & typed P/R/F1 (all-categories and supported-only) reporting both
+  `raw_precision` and `adjusted_precision` + `confirmed_unannotated` bucket +
+  uncovered-gap list. `ENFORCE=1` asserts committed per-category floors and
+  exits non-zero on breach.
 - [ ] Unit tests: `recover_spans` (single/multiple/leading/trailing/unicode
-  spans, adjacent tokens), span overlap, category lookup, GT-offset fallback.
+  spans, adjacent tokens), span overlap, category lookup, GT-offset fallback,
+  precision-band carve-out (validator-confirmed FP becomes unscored for a
+  strong-validator kind; stays counted for a keyword-gated/fuzzy kind).
 
 ### 18.3 `docker/ctl eval` subcommand
 - [ ] Add `cmd_eval` mirroring `cmd_soak`: runs
   `cargo run --release --features eval --bin ai4privacy-eval`, wiring the env
   knobs and defaulting `API_URL` to the compose HTTP API (`:8083`). Add to the
   dispatch `case` and `usage`.
+- [ ] Auto-fetch the dataset when `DATASET` is unset and the cache is empty:
+  `curl` the public, ungated JSONL train file(s) from the HF resolve URL
+  (`https://huggingface.co/datasets/ai4privacy/pii-masking-300k/resolve/main/data/train/<lang>_openpii_*.jsonl`)
+  into `.cache/ai4privacy/`. LANG-aware: fetch only the `LANG` file when `LANG`
+  is set, otherwise all six train languages. No parquet conversion, no Python /
+  `huggingface_hub` dependency. Skip the download when the cache already holds
+  the needed file(s); honor an explicit `DATASET` override verbatim. Point the
+  binary at the cache dir (or file) once present.
+- [ ] Gitignore the `.cache/` directory (and its contents) so auto-fetched
+  dataset files are never committed.
 
 ### 18.4 Documentation
-- [ ] `docs/ai4privacy-eval.md`: HF parquet → JSONL export one-liner, expected
-  row schema, how to run via `docker/ctl eval`, metric definitions, the
-  category mapping table, and the precision/span-recovery caveats.
+- [ ] `docs/ai4privacy-eval.md`: dataset acquisition (auto-fetched on first run;
+  note the files are already JSONL on HF and `DATASET` can override with a local
+  copy — no parquet/Python step), expected row schema, how to run via
+  `docker/ctl eval`, metric definitions (including the `raw_precision` /
+  `adjusted_precision` band and the `confirmed_unannotated` bucket), the category
+  mapping table, and the precision/span-recovery caveats.
