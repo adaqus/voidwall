@@ -1230,7 +1230,9 @@ Two metric variants are reported, both per entity type plus micro/macro overall:
 
 `precision = matched_preds / total_preds`, `recall = hit_gts / total_gts`,
 `F1` the harmonic mean — the pragmatic entity-level convention. A per-predicted-
-kind FP breakdown is also emitted as a diagnostic.
+kind FP breakdown is also emitted as a diagnostic. Precision is reported as a
+band (`raw_precision` / `adjusted_precision`) to account for real-but-unannotated
+catches on validator-backed formats — see "Caveats and non-goals" below.
 
 ### Category → PiiKind mapping
 
@@ -1283,9 +1285,31 @@ ignored.
 
 ### Caveats and non-goals
 
-- **Precision is conservative.** The dataset annotates only listed PII, so a
-  real-but-unannotated catch counts as a false positive — a limitation shared by
-  every solution scored on this dataset.
+- **Precision is conservative — reported as a band.** The dataset annotates only
+  listed PII, so a real-but-unannotated catch (e.g. an email the dataset failed
+  to mark) would naively count as a false positive. This penalty falls hardest on
+  the most reliable detectors: a match from a structurally-verifiable format is
+  almost never a hallucination, it is an annotation gap. To avoid understating
+  precision for those detectors, the eval reports **two precision numbers** that
+  bracket the true value:
+  - **`raw_precision`** — every FP counted, including validator-confirmed catches.
+    Comparable apples-to-apples with other solutions scored on this dataset (which
+    all eat the same penalty), so it stays the headline number.
+  - **`adjusted_precision`** — FPs that pass a strict structural validator are
+    re-classified as *unscored* (neither TP nor FP) rather than counted against
+    precision. The validator's own false-positive rate is near zero, so this
+    declines to penalize a catch we can independently prove is real; it does not
+    launder genuine errors. Confirmed-format-but-unannotated spans are surfaced in
+    a separate `confirmed_unannotated` bucket so the carve-out is transparent, not
+    hidden.
+
+    The carve-out applies **only** to formats with a strong validator
+    (`EMAIL`, `IBAN` mod-97, `CREDIT_CARD` Luhn, `IP_ADDRESS`, `MAC_ADDRESS`,
+    `BITCOIN_ADDRESS`, `ETHEREUM_ADDRESS`, `VIN`, `IMEI`). For keyword-gated or
+    fuzzy detectors (`PERSON_NAME`, address, checksum-less phone) an unannotated
+    catch genuinely could be wrong, so those FPs are always counted — for them
+    `adjusted_precision` collapses back to `raw_precision`, which is the correct
+    outcome. The true precision lies between the two reported numbers.
 - **Span recovery is heuristic** for the rare cases of adjacent `[KIND]` tokens
   or an original text that literally contains a `[LABEL]`-shaped substring; both
   are negligible on synthetic data and documented in the binary.
