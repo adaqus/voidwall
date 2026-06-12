@@ -21,6 +21,7 @@
 #   MAX_ROWS    - cap rows processed   (default: all)
 #   CONCURRENCY - in-flight requests   (default: 32)
 #   ENFORCE     - 1 = assert committed per-category floors (default: report-only)
+#   DUMP_MISSES - GT label (e.g. IDCARD) = list that category's missed values
 #
 set -euo pipefail
 
