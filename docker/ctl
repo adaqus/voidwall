@@ -8,10 +8,19 @@
 #   docker/ctl stop                # stop all containers
 #   docker/ctl start_echo_server   # start only the echo server container
 #   docker/ctl soak                # run soak test against running environment
+#   docker/ctl eval                # run AI4Privacy effectiveness eval
 #
 # Soak test env vars:
 #   DURATION   - total test duration  (default: 30m)
 #   PEAK_VUS   - peak concurrency     (default: 100)
+#
+# Eval env vars (see docs/ai4privacy-eval.md):
+#   DATASET     - local JSONL file/dir (default: auto-fetched .cache/ai4privacy)
+#   API_URL     - proxy HTTP API base  (default: http://localhost:8083)
+#   LANG        - language filter en|nl|fr|de|it|es (or full name; unset = all)
+#   MAX_ROWS    - cap rows processed   (default: all)
+#   CONCURRENCY - in-flight requests   (default: 32)
+#   ENFORCE     - 1 = assert committed per-category floors (default: report-only)
 #
 set -euo pipefail
 
@@ -65,12 +74,71 @@ cmd_soak() {
         "$PROJECT_DIR/crates/proxy/benches/k6/soak.js"
 }
 
+# The six AI4Privacy train files are already JSONL on HuggingFace (no parquet /
+# Python step). They are public and ungated, fetchable over plain HTTPS.
+AI4PRIVACY_BASE="https://huggingface.co/datasets/ai4privacy/pii-masking-300k/resolve/main/data/train"
+
+# Map a LANG knob to the exact train filename(s). `LANG` doubles as the POSIX
+# locale variable (e.g. en_US.UTF-8); a value carrying `_` or `.` is a locale,
+# not our filter, so it means "all languages".
+ai4privacy_files() {
+    local want="${LANG:-}"
+    case "$want" in *.*|*_*) want="" ;; esac
+    want="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
+    case "$want" in
+        en|english) echo "1english_openpii_30k.jsonl" ;;
+        nl|dutch)   echo "dutch_openpii_28k.jsonl" ;;
+        fr|french)  echo "french_openpii_31k.jsonl" ;;
+        de|german)  echo "german_openpii_30k.jsonl" ;;
+        it|italian) echo "italian_openpii_29k.jsonl" ;;
+        es|spanish) echo "spanish_openpii_29k.jsonl" ;;
+        "")         echo "1english_openpii_30k.jsonl dutch_openpii_28k.jsonl french_openpii_31k.jsonl german_openpii_30k.jsonl italian_openpii_29k.jsonl spanish_openpii_29k.jsonl" ;;
+        *)          echo "__unknown__" ;;
+    esac
+}
+
+cmd_eval() {
+    local cache_dir="$PROJECT_DIR/.cache/ai4privacy"
+    local dataset="${DATASET:-}"
+
+    # Auto-fetch into the cache only when DATASET is unset. An explicit DATASET
+    # override is honored verbatim.
+    if [ -z "$dataset" ]; then
+        local files
+        files="$(ai4privacy_files)"
+        if [ "$files" = "__unknown__" ]; then
+            echo "Unknown LANG='${LANG:-}' — use one of en|nl|fr|de|it|es (or a full name), or set DATASET." >&2
+            exit 2
+        fi
+        mkdir -p "$cache_dir"
+        for f in $files; do
+            if [ -s "$cache_dir/$f" ]; then
+                echo "Dataset cached: $f"
+            else
+                echo "Fetching dataset: $f"
+                curl -fL --retry 3 -o "$cache_dir/$f" "$AI4PRIVACY_BASE/$f"
+            fi
+        done
+        dataset="$cache_dir"
+    fi
+
+    echo "Running AI4Privacy eval (DATASET=$dataset, API_URL=${API_URL:-http://localhost:8083}, LANG=${LANG:-all}, MAX_ROWS=${MAX_ROWS:-all}, CONCURRENCY=${CONCURRENCY:-32}, ENFORCE=${ENFORCE:-0})..."
+    DATASET="$dataset" \
+    API_URL="${API_URL:-http://localhost:8083}" \
+    LANG="${LANG:-}" \
+    MAX_ROWS="${MAX_ROWS:-}" \
+    CONCURRENCY="${CONCURRENCY:-32}" \
+    ENFORCE="${ENFORCE:-}" \
+    cargo run --release --features eval --bin ai4privacy-eval \
+        --manifest-path "$PROJECT_DIR/Cargo.toml"
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
 usage() {
-    echo "Usage: $0 {compile|start|stop|start_echo_server|soak}"
+    echo "Usage: $0 {compile|start|stop|start_echo_server|soak|eval}"
     exit 1
 }
 
@@ -80,5 +148,6 @@ case "${1:-}" in
     stop)             cmd_stop ;;
     start_echo_server) cmd_start_echo_server ;;
     soak)             cmd_soak ;;
+    eval)             cmd_eval ;;
     *)                usage ;;
 esac

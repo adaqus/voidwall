@@ -1,2 +1,4 @@
 /target
 /benches/results/*
+# Auto-fetched AI4Privacy eval datasets (docker/ctl eval) — never committed.
+/.cache/

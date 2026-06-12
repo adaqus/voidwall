@@ -1239,30 +1239,34 @@ catches on validator-backed formats — see "Caveats and non-goals" below.
 Three buckets. The mapping only affects the *typed* metric; detection metrics
 and recall are computed over every annotated category regardless of bucket.
 
-**Exact / family match (scored):** `EMAIL`→`EMAIL`, `CREDITCARDNUMBER`→
-`CREDIT_CARD`, `IBAN`→`IBAN`, `BIC`→`SWIFT_BIC`, `BITCOINADDRESS`→
-`BITCOIN_ADDRESS`, `ETHEREUMADDRESS`→`ETHEREUM_ADDRESS`,
-`IP`/`IPV4`/`IPV6`→`IP_ADDRESS`, `MAC`→`MAC_ADDRESS`, `VEHICLEVIN`→`VIN`,
-`PHONEIMEI`→`IMEI`, `SSN`→`US_SSN`, `DOB`→`DATE_OF_BIRTH`,
-`NEARBYGPSCOORDINATE`→`PRECISE_GEOLOCATION`,
-`FIRSTNAME`/`MIDDLENAME`/`LASTNAME`→`PERSON_NAME`.
+The labels below are the **OpenPII set** actually emitted by `pii-masking-300k`'s
+train files (`GIVENNAME1`, `SOCIALNUMBER`, `TEL`, `POSTCODE`, `IDCARD`, …) — not
+the older verbose `pii-masking-200k` vocabulary; the two share only
+`EMAIL`/`IP`/`STREET`.
+
+**Exact / family match (scored):** `EMAIL`→`EMAIL`, `IP`→`IP_ADDRESS`,
+`GEOCOORD`→`PRECISE_GEOLOCATION`, `BOD`→`DATE_OF_BIRTH`,
+`GIVENNAME1`/`GIVENNAME2`/`LASTNAME1`/`LASTNAME2`/`LASTNAME3`→`PERSON_NAME`.
 
 **Keyword-gated families (scored, reported separately — recall is structurally
 lower because these detectors require nearby keyword context):**
-`PHONENUMBER`→`{*_PHONE_NUMBER, PHONE_NUMBER}`,
-`ZIPCODE`→`{*_POSTAL_CODE, GB_POSTCODE, IE_EIRCODE}`,
-`STREET`/`SECONDARYADDRESS`/`BUILDINGNUMBER`→`{GB_ADDRESS, DE_AT_CH_ADDRESS,
-FR_CH_ADDRESS}`.
+`TEL`→`{*_PHONE_NUMBER, PHONE_NUMBER}`,
+`POSTCODE`→`{*_POSTAL_CODE, GB_POSTCODE, IE_EIRCODE}`,
+`STREET`/`SECADDRESS`/`BUILDING`→`{GB_ADDRESS, DE_AT_CH_ADDRESS, FR_CH_ADDRESS}`,
+`PASSPORT`→`{*_PASSPORT_NUMBER, US_PASSPORT_NEW}`,
+`DRIVERLICENSE`→`{*DRIV* licence/number kinds}`,
+`SOCIALNUMBER`→`{US_SSN, US_ITIN, GB_NINO, CA_SIN, IE_PPSN, AU_TFN, FR_NIR,
+ES_NUSS, NL_BSN, PL_PESEL, IT_CODICE_FISCALE, CH_AHV, AT_SVNR, NZ_IRD_NUMBER,
+ZA_ID}`,
+`IDCARD`→`{PL_ID_CARD, DE_PERSONALAUSWEIS, ES_DNI, ES_NIE, FR_CNI,
+IT_CODICE_FISCALE, ZA_ID, NL_BSN}`.
 
 **Known gaps (documented, not type-scored — Voidwall has no detector):**
-`ACCOUNTNAME, ACCOUNTNUMBER, AGE, AMOUNT, CITY, COMPANYNAME, COUNTY,
-CREDITCARDCVV, CREDITCARDISSUER, CURRENCY*, DATE (non-DOB), GENDER, SEX, HEIGHT,
-JOBAREA, JOBTITLE, JOBTYPE, LITECOINADDRESS, MASKEDNUMBER, ORDINALDIRECTION,
-PASSWORD, PIN, PREFIX, STATE, TIME, URL, USERAGENT, USERNAME, VEHICLEVRM`. The
-report lists their (usually near-zero) detection recall so the coverage gap is
-visible. A dataset label not present in any bucket is bucketed as
-`unclassified` and surfaced prominently so a dataset update can't be silently
-ignored.
+`PASS` (password), `TITLE` (honorific), `COUNTRY`, `CITY`, `STATE`, `SEX`,
+`DATE` (non-DOB), `TIME`, `USERNAME`. The report lists their (usually near-zero)
+detection recall so the coverage gap is visible. A dataset label not present in
+any bucket is bucketed as `unclassified` and surfaced prominently so a dataset
+update can't be silently ignored.
 
 ### Packaging
 
