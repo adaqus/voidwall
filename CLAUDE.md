@@ -1,10 +1,12 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This is Voidwall, HTTP Proxy/API for detecting PIIs (Personally Identifiable Data). It is able
+to redact or block HTTP requests and alert about detected PIIs in HTTP request.
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+## 0. Communication style
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+Wen communicating with the user, be concise, use simple words. Make your communication fast
+and easy to read.
 
 ## 1. Think Before Coding
 
@@ -165,7 +167,7 @@ After implementing a task from TASKS.md, always verify the implementation with D
 
 ## Commiting
 
-Do not ask for commiting finished task.
+Do NOT commit finished task.
 
 ## Task Tracking
 
