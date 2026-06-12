@@ -310,19 +310,28 @@ enum Bucket {
 /// Known-gap dataset labels — Voidwall has no detector for these, so they are
 /// detection-reported but never typed-scored.
 const KNOWN_GAPS: &[&str] = &[
-    "PASS",  // password (free-form secret, e.g. `r]iD1#8`)
-    "TITLE", // honorific (`Mr`, `Friar`)
-    "COUNTRY", "CITY", "STATE", "SEX", "DATE", "TIME", "USERNAME",
+    "PASS",       // password (free-form secret, e.g. `r]iD1#8`)
+    "TITLE",      // honorific (`Mr`, `Friar`)
+    "CARDISSUER", // card-issuer brand (`Visa`, `Mastercard`)
+    "COUNTRY",
+    "CITY",
+    "STATE",
+    "SEX",
+    "DATE",
+    "TIME",
+    "USERNAME",
 ];
 
 fn bucket_of(label: &str) -> Bucket {
     match label {
-        // Structural / family detectors — high recall expected.
-        "EMAIL" | "IP" | "GEOCOORD" | "BOD" | "GIVENNAME1" | "GIVENNAME2" | "LASTNAME1"
-        | "LASTNAME2" | "LASTNAME3" => Bucket::Exact,
+        // Structural detectors (Hyperscan) — fire without context, high recall.
+        "EMAIL" | "IP" => Bucket::Exact,
         // Keyword-gated — detector needs nearby context, so recall is lower.
-        "TEL" | "POSTCODE" | "STREET" | "SECADDRESS" | "BUILDING" | "PASSPORT" | "IDCARD"
-        | "DRIVERLICENSE" | "SOCIALNUMBER" => Bucket::KeywordGated,
+        // PersonName, DateOfBirth and PreciseGeolocation all live in the
+        // keyword-context detector, so names/BOD/GEOCOORD belong here too.
+        "GEOCOORD" | "BOD" | "GIVENNAME1" | "GIVENNAME2" | "LASTNAME1" | "LASTNAME2"
+        | "LASTNAME3" | "TEL" | "POSTCODE" | "STREET" | "SECADDRESS" | "BUILDING" | "PASSPORT"
+        | "IDCARD" | "DRIVERLICENSE" | "SOCIALNUMBER" => Bucket::KeywordGated,
         l if KNOWN_GAPS.contains(&l) => Bucket::KnownGap,
         _ => Bucket::Unclassified,
     }
@@ -800,6 +809,25 @@ fn bucket_tag(b: Bucket) -> &'static str {
     }
 }
 
+/// Bucket tag for the per-category table. Most OpenPII categories map to a
+/// single detector bucket, but a few are *families* whose member PiiKinds fan
+/// out across both the structural (Hyperscan) and keyword-gated detectors. For
+/// those, a single tag would hide that the row's recall blends high-recall
+/// structural kinds with low-recall gated ones — so we list both buckets.
+/// Membership is derived from the detector module each member kind lives in
+/// (keep in sync with the `pii` crate detector registry):
+///   TEL           InternationalPhoneNumber (struct) + country phones (gated)
+///   POSTCODE      Ca/Gb/Ie postal (struct) + other country postals (gated)
+///   DRIVERLICENSE GbDrivingLicence (struct) + other licences (gated)
+///   IDCARD        EsDni/EsNie (struct), ItCodiceFiscale (both) + Pl/De/Fr/Za/Nl (gated)
+///   SOCIALNUMBER  UsSsn/UsItin/GbNino/CaSin/IePpsn (struct), ItCodiceFiscale (both) + 9 gated
+fn bucket_display(label: &str, bucket: Bucket) -> &'static str {
+    match label {
+        "TEL" | "POSTCODE" | "DRIVERLICENSE" | "IDCARD" | "SOCIALNUMBER" => "exact+gated",
+        _ => bucket_tag(bucket),
+    }
+}
+
 fn report(agg: &Aggregate, cfg: &Config) -> bool {
     println!("\n=== AI4Privacy effectiveness eval ===");
     println!(
@@ -830,17 +858,17 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
 
     // Per-category table.
     println!(
-        "\n{:<22} {:>5} {:>7} {:>8} {:>8}",
+        "\n{:<22} {:>5} {:>11} {:>8} {:>8}",
         "category", "n", "bucket", "det R", "typed R"
     );
-    println!("{}", "-".repeat(54));
+    println!("{}", "-".repeat(58));
     for (label, c) in &agg.per_cat {
         let bucket = c.bucket.unwrap_or(Bucket::Unclassified);
         println!(
-            "{:<22} {:>5} {:>7} {:>7.1}% {:>7.1}%",
+            "{:<22} {:>5} {:>11} {:>7.1}% {:>7.1}%",
             label,
             c.gt,
-            bucket_tag(bucket),
+            bucket_display(label, bucket),
             ratio(c.det_hits, c.gt) * 100.0,
             ratio(c.typed_hits, c.gt) * 100.0,
         );
@@ -1254,16 +1282,33 @@ mod tests {
     // --- category lookup -------------------------------------------------
 
     #[test_case("EMAIL", Bucket::Exact)]
-    #[test_case("GIVENNAME1", Bucket::Exact)]
-    #[test_case("BOD", Bucket::Exact)]
+    #[test_case("IP", Bucket::Exact)]
+    #[test_case("GIVENNAME1", Bucket::KeywordGated)]
+    #[test_case("LASTNAME1", Bucket::KeywordGated)]
+    #[test_case("BOD", Bucket::KeywordGated)]
+    #[test_case("GEOCOORD", Bucket::KeywordGated)]
     #[test_case("TEL", Bucket::KeywordGated)]
     #[test_case("POSTCODE", Bucket::KeywordGated)]
     #[test_case("SOCIALNUMBER", Bucket::KeywordGated)]
     #[test_case("PASS", Bucket::KnownGap)]
     #[test_case("TITLE", Bucket::KnownGap)]
+    #[test_case("CARDISSUER", Bucket::KnownGap)]
     #[test_case("SOMETHINGNEW", Bucket::Unclassified)]
     fn category_lookup(label: &str, expect: Bucket) {
         assert_eq!(bucket_of(label), expect);
+    }
+
+    // Mixed families list both buckets; single-bucket categories keep their tag.
+    #[test_case("SOCIALNUMBER", "exact+gated")]
+    #[test_case("IDCARD", "exact+gated")]
+    #[test_case("POSTCODE", "exact+gated")]
+    #[test_case("TEL", "exact+gated")]
+    #[test_case("DRIVERLICENSE", "exact+gated")]
+    #[test_case("EMAIL", "exact")]
+    #[test_case("PASSPORT", "gated")]
+    #[test_case("GIVENNAME1", "gated")]
+    fn bucket_column(label: &str, expect: &str) {
+        assert_eq!(bucket_display(label, bucket_of(label)), expect);
     }
 
     #[test_case("EMAIL", "EMAIL", true)]
