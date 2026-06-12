@@ -20,7 +20,10 @@
 //! - `ENFORCE`     `1` → assert committed per-category floors, non-zero on breach.
 //! - `DUMP_MISSES` label (e.g. `IDCARD`) → list the ground-truth values of that
 //!   category that detection missed (and those detected as the wrong kind), so a
-//!   weak category's real-world formats can be inspected.
+//!   weak category's real-world formats can be inspected. Each value is shown
+//!   with a sample of its surrounding text (the `⟦value⟧` is bracketed) — useful
+//!   for keyword-gated detectors, where the trigger word lives in that context.
+//! - `DUMP_CONTEXT` chars of context on each side of a missed value (default 48).
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -45,19 +48,25 @@ struct Config {
     concurrency: usize,
     enforce: bool,
     dump_misses: Option<String>,
+    /// Context-window half-width (chars on each side of a missed value).
+    dump_context: usize,
 }
 
 fn env_opt(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
-/// Ground-truth category to dump missed values for, set once from `DUMP_MISSES`.
-/// Read inside `score_row` (which runs off-task) without threading config
-/// through every call site; unset in unit tests → no dumping.
-static DUMP_MISSES: OnceLock<Option<String>> = OnceLock::new();
+/// Ground-truth category to dump missed values for (and the context-window
+/// half-width in chars), set once from `DUMP_MISSES` / `DUMP_CONTEXT`. Read
+/// inside `score_row` (which runs off-task) without threading config through
+/// every call site; unset in unit tests → no dumping.
+static DUMP_MISSES: OnceLock<Option<(String, usize)>> = OnceLock::new();
 
-fn dump_target() -> Option<&'static str> {
-    DUMP_MISSES.get().and_then(|o| o.as_deref())
+fn dump_target() -> Option<(&'static str, usize)> {
+    DUMP_MISSES
+        .get()
+        .and_then(|o| o.as_ref())
+        .map(|(label, w)| (label.as_str(), *w))
 }
 
 impl Config {
@@ -83,6 +92,9 @@ impl Config {
                 .unwrap_or(32),
             enforce: env_opt("ENFORCE").as_deref() == Some("1"),
             dump_misses: env_opt("DUMP_MISSES").map(|s| s.to_ascii_uppercase()),
+            dump_context: env_opt("DUMP_CONTEXT")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(48),
         }
     }
 }
@@ -556,6 +568,48 @@ fn valid_imei(s: &str) -> bool {
 struct MissRecord {
     value: String,
     detected_as: Option<String>,
+    /// Surrounding text with the value bracketed as `⟦value⟧`, whitespace
+    /// collapsed to single spaces so the sample stays on one line.
+    context: String,
+}
+
+/// Append `chars` to `out`, collapsing every run of whitespace to one space so
+/// a multi-line source excerpt renders as a single tidy line.
+fn push_collapsed(out: &mut String, chars: &[char]) {
+    let mut prev_ws = false;
+    for &c in chars {
+        if c.is_whitespace() {
+            if !prev_ws {
+                out.push(' ');
+                prev_ws = true;
+            }
+        } else {
+            out.push(c);
+            prev_ws = false;
+        }
+    }
+}
+
+/// Build a one-line context sample around char span `(s, e)` with `half` chars
+/// of margin each side; the value itself is wrapped in `⟦⟧`.
+fn context_window(chars: &[char], (s, e): (usize, usize), half: usize) -> String {
+    let len = chars.len();
+    let (s, e) = (s.min(len), e.min(len));
+    let lo = s.saturating_sub(half);
+    let hi = (e + half).min(len);
+    let mut out = String::new();
+    if lo > 0 {
+        out.push('…');
+    }
+    push_collapsed(&mut out, &chars[lo..s]);
+    out.push('⟦');
+    push_collapsed(&mut out, &chars[s..e]);
+    out.push('⟧');
+    push_collapsed(&mut out, &chars[e..hi]);
+    if hi < len {
+        out.push('…');
+    }
+    out
 }
 
 /// Per-ground-truth-span outcome for one row.
@@ -647,16 +701,19 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
                 }
             }
         }
-        if target == Some(m.label.as_str()) {
-            if !det_hit {
+        if let Some((tlabel, half)) = target
+            && tlabel == m.label.as_str()
+        {
+            let detected_as = if det_hit && !typed_hit {
+                Some(overlap_kind.map(str::to_string).unwrap_or_default())
+            } else {
+                None
+            };
+            if !det_hit || !typed_hit {
                 misses.push(MissRecord {
                     value: m.value.clone(),
-                    detected_as: None,
-                });
-            } else if !typed_hit {
-                misses.push(MissRecord {
-                    value: m.value.clone(),
-                    detected_as: overlap_kind.map(str::to_string),
+                    detected_as,
+                    context: context_window(&orig_chars, *gspan, half),
                 });
             }
         }
@@ -748,10 +805,12 @@ struct Aggregate {
     fp_by_kind: BTreeMap<String, u64>,
     confirmed_by_kind: BTreeMap<String, u64>,
     unclassified_labels: BTreeMap<String, u64>,
-    /// `DUMP_MISSES`: distinct missed GT values → count. Pure detection misses.
-    miss_det_values: BTreeMap<String, u64>,
-    /// `DUMP_MISSES`: distinct "value → wrong kind" → count (detected, mistyped).
-    miss_typed_values: BTreeMap<String, u64>,
+    /// `DUMP_MISSES`: distinct missed GT value → (count, sample context). Pure
+    /// detection misses.
+    miss_det_values: BTreeMap<String, (u64, String)>,
+    /// `DUMP_MISSES`: distinct "value\tkind" → (count, sample context) for spans
+    /// detected but typed as the wrong kind.
+    miss_typed_values: BTreeMap<String, (u64, String)>,
     /// Request-error messages → count, so failures are debuggable instead of
     /// hidden behind a bare `errors=N`.
     errors_by_msg: BTreeMap<String, u64>,
@@ -811,12 +870,14 @@ impl Aggregate {
             *self.unclassified_labels.entry(l).or_default() += 1;
         }
         for mr in o.misses {
-            match mr.detected_as {
-                None => *self.miss_det_values.entry(mr.value).or_default() += 1,
-                Some(k) => {
-                    let key = format!("{}\t{}", mr.value, k);
-                    *self.miss_typed_values.entry(key).or_default() += 1;
-                }
+            let (map, key) = match mr.detected_as {
+                None => (&mut self.miss_det_values, mr.value),
+                Some(k) => (&mut self.miss_typed_values, format!("{}\t{}", mr.value, k)),
+            };
+            let entry = map.entry(key).or_default();
+            entry.0 += 1;
+            if entry.1.is_empty() {
+                entry.1 = mr.context;
             }
         }
     }
@@ -1035,30 +1096,30 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
     // DUMP_MISSES: ground-truth values of one category that detection missed.
     if let Some(label) = cfg.dump_misses.as_deref() {
         const MAX: usize = 80;
-        let mut det: Vec<(&String, u64)> =
-            agg.miss_det_values.iter().map(|(v, n)| (v, *n)).collect();
-        det.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        let mut det: Vec<(&String, &(u64, String))> = agg.miss_det_values.iter().collect();
+        det.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
         let det_distinct = det.len();
         println!("\n--- DUMP_MISSES={label}: detection misses (value × count) ---");
         if det.is_empty() {
             println!("(none — every {label} GT span was detected)");
         } else {
-            for (v, n) in det.iter().take(MAX) {
+            for (v, (n, ctx)) in det.iter().take(MAX) {
                 println!("  {n:>4} × {v}");
+                println!("         {ctx}");
             }
             if det_distinct > MAX {
                 println!("  … {} more distinct value(s)", det_distinct - MAX);
             }
         }
 
-        let mut typed: Vec<(&String, u64)> =
-            agg.miss_typed_values.iter().map(|(v, n)| (v, *n)).collect();
-        typed.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        let mut typed: Vec<(&String, &(u64, String))> = agg.miss_typed_values.iter().collect();
+        typed.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
         if !typed.is_empty() {
             println!("\n--- DUMP_MISSES={label}: detected but mistyped (value → kind × count) ---");
-            for (key, n) in typed.iter().take(MAX) {
+            for (key, (n, ctx)) in typed.iter().take(MAX) {
                 let (v, kind) = key.split_once('\t').unwrap_or((key, "?"));
                 println!("  {n:>4} × {v} → {kind}");
+                println!("         {ctx}");
             }
             if typed.len() > MAX {
                 println!("  … {} more distinct value(s)", typed.len() - MAX);
@@ -1143,7 +1204,7 @@ async fn redact(client: &reqwest::Client, api_url: &str, text: &str) -> Result<S
 #[tokio::main]
 async fn main() {
     let cfg = Config::from_env();
-    let _ = DUMP_MISSES.set(cfg.dump_misses.clone());
+    let _ = DUMP_MISSES.set(cfg.dump_misses.clone().map(|l| (l, cfg.dump_context)));
 
     let files = match dataset_files(&cfg.dataset) {
         Ok(f) => f,

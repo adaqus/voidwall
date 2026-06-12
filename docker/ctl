@@ -22,6 +22,7 @@
 #   CONCURRENCY - in-flight requests   (default: 32)
 #   ENFORCE     - 1 = assert committed per-category floors (default: report-only)
 #   DUMP_MISSES - GT label (e.g. IDCARD) = list that category's missed values
+#   DUMP_CONTEXT- chars of surrounding text per missed value (default: 48)
 #
 set -euo pipefail
 
