@@ -88,11 +88,13 @@ const CONNECTOR_PLACEHOLDER: &str = "<<C>>";
 /// Replace the `<<C>>` gap marker in `pattern` with the concrete keyword→value
 /// gap for `lang`: a word-framed alternation of the language's connector words,
 /// OR the lazy punctuation separator class that covers structured payloads
-/// (JSON/CSV/URL). `\x22` is `"` and the trailing `\\` is a literal backslash;
-/// the template is a raw string so both reach the regex engine verbatim.
+/// (JSON/CSV/URL), markdown emphasis wrappers (`*`, `_`, `` ` ``, `~`), and
+/// bracket/paren wrappers around the keyword or value (`[`, `]`, `(`, `)`,
+/// `{`, `}`). `\x22` is `"` and the trailing `\\` is a literal backslash; the
+/// template is a raw string so both reach the regex engine verbatim.
 fn expand_connectors(pattern: &str, lang: Language) -> String {
     let gap = format!(
-        r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,\]\\]*?)",
+        r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,()\[\]{{}}\\*_~`]*?)",
         lang.connector_words()
     );
     pattern.replace(CONNECTOR_PLACEHOLDER, &gap)
@@ -3480,6 +3482,40 @@ mod tests {
     #[test_case("tax%20reference%3A 0123456789", PiiKind::ZaTaxReference, "0123456789" ; "url za trn keyword")]
     #[test_case("OHIP%3A 1234567897", PiiKind::CaOhip, "1234567897" ; "url ca ohip sep")]
     fn detects_url_encoded(input: &str, kind: PiiKind, expected_span: &str) {
+        let detector = &*DETECTOR;
+        let matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == kind)
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected 1 match for {kind:?} in: {input}"
+        );
+        assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // --- Markdown / wrapper-character separator tests ---
+    // Datasets render labels with markdown emphasis (`**Key**`, `_Key_`,
+    // `` `Key` ``, `~~Key~~`) and wrap the *value* in brackets/parens/emphasis
+    // (`[v]`, `(v)`, `{v}`, `**v**`). Those wrapper chars sit between keyword
+    // and value (or right before the value) and must be skippable by the gap;
+    // the captured span is the bare value, never the wrapper.
+
+    #[test_case("**Passport Number**: 123456789", PiiKind::PassportNumber, "123456789" ; "md passport bold")]
+    #[test_case("*Passport Number*: 123456789", PiiKind::PassportNumber, "123456789" ; "md passport italic single star")]
+    #[test_case("__Passport Number__: 123456789", PiiKind::PassportNumber, "123456789" ; "md passport bold underscore")]
+    #[test_case("`Passport Number`: 123456789", PiiKind::PassportNumber, "123456789" ; "md passport code backtick")]
+    #[test_case("~~Passport Number~~: 123456789", PiiKind::PassportNumber, "123456789" ; "md passport strikethrough")]
+    #[test_case("**Phone Number**: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "md phone bold")]
+    #[test_case("**SWIFT**: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "md swift bold")]
+    #[test_case("passport number: [123456789]", PiiKind::PassportNumber, "123456789" ; "wrap value square brackets")]
+    #[test_case("passport number: (123456789)", PiiKind::PassportNumber, "123456789" ; "wrap value parens")]
+    #[test_case("passport number: {123456789}", PiiKind::PassportNumber, "123456789" ; "wrap value braces")]
+    #[test_case("passport number: **123456789**", PiiKind::PassportNumber, "123456789" ; "wrap value bold")]
+    #[test_case("(Passport Number): 123456789", PiiKind::PassportNumber, "123456789" ; "wrap keyword parens")]
+    fn detects_markdown_separator(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
             .mark_piis(input)

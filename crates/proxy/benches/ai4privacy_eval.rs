@@ -30,7 +30,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -977,13 +977,21 @@ fn emit_rows(
     input: &str,
     expected: &str,
 ) -> std::io::Result<()> {
+    let star = "*".repeat(100);
+    let dash = "-".repeat(50);
     if let Some(f) = file {
         writeln!(f, "{header}")?;
+        writeln!(f, "{star}")?;
         writeln!(f, "  input:    {input}")?;
-        writeln!(f, "  expected: {expected}\n")?;
+        writeln!(f, "{dash}")?;
+        writeln!(f, "  expected: {expected}")?;
+        writeln!(f, "{star}\n")?;
     } else if full {
+        println!("{star}");
         println!("         input:    {input}");
+        println!("{dash}");
         println!("         expected: {expected}");
+        println!("\n{star}");
     }
     Ok(())
 }
@@ -1048,9 +1056,15 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
     // a "Connection refused" message almost always means the proxy/API isn't
     // up (start it with `docker/ctl start`).
     if !agg.errors_by_msg.is_empty() {
+        // Colorize when writing to a terminal; plain when piped to a file/log.
+        let (red, blue, reset) = if std::io::stdout().is_terminal() {
+            ("\x1b[1;31m", "\x1b[1;94m", "\x1b[0m")
+        } else {
+            ("", "", "")
+        };
         let mut msgs: Vec<(&String, &u64)> = agg.errors_by_msg.iter().collect();
         msgs.sort_by(|a, b| b.1.cmp(a.1));
-        println!("\n--- request errors (all rows counted as false negatives) ---");
+        println!("\n{red}--- request errors (all rows counted as false negatives) ---{reset}");
         for (msg, n) in msgs.iter().take(10) {
             println!("  {n:>7} × {msg}");
         }
@@ -1059,8 +1073,8 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
         }
         if agg.error_rows == agg.rows {
             println!(
-                "  NOTE: every request failed — is the proxy API running at the configured \
-                 API_URL? Start it with `docker/ctl start`."
+                "  {blue}NOTE: every request failed — is the proxy API running at the configured \
+                 API_URL? Start it with `docker/ctl start`.{reset}"
             );
         }
     }
