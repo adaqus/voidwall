@@ -28,7 +28,7 @@
 //!   file instead of stdout (the rows are bulky); the value × count summary still
 //!   prints. Setting it implies row capture even without `DUMP_CONTEXT=1`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -210,6 +210,14 @@ fn token_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\[[A-Z][A-Z0-9_]*\]").unwrap())
 }
 
+/// Labels Voidwall actually emits in `type_label` redaction (`PiiKind::label()`).
+/// Lets `recover_spans` tell a real redaction token from a bracket-shaped
+/// template leftover already present in the dataset's input text.
+fn voidwall_kinds() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| pii::PiiKind::all().iter().map(|k| k.label()).collect())
+}
+
 /// Find `needle` in `hay[from..]` (char slices). Returns the char index where it
 /// begins, or `from` for an empty needle. `None` if not present.
 fn find_from(hay: &[char], from: usize, needle: &[char]) -> Option<usize> {
@@ -235,12 +243,15 @@ fn find_from(hay: &[char], from: usize, needle: &[char]) -> Option<usize> {
 /// the text between two anchored literals is the predicted span for the token
 /// sitting between them. Returns `(start, end, kind)` in **char** offsets.
 ///
-/// Heuristic limits (negligible on synthetic data, both documented):
+/// Only tokens whose label is a real Voidwall kind (`voidwall_kinds`) count as
+/// redactions; a bracket-shaped substring already in the original (synthetic
+/// template leftover, e.g. `[CLIENT_ADDRESS_A]`) is skipped and stays part of
+/// the literal, so it neither becomes a span nor desyncs anchoring.
+///
+/// Heuristic limit (negligible on synthetic data):
 /// - **Adjacent tokens** (`[A][B]`) are separated by an empty literal, so the
 ///   first token collapses to a zero-length span at the boundary — its kind is
 ///   still recovered but its extent is lost.
-/// - A literal `[LABEL]`-shaped substring in the *original* text is
-///   indistinguishable from a real token and would be mis-anchored.
 fn recover_spans(original: &str, redacted: &str) -> Vec<(usize, usize, String)> {
     let orig: Vec<char> = original.chars().collect();
     let mut out = Vec::new();
@@ -249,15 +260,22 @@ fn recover_spans(original: &str, redacted: &str) -> Vec<(usize, usize, String)> 
     let mut pending: Option<(String, usize)> = None; // (kind, span_start)
 
     for m in token_re().find_iter(redacted) {
+        let tok = m.as_str();
+        let kind = &tok[1..tok.len() - 1];
+        // A bracket token that is not a Voidwall label is a synthetic-template
+        // leftover already present in the original, not a redaction. Leave it in
+        // the surrounding literal (don't advance `last_end`) so it anchors as
+        // ordinary text and the row's real tokens stay aligned.
+        if !voidwall_kinds().contains(kind) {
+            continue;
+        }
         let literal: Vec<char> = redacted[last_end..m.start()].chars().collect();
         let pos = find_from(&orig, cursor, &literal).unwrap_or(cursor);
         if let Some((kind, start)) = pending.take() {
             out.push((start, pos, kind));
         }
         cursor = (pos + literal.len()).min(orig.len());
-        let tok = m.as_str();
-        let kind = tok[1..tok.len() - 1].to_string();
-        pending = Some((kind, cursor));
+        pending = Some((kind.to_string(), cursor));
         last_end = m.end();
     }
 
@@ -1455,12 +1473,30 @@ mod tests {
         // Adjacent tokens: the first collapses to a zero-length span (documented
         // heuristic limit), the second recovers normally.
         let orig = "ABXY";
-        let red = "[A][B]XY";
+        let red = "[EMAIL][IBAN]XY";
         let spans = recover_spans(orig, red);
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].0, spans[0].1); // zero-length
-        assert_eq!(spans[0].2, "A");
-        assert_eq!(spans[1].2, "B");
+        assert_eq!(spans[0].2, "EMAIL");
+        assert_eq!(spans[1].2, "IBAN");
+    }
+
+    #[test]
+    fn recover_skips_non_voidwall_token() {
+        // A bracket token already in the original (synthetic template leftover)
+        // is not a Voidwall label: it stays part of the literal, so only the
+        // real redaction is recovered and anchoring stays aligned.
+        let orig = "to [CLIENT_ADDRESS_A] write a@b.com now";
+        let red = "to [CLIENT_ADDRESS_A] write [EMAIL] now";
+        let spans = recover_spans(orig, red);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].2, "EMAIL");
+        let got: String = orig
+            .chars()
+            .skip(spans[0].0)
+            .take(spans[0].1 - spans[0].0)
+            .collect();
+        assert_eq!(got, "a@b.com");
     }
 
     #[test]
