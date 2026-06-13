@@ -23,6 +23,7 @@
 #   ENFORCE     - 1 = assert committed per-category floors (default: report-only)
 #   DUMP_MISSES - GT label (e.g. IDCARD) = list that category's missed values
 #   DUMP_CONTEXT- chars of surrounding text per missed value (default: 48)
+#   DUMP_CONTEXT_LIMIT - cap distinct missed values dumped per category (default: 80)
 #
 set -euo pipefail
 

@@ -27,6 +27,8 @@
 //! - `DUMP_CONTEXT_FILE=path` → write those (value, input, expected) groups to a
 //!   file instead of stdout (the rows are bulky); the value × count summary still
 //!   prints. Setting it implies row capture even without `DUMP_CONTEXT=1`.
+//! - `DUMP_CONTEXT_LIMIT=n` → cap how many distinct missed values per category are
+//!   dumped (default: 80).
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
@@ -56,6 +58,8 @@ struct Config {
     dump_context_full: bool,
     /// `DUMP_CONTEXT_FILE`: sink for the bulky (value, input, expected) groups.
     dump_context_file: Option<PathBuf>,
+    /// `DUMP_CONTEXT_LIMIT`: cap on distinct missed values dumped per category.
+    dump_context_limit: Option<usize>,
 }
 
 fn env_opt(key: &str) -> Option<String> {
@@ -100,6 +104,7 @@ impl Config {
             dump_misses: env_opt("DUMP_MISSES").map(|s| s.to_ascii_uppercase()),
             dump_context_full: env_opt("DUMP_CONTEXT").as_deref() == Some("1"),
             dump_context_file: env_opt("DUMP_CONTEXT_FILE").map(PathBuf::from),
+            dump_context_limit: env_opt("DUMP_CONTEXT_LIMIT").and_then(|s| s.parse().ok()),
         }
     }
 }
@@ -1000,7 +1005,7 @@ fn emit_rows(
 /// the bulky whole-row groups go to `DUMP_CONTEXT_FILE` when set, else inline
 /// under each value when `DUMP_CONTEXT=1`.
 fn dump_misses(label: &str, agg: &Aggregate, cfg: &Config) -> std::io::Result<()> {
-    const MAX: usize = 80;
+    let max = cfg.dump_context_limit.unwrap_or(80);
     let full = cfg.dump_context_full;
     let mut file = match &cfg.dump_context_file {
         Some(p) => Some(File::create(p)?),
@@ -1014,12 +1019,12 @@ fn dump_misses(label: &str, agg: &Aggregate, cfg: &Config) -> std::io::Result<()
     if det.is_empty() {
         println!("(none — every {label} GT span was detected)");
     } else {
-        for (v, (n, input, expected)) in det.iter().take(MAX) {
+        for (v, (n, input, expected)) in det.iter().take(max) {
             println!("  {n:>4} × {v}");
             emit_rows(&mut file, full, &format!("{n} × {v}"), input, expected)?;
         }
-        if det_distinct > MAX {
-            println!("  … {} more distinct value(s)", det_distinct - MAX);
+        if det_distinct > max {
+            println!("  … {} more distinct value(s)", det_distinct - max);
         }
     }
 
@@ -1027,7 +1032,7 @@ fn dump_misses(label: &str, agg: &Aggregate, cfg: &Config) -> std::io::Result<()
     typed.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(b.0)));
     if !typed.is_empty() {
         println!("\n--- DUMP_MISSES={label}: detected but mistyped (value → kind × count) ---");
-        for (key, (n, input, expected)) in typed.iter().take(MAX) {
+        for (key, (n, input, expected)) in typed.iter().take(max) {
             let (v, kind) = key.split_once('\t').unwrap_or((key, "?"));
             println!("  {n:>4} × {v} → {kind}");
             emit_rows(
@@ -1038,8 +1043,8 @@ fn dump_misses(label: &str, agg: &Aggregate, cfg: &Config) -> std::io::Result<()
                 expected,
             )?;
         }
-        if typed.len() > MAX {
-            println!("  … {} more distinct value(s)", typed.len() - MAX);
+        if typed.len() > max {
+            println!("  … {} more distinct value(s)", typed.len() - max);
         }
     }
     Ok(())
