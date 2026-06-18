@@ -15,7 +15,11 @@
 #   PEAK_VUS   - peak concurrency     (default: 100)
 #
 # Eval env vars (see docs/ai4privacy-eval.md):
-#   DATASET     - local JSONL file/dir (default: auto-fetched .cache/ai4privacy)
+#   DATASET     - manual JSONL file/dir to eval; overrides auto-download.
+#                 Unset      -> LANG picks files, auto-fetched into .cache/ai4privacy.
+#                 A file     -> that file only (e.g. an extracted *.valid.jsonl).
+#                 A directory-> ALL its *.jsonl children (note: in .cache/ai4privacy-moved
+#                               this globs both *.valid and *.deleted — point at a file).
 #   API_URL     - proxy HTTP API base  (default: http://localhost:8083)
 #   LANG        - language filter en|nl|fr|de|it|es (or full name; unset = all)
 #   MAX_ROWS    - cap rows processed   (default: all)
@@ -24,6 +28,11 @@
 #   DUMP_MISSES - GT label (e.g. IDCARD) = list that category's missed values
 #   DUMP_CONTEXT- chars of surrounding text per missed value (default: 48)
 #   DUMP_CONTEXT_LIMIT - cap distinct missed values dumped per category (default: 80)
+#
+# Eval examples:
+#   LANG=fr docker/ctl eval                       # auto-download + eval French
+#   DATASET=.cache/ai4privacy-moved/1english_openpii_30k.STREET.valid.jsonl \
+#       LANG=en docker/ctl eval                   # eval a previously-extracted valid file
 #
 set -euo pipefail
 
