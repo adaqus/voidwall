@@ -1572,20 +1572,20 @@ impl KeywordContextDetector {
         // Without SINGLEMATCH, vectorscan fires at every end position where
         // the DFA reaches a match state. For patterns with variable-length
         // endings (e.g. addresses with [A-Za-z]+), this produces many hits
-        // per logical match. Sort by (id, to) descending so we process the
-        // longest region first, then skip shorter overlapping regions.
+        // per *single* logical value. Sorting by (id, to) groups each pattern's
+        // hits and (iterating in reverse) processes them longest-first
+        // (descending `to`): the redundant hits for one value extract spans
+        // contained in the longest, so we collapse them by skipping a hit whose
+        // extracted span overlaps the last kept span of the *same* pattern.
+        // Distinct values of one pattern produce disjoint spans and all survive
+        // — a flat `to`-distance window instead wrongly dropped distinct values
+        // that merely sat close together (e.g. `Passport: A, Passport: B`).
         match_regions.sort_unstable();
         let mut matches = Vec::new();
-        let mut prev_to: usize = 0;
-        let mut prev_id: usize = usize::MAX;
+        // (pattern id, start, end) of the last kept span, for same-pattern
+        // overlap collapsing.
+        let mut last_kept: Option<(usize, usize, usize)> = None;
         for &(idx, to) in match_regions.iter().rev() {
-            // Skip if this is the same pattern close to an already-processed
-            // `to` (overlapping vectorscan hit for the same logical match).
-            if idx == prev_id && prev_to.saturating_sub(to) < Self::MATCH_LOOKBACK {
-                continue;
-            }
-            prev_id = idx;
-            prev_to = to;
             let pattern = &self.patterns[idx];
             let start = Self::region_start(input, to);
             let region = &input[start..to];
@@ -1593,10 +1593,22 @@ impl KeywordContextDetector {
                 && let Some(value_match) = caps.get(1)
                 && (pattern.validate)(value_match.as_str())
             {
+                let span_start = start + value_match.start();
+                let span_end = start + value_match.end();
+                // Collapse the redundant end-hits vectorscan emits for one
+                // value: same pattern, span overlaps the last kept one.
+                if let Some((pid, pstart, pend)) = last_kept
+                    && pid == idx
+                    && span_start < pend
+                    && pstart < span_end
+                {
+                    continue;
+                }
+                last_kept = Some((idx, span_start, span_end));
                 matches.push(PiiMatch {
                     kind: pattern.kind,
-                    start: start + value_match.start(),
-                    end: start + value_match.end(),
+                    start: span_start,
+                    end: span_end,
                     user_label: None,
                 });
             }
@@ -3387,6 +3399,25 @@ mod tests {
         assert!(kinds.contains(&PiiKind::UsEin));
         assert!(kinds.contains(&PiiKind::GbUtr));
         assert!(kinds.contains(&PiiKind::AuTfn));
+    }
+
+    #[test]
+    fn detects_multiple_same_kind_values_close_together() {
+        // Distinct values of one keyword-gated kind packed within MATCH_LOOKBACK
+        // of each other must all be reported — the overlap-based dedup only
+        // collapses the redundant vectorscan end-hits for a single value, not
+        // separate values. (A flat `to`-distance window kept only the last.)
+        let detector = &*DETECTOR;
+        let input = "Passport: 123456789, Passport: 987654321, Passport: 234567891";
+        let values: Vec<&str> = detector
+            .mark_piis(input)
+            .iter()
+            .filter(|m| m.kind == PiiKind::PassportNumber)
+            .map(|m| &input[m.start..m.end])
+            .collect();
+        assert!(values.contains(&"123456789"), "got {values:?}");
+        assert!(values.contains(&"987654321"), "got {values:?}");
+        assert!(values.contains(&"234567891"), "got {values:?}");
     }
 
     // --- Compact keyword forms (camelCase / snake_case / kebab-case / concat) ---
