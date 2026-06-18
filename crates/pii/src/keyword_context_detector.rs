@@ -88,13 +88,15 @@ const CONNECTOR_PLACEHOLDER: &str = "<<C>>";
 /// Replace the `<<C>>` gap marker in `pattern` with the concrete keyword→value
 /// gap for `lang`: a word-framed alternation of the language's connector words,
 /// OR the lazy punctuation separator class that covers structured payloads
-/// (JSON/CSV/URL), markdown emphasis wrappers (`*`, `_`, `` ` ``, `~`), and
+/// (JSON/CSV/URL), markdown emphasis wrappers (`*`, `_`, `` ` ``, `~`),
 /// bracket/paren wrappers around the keyword or value (`[`, `]`, `(`, `)`,
-/// `{`, `}`). `\x22` is `"` and the trailing `\\` is a literal backslash; the
-/// template is a raw string so both reach the regex engine verbatim.
+/// `{`, `}`), and XML/HTML tag delimiters (`<`, `>`) so a tag-name keyword
+/// reaches the value (e.g. `<passport>123456789</passport>`). `\x22` is `"`
+/// and the trailing `\\` is a literal backslash; the template is a raw string
+/// so both reach the regex engine verbatim.
 fn expand_connectors(pattern: &str, lang: Language) -> String {
     let gap = format!(
-        r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,()\[\]{{}}\\*_~`]*?)",
+        r"(?:\s+(?:{})\s+|[\s:.#/\-\x22=,()\[\]{{}}<>\\*_~`]*?)",
         lang.connector_words()
     );
     pattern.replace(CONNECTOR_PLACEHOLDER, &gap)
@@ -146,7 +148,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PassportNumber,
                 Language::En,
-                r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)<<C>>(\d{9})\b",
+                r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)<<C>>(\d{9}|\d{2}[A-Za-z]{2}\d{5})\b",
                 passport_check,
             ),
             (
@@ -1762,6 +1764,10 @@ mod tests {
     #[test_case("phone: 5551234567", PiiKind::UsPhoneNumber, "5551234567" ; "phone no separators")]
     #[test_case("Passport Number: 123456789", PiiKind::PassportNumber, "123456789" ; "passport")]
     #[test_case("passport: 987654321", PiiKind::PassportNumber, "987654321" ; "passport lowercase")]
+    #[test_case("**Passport Number**: 32BV67680", PiiKind::PassportNumber, "32BV67680" ; "passport alphanumeric french shape en keyword")]
+    #[test_case("<passport>123456789</passport>", PiiKind::PassportNumber, "123456789" ; "passport xml tag wrapper")]
+    #[test_case("<Passport_Number>123456789</Passport_Number>", PiiKind::PassportNumber, "123456789" ; "passport xml tag underscore")]
+    #[test_case("<passport number>123456789</passport number>", PiiKind::PassportNumber, "123456789" ; "passport xml tag space")]
     #[test_case("TFN: 123 456 782", PiiKind::AuTfn, "123 456 782" ; "tfn")]
     // Formatless / hyphenated TFN — value separator is optional (rec 7).
     #[test_case("TFN: 123456782", PiiKind::AuTfn, "123456782" ; "tfn formatless")]
