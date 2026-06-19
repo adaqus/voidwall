@@ -763,8 +763,11 @@ mod tests {
     )]
     fn detects_pii_in_url(input: &str, kind: PiiKind, expected_span: &str) {
         let scanner = &*SCANNER;
-        let matches: Vec<_> = scanner
-            .mark_piis(input)
+        // Resolve overlaps to match how the proxy counts: a value carrying a
+        // keyword (e.g. `postcode/SW1A1AA`) can fire both the structural and
+        // keyword-gated GbPostcode rules on the same span; resolve_overlaps
+        // dedupes them.
+        let matches: Vec<_> = crate::resolve_overlaps(scanner.mark_piis(input))
             .into_iter()
             .filter(|m| m.kind == kind)
             .collect();
