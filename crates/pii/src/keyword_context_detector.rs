@@ -12,16 +12,16 @@ use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
     au_dl_check, bsn_check, ch_ahv_check, ch_postal_check, de_at_address_check,
     de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
-    de_postal_check, de_steuer_id_check, dob_check, ein_check, es_nuss_check, es_passport_check,
-    es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check, fr_nif_check, fr_postal_check,
-    gb_address_check, geolocation_check, ie_driver_check, imei_check, ird_check,
-    it_codice_fiscale_check, it_dl_check, it_partita_iva_check, it_passport_check, it_postal_check,
-    medicare_check, nhi_check, nhs_check, nir_check, nl_dl_check, nl_passport_check,
-    nl_postal_check, nz_dl_check, ohip_check, passport_check, passport_new_check,
-    person_name_check, phone_check, pl_dl_check, pl_id_card_check, pl_nip_check, pl_passport_check,
-    pl_pesel_check, pl_postal_check, pl_regon_check, siren_luhn_check, siret_luhn_check,
-    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_za_postal_check,
-    uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
+    de_postal_check, de_steuer_id_check, dob_check, ein_check, es_dni_check, es_nuss_check,
+    es_passport_check, es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check,
+    fr_nif_check, fr_postal_check, gb_address_check, geolocation_check, ie_driver_check,
+    imei_check, ird_check, it_codice_fiscale_check, it_dl_check, it_partita_iva_check,
+    it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check, nir_check,
+    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_check,
+    passport_new_check, person_name_check, phone_check, pl_dl_check, pl_id_card_check,
+    pl_nip_check, pl_passport_check, pl_pesel_check, pl_postal_check, pl_regon_check,
+    siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
+    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -1184,6 +1184,19 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:spanish[\s_-]?passports?|spain[\s_-]?passports?|es[\s_-]?passports?)<<C>>([A-Za-z]{2,3}\d{6})\b",
                 es_passport_check,
+            ),
+            // DNI is detected keyword-free by HyperscanDetector, but only in its
+            // canonical uppercase form (lowercase \d{8}[a-z] is too hot for the
+            // keyword-less pass). This pattern recovers any-case DNI when a
+            // "DNI"/"NIF" label is present. NIF is shared with FrNif but the
+            // value regexes are disjoint (8 digits + letter vs \d{13}); the
+            // value is also disjoint from EsNie ([XYZ] + 7 digits + letter); the
+            // mod-23 es_dni_check rejects non-DNI strings.
+            (
+                PiiKind::EsDni,
+                Language::Es,
+                r"(?i)(?:documento[\s_-]?nacional[\s_-]?de[\s_-]?identidad|dnis?|nifs?)<<C>>(\d{8}[A-Za-z])\b",
+                es_dni_check,
             ),
             // --- Spanish keywords for existing international types ---
             (
@@ -2498,6 +2511,14 @@ mod tests {
     #[test_case("pasaportes: AB123456", PiiKind::EsPassportNumber, "AB123456" ; "es passport two letters plural")]
     #[test_case("número de pasaporte: XDA123456", PiiKind::EsPassportNumber, "XDA123456" ; "es passport long keyword")]
     #[test_case("spanish passport: ABC123456", PiiKind::EsPassportNumber, "ABC123456" ; "es passport en keyword")]
+    // DNI — keyword recovers lowercase (and any-case) DNI that the uppercase-only
+    // structural pattern misses. Values are checksum-valid (mod-23).
+    #[test_case("dni: 12345678z", PiiKind::EsDni, "12345678z" ; "es dni lowercase keyword")]
+    #[test_case("DNI: 12345678Z", PiiKind::EsDni, "12345678Z" ; "es dni uppercase keyword")]
+    #[test_case("dnis: 99999999R", PiiKind::EsDni, "99999999R" ; "es dni plural keyword")]
+    #[test_case("NIF: 01234567l", PiiKind::EsDni, "01234567l" ; "es dni nif keyword lowercase")]
+    #[test_case("documento nacional de identidad: 00000000T", PiiKind::EsDni, "00000000T" ; "es dni full phrase keyword")]
+    #[test_case("\"dni\":\"12345678z\"", PiiKind::EsDni, "12345678z" ; "es dni json lowercase")]
     // Spanish keywords for existing international types.
     #[test_case("teléfono: 555-123-4567", PiiKind::UsPhoneNumber, "555-123-4567" ; "es keyword us phone")]
     #[test_case("pasaporte: 123456789", PiiKind::PassportNumber, "123456789" ; "es keyword generic passport digits")]
@@ -3207,6 +3228,7 @@ mod tests {
     #[test_case("número de afiliación: 671234567812", PiiKind::EsNuss ; "es nuss province above 66")]
     #[test_case("NUSS: 2812345678", PiiKind::EsNuss ; "es nuss ten digits")]
     #[test_case("pasaporte: A1234567", PiiKind::EsPassportNumber ; "es passport one letter seven digits")]
+    #[test_case("dni: 12345678a", PiiKind::EsDni ; "es dni wrong check letter")]
     // Poland — keyword present but value fails validation
     #[test_case("PESEL: 44051401358", PiiKind::PlPesel ; "pl pesel bad check digit")]
     #[test_case("PESEL: 44131401350", PiiKind::PlPesel ; "pl pesel month 13 valid checksum")]
@@ -3321,6 +3343,7 @@ mod tests {
     #[test_case("612 345 678", PiiKind::EsPhoneNumber ; "es phone no keyword")]
     #[test_case("281234567840", PiiKind::EsNuss ; "es nuss no keyword")]
     #[test_case("ABC123456", PiiKind::EsPassportNumber ; "es passport no keyword")]
+    #[test_case("12345678z", PiiKind::EsDni ; "es dni lowercase no keyword")]
     #[test_case("number is 44051401359", PiiKind::PlPesel ; "pl pesel no keyword")]
     #[test_case("number is 7740001454", PiiKind::PlNip ; "pl nip no keyword")]
     #[test_case("number is 610188201", PiiKind::PlRegon ; "pl regon no keyword")]
