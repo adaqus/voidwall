@@ -60,7 +60,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
         },
         PatternDef {
             kind: PiiKind::UsSsn,
-            expr: r"\b\d{3}-\d{2}-\d{4}\b",
+            expr: r"\b\d{3}[-. ]\d{2}[-. ]\d{4}\b",
             som_fallback: false,
             validator: ssn_check,
             needs_ucp: false,
@@ -561,6 +561,8 @@ mod tests {
     #[test_case("contact us at user@example.com for info", PiiKind::Email, "user@example.com" ; "email basic")]
     #[test_case("SSN: 123%2D45%2D6789", PiiKind::UsSsn, "123%2D45%2D6789" ; "ssn percent encoded")]
     #[test_case("SSN: 123-45-6789", PiiKind::UsSsn, "123-45-6789" ; "ssn")]
+    #[test_case("SSN: 078.05.1120", PiiKind::UsSsn, "078.05.1120" ; "ssn dot separators")]
+    #[test_case("SSN: 078 05 1120", PiiKind::UsSsn, "078 05 1120" ; "ssn space separators")]
     #[test_case("my ssn is 078-05-1120 ok", PiiKind::UsSsn, "078-05-1120" ; "ssn span woolworth")]
     // 219-09-9999: SSA pamphlet fabricated number, from ssa.gov/history/ssn/misused.html
     #[test_case("SSN: 219-09-9999", PiiKind::UsSsn, "219-09-9999" ; "ssn ssa pamphlet")]

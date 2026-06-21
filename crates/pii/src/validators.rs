@@ -28,7 +28,7 @@ pub(crate) fn luhn_check(s: &str) -> bool {
 }
 
 pub(crate) fn ssn_check(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('-').collect();
+    let parts: Vec<&str> = s.split(['-', '.', ' ']).collect();
     if parts.len() != 3 {
         return false;
     }
@@ -2104,6 +2104,8 @@ mod tests {
 
     // --- ssn_check ---
     #[test_case("078-05-1120", true ; "valid woolworth wallet SSN from ssa.gov")]
+    #[test_case("078.05.1120", true ; "valid woolworth wallet SSN dot separators")]
+    #[test_case("078 05 1120", true ; "valid woolworth wallet SSN space separators")]
     #[test_case("219-09-9999", true ; "valid SSA pamphlet from ssa.gov")]
     #[test_case("457-55-5462", true ; "valid lifelock CEO")]
     #[test_case("000-12-3456", false ; "invalid area zero")]
