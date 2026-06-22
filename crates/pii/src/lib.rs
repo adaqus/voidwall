@@ -285,6 +285,10 @@ pub enum PiiKind {
     PlPostalCode,
     PlDriversLicense,
     InternationalPhoneNumber,
+    /// Secondary/sub-unit address line (apartment, unit, suite…). Keyword-gated
+    /// only — has no structural signal, so it is detected solely via a preceding
+    /// "secondary address" field label.
+    SecondaryAddress,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
     Custom,
@@ -409,6 +413,7 @@ impl PiiKind {
             PiiKind::PlPostalCode => "PL_POSTAL_CODE",
             PiiKind::PlDriversLicense => "PL_DRIVERS_LICENSE",
             PiiKind::InternationalPhoneNumber => "PHONE_NUMBER",
+            PiiKind::SecondaryAddress => "SECONDARY_ADDRESS",
             PiiKind::Custom => "CUSTOM",
         }
     }
@@ -427,6 +432,7 @@ impl PiiKind {
             | PiiKind::Imei
             | PiiKind::PreciseGeolocation
             | PiiKind::PersonName
+            | PiiKind::SecondaryAddress
             | PiiKind::InternationalPhoneNumber => Country::International,
 
             PiiKind::UsSsn
@@ -667,6 +673,7 @@ impl PiiKind {
         PiiKind::PlDriversLicense,
         PiiKind::GbAddress,
         PiiKind::InternationalPhoneNumber,
+        PiiKind::SecondaryAddress,
     ];
 
     /// Returns all countries this PII kind applies to.

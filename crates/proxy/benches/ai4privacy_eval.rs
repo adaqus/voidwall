@@ -445,7 +445,13 @@ fn typed_match(label: &str, predicted: &str) -> bool {
                 || predicted == "GB_POSTCODE"
                 || predicted == "IE_EIRCODE"
         }
-        "STREET" | "SECADDRESS" | "BUILDING" => {
+        "SECADDRESS" => {
+            matches!(
+                predicted,
+                "SECONDARY_ADDRESS" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
+            )
+        }
+        "STREET" | "BUILDING" => {
             matches!(
                 predicted,
                 "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"

@@ -706,6 +706,18 @@ pub(crate) fn us_dl_check(s: &str) -> bool {
     }
 }
 
+/// US driver's-license number, numeric-only state formats (no letter prefix,
+/// e.g. Georgia/Florida-style all-digit numbers). Keyword-gated, so only
+/// structural validation: 6–12 digits, not a single repeated digit (rejects
+/// placeholders like `00000000`).
+pub(crate) fn us_dl_numeric_check(s: &str) -> bool {
+    let digits: Vec<u8> = s.bytes().filter(|b| b.is_ascii_digit()).collect();
+    if !(6..=12).contains(&digits.len()) {
+        return false;
+    }
+    !digits.iter().all(|&b| b == digits[0])
+}
+
 pub(crate) fn sort_code_check(s: &str) -> bool {
     // Basic structural validation: 6 digits in NN-NN-NN format
     let digits: Vec<u32> = s
@@ -2297,6 +2309,17 @@ mod tests {
     #[test_case("100000", false ; "invalid six digits")]
     fn us_za_postal(input: &str, expected: bool) {
         assert_eq!(us_za_postal_check(input), expected);
+    }
+
+    // --- us_dl_numeric_check ---
+    #[test_case("466530638", true ; "valid 9 digits")]
+    #[test_case("123456", true ; "valid 6 digits min")]
+    #[test_case("123456789012", true ; "valid 12 digits max")]
+    #[test_case("12345", false ; "too few 5 digits")]
+    #[test_case("1234567890123", false ; "too many 13 digits")]
+    #[test_case("00000000", false ; "all zeros placeholder")]
+    fn us_dl_numeric(input: &str, expected: bool) {
+        assert_eq!(us_dl_numeric_check(input), expected);
     }
 
     // --- ie_eircode_check ---

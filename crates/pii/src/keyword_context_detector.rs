@@ -21,7 +21,8 @@ use crate::validators::{
     passport_new_check, person_name_check, phone_check, pl_dl_check, pl_id_card_check,
     pl_nip_check, pl_passport_check, pl_pesel_check, pl_postal_check, pl_regon_check,
     siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
+    us_dl_numeric_check, us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check,
+    za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -115,6 +116,12 @@ impl KeywordContextDetector {
         enabled_languages: &HashSet<Language>,
     ) -> Result<Self, PiiError> {
         let all_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = vec![
+            (
+                PiiKind::SecondaryAddress,
+                Language::En,
+                r"(?i)(?:secondary[\s_-]?address(?:es)?|second[\s_-]?address(?:es)?|sec[\s_-]?address(?:es)?|address[\s_-]?line[\s_-]?2|addr[\s_-]?line[\s_-]?2)<<C>>((?:mobile\s+home|[A-Za-z][A-Za-z.'\-]{0,14})\s#?\d{1,5}[A-Za-z]?)",
+                always_valid,
+            ),
             (
                 PiiKind::AuTfn,
                 Language::En,
@@ -222,6 +229,18 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:driver'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*id[\s_-]*(?:number|no\.?|num|#)?|dmv[\s_-]*(?:number|no\.?|num|#)|dl[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|your[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|applicant[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|licen[cs]es?[\s_-]*(?:number|no\.?|num|#)|dl)<<C>>([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
                 us_dl_check,
+            ),
+            // Numeric-only US DL numbers (Georgia/Florida-style all-digit
+            // formats). Gated on the *specific* DL phrases only — bare `dl`,
+            // bare `licen[cs]e number`, and `state id` are excluded here because
+            // a context-free 6–12 digit run after them is too ambiguous (account
+            // / reference numbers). The letter-prefixed rule above keeps the
+            // broad keyword set.
+            (
+                PiiKind::UsDriversLicense,
+                Language::En,
+                r"(?i)(?:driver'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)|dmv[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*driver'?s?[\s_-]*licen[cs]es?|your[\s_-]*driver'?s?[\s_-]*licen[cs]es?|applicant[\s_-]*driver'?s?[\s_-]*licen[cs]es?)<<C>>(\d{6,12})\b",
+                us_dl_numeric_check,
             ),
             (
                 PiiKind::NzNhiNumber,
@@ -1853,6 +1872,9 @@ mod tests {
     #[test_case("License number: AB123456", PiiKind::UsDriversLicense, "AB123456" ; "us dl 2 letters 6 digits")]
     #[test_case("Driver's license number: S530-4000-0001", PiiKind::UsDriversLicense, "S530-4000-0001" ; "us dl hyphenated il")]
     #[test_case("DL: S123-456-789-012", PiiKind::UsDriversLicense, "S123-456-789-012" ; "us dl hyphenated mi")]
+    #[test_case("Driver's license number: 466530638", PiiKind::UsDriversLicense, "466530638" ; "us dl numeric only 9 digits")]
+    #[test_case("DMV number: 12345678", PiiKind::UsDriversLicense, "12345678" ; "us dl numeric only dmv 8 digits")]
+    #[test_case("driving licence: 4685081067", PiiKind::UsDriversLicense, "4685081067" ; "us dl numeric only 10 digits")]
     #[test_case("NHI: DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "nz nhi")]
     #[test_case("NHI number: DAB8745", PiiKind::NzNhiNumber, "DAB8745" ; "nz nhi span")]
     #[test_case("licence number: AB123456", PiiKind::NzDriverLicence, "AB123456" ; "nz dl")]
@@ -2730,6 +2752,15 @@ mod tests {
     #[test_case("dowód osobisty oznaczony numerem ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl connector oznaczony numerem")]
     #[test_case("dowód osobisty noszący numer ABS123456", PiiKind::PlIdCard, "ABS123456" ; "pl connector noszacy numer")]
     #[test_case("jego paszport był CC7999486", PiiKind::PlPassportNumber, "CC7999486" ; "pl connector byl")]
+    #[test_case("Second Address: Maisonette 493", PiiKind::SecondaryAddress, "Maisonette 493" ; "secaddr second address label")]
+    #[test_case("Secondary Address: Apartment 201", PiiKind::SecondaryAddress, "Apartment 201" ; "secaddr secondary address singular")]
+    #[test_case("Secondary Addresses: Apt 264", PiiKind::SecondaryAddress, "Apt 264" ; "secaddr plural")]
+    #[test_case("secondaryAddress: Section 233", PiiKind::SecondaryAddress, "Section 233" ; "secaddr camelcase")]
+    #[test_case("secondary_address: Bldg 90", PiiKind::SecondaryAddress, "Bldg 90" ; "secaddr snake_case")]
+    #[test_case("secondary-address: Cabin 282", PiiKind::SecondaryAddress, "Cabin 282" ; "secaddr kebab-case")]
+    #[test_case("\"SecondaryAddress\":\"Mobile Home 133\"", PiiKind::SecondaryAddress, "Mobile Home 133" ; "secaddr json two-word value")]
+    #[test_case("Address Line 2: Co-op 273", PiiKind::SecondaryAddress, "Co-op 273" ; "secaddr address line 2 hyphen value")]
+    #[test_case("the secondary address is Penthouse 299", PiiKind::SecondaryAddress, "Penthouse 299" ; "secaddr connector is")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -3127,6 +3158,8 @@ mod tests {
     #[test_case("SA ID: 8001325009087", PiiKind::ZaId ; "sa id invalid day")]
     #[test_case("SA ID: 8001015009086", PiiKind::ZaId ; "sa id failing luhn")]
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
+    #[test_case("Driver's license number: 00000000", PiiKind::UsDriversLicense ; "us dl numeric all zeros")]
+    #[test_case("Driver's license number: 12345", PiiKind::UsDriversLicense ; "us dl numeric too few digits")]
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
     #[test_case("passport: 1234567897", PiiKind::PassportNumber ; "passportnum 10 digits")]
     #[test_case("NHI: DAI5765", PiiKind::NzNhiNumber ; "nz nhi letter I")]
@@ -3271,6 +3304,9 @@ mod tests {
     #[test_case("code is SRC2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt no keyword")]
     #[test_case("number is 8001015009087", PiiKind::ZaId ; "sa id no keyword")]
     #[test_case("code is B1234568", PiiKind::UsDriversLicense ; "us dl no keyword")]
+    #[test_case("dl: 466530638", PiiKind::UsDriversLicense ; "us dl numeric bare dl excluded")]
+    #[test_case("license number: 466530638", PiiKind::UsDriversLicense ; "us dl numeric bare license number excluded")]
+    #[test_case("state id: 466530638", PiiKind::UsDriversLicense ; "us dl numeric bare state id excluded")]
     #[test_case("code is DAB8745", PiiKind::NzNhiNumber ; "nz nhi no keyword")]
     #[test_case("code is AB123456", PiiKind::NzDriverLicence ; "nz dl no keyword")]
     #[test_case("code is 123456789", PiiKind::IeDriverNumber ; "ie driver no keyword")]
@@ -3352,6 +3388,8 @@ mod tests {
     #[test_case("call 601 234 567 today", PiiKind::PlPhoneNumber ; "pl phone no keyword")]
     #[test_case("00-950 Warszawa", PiiKind::PlPostalCode ; "pl postal no keyword")]
     #[test_case("ref 12345/67/8901", PiiKind::PlDriversLicense ; "pl dl no keyword")]
+    #[test_case("We rented Apartment 201 for the summer", PiiKind::SecondaryAddress ; "secaddr no keyword in prose")]
+    #[test_case("Building 282 is on the left", PiiKind::SecondaryAddress ; "secaddr bare unit no keyword")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
