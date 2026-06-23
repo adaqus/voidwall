@@ -203,7 +203,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::En,
-                r"(?i)(?:gps[\s_-]?coordinates|gps[\s_-]?coordinate|gps[\s_-]?coords|gps[\s_-]?location|gps[\s_-]?position|precise[\s_-]?location|precise[\s_-]?coordinates|exact[\s_-]?location|exact[\s_-]?coordinates|location[\s_-]?coordinates|map[\s_-]?coordinates|position[\s_-]?coordinates|geo[\s_-]?coordinates|geocoordinates|geo[\s_-]?coords|geocoords|latitude/longitude|latitude[\s_-]?longitude|lat/long|lat/lon|lat[\s_-]?long|lat[\s_-]?lon|latlong|latlon|lat[\s_-]?lng|latlng|geolocation|geo-location|geo[\s_-]?location|geo[\s_-]?position|geoposition|map[\s_-]?position|map[\s_-]?location|current[\s_-]?location|current[\s_-]?coordinates|current[\s_-]?position|device[\s_-]?location|device[\s_-]?coordinates|device[\s_-]?position|my[\s_-]?location|my[\s_-]?coordinates|my[\s_-]?position|coordinates|coordinate|coords)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:gps[\s_-]?coordinates|gps[\s_-]?coordinate|gps[\s_-]?coords|gps[\s_-]?location|gps[\s_-]?position|precise[\s_-]?location|precise[\s_-]?coordinates|exact[\s_-]?location|exact[\s_-]?coordinates|location[\s_-]?coordinates|map[\s_-]?coordinates|position[\s_-]?coordinates|geo[\s_-]?coordinates|geocoordinates|geo[\s_-]?coords|geocoords|latitude/longitude|latitude[\s_-]?longitude|lat/long|lat/lon|lat[\s_-]?long|lat[\s_-]?lon|latlong|latlon|lat[\s_-]?lng|latlng|geolocation|geo-location|geo[\s_-]?location|geo[\s_-]?position|geoposition|map[\s_-]?position|map[\s_-]?location|current[\s_-]?location|current[\s_-]?coordinates|current[\s_-]?position|device[\s_-]?location|device[\s_-]?coordinates|device[\s_-]?position|my[\s_-]?location|my[\s_-]?coordinates|my[\s_-]?position|coordinates|coordinate|coords|location)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -599,7 +599,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::Fr,
-                r"(?i)(?:coordonn[eé]es[\s_-]?GPS|position[\s_-]?GPS|g[eé]olocalisation|coordonn[eé]es[\s_-]?g[eé]ographiques|latitude/longitude)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:coordonn[eé]es[\s_-]?GPS|position[\s_-]?GPS|g[eé]olocalisation|coordonn[eé]es[\s_-]?g[eé]ographiques|latitude/longitude)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -782,7 +782,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::De,
-                r"(?i)(?:GPS-Koordinaten|Standorte?|Geokoordinaten)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:GPS-Koordinaten|Standorte?|Geokoordinaten)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -1009,7 +1009,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::Nl,
-                r"(?i)(?:GPS-co[öo]rdinaten|GPS-locatie|GPS-positie|geografische[\s_-]?co[öo]rdinaten|geolocatie|co[öo]rdinaten|positie|locatie)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:GPS-co[öo]rdinaten|GPS-locatie|GPS-positie|geografische[\s_-]?co[öo]rdinaten|geolocatie|co[öo]rdinaten|positie|locatie)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -1121,7 +1121,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::It,
-                r"(?i)(?:geolocalizzazione|posizione[\s_-]?geografica|posizione[\s_-]?esatta|ubicazione)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:geolocalizzazione|posizione[\s_-]?geografica|posizione[\s_-]?esatta|ubicazione)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -1241,7 +1241,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::Es,
-                r"(?i)(?:geolocalizaci[oó]n|ubicaci[oó]n[\s_-]?exacta|posici[oó]n[\s_-]?exacta|coordenadas)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:geolocalizaci[oó]n|ubicaci[oó]n[\s_-]?exacta|posici[oó]n[\s_-]?exacta|coordenadas)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -1402,7 +1402,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::PreciseGeolocation,
                 Language::Pl,
-                r"(?i)(?:geolokalizacj[aię]|wsp[oó][lł]rz[eę]dne|dok[lł]adna[\s_-]?lokalizacja)<<C>>(-?\d{1,3}\.\d{4,},\s?-?\d{1,3}\.\d{4,})",
+                r"(?i)(?:geolokalizacj[aię]|wsp[oó][lł]rz[eę]dne|dok[lł]adna[\s_-]?lokalizacja)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
                 geolocation_check,
             ),
             (
@@ -1861,6 +1861,10 @@ mod tests {
     #[test_case(r#""sortCode": "200000""#, PiiKind::GbSortCode, "200000" ; "sort code camelcase formatless")]
     #[test_case("GPS coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation")]
     #[test_case("coordinates: 40.7128,-74.0060", PiiKind::PreciseGeolocation, "40.7128,-74.0060" ; "geolocation span")]
+    // Bare "location" keyword (rec) + bracket-wrapped, low-precision coords (rec).
+    #[test_case("Location: [51.5, -1.8]", PiiKind::PreciseGeolocation, "51.5, -1.8" ; "geolocation bare location bracket")]
+    #[test_case("Geocoordinates: [39.4, -122.27]", PiiKind::PreciseGeolocation, "39.4, -122.27" ; "geolocation low precision bracket")]
+    #[test_case("coordinates: 40.71,-74.00", PiiKind::PreciseGeolocation, "40.71,-74.00" ; "geolocation two decimals")]
     #[test_case("Alien number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number")]
     #[test_case("Alien registration number: A012345678", PiiKind::UsAlienNumber, "A012345678" ; "a number span")]
     #[test_case("Receipt number: SRC2190000001", PiiKind::UsUscisReceiptNumber, "SRC2190000001" ; "uscis receipt")]
@@ -2252,6 +2256,8 @@ mod tests {
     #[test_case("Standort: 48.1351,11.5820", PiiKind::PreciseGeolocation, "48.1351,11.5820" ; "de keyword geolocation munich")]
     #[test_case("GPS-Koordinaten: 47.3769,8.5417", PiiKind::PreciseGeolocation, "47.3769,8.5417" ; "de keyword geolocation zurich")]
     #[test_case("Geokoordinaten: 48.2082,16.3738", PiiKind::PreciseGeolocation, "48.2082,16.3738" ; "de keyword geolocation vienna")]
+    // Precision floor relaxed cross-language: low-precision coords detect with a keyword (rec).
+    #[test_case("Standort: 48.13,11.58", PiiKind::PreciseGeolocation, "48.13,11.58" ; "de keyword geolocation low precision")]
     #[test_case("BIC-Code: DEUTDEFF", PiiKind::SwiftBic, "DEUTDEFF" ; "de keyword swift deutsche bank")]
     #[test_case("Bankleitzahl: COBADEFFXXX", PiiKind::SwiftBic, "COBADEFFXXX" ; "de keyword swift commerzbank")]
     #[test_case("Gerätekennung: 490154203237518", PiiKind::Imei, "490154203237518" ; "de keyword imei")]
@@ -3152,7 +3158,6 @@ mod tests {
     #[test_case("Routing number: 021000022", PiiKind::UsAbaRouting ; "aba bad checksum")]
     #[test_case("coordinates: 91.0000,-74.0060", PiiKind::PreciseGeolocation ; "geolocation lat out of range")]
     #[test_case("coordinates: 40.7128,181.0060", PiiKind::PreciseGeolocation ; "geolocation lon out of range")]
-    #[test_case("coordinates: 40.71,-74.00", PiiKind::PreciseGeolocation ; "geolocation insufficient precision")]
     #[test_case("Receipt number: XYZ2190000001", PiiKind::UsUscisReceiptNumber ; "uscis receipt invalid center")]
     #[test_case("SA ID: 8013015009087", PiiKind::ZaId ; "sa id invalid month")]
     #[test_case("SA ID: 8001325009087", PiiKind::ZaId ; "sa id invalid day")]
