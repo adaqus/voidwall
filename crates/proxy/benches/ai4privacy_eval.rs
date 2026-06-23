@@ -30,7 +30,7 @@
 //! - `DUMP_CONTEXT_LIMIT=n` → cap how many distinct missed values per category are
 //!   dumped (default: 80).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -655,6 +655,12 @@ struct RowOutcome {
     preds_total: u64,
     det_tp: u64,
     typed_tp: u64,
+    /// Detection-TP predicted kinds (preds overlapping some GT). Folds into
+    /// `tp_by_kind` to give per-kind detection precision.
+    tp_kinds: Vec<String>,
+    /// Typed-TP predicted kinds (preds overlapping a GT they are correctly typed
+    /// for). Subset of `tp_kinds`; folds into `typed_tp_by_kind`.
+    typed_tp_kinds: Vec<String>,
     /// Detection-FP predicted kinds (preds overlapping no GT). Includes the
     /// carve-out-confirmed ones (also listed in `confirmed`).
     fp_kinds: Vec<String>,
@@ -687,6 +693,8 @@ fn error_outcome(masks: &[MaskSpan], msg: String) -> RowOutcome {
         preds_total: 0,
         det_tp: 0,
         typed_tp: 0,
+        tp_kinds: Vec::new(),
+        typed_tp_kinds: Vec::new(),
         fp_kinds: Vec::new(),
         confirmed: Vec::new(),
         unclassified: Vec::new(),
@@ -766,6 +774,8 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
     // Per-pred precision.
     let mut det_tp = 0u64;
     let mut typed_tp = 0u64;
+    let mut tp_kinds = Vec::new();
+    let mut typed_tp_kinds = Vec::new();
     let mut fp_kinds = Vec::new();
     let mut confirmed = Vec::new();
     for (ps, pe, pk) in &preds {
@@ -781,8 +791,10 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
         }
         if overlaps_any {
             det_tp += 1;
+            tp_kinds.push(pk.clone());
             if typed_ok {
                 typed_tp += 1;
+                typed_tp_kinds.push(pk.clone());
             }
         } else {
             // Detection false positive — apply the strong-validator carve-out.
@@ -802,6 +814,8 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
         preds_total: preds.len() as u64,
         det_tp,
         typed_tp,
+        tp_kinds,
+        typed_tp_kinds,
         fp_kinds,
         confirmed,
         unclassified,
@@ -840,6 +854,8 @@ struct Aggregate {
     sup_det_hits: u64,
     sup_typed_hits: u64,
     per_cat: BTreeMap<String, CatStat>,
+    tp_by_kind: BTreeMap<String, u64>,
+    typed_tp_by_kind: BTreeMap<String, u64>,
     fp_by_kind: BTreeMap<String, u64>,
     confirmed_by_kind: BTreeMap<String, u64>,
     unclassified_labels: BTreeMap<String, u64>,
@@ -898,6 +914,12 @@ impl Aggregate {
             if g.typed_hit {
                 cat.typed_hits += 1;
             }
+        }
+        for k in o.tp_kinds {
+            *self.tp_by_kind.entry(k).or_default() += 1;
+        }
+        for k in o.typed_tp_kinds {
+            *self.typed_tp_by_kind.entry(k).or_default() += 1;
         }
         for k in o.fp_kinds {
             *self.fp_by_kind.entry(k).or_default() += 1;
@@ -1204,6 +1226,33 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
             } else {
                 println!("  {k:<20} {n}");
             }
+        }
+    }
+
+    // Per-predicted-kind precision. Recall/F1 are intentionally absent: an FP has
+    // a predicted kind but no GT category, and a GT category can map to several
+    // kinds, so per-kind recall has no well-defined denominator. Both precisions
+    // share the denominator (all preds of the kind = tp + fp):
+    //   P_det   = tp / (tp + fp)        — overlaps any GT (right location)
+    //   P_typed = typed_tp / (tp + fp)  — overlaps a GT it is correctly typed for
+    println!("\n--- precision by predicted kind ---");
+    let kinds: BTreeSet<&String> = agg.tp_by_kind.keys().chain(agg.fp_by_kind.keys()).collect();
+    if kinds.is_empty() {
+        println!("(none)");
+    } else {
+        println!(
+            "  {:<20} {:>6} {:>6} {:>7} {:>7}",
+            "kind", "tp", "fp", "P_det", "P_typed"
+        );
+        for k in kinds {
+            let tp = agg.tp_by_kind.get(k).copied().unwrap_or(0);
+            let fp = agg.fp_by_kind.get(k).copied().unwrap_or(0);
+            let typed_tp = agg.typed_tp_by_kind.get(k).copied().unwrap_or(0);
+            println!(
+                "  {k:<20} {tp:>6} {fp:>6} {:>7.3} {:>7.3}",
+                ratio(tp, tp + fp),
+                ratio(typed_tp, tp + fp)
+            );
         }
     }
 
