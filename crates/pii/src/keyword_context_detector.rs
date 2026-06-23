@@ -123,6 +123,12 @@ impl KeywordContextDetector {
                 always_valid,
             ),
             (
+                PiiKind::Street,
+                Language::En,
+                r"(?i)(?:streets?|street[\s_-]?names?)<<C>>((?:\d{1,4}(?:st|nd|rd|th)\s+|[A-Za-z][A-Za-z'\-]+\s+)(?:[A-Za-z][A-Za-z'\-]+\s+){0,4}(?:Road|Street|Lane|Avenue|Boulevard|Way|Close|Drive|Court|Place|Terrace|Crescent|Square|Walk|Row|Gardens|Grove|Mews|Parade|Trail|Fields|Yard|Park|Hill|Highway|Parkway|Circle|Rise|Green|Common|Gate|View|Vale|Croft|Meadow|Heights|Path|Alley|Pike|Broadway)(?:\s+\d{1,4})?|Broadway)",
+                always_valid,
+            ),
+            (
                 PiiKind::AuTfn,
                 Language::En,
                 r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?numbers?|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?numbers?|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?numbers?|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)<<C>>(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})",
@@ -2767,6 +2773,20 @@ mod tests {
     #[test_case("\"SecondaryAddress\":\"Mobile Home 133\"", PiiKind::SecondaryAddress, "Mobile Home 133" ; "secaddr json two-word value")]
     #[test_case("Address Line 2: Co-op 273", PiiKind::SecondaryAddress, "Co-op 273" ; "secaddr address line 2 hyphen value")]
     #[test_case("the secondary address is Penthouse 299", PiiKind::SecondaryAddress, "Penthouse 299" ; "secaddr connector is")]
+    #[test_case("Street: Maple Street", PiiKind::Street, "Maple Street" ; "street single word name")]
+    #[test_case("Street: Station Road", PiiKind::Street, "Station Road" ; "street station road")]
+    #[test_case("Street: Chapel Lane", PiiKind::Street, "Chapel Lane" ; "street chapel lane")]
+    #[test_case("Street: Pacific Crest National Scenic Trail", PiiKind::Street, "Pacific Crest National Scenic Trail" ; "street multi word name")]
+    #[test_case("Street: 216th Lane", PiiKind::Street, "216th Lane" ; "street ordinal numbered")]
+    #[test_case("Street: County Road 53", PiiKind::Street, "County Road 53" ; "street trailing number")]
+    #[test_case("Street: Broadway", PiiKind::Street, "Broadway" ; "street standalone broadway")]
+    #[test_case("Street: Maud's Yard", PiiKind::Street, "Maud's Yard" ; "street apostrophe name")]
+    #[test_case("Streets: Park Avenue", PiiKind::Street, "Park Avenue" ; "street plural label")]
+    #[test_case("streetName: Central Boulevard", PiiKind::Street, "Central Boulevard" ; "street name camelcase")]
+    #[test_case("street_name: South Lane", PiiKind::Street, "South Lane" ; "street name snake_case")]
+    #[test_case("street-name: Freitag Way", PiiKind::Street, "Freitag Way" ; "street name kebab-case")]
+    #[test_case("\"Street\":\"Pitchens Close\"", PiiKind::Street, "Pitchens Close" ; "street json shape")]
+    #[test_case("Street: Old Bristol Road", PiiKind::Street, "Old Bristol Road" ; "street three word name")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -3395,6 +3415,8 @@ mod tests {
     #[test_case("ref 12345/67/8901", PiiKind::PlDriversLicense ; "pl dl no keyword")]
     #[test_case("We rented Apartment 201 for the summer", PiiKind::SecondaryAddress ; "secaddr no keyword in prose")]
     #[test_case("Building 282 is on the left", PiiKind::SecondaryAddress ; "secaddr bare unit no keyword")]
+    #[test_case("I walked down Maple Street yesterday", PiiKind::Street ; "street bare name in prose no label")]
+    #[test_case("the shop on Oxford Street today", PiiKind::Street ; "street suffix mention no label")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

@@ -451,7 +451,13 @@ fn typed_match(label: &str, predicted: &str) -> bool {
                 "SECONDARY_ADDRESS" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
             )
         }
-        "STREET" | "BUILDING" => {
+        "STREET" => {
+            matches!(
+                predicted,
+                "STREET" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
+            )
+        }
+        "BUILDING" => {
             matches!(
                 predicted,
                 "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
@@ -1593,6 +1599,8 @@ mod tests {
     #[test_case("POSTCODE", "GB_POSTCODE", true)]
     #[test_case("POSTCODE", "FR_POSTAL_CODE", true)]
     #[test_case("STREET", "GB_ADDRESS", true)]
+    #[test_case("STREET", "STREET", true)]
+    #[test_case("BUILDING", "STREET", false)]
     #[test_case("LASTNAME1", "PERSON_NAME", true)]
     #[test_case("PASSPORT", "DE_PASSPORT_NUMBER", true)]
     #[test_case("PASSPORT", "US_PASSPORT_NEW", true)]

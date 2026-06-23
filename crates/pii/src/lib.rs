@@ -289,6 +289,10 @@ pub enum PiiKind {
     /// only — has no structural signal, so it is detected solely via a preceding
     /// "secondary address" field label.
     SecondaryAddress,
+    /// Bare street line (street name + street-type suffix, e.g. "Maple Street").
+    /// Keyword-gated only — a bare street name has no structural signal, so it is
+    /// detected solely via a preceding "street" field label.
+    Street,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
     Custom,
@@ -414,6 +418,7 @@ impl PiiKind {
             PiiKind::PlDriversLicense => "PL_DRIVERS_LICENSE",
             PiiKind::InternationalPhoneNumber => "PHONE_NUMBER",
             PiiKind::SecondaryAddress => "SECONDARY_ADDRESS",
+            PiiKind::Street => "STREET",
             PiiKind::Custom => "CUSTOM",
         }
     }
@@ -433,6 +438,7 @@ impl PiiKind {
             | PiiKind::PreciseGeolocation
             | PiiKind::PersonName
             | PiiKind::SecondaryAddress
+            | PiiKind::Street
             | PiiKind::InternationalPhoneNumber => Country::International,
 
             PiiKind::UsSsn
@@ -674,6 +680,7 @@ impl PiiKind {
         PiiKind::GbAddress,
         PiiKind::InternationalPhoneNumber,
         PiiKind::SecondaryAddress,
+        PiiKind::Street,
     ];
 
     /// Returns all countries this PII kind applies to.
