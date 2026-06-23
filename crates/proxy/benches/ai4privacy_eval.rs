@@ -1118,30 +1118,39 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
     let typed_p_adj = ratio(agg.typed_tp, adj_den);
     let typed_r = ratio(agg.typed_gt_hits, agg.total_gt);
 
+    // Shared layout for the three Overall blocks. Precision and F1 require a
+    // false-positive count; FPs are tracked globally only, so the supported-only
+    // and macro subsets have no precision/F1 and print "—".
+    let overall_header = format!(
+        "{:<10} {:>7} {:>7} {:>7} {:>7}",
+        "", "P_raw", "P_adj", "R", "F1_raw"
+    );
+    let overall_row = |label: &str, p_raw: Option<f64>, p_adj: Option<f64>, r: f64| {
+        let cell = |v: Option<f64>| v.map_or_else(|| "—".to_string(), |x| format!("{x:.3}"));
+        let f1_cell = p_raw.map_or_else(|| "—".to_string(), |p| format!("{:.3}", f1(p, r)));
+        println!(
+            "{:<10} {:>7} {:>7} {:>7} {:>7}",
+            label,
+            cell(p_raw),
+            cell(p_adj),
+            format!("{r:.3}"),
+            f1_cell,
+        );
+    };
+
     println!("\n--- Overall (micro, all categories) ---");
-    println!(
-        "detection  P_raw={:.3} P_adj={:.3}  R={:.3}  F1_raw={:.3}",
-        det_p_raw,
-        det_p_adj,
-        det_r,
-        f1(det_p_raw, det_r),
-    );
-    println!(
-        "typed      P_raw={:.3} P_adj={:.3}  R={:.3}  F1_raw={:.3}",
-        typed_p_raw,
-        typed_p_adj,
-        typed_r,
-        f1(typed_p_raw, typed_r),
-    );
+    println!("{overall_header}");
+    overall_row("detection", Some(det_p_raw), Some(det_p_adj), det_r);
+    overall_row("typed", Some(typed_p_raw), Some(typed_p_adj), typed_r);
 
     // Supported-only recall (Exact + KeywordGated GTs).
-    println!("\n--- Overall (supported categories only) ---");
     println!(
-        "detection  R={:.3}   typed  R={:.3}   (gt_spans={})",
-        ratio(agg.sup_det_hits, agg.sup_gt),
-        ratio(agg.sup_typed_hits, agg.sup_gt),
-        agg.sup_gt,
+        "\n--- Overall (supported categories only) --- (gt_spans={})",
+        agg.sup_gt
     );
+    println!("{overall_header}");
+    overall_row("detection", None, None, ratio(agg.sup_det_hits, agg.sup_gt));
+    overall_row("typed", None, None, ratio(agg.sup_typed_hits, agg.sup_gt));
 
     // Macro recall over scored categories.
     let scored: Vec<&CatStat> = agg
@@ -1158,9 +1167,12 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
             .sum::<f64>()
             / scored.len() as f64;
         println!(
-            "\nMacro recall (scored categories): detection={:.3}  typed={:.3}",
-            macro_det, macro_typed
+            "\n--- Macro recall (scored categories: {}) ---",
+            scored.len()
         );
+        println!("{overall_header}");
+        overall_row("detection", None, None, macro_det);
+        overall_row("typed", None, None, macro_typed);
     }
 
     // Confirmed-unannotated bucket (precision carve-out transparency).
