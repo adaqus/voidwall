@@ -297,6 +297,21 @@ impl KeywordContextDetector {
                 r"(?i)(?:postal[\s_-]?code|post[\s_-]?code|postcode)<<C>>([A-Za-z]{1,2}[0-9][0-9A-Za-z]?(?:\s?[0-9][A-Za-z]{2})?)\b",
                 always_valid,
             ),
+            // Keyword-gated CA postal code: captures a bare Forward Sortation
+            // Area (`V0N`, `S0K` — letter-digit-letter) alone. The structural
+            // CaPostalCode detector only matches the full 6-char code;
+            // AI4Privacy CA data is frequently truncated to the FSA, which needs
+            // a keyword anchor since the bare LDL token is too ambiguous to
+            // detect structurally. Keywords are kept disjoint from the GB
+            // postcode rule (postcode/postal code) so the two never produce
+            // equal-span matches; the alphanumeric value is substring-disjoint
+            // from the digit-only UsZaPostalCode rule that shares the zip keywords.
+            (
+                PiiKind::CaPostalCode,
+                Language::En,
+                r"(?i)(?:zip[\s_-]?code|zip|postal[\s_-]?area|postal[\s_-]?region)<<C>>([A-Za-z][0-9][A-Za-z])\b",
+                always_valid,
+            ),
             (
                 PiiKind::AuDriversLicense,
                 Language::En,
@@ -1937,6 +1952,9 @@ mod tests {
     #[test_case("Postcode: RG2", PiiKind::GbPostcode, "RG2" ; "gb postcode outward two letter")]
     #[test_case("postcode: S6", PiiKind::GbPostcode, "S6" ; "gb postcode outward one letter")]
     #[test_case("post code: RG2 7AB", PiiKind::GbPostcode, "RG2 7AB" ; "gb postcode full with space")]
+    #[test_case("zip code V0M", PiiKind::CaPostalCode, "V0M" ; "ca fsa zip code keyword")]
+    #[test_case("ZIP N0G", PiiKind::CaPostalCode, "N0G" ; "ca fsa bare zip keyword")]
+    #[test_case("postal area: H1P", PiiKind::CaPostalCode, "H1P" ; "ca fsa postal area keyword")]
     #[test_case("australian driver's licence: 12345678", PiiKind::AuDriversLicense, "12345678" ; "au dl nsw 8 digit")]
     #[test_case("aus driver's license: 1234567890", PiiKind::AuDriversLicense, "1234567890" ; "au dl vic 10 digit")]
     #[test_case("nsw licence: 01234567", PiiKind::AuDriversLicense, "01234567" ; "au dl qld starting 0")]
@@ -3394,6 +3412,7 @@ mod tests {
     #[test_case("8001015009087", PiiKind::ZaDriversLicense ; "za dl no keyword")]
     #[test_case("0001", PiiKind::UsZaPostalCode ; "za postal no keyword")]
     #[test_case("RG2", PiiKind::GbPostcode ; "gb postcode outward no keyword")]
+    #[test_case("V0N", PiiKind::CaPostalCode ; "ca fsa no keyword")]
     #[test_case("12345678", PiiKind::AuDriversLicense ; "au dl no keyword")]
     #[test_case("51824753556", PiiKind::AuAbn ; "au abn no keyword")]
     // Netherlands — value present but no keyword
