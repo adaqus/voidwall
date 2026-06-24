@@ -45,6 +45,16 @@ use tokio::task::JoinSet;
 // Config (env)
 // ---------------------------------------------------------------------------
 
+/// Dataset label vocabulary. `pii-masking-300k` (terse: `GIVENNAME1`, `TEL`,
+/// `POSTCODE`, …) is the default; `openpii-masking-mini-10k` uses a different
+/// vocabulary (`GIVENNAME`, `TELEPHONENUM`, `ZIPCODE`, …) normalized via
+/// `canonical_label` to the 300k tokens before bucketing/typing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Schema {
+    OpenPii300k,
+    Mini10k,
+}
+
 struct Config {
     dataset: PathBuf,
     api_url: String,
@@ -52,6 +62,10 @@ struct Config {
     lang: Option<String>,
     concurrency: usize,
     enforce: bool,
+    schema: Schema,
+    /// `SUPPORTED_ONLY=1`: drop unsupported (KnownGap/Unclassified) categories
+    /// from the report and from precision/recall/F1.
+    supported_only: bool,
     dump_misses: Option<String>,
     /// `DUMP_CONTEXT=1`: print the whole input row + ground-truth redaction for
     /// each missed value.
@@ -101,6 +115,11 @@ impl Config {
                 .filter(|n| *n > 0)
                 .unwrap_or(32),
             enforce: env_opt("ENFORCE").as_deref() == Some("1"),
+            schema: match env_opt("SCHEMA").as_deref() {
+                Some("mini10k") => Schema::Mini10k,
+                _ => Schema::OpenPii300k,
+            },
+            supported_only: env_opt("SUPPORTED_ONLY").as_deref() == Some("1"),
             dump_misses: env_opt("DUMP_MISSES").map(|s| s.to_ascii_uppercase()),
             dump_context_full: env_opt("DUMP_CONTEXT").as_deref() == Some("1"),
             dump_context_file: env_opt("DUMP_CONTEXT_FILE").map(PathBuf::from),
@@ -374,7 +393,31 @@ const KNOWN_GAPS: &[&str] = &[
     "DATE",
     "TIME",
     "USERNAME",
+    "AGE",    // mini-10k: numeric age, no detector
+    "GENDER", // mini-10k: gender term, no detector
 ];
+
+/// Normalize a dataset label to the canonical 300k vocabulary. Mini-10k renames
+/// (e.g. `GIVENNAME`→`GIVENNAME1`, `ZIPCODE`→`POSTCODE`) collapse onto existing
+/// tokens; labels with no 300k analog (`CREDITCARDNUMBER`, `TAXNUM`, `AGE`,
+/// `GENDER`) pass through unchanged and are handled by their own arms below.
+fn canonical_label(schema: Schema, label: &str) -> &str {
+    match schema {
+        Schema::OpenPii300k => label,
+        Schema::Mini10k => match label {
+            "GIVENNAME" => "GIVENNAME1",
+            "SURNAME" => "LASTNAME1",
+            "TELEPHONENUM" => "TEL",
+            "ZIPCODE" => "POSTCODE",
+            "BUILDINGNUM" => "BUILDING",
+            "IDCARDNUM" => "IDCARD",
+            "DRIVERLICENSENUM" => "DRIVERLICENSE",
+            "PASSPORTNUM" => "PASSPORT",
+            "SOCIALNUM" => "SOCIALNUMBER",
+            other => other,
+        },
+    }
+}
 
 fn bucket_of(label: &str) -> Bucket {
     match label {
@@ -385,7 +428,9 @@ fn bucket_of(label: &str) -> Bucket {
         // keyword-context detector, so names/BOD/GEOCOORD belong here too.
         "GEOCOORD" | "BOD" | "GIVENNAME1" | "GIVENNAME2" | "LASTNAME1" | "LASTNAME2"
         | "LASTNAME3" | "TEL" | "POSTCODE" | "STREET" | "SECADDRESS" | "BUILDING" | "PASSPORT"
-        | "IDCARD" | "DRIVERLICENSE" | "SOCIALNUMBER" => Bucket::KeywordGated,
+        | "IDCARD" | "DRIVERLICENSE" | "SOCIALNUMBER" | "TAXNUM" => Bucket::KeywordGated,
+        // mini-10k credit-card number — structural (Luhn) detector, high recall.
+        "CREDITCARDNUMBER" => Bucket::Exact,
         l if KNOWN_GAPS.contains(&l) => Bucket::KnownGap,
         _ => Bucket::Unclassified,
     }
@@ -467,8 +512,19 @@ fn typed_match(label: &str, predicted: &str) -> bool {
         "DRIVERLICENSE" => predicted.contains("DRIV"),
         "IDCARD" => is_id_card_kind(predicted),
         "SOCIALNUMBER" => is_social_number_kind(predicted),
+        // mini-10k labels with no 300k analog.
+        "CREDITCARDNUMBER" => predicted == "CREDIT_CARD",
+        "TAXNUM" => is_tax_number_kind(predicted),
         _ => false,
     }
+}
+
+/// National tax-identifier kinds — the mini-10k `TAXNUM` family maps to.
+fn is_tax_number_kind(k: &str) -> bool {
+    matches!(
+        k,
+        "FR_NIF" | "ES_CIF" | "IT_CODICE_FISCALE" | "ZA_TAX_REFERENCE" | "US_ITIN"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +711,11 @@ struct RowOutcome {
     preds_total: u64,
     det_tp: u64,
     typed_tp: u64,
+    /// Predictions overlapping a *supported* (Exact/KeywordGated) GT — numerators
+    /// for supported-only precision. A pred overlapping only unsupported GTs is in
+    /// neither these nor `fp_kinds`, so it is excluded from supported precision.
+    sup_pred_det_tp: u64,
+    sup_pred_typed_tp: u64,
     /// Detection-TP predicted kinds (preds overlapping some GT). Folds into
     /// `tp_by_kind` to give per-kind detection precision.
     tp_kinds: Vec<String>,
@@ -693,6 +754,8 @@ fn error_outcome(masks: &[MaskSpan], msg: String) -> RowOutcome {
         preds_total: 0,
         det_tp: 0,
         typed_tp: 0,
+        sup_pred_det_tp: 0,
+        sup_pred_typed_tp: 0,
         tp_kinds: Vec::new(),
         typed_tp_kinds: Vec::new(),
         fp_kinds: Vec::new(),
@@ -774,6 +837,8 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
     // Per-pred precision.
     let mut det_tp = 0u64;
     let mut typed_tp = 0u64;
+    let mut sup_pred_det_tp = 0u64;
+    let mut sup_pred_typed_tp = 0u64;
     let mut tp_kinds = Vec::new();
     let mut typed_tp_kinds = Vec::new();
     let mut fp_kinds = Vec::new();
@@ -781,20 +846,31 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
     for (ps, pe, pk) in &preds {
         let mut overlaps_any = false;
         let mut typed_ok = false;
+        let mut overlaps_sup = false;
+        let mut typed_ok_sup = false;
         for (gspan, m) in &gts {
             if spans_overlap((*ps, *pe), *gspan) {
                 overlaps_any = true;
+                let sup = matches!(bucket_of(&m.label), Bucket::Exact | Bucket::KeywordGated);
+                overlaps_sup |= sup;
                 if typed_match(&m.label, pk) {
                     typed_ok = true;
+                    typed_ok_sup |= sup;
                 }
             }
         }
         if overlaps_any {
             det_tp += 1;
             tp_kinds.push(pk.clone());
+            if overlaps_sup {
+                sup_pred_det_tp += 1;
+            }
             if typed_ok {
                 typed_tp += 1;
                 typed_tp_kinds.push(pk.clone());
+                if typed_ok_sup {
+                    sup_pred_typed_tp += 1;
+                }
             }
         } else {
             // Detection false positive — apply the strong-validator carve-out.
@@ -814,6 +890,8 @@ fn score_row(original: &str, redacted: &str, masks: &[MaskSpan]) -> RowOutcome {
         preds_total: preds.len() as u64,
         det_tp,
         typed_tp,
+        sup_pred_det_tp,
+        sup_pred_typed_tp,
         tp_kinds,
         typed_tp_kinds,
         fp_kinds,
@@ -853,6 +931,9 @@ struct Aggregate {
     sup_gt: u64,
     sup_det_hits: u64,
     sup_typed_hits: u64,
+    // Supported-only precision numerators (pred-side).
+    sup_pred_det_tp: u64,
+    sup_pred_typed_tp: u64,
     per_cat: BTreeMap<String, CatStat>,
     tp_by_kind: BTreeMap<String, u64>,
     typed_tp_by_kind: BTreeMap<String, u64>,
@@ -886,6 +967,8 @@ impl Aggregate {
         self.total_preds += o.preds_total;
         self.det_tp += o.det_tp;
         self.typed_tp += o.typed_tp;
+        self.sup_pred_det_tp += o.sup_pred_det_tp;
+        self.sup_pred_typed_tp += o.sup_pred_typed_tp;
         self.confirmed_unannotated += o.confirmed.len() as u64;
 
         for g in &o.gts {
@@ -1126,6 +1209,9 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
     println!("{}", "-".repeat(58));
     for (label, c) in &agg.per_cat {
         let bucket = c.bucket.unwrap_or(Bucket::Unclassified);
+        if cfg.supported_only && !matches!(bucket, Bucket::Exact | Bucket::KeywordGated) {
+            continue;
+        }
         println!(
             "{:<22} {:>5} {:>11} {:>7.1}% {:>7.1}%",
             label,
@@ -1146,9 +1232,20 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
     let typed_p_adj = ratio(agg.typed_tp, adj_den);
     let typed_r = ratio(agg.typed_gt_hits, agg.total_gt);
 
-    // Shared layout for the three Overall blocks. Precision and F1 require a
-    // false-positive count; FPs are tracked globally only, so the supported-only
-    // and macro subsets have no precision/F1 and print "—".
+    // Supported-only (Exact + KeywordGated) precision/recall. An FP overlaps no
+    // GT at all, so the global FP count is the correct FP for this subset too; a
+    // pred hitting only an unsupported GT is excluded (neither TP nor FP). This
+    // makes the supported block's precision/F1 well-defined.
+    let sup_adj_den = (agg.sup_pred_det_tp + det_fp).saturating_sub(agg.confirmed_unannotated);
+    let sup_det_p_raw = ratio(agg.sup_pred_det_tp, agg.sup_pred_det_tp + det_fp);
+    let sup_det_p_adj = ratio(agg.sup_pred_det_tp, sup_adj_den);
+    let sup_det_r = ratio(agg.sup_det_hits, agg.sup_gt);
+    let sup_typed_p_raw = ratio(agg.sup_pred_typed_tp, agg.sup_pred_det_tp + det_fp);
+    let sup_typed_p_adj = ratio(agg.sup_pred_typed_tp, sup_adj_den);
+    let sup_typed_r = ratio(agg.sup_typed_hits, agg.sup_gt);
+
+    // Shared layout for the Overall blocks. Macro recall has no per-subset FP
+    // count, so it still prints "—" for precision/F1.
     let overall_header = format!(
         "{:<10} {:>7} {:>7} {:>7} {:>7}",
         "", "P_raw", "P_adj", "R", "F1_raw"
@@ -1166,19 +1263,33 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
         );
     };
 
-    println!("\n--- Overall (micro, all categories) ---");
-    println!("{overall_header}");
-    overall_row("detection", Some(det_p_raw), Some(det_p_adj), det_r);
-    overall_row("typed", Some(typed_p_raw), Some(typed_p_adj), typed_r);
+    // The all-categories block blends in unsupported GTs (gaps), so it is hidden
+    // under SUPPORTED_ONLY.
+    if !cfg.supported_only {
+        println!("\n--- Overall (micro, all categories) ---");
+        println!("{overall_header}");
+        overall_row("detection", Some(det_p_raw), Some(det_p_adj), det_r);
+        overall_row("typed", Some(typed_p_raw), Some(typed_p_adj), typed_r);
+    }
 
-    // Supported-only recall (Exact + KeywordGated GTs).
+    // Supported-only (Exact + KeywordGated GTs) — full precision/recall/F1.
     println!(
         "\n--- Overall (supported categories only) --- (gt_spans={})",
         agg.sup_gt
     );
     println!("{overall_header}");
-    overall_row("detection", None, None, ratio(agg.sup_det_hits, agg.sup_gt));
-    overall_row("typed", None, None, ratio(agg.sup_typed_hits, agg.sup_gt));
+    overall_row(
+        "detection",
+        Some(sup_det_p_raw),
+        Some(sup_det_p_adj),
+        sup_det_r,
+    );
+    overall_row(
+        "typed",
+        Some(sup_typed_p_raw),
+        Some(sup_typed_p_adj),
+        sup_typed_r,
+    );
 
     // Macro recall over scored categories.
     let scored: Vec<&CatStat> = agg
@@ -1256,24 +1367,26 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
         }
     }
 
-    // Uncovered-gap list.
-    let mut gaps: Vec<(&String, &CatStat)> = agg
-        .per_cat
-        .iter()
-        .filter(|(_, c)| c.bucket == Some(Bucket::KnownGap))
-        .collect();
-    gaps.sort_by(|a, b| b.1.gt.cmp(&a.1.gt));
-    println!("\n--- uncovered gaps (no Voidwall detector) ---");
-    if gaps.is_empty() {
-        println!("(none present in this dataset slice)");
-    } else {
-        for (label, c) in gaps {
-            println!(
-                "  {:<20} n={:<6} incidental det R={:.1}%",
-                label,
-                c.gt,
-                ratio(c.det_hits, c.gt) * 100.0
-            );
+    // Uncovered-gap list — unsupported by definition, so hidden under SUPPORTED_ONLY.
+    if !cfg.supported_only {
+        let mut gaps: Vec<(&String, &CatStat)> = agg
+            .per_cat
+            .iter()
+            .filter(|(_, c)| c.bucket == Some(Bucket::KnownGap))
+            .collect();
+        gaps.sort_by(|a, b| b.1.gt.cmp(&a.1.gt));
+        println!("\n--- uncovered gaps (no Voidwall detector) ---");
+        if gaps.is_empty() {
+            println!("(none present in this dataset slice)");
+        } else {
+            for (label, c) in gaps {
+                println!(
+                    "  {:<20} n={:<6} incidental det R={:.1}%",
+                    label,
+                    c.gt,
+                    ratio(c.det_hits, c.gt) * 100.0
+                );
+            }
         }
     }
 
@@ -1372,11 +1485,17 @@ async fn main() {
         }
     };
     eprintln!(
-        "dataset: {} file(s) under {} | api={} | concurrency={}{}{}",
+        "dataset: {} file(s) under {} | schema={:?} | api={} | concurrency={}{}{}{}",
         files.len(),
         cfg.dataset.display(),
+        cfg.schema,
         cfg.api_url,
         cfg.concurrency,
+        if cfg.supported_only {
+            " | supported_only"
+        } else {
+            ""
+        },
         cfg.lang
             .as_deref()
             .map(|l| format!(" | lang={l}"))
@@ -1417,13 +1536,23 @@ async fn main() {
             if line.trim().is_empty() {
                 continue;
             }
-            let row: Row = match serde_json::from_str(&line) {
+            let mut row: Row = match serde_json::from_str(&line) {
                 Ok(r) => r,
                 Err(_) => {
                     agg.parse_errors += 1;
                     continue;
                 }
             };
+            // Normalize labels to the canonical 300k vocabulary so the rest of the
+            // pipeline (bucketing, typing, reporting) is schema-agnostic.
+            if cfg.schema != Schema::OpenPii300k {
+                for m in &mut row.privacy_mask {
+                    let canon = canonical_label(cfg.schema, &m.label);
+                    if canon != m.label {
+                        m.label = canon.to_string();
+                    }
+                }
+            }
             if let Some(filter) = &cfg.lang
                 && !lang_matches(filter, row.language.as_deref())
             {
@@ -1621,9 +1750,32 @@ mod tests {
     #[test_case("PASS", Bucket::KnownGap)]
     #[test_case("TITLE", Bucket::KnownGap)]
     #[test_case("CARDISSUER", Bucket::KnownGap)]
+    #[test_case("CREDITCARDNUMBER", Bucket::Exact)]
+    #[test_case("TAXNUM", Bucket::KeywordGated)]
+    #[test_case("AGE", Bucket::KnownGap)]
+    #[test_case("GENDER", Bucket::KnownGap)]
     #[test_case("SOMETHINGNEW", Bucket::Unclassified)]
     fn category_lookup(label: &str, expect: Bucket) {
         assert_eq!(bucket_of(label), expect);
+    }
+
+    // mini-10k vocabulary normalizes onto the canonical 300k tokens; the four
+    // labels with no 300k analog pass through unchanged. 300k schema = identity.
+    #[test_case(Schema::Mini10k, "GIVENNAME", "GIVENNAME1")]
+    #[test_case(Schema::Mini10k, "SURNAME", "LASTNAME1")]
+    #[test_case(Schema::Mini10k, "TELEPHONENUM", "TEL")]
+    #[test_case(Schema::Mini10k, "ZIPCODE", "POSTCODE")]
+    #[test_case(Schema::Mini10k, "BUILDINGNUM", "BUILDING")]
+    #[test_case(Schema::Mini10k, "IDCARDNUM", "IDCARD")]
+    #[test_case(Schema::Mini10k, "DRIVERLICENSENUM", "DRIVERLICENSE")]
+    #[test_case(Schema::Mini10k, "PASSPORTNUM", "PASSPORT")]
+    #[test_case(Schema::Mini10k, "SOCIALNUM", "SOCIALNUMBER")]
+    #[test_case(Schema::Mini10k, "EMAIL", "EMAIL")]
+    #[test_case(Schema::Mini10k, "CREDITCARDNUMBER", "CREDITCARDNUMBER")]
+    #[test_case(Schema::Mini10k, "TAXNUM", "TAXNUM")]
+    #[test_case(Schema::OpenPii300k, "GIVENNAME", "GIVENNAME")]
+    fn canonical_label_table(schema: Schema, label: &str, expect: &str) {
+        assert_eq!(canonical_label(schema, label), expect);
     }
 
     // Mixed families list both buckets; single-bucket categories keep their tag.
@@ -1657,6 +1809,11 @@ mod tests {
     #[test_case("DRIVERLICENSE", "IE_DRIVER_NUMBER", true)]
     #[test_case("SOCIALNUMBER", "US_SSN", true)]
     #[test_case("IDCARD", "ES_DNI", true)]
+    #[test_case("CREDITCARDNUMBER", "CREDIT_CARD", true)]
+    #[test_case("CREDITCARDNUMBER", "IBAN", false)]
+    #[test_case("TAXNUM", "IT_CODICE_FISCALE", true)]
+    #[test_case("TAXNUM", "ES_CIF", true)]
+    #[test_case("TAXNUM", "US_SSN", false)]
     #[test_case("TITLE", "PERSON_NAME", false)]
     fn typed_match_table(label: &str, predicted: &str, expect: bool) {
         assert_eq!(typed_match(label, predicted), expect);

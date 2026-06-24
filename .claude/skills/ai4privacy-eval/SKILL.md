@@ -3,7 +3,11 @@ name: ai4privacy-eval
 description: Evaluate Voidwall's PII redaction for one category against a given AI4Privacy JSONL file (via `docker/ctl eval`), then investigate why values that should have been detected were missed and propose a fix. Use when asked to evaluate/check a category's detection quality against a specific dataset file, or to investigate why a category's recall is low.
 ---
 
-Evaluate redaction for dataset file $ARGUMENTS[0] and category $ARGUMENTS[1].
+Invocation: `<dataset|schema> <category> [supported-only]`
+
+- `$ARGUMENTS[0]` — dataset file path, or a schema keyword (`openpii300k` | `mini10k`).
+- `$ARGUMENTS[1]` — category (ground-truth label to focus on).
+- `supported-only` (optional flag, any position) — score/show supported categories only.
 
 # Evaluate a dataset file and investigate misses
 
@@ -13,15 +17,34 @@ not edit ground truth and does not delete rows. Be concise.
 
 ## Step 1 — Resolve arguments
 
-- `dataset` = `$ARGUMENTS[0]` — path to the JSONL file to evaluate. Used as
-  `DATASET`. Must be a **file**, not a directory (a directory globs every
-  `*.jsonl`, e.g. both `*.valid` and `*.deleted` under `.cache/ai4privacy-moved`).
-- `category` = `$ARGUMENTS[1]` — the AI4Privacy ground-truth label to focus on
-  (e.g. `PASSPORT`, `IDCARD`, `TEL`, `SOCIALNUMBER`, `STREET`). Used as
-  `DUMP_MISSES`. For the moved files the category is in the filename
+- `dataset` = `$ARGUMENTS[0]` — **either**:
+  - a path to a JSONL **file** to evaluate (used as `DATASET`; must be a file, not
+    a directory — a directory globs every `*.jsonl`, e.g. both `*.valid` and
+    `*.deleted` under `.cache/ai4privacy-moved`), **or**
+  - a schema keyword `openpii300k` (default 300k train files) or `mini10k`
+    (auto-fetches `openpii-masking-mini-10k`, parquet→JSONL). When a schema
+    keyword is given, set `SCHEMA=<keyword>` and leave `DATASET` unset so `ctl`
+    auto-fetches; you may still narrow with `LANG=<code>` (e.g. `LANG=en`).
+- `category` = `$ARGUMENTS[1]` — the ground-truth label to focus on (e.g.
+  `PASSPORT`, `IDCARD`, `TEL`, `SOCIALNUMBER`, `STREET`). Used as `DUMP_MISSES`.
+  For the moved files the category is in the filename
   (`1english_openpii_30k.STREET.valid.jsonl` → `STREET`).
+  - **mini10k labels are normalized to the 300k vocabulary**, so `DUMP_MISSES`
+    must use the canonical token: `GIVENNAME→GIVENNAME1`, `SURNAME→LASTNAME1`,
+    `TELEPHONENUM→TEL`, `ZIPCODE→POSTCODE`, `BUILDINGNUM→BUILDING`,
+    `IDCARDNUM→IDCARD`, `DRIVERLICENSENUM→DRIVERLICENSE`, `PASSPORTNUM→PASSPORT`,
+    `SOCIALNUM→SOCIALNUMBER`. The 4 mini10k-only labels keep their names
+    (`CREDITCARDNUMBER`, `TAXNUM`, `AGE`, `GENDER`).
 
 If either is missing, ask the user for it before continuing. Do not guess.
+
+`supported-only` flag (optional, any position in `$ARGUMENTS`): when present —
+as the literal token `supported-only`/`supported_only`, or failing that the
+phrase "supported (categories) only" in the request — set `SUPPORTED_ONLY=1` on
+every `ctl eval` command below. It drops unsupported categories (SEX, CITY,
+DATE, …) from the report and from the precision/recall/F1 totals, and is
+schema-independent (works with both `openpii300k` and `mini10k`). Otherwise leave
+it unset.
 
 ## Step 2 — Precondition: proxy must be running
 
@@ -36,9 +59,16 @@ If the eval report later shows "every request failed", the proxy isn't running.
 
 ## Step 3 — Run the eval
 
+Pick the dataset selector from Step 1 — a file path or a schema keyword:
+
 ```bash
+# A dataset file:
 DATASET=<dataset> DUMP_MISSES=<CATEGORY> DUMP_CONTEXT=1 docker/ctl eval
+# Or a schema (auto-fetched); narrow with LANG if wanted:
+SCHEMA=mini10k LANG=en DUMP_MISSES=<CATEGORY> DUMP_CONTEXT=1 docker/ctl eval
 ```
+
+Append `SUPPORTED_ONLY=1` to either command when the `supported-only` flag was given.
 
 - `DUMP_CONTEXT=1` prints the full input row and the ground-truth redaction under
   each missed value.
