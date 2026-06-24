@@ -125,7 +125,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::Street,
                 Language::En,
-                r"(?i)(?:streets?|street[\s_-]?names?)<<C>>((?:\d{1,4}(?:st|nd|rd|th)\s+|[A-Za-z][A-Za-z'\-]+\s+)(?:[A-Za-z][A-Za-z'\-]+\s+){0,4}(?:Road|Street|Lane|Avenue|Boulevard|Way|Close|Drive|Court|Place|Terrace|Crescent|Square|Walk|Row|Gardens|Grove|Mews|Parade|Trail|Fields|Yard|Park|Hill|Highway|Parkway|Circle|Rise|Green|Common|Gate|View|Vale|Croft|Meadow|Heights|Path|Alley|Pike|Broadway)(?:\s+\d{1,4})?|Broadway)",
+                r"(?i)(?:streets?|street[\s_-]?names?|address(?:es)?)<<C>>(?:(?:at|on|in|to)\s+)?(?:\d{1,4}[A-Za-z]?\s+)?((?:(?:\d{1,4}(?:st|nd|rd|th)\s+|[A-Za-z][A-Za-z'\-]+\s+)(?:[A-Za-z][A-Za-z'\-]+\s+){0,4}|\d{1,4}\s+)(?:Road|Street|Lane|Avenue|Boulevard|Way|Close|Drive|Court|Place|Terrace|Crescent|Square|Walk|Row|Gardens|Grove|Mews|Parade|Trail|Fields|Yard|Park|Hill|Highway|Parkway|Circle|Rise|Green|Common|Gate|View|Vale|Croft|Meadow|Heights|Path|Alley|Pike|Line|Sideroad|Concession)(?:\s+(?:North|South|East|West|Northwest|Northeast|Southwest|Southeast|N|S|E|W|NW|NE|SW|SE))?(?:\s+\d{1,4})?|Broadway|Highway\s+\d{1,4}[A-Za-z]?)",
                 always_valid,
             ),
             (
@@ -375,7 +375,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::NzPassportNumber,
                 Language::En,
-                r"(?i)(?:new[\s_-]?zealand[\s_-]?passports?|nz[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]{1,2}\d{6,7})\b",
+                r"(?i)(?:new[\s_-]?zealand[\s_-]?passports?|nz[\s_-]?passports?|passport[\s_-]?details?|passport[\s_-]?copy|passport[\s_-]?reference|passport[\s_-]?identifier|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]{1,2}\d{6,7})\b",
                 always_valid,
             ),
             (
@@ -1952,6 +1952,10 @@ mod tests {
     #[test_case("passport number: XY987654", PiiKind::CaPassportNumber, "XY987654" ; "ca passport generic keyword")]
     #[test_case("new zealand passport: NZ123456", PiiKind::NzPassportNumber, "NZ123456" ; "nz passport")]
     #[test_case("nz passport: L1234567", PiiKind::NzPassportNumber, "L1234567" ; "nz passport short keyword")]
+    #[test_case("passport details (AM2912928) before the first", PiiKind::NzPassportNumber, "AM2912928" ; "passport details synonym")]
+    #[test_case("upload your passport copy (CY8640011)", PiiKind::NzPassportNumber, "CY8640011" ; "passport copy synonym")]
+    #[test_case("the passport reference is OO3807657", PiiKind::NzPassportNumber, "OO3807657" ; "passport reference synonym")]
+    #[test_case("their passport identifier PC6746759 for record", PiiKind::NzPassportNumber, "PC6746759" ; "passport identifier synonym")]
     #[test_case("irish passport: AB1234567", PiiKind::IePassportNumber, "AB1234567" ; "ie passport")]
     #[test_case("ireland passport: CD7654321", PiiKind::IePassportNumber, "CD7654321" ; "ie passport ireland keyword")]
     #[test_case("german passport: C01X00T47", PiiKind::DePassportNumber, "C01X00T47" ; "de passport en keyword")]
@@ -2787,6 +2791,12 @@ mod tests {
     #[test_case("street-name: Freitag Way", PiiKind::Street, "Freitag Way" ; "street name kebab-case")]
     #[test_case("\"Street\":\"Pitchens Close\"", PiiKind::Street, "Pitchens Close" ; "street json shape")]
     #[test_case("Street: Old Bristol Road", PiiKind::Street, "Old Bristol Road" ; "street three word name")]
+    #[test_case("local address at 22 Argyle Avenue", PiiKind::Street, "Argyle Avenue" ; "street address keyword strips house number")]
+    #[test_case("current residential address at 3014 Francis Peninsula Road", PiiKind::Street, "Francis Peninsula Road" ; "street residential address strips house number")]
+    #[test_case("Residential Address: Lakeshore Road", PiiKind::Street, "Lakeshore Road" ; "street residential address label")]
+    #[test_case("address: 4th Line", PiiKind::Street, "4th Line" ; "street line suffix ontario")]
+    #[test_case("home address: Highway 6", PiiKind::Street, "Highway 6" ; "street highway numbered")]
+    #[test_case("address: 2 Avenue Southwest", PiiKind::Street, "2 Avenue Southwest" ; "street numbered avenue with direction")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -3417,6 +3427,7 @@ mod tests {
     #[test_case("Building 282 is on the left", PiiKind::SecondaryAddress ; "secaddr bare unit no keyword")]
     #[test_case("I walked down Maple Street yesterday", PiiKind::Street ; "street bare name in prose no label")]
     #[test_case("the shop on Oxford Street today", PiiKind::Street ; "street suffix mention no label")]
+    #[test_case("please update your email address soon", PiiKind::Street ; "street address keyword no suffix")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);
