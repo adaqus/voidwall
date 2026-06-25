@@ -1,0 +1,159 @@
+---
+name: ai4privacy-audit
+description: Rigorously audit an already-swept AI4Privacy *.valid.jsonl for fake or broken ground truth, moving only confirmed-invalid rows out so the remainder is an honest precision/recall set. Unlike ai4privacy-sweep it keeps EVERY genuinely-valid value the detector merely misses (keyword-less, loose-structure, no nearby trigger) — those are real recall gaps. It removes a row only when its category spans are corrupted or fail the real-world spec/validator. Use to finalize a category's ground truth into a distortion-free eval dataset.
+---
+
+Audit the valid-rows file `$ARGUMENTS[0]`, validating every category span and
+moving only the fabricated/broken rows out, so what remains measures the
+detector's real recall and precision.
+
+# Finalize a category's ground truth into an honest eval set
+
+This is the **second-stage, validity-only** sibling of `ai4privacy-sweep`. Sweep
+bulk-sorts the raw dataset; this audits sweep's `*.valid.jsonl` output more
+meticulously. It shares sweep's mechanics but has a different burden of proof:
+
+- **Burden of proof is on KEEP — for validity only.** A row stays unless you can
+  positively confirm its category spans are fake or broken. "Probably a real PII"
+  → **keep**. Never remove on suspicion.
+- **Detectability is irrelevant.** A valid value with **no nearby keyword** or a
+  **loose structure** the crate can't safely match is a **legitimate recall
+  miss** and **must stay**. Removing it would manufacture fake 100% recall — the
+  opposite of the goal. This is the one place sweep is wrong for this purpose:
+  sweep's "keyword-gated, no keyword → delete" rule (its criterion #3) is
+  **dropped here**.
+- **Never fixes.** It does not touch the detector.
+- **Binary sort — every examined miss moves to one of two files.**
+  - **if** you are confident the span is **fake/broken** (corrupted, or fails the
+    spec/validator) → move to the `.invalid` file;
+  - **else** → move to the `.clean` file (the honest eval set).
+  Only the `.invalid` side needs confidence.
+- **Bounded.** Examine at most **100 misses** per invocation, then checkpoint and
+  stop. The user re-invokes to continue.
+
+Be concise. Do not narrate every row — report totals at the end.
+
+## Step 1 — Resolve arguments
+
+- `input` = `$ARGUMENTS[0]` — path to the `*.valid.jsonl` to audit, e.g.
+  `.cache/ai4privacy-moved/1english_openpii_30k.PASSPORT.valid.jsonl`.
+- `category` = `$ARGUMENTS[1]` if given, else parse it from the filename — the
+  token between the dataset basename and `.valid.jsonl`
+  (`1english_openpii_30k.PASSPORT.valid.jsonl` → `PASSPORT`). This token is
+  already the canonical `DUMP_MISSES` label sweep used; pass it through verbatim.
+- `basename` = the dataset basename, i.e. the filename with `.<CATEGORY>.valid.jsonl`
+  stripped (`1english_openpii_30k`).
+- `language` = derive from `basename` if obvious (`1english…` → `en`); used only
+  to narrow the eval. Optional — the input is a single file, so `LANG` just
+  filters by each row's `language` field.
+
+If `input` is missing, ask the user once. Do not guess.
+
+## Step 2 — Precondition: proxy must be running
+
+```bash
+docker/ctl start
+```
+
+If the eval later reports "every request failed", the proxy isn't running.
+
+## Step 3 — Capture up to 100 misses in one eval pass
+
+Run the eval **once** against the input file, dumping the missed rows:
+
+```bash
+DATASET=<input> DUMP_MISSES=<CATEGORY> \
+  DUMP_CONTEXT_FILE=/tmp/ai4p_audit_misses.txt DUMP_CONTEXT_LIMIT=100 \
+  LANG=<language> docker/ctl eval
+```
+
+(Drop `LANG` if the basename gives no clear language.) The misses are dumped in
+the same grouped format `ai4privacy-sweep` documents in its Step 3 — read
+`/tmp/ai4p_audit_misses.txt`.
+
+The `*.valid.jsonl` rows are detector misses by construction, so nearly all of
+them dump here. Any value that **fails the validator is necessarily a miss** (the
+crate rejected it), so this pass surfaces every removal candidate. Rows the
+detector now *hits* won't dump — they are valid by construction and stay in the
+input untouched.
+
+If the section prints `(none — every <CATEGORY> GT span was detected)`, there is
+nothing to audit — report that and stop.
+
+## Step 4 — Triage each miss: invalid-or-clean
+
+**Ground truth is `privacy_mask`, not `target_text`** — same rule as
+`ai4privacy-sweep` Step 4. For each missed value, find the span(s) in the row's
+`privacy_mask` with `label == <CATEGORY>`; `source_text[start:end]` locates the
+value exactly.
+
+Walk the groups in order, up to 100. **Move a span to `.invalid` only when you are
+confident one of these holds:**
+
+- **Corrupted span** — the annotation is broken: `value != source_text[start:end]`,
+  a leaked placeholder token (pattern `[A-Z][A-Z_]*_[A-Z]\(`, e.g.
+  `PASSPORT_B(…`), or merged JSON/newline junk (`\n`, `{`, `}`, `":`).
+- **Invalid value** — the value is not valid for the category. **Validate it
+  yourself, rigorously**, against the real-world spec **and** the crate's checks
+  in `crates/pii/src/validators.rs` (Luhn for cards, date validity, country ID
+  checksums, passport shape, length). A value the spec rejects is fabricated GT.
+  This is the meticulous check sweep skipped — do not pass a value to `.clean`
+  without confirming it.
+
+**Everything else is clean** → move to the `.clean` file. This **explicitly
+includes** valid values with no nearby keyword and valid values with a loose
+format the detector can't safely match — they are real recall gaps and belong in
+the honest set. No detectability test. If you are not confident a value is
+fake/broken, it is clean.
+
+Row-level rule: a row may carry several category spans. Move the row to `.invalid`
+**only when ALL** its `<CATEGORY>` spans are corrupted/invalid. If **any** span is
+a genuine valid value, the row is clean.
+
+## Step 5 — Move the row to its destination file
+
+Destinations live in a new sibling dir, **`.cache/ai4privacy-audited/`** (the move
+script creates it on first write), so the eval — which globs `.cache/ai4privacy/`
+— never re-reads them:
+
+- `.cache/ai4privacy-audited/<basename>.<CATEGORY>.clean.jsonl` — passed audit (honest eval set);
+- `.cache/ai4privacy-audited/<basename>.<CATEGORY>.invalid.jsonl` — fabricated/broken GT.
+
+Use the **same `scripts/move_ai4privacy_rows.py`** and the **same fragment
+precision** discipline as `ai4privacy-sweep` Step 5 — the source is the **input
+`*.valid.jsonl`**, the destination is whichever file the row belongs to:
+
+1. Build a distinctive fragment from `source_text` around the span (value plus a
+   neighbouring key/label), not the bare value.
+2. Dry-run against the chosen destination:
+
+   ```bash
+   scripts/move_ai4privacy_rows.py <input> .cache/ai4privacy-audited/<basename>.<CATEGORY>.invalid.jsonl "<fragment>" --dry-run
+   scripts/move_ai4privacy_rows.py <input> .cache/ai4privacy-audited/<basename>.<CATEGORY>.clean.jsonl   "<fragment>" --dry-run
+   ```
+
+   Narrow the fragment until it hits only the intended row(s).
+3. Move for real with `--max <n>` (the row count you intend) as an over-move
+   backstop:
+
+   ```bash
+   scripts/move_ai4privacy_rows.py <input> .cache/ai4privacy-audited/<basename>.<CATEGORY>.invalid.jsonl "<fragment>" --max <n>
+   scripts/move_ai4privacy_rows.py <input> .cache/ai4privacy-audited/<basename>.<CATEGORY>.clean.jsonl   "<fragment>" --max <n>
+   ```
+
+Count each move. Track `examined`, `invalid`, `clean`.
+
+## Step 6 — Checkpoint and stop
+
+After 100 misses (or the list is exhausted), append a one-line record to
+`.cache/ai4privacy/audit_progress.log`:
+
+```
+<ISO-timestamp> input=<basename>.<CATEGORY> examined=<n> invalid=<n> clean=<n> remaining=<input row count>
+```
+
+Then report a short summary: examined, moved-to-invalid, moved-to-clean, and the
+paths to both audited files. **Stop.** Do not re-run the eval — the user
+re-invokes to audit the next batch. To measure honest recall/precision afterward,
+point the eval's `DATASET` at the `.clean.jsonl` file (a single file, not the
+audited dir, which globs every `*.jsonl`).
