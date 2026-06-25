@@ -395,6 +395,8 @@ const KNOWN_GAPS: &[&str] = &[
     "USERNAME",
     "AGE",    // mini-10k: numeric age, no detector
     "GENDER", // mini-10k: gender term, no detector
+    "BUILDING", // building number — no dedicated detector, only incidental
+              // overlap from composite full-address detectors
 ];
 
 /// Normalize a dataset label to the canonical 300k vocabulary. Mini-10k renames
@@ -427,8 +429,8 @@ fn bucket_of(label: &str) -> Bucket {
         // PersonName, DateOfBirth and PreciseGeolocation all live in the
         // keyword-context detector, so names/BOD/GEOCOORD belong here too.
         "GEOCOORD" | "BOD" | "GIVENNAME1" | "GIVENNAME2" | "LASTNAME1" | "LASTNAME2"
-        | "LASTNAME3" | "TEL" | "POSTCODE" | "STREET" | "SECADDRESS" | "BUILDING" | "PASSPORT"
-        | "IDCARD" | "DRIVERLICENSE" | "SOCIALNUMBER" | "TAXNUM" => Bucket::KeywordGated,
+        | "LASTNAME3" | "TEL" | "POSTCODE" | "STREET" | "SECADDRESS" | "PASSPORT" | "IDCARD"
+        | "DRIVERLICENSE" | "SOCIALNUMBER" | "TAXNUM" => Bucket::KeywordGated,
         // mini-10k credit-card number — structural (Luhn) detector, high recall.
         "CREDITCARDNUMBER" => Bucket::Exact,
         l if KNOWN_GAPS.contains(&l) => Bucket::KnownGap,
@@ -500,12 +502,6 @@ fn typed_match(label: &str, predicted: &str) -> bool {
             matches!(
                 predicted,
                 "STREET" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
-            )
-        }
-        "BUILDING" => {
-            matches!(
-                predicted,
-                "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
             )
         }
         "PASSPORT" => predicted.ends_with("PASSPORT_NUMBER") || predicted == "US_PASSPORT_NEW",
@@ -1801,7 +1797,7 @@ mod tests {
     #[test_case("POSTCODE", "FR_POSTAL_CODE", true)]
     #[test_case("STREET", "GB_ADDRESS", true)]
     #[test_case("STREET", "STREET", true)]
-    #[test_case("BUILDING", "STREET", false)]
+    #[test_case("BUILDING", "GB_ADDRESS", false)] // gap — no dedicated detector, not credited
     #[test_case("LASTNAME1", "PERSON_NAME", true)]
     #[test_case("PASSPORT", "DE_PASSPORT_NUMBER", true)]
     #[test_case("PASSPORT", "US_PASSPORT_NEW", true)]
