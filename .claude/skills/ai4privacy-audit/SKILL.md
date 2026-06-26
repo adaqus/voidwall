@@ -1,11 +1,12 @@
 ---
 name: ai4privacy-audit
-description: Rigorously audit an already-swept AI4Privacy *.valid.jsonl for fake or broken ground truth, moving only confirmed-invalid rows out so the remainder is an honest precision/recall set. Validates each value against the spec of the countries the pii crate actually supports for the language: a category in scope for ≥1 supported country is checked against that country's spec; a category no supported country has is removed wholesale. Unlike ai4privacy-sweep it keeps EVERY genuinely-valid value the detector merely misses (keyword-less, loose-structure, no nearby trigger) — those are real recall gaps. Use to finalize a category's ground truth into a distortion-free eval dataset.
+description: Rigorously audit an already-swept AI4Privacy *.valid.jsonl for fake or broken ground truth, sorting every row into an audited .clean honest precision/recall set or a .invalid set of confirmed-fabricated rows. Validates each value against the spec of the countries the pii crate actually supports for the language: a category in scope for ≥1 supported country is checked against that country's spec; a category no supported country has is removed wholesale. Unlike ai4privacy-sweep it keeps EVERY genuinely-valid value the detector merely misses (keyword-less, loose-structure, no nearby trigger) — those are real recall gaps. The final .clean set combines the audited-valid misses with the detector's already-hit (valid-by-construction) rows. Use to finalize a category's ground truth into a distortion-free eval dataset.
 ---
 
 Audit the valid-rows file `$ARGUMENTS[0]`, validating every category span and
-moving only the fabricated/broken rows out, so what remains measures the
-detector's real recall and precision.
+sorting every row into the audited `.clean` set (honest eval set) or the
+`.invalid` set (fabricated/broken GT), so `.clean` measures the detector's real
+recall and precision.
 
 # Finalize a category's ground truth into an honest eval set
 
@@ -45,6 +46,14 @@ meticulously. It shares sweep's mechanics but has a different burden of proof:
     spec/validator) → move to the `.invalid` file;
   - **else** → move to the `.clean` file (the honest eval set).
   Only the `.invalid` side needs confidence.
+- **`.clean` is the complete honest valid set, not just the audited misses.** Two
+  kinds of rows belong in `.clean`: (a) the misses you triage and confirm valid,
+  and (b) the rows the detector already **hits**, which are valid by construction
+  (the detector only fires when the value passes the country validator). The (b)
+  rows never appear in the miss dump, so **Step 7 folds them in at the end** — once
+  no misses remain, the input file holds only detected-valid rows, and they are
+  appended to `.clean` and the input is drained. The honest set lives entirely in
+  `.clean`; the input ends empty.
 - **Bounded.** Examine at most **100 misses** per invocation, then checkpoint and
   stop. The user re-invokes to continue.
 
@@ -88,14 +97,14 @@ DATASET=<input> DUMP_MISSES=<CATEGORY> \
 the same grouped format `ai4privacy-sweep` documents in its Step 3 — read
 `/tmp/ai4p_audit_misses.txt`.
 
-The `*.valid.jsonl` rows are detector misses by construction, so nearly all of
-them dump here. Any value that **fails the validator is necessarily a miss** (the
-crate rejected it), so this pass surfaces every removal candidate. Rows the
-detector now *hits* won't dump — they are valid by construction and stay in the
-input untouched.
+Any value that **fails the validator is necessarily a miss** (the crate rejected
+it), so this pass surfaces every removal candidate. Rows the detector now *hits*
+won't dump — they are **valid by construction** (the detector only fires when the
+value passes the country validator) and are not triaged here; **Step 7** folds
+them into `.clean` once the misses are exhausted.
 
-If the section prints `(none — every <CATEGORY> GT span was detected)`, there is
-nothing to audit — report that and stop.
+If the section prints `(none — every <CATEGORY> GT span was detected)`, there are
+no misses left to triage — skip Steps 4–6 and go straight to **Step 7 (finalize)**.
 
 ## Step 3.5 — Resolve the category's country scope
 
@@ -194,6 +203,32 @@ After 100 misses (or the list is exhausted), append a one-line record to
 
 Then report a short summary: examined, moved-to-invalid, moved-to-clean, and the
 paths to both audited files. **Stop.** Do not re-run the eval — the user
-re-invokes to audit the next batch. To measure honest recall/precision afterward,
+re-invokes to audit the next batch.
+
+If this batch left misses unexamined (you hit the 100 cap), stop here — the input
+still holds untriaged misses, so do **not** run Step 7 yet.
+
+## Step 7 — Finalize: fold detected-valid rows into `.clean`
+
+Run this **only when the miss list is exhausted** — i.e. Step 3 printed
+`(none — every <CATEGORY> GT span was detected)`, or the last batch examined fewer
+than 100 misses and moved them all. At that point every row still in the input is
+detected by the crate, hence valid by construction, and belongs in the honest set.
+
+1. **Confirm there are no misses left.** Re-run the Step 3 eval; it must print
+   `(none — …)`. If misses remain, you are not done — go back to Step 4.
+2. **Append the remaining input rows to `.clean` and drain the input:**
+
+   ```bash
+   cat <input> >> .cache/ai4privacy-audited/<basename>.<CATEGORY>.clean.jsonl
+   : > <input>
+   ```
+
+3. **Verify the partition.** `.clean` + `.invalid` row counts must equal the
+   original `*.valid.jsonl` count, and the input must now be empty.
+
+Report the final totals: `.clean` (= audited-valid misses + detected-valid rows),
+`.invalid`, and confirm the input is drained. To measure honest recall/precision,
 point the eval's `DATASET` at the `.clean.jsonl` file (a single file, not the
-audited dir, which globs every `*.jsonl`).
+audited dir, which globs every `*.jsonl`). `.clean` is now the complete honest
+eval set — this is also what `ai4privacy-merge` prefers over `*.valid.jsonl`.

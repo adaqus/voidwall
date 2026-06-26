@@ -806,21 +806,6 @@ pub(crate) fn za_trn_check(s: &str) -> bool {
 /// Handles formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, "15 March 1990", "March 15, 1990".
 /// Rejects ISO timestamps (values containing 'T' after the date portion).
 pub(crate) fn dob_check(s: &str) -> bool {
-    // Reject ISO timestamps like "2024-10-15T12:00:00" — the 'T'/'t' separator
-    // sits between two digits. A bare 't' inside a month name (e.g. "maart",
-    // "augustus", "oktober", "august") must NOT trigger rejection.
-    let bytes = s.as_bytes();
-    for i in 0..bytes.len() {
-        if (bytes[i] == b'T' || bytes[i] == b't')
-            && i > 0
-            && bytes[i - 1].is_ascii_digit()
-            && i + 1 < bytes.len()
-            && bytes[i + 1].is_ascii_digit()
-        {
-            return false;
-        }
-    }
-
     // Current year upper bound
     const MAX_YEAR: u32 = 2030; // generous upper bound; birth years won't exceed current year
 
@@ -864,8 +849,20 @@ pub(crate) fn dob_check(s: &str) -> bool {
 
     let trimmed = s.trim();
 
+    // Accept an ISO 8601 date-time ("1960-05-27T00:00:00") by validating its date
+    // component only. The 'T'/'t' separator sits between two digits, so a bare 't'
+    // inside a month name ("maart", "august") is never treated as one.
+    let bytes = trimmed.as_bytes();
+    let date_part = (1..bytes.len().saturating_sub(1))
+        .find(|&i| {
+            (bytes[i] == b'T' || bytes[i] == b't')
+                && bytes[i - 1].is_ascii_digit()
+                && bytes[i + 1].is_ascii_digit()
+        })
+        .map_or(trimmed, |i| &trimmed[..i]);
+
     // Try numeric formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD (separators: / - .)
-    let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
+    let parts: Vec<&str> = date_part.split(['/', '-', '.']).collect();
     if parts.len() == 3 {
         let a: Option<u32> = parts[0].trim().parse().ok();
         let b: Option<u32> = parts[1].trim().parse().ok();
@@ -882,22 +879,39 @@ pub(crate) fn dob_check(s: &str) -> bool {
         }
     }
 
-    // Try "DD Month YYYY" — e.g. "15 March 1990", "15 mars 1990"
-    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    // Parse a day with an optional English ordinal suffix and trailing comma:
+    // "15", "3rd", "10th," → the leading digits. Any other trailing text → None.
+    let parse_day = |w: &str| -> Option<u32> {
+        let w = w.trim_end_matches(',');
+        let n: String = w.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let rest = &w[n.len()..];
+        if rest.is_empty()
+            || matches!(
+                rest.to_ascii_lowercase().as_str(),
+                "st" | "nd" | "rd" | "th"
+            )
+        {
+            n.parse().ok()
+        } else {
+            None
+        }
+    };
+
+    // Try "DD Month YYYY" — e.g. "15 March 1990", "3rd October 1965", "15 mars 1990"
+    let words: Vec<&str> = date_part.split_whitespace().collect();
     if words.len() == 3 {
         // "DD Month YYYY"
-        if let (Ok(day), Some(month), Ok(year)) = (
-            words[0].parse::<u32>(),
+        if let (Some(day), Some(month), Ok(year)) = (
+            parse_day(words[0]),
             month_from_name(words[1]),
             words[2].parse::<u32>(),
         ) {
             return valid_date(year, month, day);
         }
-        // "Month DD, YYYY" or "Month DD YYYY"
-        let day_str = words[1].trim_end_matches(',');
-        if let (Some(month), Ok(day), Ok(year)) = (
+        // "Month DD, YYYY" / "Month DDth, YYYY"
+        if let (Some(month), Some(day), Ok(year)) = (
             month_from_name(words[0]),
-            day_str.parse::<u32>(),
+            parse_day(words[1]),
             words[2].parse::<u32>(),
         ) {
             return valid_date(year, month, day);

@@ -421,7 +421,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::En,
-                r"(?i)(?:date[\s_-]?of[\s_-]?birth|birth[\s_-]?date|birthdate|dob|d\.o\.b\.?|born[\s_-]?on)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})",
+                r"(?i)(?:date[\s_-]?of[\s_-]?birth|birth[\s_-]?date|birthdate|dob|d\.o\.b\.?|born[\s_-]?on)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})",
                 dob_check,
             ),
             // Bank accounts
@@ -614,7 +614,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Fr,
-                r"(?i)(?:date[\s_-]?de[\s_-]?naissance|n[eé]e?[\s_-]?le|DDN|d\.d\.n\.?)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:janvier|janv|fevrier|f[eé]vrier|f[eé]vr|mars|avril|avr|mai|juin|juillet|juil|aout|ao[uû]t|septembre|sept|octobre|oct|novembre|nov|decembre|d[eé]cembre|d[eé]c)\s+\d{4})",
+                r"(?i)(?:date[\s_-]?de[\s_-]?naissance|n[eé]e?[\s_-]?le|DDN|d\.d\.n\.?)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:janvier|janv|fevrier|f[eé]vrier|f[eé]vr|mars|avril|avr|mai|juin|juillet|juil|aout|ao[uû]t|septembre|sept|octobre|oct|novembre|nov|decembre|d[eé]cembre|d[eé]c)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -797,7 +797,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::De,
-                r"(?i)(?:Geburtsdatum|geboren[\s_-]?am|Geb\.?datum)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:Januar|Jan|Februar|Feb|M[aä]rz|Maerz|M[aä]r|Mrz|April|Apr|Mai|Juni|Jun|Juli|Jul|August|Aug|September|Sept|Sep|Oktober|Okt|November|Nov|Dezember|Dez)\s+\d{4})",
+                r"(?i)(?:Geburtsdatum|geboren[\s_-]?am|Geb\.?datum)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:Januar|Jan|Februar|Feb|M[aä]rz|Maerz|M[aä]r|Mrz|April|Apr|Mai|Juni|Jun|Juli|Jul|August|Aug|September|Sept|Sep|Oktober|Okt|November|Nov|Dezember|Dez)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1024,7 +1024,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Nl,
-                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:januari|jan|februari|feb|maart|mrt|april|apr|mei|juni|jun|juli|jul|augustus|aug|september|sept|sep|oktober|okt|november|nov|december|dec)\s+\d{4})",
+                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:januari|jan|februari|feb|maart|mrt|april|apr|mei|juni|jun|juli|jul|augustus|aug|september|sept|sep|oktober|okt|november|nov|december|dec)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1136,7 +1136,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::It,
-                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:gennaio|gen|febbraio|feb|marzo|mar|aprile|apr|maggio|mag|giugno|giu|luglio|lug|agosto|ago|settembre|sett|set|ottobre|ott|novembre|nov|dicembre|dic)\s+\d{4})",
+                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:gennaio|gen|febbraio|feb|marzo|mar|aprile|apr|maggio|mag|giugno|giu|luglio|lug|agosto|ago|settembre|sett|set|ottobre|ott|novembre|nov|dicembre|dic)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1256,7 +1256,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Es,
-                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|setiembre|sept|sep|set|octubre|oct|noviembre|nov|diciembre|dic)\s+\d{4})",
+                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|setiembre|sept|sep|set|octubre|oct|noviembre|nov|diciembre|dic)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1417,7 +1417,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Pl,
-                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+(?:stycznia|sty|lutego|lut|marca|mar|kwietnia|kwi|maja|maj|czerwca|cze|lipca|lip|sierpnia|sie|września|wrz|października|paź|listopada|lis|grudnia|gru)\s+\d{4})",
+                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:stycznia|sty|lutego|lut|marca|mar|kwietnia|kwi|maja|maj|czerwca|cze|lipca|lip|sierpnia|sie|września|wrz|października|paź|listopada|lis|grudnia|gru)\s+\d{4})",
                 dob_check,
             ),
             (
@@ -1463,7 +1463,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Nl,
-                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+                r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
             // The Italian month-name alternation likewise silently fails in the
             // combined vectorscan DFA; detect with a generic month token and let
@@ -1471,7 +1471,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::It,
-                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+                r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
             // The Spanish month-name alternation likewise silently fails in the
             // combined vectorscan DFA; detect with a generic month token and let
@@ -1479,7 +1479,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Es,
-                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+                r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
             ),
             // The Polish month-name alternation likewise silently fails in the
             // combined vectorscan DFA; detect with a generic month token and let
@@ -1492,7 +1492,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::Pl,
-                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|\d{1,2}\s+[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,14}\s+\d{4})",
+                r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,14}\s+\d{4})",
             ),
         ];
 
@@ -2002,6 +2002,10 @@ mod tests {
     #[test_case("\"secret_access_key\":\"abcdefghijklmnopqrstuvwxyz0123456789ABCD\"", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret json quoted full key")]
     #[test_case("date of birth: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "dob dd/mm/yyyy")]
     #[test_case("dob: 1990-03-15", PiiKind::DateOfBirth, "1990-03-15" ; "dob iso")]
+    #[test_case("date of birth: 1960-05-27T00:00:00", PiiKind::DateOfBirth, "1960-05-27T00:00:00" ; "dob iso timestamp")]
+    #[test_case("dob: 1990-03-15T12:30", PiiKind::DateOfBirth, "1990-03-15T12:30" ; "dob iso timestamp no seconds")]
+    #[test_case("date of birth: 3rd October 1965", PiiKind::DateOfBirth, "3rd October 1965" ; "dob ordinal day first")]
+    #[test_case("date of birth: November 10th, 1997", PiiKind::DateOfBirth, "November 10th, 1997" ; "dob ordinal month first")]
     #[test_case("born on: 01-01-2000", PiiKind::DateOfBirth, "01-01-2000" ; "dob born on")]
     #[test_case("BSB: 012-345", PiiKind::AuBankAccount, "012-345" ; "au bsb bare")]
     #[test_case("bsb number: 012345", PiiKind::AuBankAccount, "012345" ; "au bsb no hyphen")]
@@ -3227,6 +3231,7 @@ mod tests {
     #[test_case("OHIP: 1234567898", PiiKind::CaOhip ; "ca ohip bad luhn")]
     #[test_case("dob: 15/13/1990", PiiKind::DateOfBirth ; "dob invalid month 13")]
     #[test_case("dob: 00/00/0000", PiiKind::DateOfBirth ; "dob all zeros")]
+    #[test_case("dob: 1990-13-15T00:00:00", PiiKind::DateOfBirth ; "dob iso timestamp invalid month")]
     // France
     #[test_case("numéro de sécu: 1 85 05 78 006 084 99", PiiKind::FrNir ; "fr nir bad checksum")]
     #[test_case("n° sécu: 185036912304533", PiiKind::FrNir ; "fr nir lyon off by one")]
