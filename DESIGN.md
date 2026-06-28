@@ -847,6 +847,13 @@ start if it is not.
 [pii]
 countries = ["International", "Us", "Gb"]
 languages = ["En"]
+# Enable per-detector checksum/format validators. Default: true.
+# Set to false ONLY for AI4Privacy-style effectiveness evaluation against
+# fabricated ground truth — it bypasses every validator scanner-wide and
+# inflates false positives. See "Disabling checksum validation" under the
+# AI4Privacy Effectiveness Evaluation section.
+# validate = true
+#
 # Number of dedicated scanner threads. Each thread owns its own Scanner
 # instance to avoid synchronization overhead. Defaults to the number of
 # available CPU cores (capped at 4 when total cores <= 8, half of cores
@@ -1018,6 +1025,7 @@ error message if any rule is violated.
 | PII scanner valid | `detect` and `ignore` are mutually exclusive (enforced by `pii` crate) |
 | Countries/PII kinds consistent | All PII kinds in `detect` must be reachable from specified countries (enforced by `pii` crate) |
 | Scanner threads valid | `scanner_threads` must be >= 1 if specified |
+| Validation flag | `pii.validate` is a plain bool; defaults to `true` when omitted. No cross-field rule — a startup warning is logged when `false` |
 | User-defined PII labels | Non-empty, unique across `[[pii.custom]]`, and non-colliding with built-in `PiiKind` labels (full namespace) |
 | User-defined PII patterns | Non-empty; regex compilation enforced by `pii` crate at build |
 | User-defined PII cap | Total `[[pii.custom]]` entries <= 64 |
@@ -1205,6 +1213,53 @@ per entity type and overall.**
 This is an *evaluation/reporting tool*, not a regression gate and not part of
 the proxy. It runs occasionally against a running proxy, the same lifecycle
 model as the k6 soak test.
+
+### Disabling checksum validation (eval-only)
+
+Many AI4Privacy ground-truth values are **fabricated** — synthetic IDs,
+checksum-invalid credit cards, formatless social/tax numbers. Voidwall's
+detectors validate structure (Luhn, mod-97 IBAN, codice fiscale, ES DNI, …),
+so these values are correctly *rejected* and never redacted. Against this
+dataset that depresses recall for reasons that have nothing to do with pattern
+coverage. To measure **structural recall** — does the detector's pattern match,
+ignoring whether the checksum is real — the scanner can run with all validators
+bypassed.
+
+**Toggle.** A single boolean, `pii.validate`, default `true`. When `false`,
+every per-detector validator is skipped scanner-wide.
+
+**Plumbing.**
+
+| Layer | Change |
+|-------|--------|
+| `pii` crate | `ScannerBuilder::validate(bool)` (default `true`), threaded into both detector constructors. Each detector stores the flag and gates its validator call sites — `if !validate \|\| (entry.validator)(candidate)`. The `validator` function pointers are left intact; only their invocation is short-circuited. `UserDetector` has no built-in validators and is unaffected. |
+| `proxy` config | `PiiConfig.validate: bool` with an explicit `#[serde(default = "default_true")]` (a bare `#[serde(default)]` would default to `false`). |
+| `build_scanner` | `builder = builder.validate(config.validate)`. |
+| Startup | When `!config.validate`, log a `warn!` ("PII checksum validation disabled — eval mode, expect false positives"). |
+
+The eval harness itself is **unchanged**: it drives the running proxy's
+`POST /v1/redact`, so flipping `pii.validate = false` in the proxy config and
+restarting is the entire operator workflow.
+
+**Granularity: global on/off.** The toggle is all-or-nothing, not per-kind.
+A per-kind skip list would give cleaner numbers but adds config surface beyond
+what the eval workflow needs.
+
+**Tradeoff — this is a measurement mode, not a precision mode.** Validators do
+double duty. Beyond confirming checksums, they are what keep keyword-less,
+structurally-detected rules (codice fiscale, ES DNI/NIE/CIF, PL NIP, IBAN) from
+firing on arbitrary prose, and what keeps overlapping kinds disjoint
+(digit-only vs letter-bearing). With validation off:
+
+- false positives rise sharply across the board, and
+- via `resolve_overlaps`, a now-unfiltered wrong-kind match can win the span
+  the expected category should have occupied — so a few categories may score
+  *worse*, not better.
+
+Recall numbers gathered this way are therefore an optimistic ceiling, and
+precision is not meaningful. The flag is for diagnosing pattern-coverage gaps
+on fabricated ground truth, never for production. It defaults on and is never
+set in any shipped/default config.
 
 ### Endpoint and scoring: `/v1/redact` + diff
 

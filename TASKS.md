@@ -1167,3 +1167,58 @@ the original. Reporting tool, not a `cargo test` target.
   `docker/ctl eval`, metric definitions (including the `raw_precision` /
   `adjusted_precision` band and the `confirmed_unannotated` bucket), the category
   mapping table, and the precision/span-recovery caveats.
+
+---
+
+## Phase 19 — Disable Checksum Validation (eval-only)
+
+See DESIGN.md § "AI4Privacy Effectiveness Evaluation → Disabling checksum
+validation (eval-only)". A single global `pii.validate` boolean (default `true`)
+that bypasses every per-detector checksum/format validator scanner-wide. Its
+only purpose is measuring **structural recall** against AI4Privacy's fabricated
+ground truth (checksum-invalid cards, synthetic IDs), where real validators
+correctly reject values and depress recall for reasons unrelated to pattern
+coverage. It is a measurement mode, not a precision mode: with validation off,
+false positives rise and overlap resolution can let a wrong-kind match steal a
+span — so recall is an optimistic ceiling and precision is not meaningful. The
+flag defaults on and is never set in any shipped/default config.
+
+### 19.1 pii crate: builder + detector gating
+- [ ] Add `validate: bool` field to `ScannerBuilder` (default `true` in
+  `Scanner::builder()`) and a `pub fn validate(mut self, on: bool) -> Self`
+  setter with a doc comment marking it eval-only.
+- [ ] Thread the flag into both detector constructors in `ScannerBuilder::build()`:
+  `HyperscanDetector::new(&enabled_kinds, self.validate)` and
+  `KeywordContextDetector::new(&enabled_kinds, &languages, self.validate)`.
+  `UserDetector` has no built-in validators — leave its signature unchanged.
+- [ ] `HyperscanDetector`: store `validate: bool`; gate all four validator call
+  sites (`hyperscan_detector.rs` ~414, ~429, ~477, ~492) as
+  `if !self.validate || (entry.validator)(candidate)`. Leave the `validator`
+  function pointers intact — only short-circuit their invocation.
+- [ ] `KeywordContextDetector`: store `validate: bool`; gate both validator call
+  sites (`keyword_context_detector.rs` ~1618, ~1660) as
+  `if !self.validate || (pattern.validate)(value_match.as_str())`.
+- [ ] Update existing in-crate `::new` callers (tests, benches) to pass
+  `true` → verify: `cargo check -p pii --all-targets` is clean.
+- [ ] Unit test: a checksum-invalid value (e.g. Luhn-failing credit card) is
+  **missed** with `validate(true)` and **detected** with `validate(false)`,
+  via the public `ScannerBuilder`. Cover one hyperscan-detector kind
+  (CreditCard/Luhn) and one keyword-context kind. → verify: `cargo test -p pii`.
+
+### 19.2 proxy: config field + scanner wiring
+- [ ] Add `pub validate: bool` to `PiiConfig` (`config.rs`) with an explicit
+  `#[serde(default = "default_validate")]` and `fn default_validate() -> bool
+  { true }`. A bare `#[serde(default)]` would default to `false` — must not be
+  used here.
+- [ ] In `build_scanner` (`scanner.rs`), chain `builder = builder.validate(config.validate)`.
+- [ ] At startup, when `!config.validate`, emit one `warn!` line ("PII checksum
+  validation disabled — eval mode, expect false positives"). Place it where
+  the scanner is built so `--validate` config-check runs surface it too.
+- [ ] Unit tests: `validate` defaults to `true` when the `[pii]` key is omitted;
+  round-trips `false` when set. → verify: `cargo test -p pii-proxy config`.
+
+### 19.3 Eval usage
+- [ ] No change to the eval harness or `docker/ctl eval` — confirm the workflow
+  is: set `pii.validate = false` in `docker/proxy.toml`, restart the proxy, run
+  `docker/ctl eval` as usual. Add a one-line note in `docs/ai4privacy-eval.md`
+  (folded into task 18.4) pointing to the flag for structural-recall runs.
