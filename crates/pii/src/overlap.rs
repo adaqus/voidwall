@@ -234,6 +234,26 @@ mod tests {
         assert_eq!(out, vec![m(PiiKind::GbAddress, 10, 80)]);
     }
 
+    #[test]
+    fn name_contained_in_address_dropped() {
+        // A PersonName token sits inside a wider GbAddress span. The generic
+        // containment rule drops the inner name — no PRIORITY_GROUPS entry needed.
+        let input = vec![
+            m(PiiKind::GbAddress, 10, 80),
+            m(PiiKind::PersonName, 22, 33),
+        ];
+        let out = resolve_overlaps(input);
+        assert_eq!(out, vec![m(PiiKind::GbAddress, 10, 80)]);
+
+        // Order-independent.
+        let input = vec![
+            m(PiiKind::PersonName, 22, 33),
+            m(PiiKind::GbAddress, 10, 80),
+        ];
+        let out = resolve_overlaps(input);
+        assert_eq!(out, vec![m(PiiKind::GbAddress, 10, 80)]);
+    }
+
     #[test_case(PiiKind::UsPhoneNumber, PiiKind::InternationalPhoneNumber ; "us beats intl")]
     #[test_case(PiiKind::GbPhoneNumber, PiiKind::InternationalPhoneNumber ; "gb beats intl")]
     #[test_case(PiiKind::FrPhoneNumber, PiiKind::InternationalPhoneNumber ; "fr beats intl")]

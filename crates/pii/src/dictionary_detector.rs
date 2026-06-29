@@ -80,29 +80,41 @@ struct Window {
 /// (and, per start, increasing length). Being lazy lets `has_piis` stop at the
 /// first gated hit without building the rest.
 ///
+/// Windows are produced **only** at a capitalised start token (`cap[i]`):
+/// `gated` rejects any window whose first token isn't capitalised, so skipping
+/// those starts avoids building their keys and FST lookups entirely — a large
+/// win on lowercase prose — while leaving the emitted set unchanged. (A numeric
+/// token is never `cap`, so this also covers the non-numeric-start rule.)
+///
 /// The canonical key collapses any run of separators between tokens to a single
 /// space, so `"Jan   Kowalski"` and `"Jan\nKowalski"` both key as `jan kowalski`.
-fn windows<'a>(text: &'a str, tokens: &'a [Token]) -> impl Iterator<Item = Window> + 'a {
-    (0..tokens.len()).flat_map(move |i| {
-        let upper = (i + MAX_WINDOW).min(tokens.len());
-        // `scan` grows the canonical key one token at a time across the window.
-        tokens[i..upper]
-            .iter()
-            .enumerate()
-            .scan(String::new(), move |key, (j, tok)| {
-                if j > 0 {
-                    key.push(' ');
-                }
-                key.push_str(&normalize(&text[tok.start..tok.end]));
-                Some(Window {
-                    key: key.clone(),
-                    start: tokens[i].start,
-                    end: tok.end,
-                    tok_start: i,
-                    tok_len: j + 1,
+fn windows<'a>(
+    text: &'a str,
+    tokens: &'a [Token],
+    cap: &'a [bool],
+) -> impl Iterator<Item = Window> + 'a {
+    (0..tokens.len())
+        .filter(move |&i| cap[i])
+        .flat_map(move |i| {
+            let upper = (i + MAX_WINDOW).min(tokens.len());
+            // `scan` grows the canonical key one token at a time across the window.
+            tokens[i..upper]
+                .iter()
+                .enumerate()
+                .scan(String::new(), move |key, (j, tok)| {
+                    if j > 0 {
+                        key.push(' ');
+                    }
+                    key.push_str(&normalize(&text[tok.start..tok.end]));
+                    Some(Window {
+                        key: key.clone(),
+                        start: tokens[i].start,
+                        end: tok.end,
+                        tok_start: i,
+                        tok_len: j + 1,
+                    })
                 })
-            })
-    })
+        })
 }
 
 /// The committed names gazetteer, embedded at compile time.
@@ -301,7 +313,7 @@ impl DictionaryDetector {
         // Longest gated window starting at each token, stored as
         // `(last_token, byte_start, byte_end)`.
         let mut best: Vec<Option<(usize, usize, usize)>> = vec![None; tokens.len()];
-        for w in windows(text, &tokens) {
+        for w in windows(text, &tokens, &a.cap) {
             if let Some(f) = self.gaz.get(&w.key)
                 && a.gated(w.tok_start, w.tok_len, f)
             {
@@ -365,7 +377,7 @@ impl Detector for DictionaryDetector {
         let a = self.analyze(input, &tokens);
         // `windows` is lazy, so `any` stops at the first gated hit without
         // building the rest.
-        windows(input, &tokens).any(|w| {
+        windows(input, &tokens, &a.cap).any(|w| {
             self.gaz
                 .get(&w.key)
                 .is_some_and(|f| a.gated(w.tok_start, w.tok_len, f))
@@ -522,7 +534,8 @@ mod tests {
     fn windows_keys_and_spans() {
         let text = "John Smith";
         let tokens = tokenize(text);
-        let ws: Vec<Window> = windows(text, &tokens).collect();
+        let cap = vec![true; tokens.len()];
+        let ws: Vec<Window> = windows(text, &tokens, &cap).collect();
         let got: Vec<(&str, usize, usize)> = ws
             .iter()
             .map(|w| (w.key.as_str(), w.start, w.end))
@@ -537,7 +550,8 @@ mod tests {
     fn multi_space_and_newline_collapse_to_single_space_key() {
         for text in ["John   Smith", "John\nSmith", "John \t Smith"] {
             let tokens = tokenize(text);
-            let two = windows(text, &tokens)
+            let cap = vec![true; tokens.len()];
+            let two = windows(text, &tokens, &cap)
                 .find(|w| w.key.contains(' '))
                 .expect("a 2-token window");
             assert_eq!(two.key, "john smith");
@@ -551,7 +565,8 @@ mod tests {
     fn windows_capped_at_max_window() {
         let text = "a b c d e";
         let tokens = tokenize(text);
-        let max_key_tokens = windows(text, &tokens)
+        let cap = vec![true; tokens.len()];
+        let max_key_tokens = windows(text, &tokens, &cap)
             .map(|w| w.key.split(' ').count())
             .max()
             .unwrap();

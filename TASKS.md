@@ -1321,10 +1321,14 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   `John Smith` is one span.)
 - [x] `has_piis`: return `true` on the first gated hit (short-circuit).
   (Lazy reused-buffer windowing — no full window/key materialization; per review.)
-- [ ] Optimisations (keep simple; add only if benches justify): start windows only
+- [x] Optimisations (keep simple; add only if benches justify): start windows only
   at a capitalised, non-numeric token; FST prefix-pruning via the `raw::Fst`
   node/transition walk to stop extending a window on a dead prefix.
-  (Deferred to 20.9 per the task's own "add only if benches justify".)
+  (20.9 benches justified the caps-start skip: `windows` now only yields at a
+  capitalised start token — output-neutral since `gated` already requires it, and
+  a numeric token is never `cap` — cutting clean-text scan cost ~62–67%
+  (`mark_piis/clean_10kb` 1.34 ms → 489 µs). FST prefix-pruning left out: not
+  needed once caps-start lands, keeping it simple.)
 - [x] Unit tests via `#[test_case]`:
   - bare-hit name with no `ALSO_COMMON_WORD` (`"Kowalski"`/`"Smith"`) → detected,
     span correct
@@ -1386,7 +1390,7 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - Tests cover both the enabled and disabled paths.
 
 ### 20.8 Overlap resolution
-- [ ] Confirm no `overlap.rs` priority-group entry is needed initially —
+- [x] Confirm no `overlap.rs` priority-group entry is needed initially —
   `PersonName` rarely produces an equal-span match with a structured kind; the
   generic containment/longest rules cover the rare overlap (a name token inside an
   address). Add a test asserting a name contained in a wider address span is
@@ -1400,12 +1404,16 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   (and if added, it is justified by a failing case, not speculation).
 
 ### 20.9 Benchmarks
-- [ ] Add a `PERSON_NAME_TEXT` corpus constant (realistic prose with embedded
+- [x] Add a `PERSON_NAME_TEXT` corpus constant (realistic prose with embedded
   names) in `benches/pii_benchmark.rs`.
-- [ ] Add a `per_detector` benchmark entry for `DictionaryDetector`.
-- [ ] Add names into `MIXED_PII_TEXT` so throughput / comparison benches cover the
+- [x] Add a `per_detector` benchmark entry for `DictionaryDetector`.
+  (`throughput_dictionary_detector` — isolated, mirrors the hyperscan/keyword ones.)
+- [x] Add names into `MIXED_PII_TEXT` so throughput / comparison benches cover the
   new kind. → verify: `cargo bench -p pii throughput_mark_piis` shows the names
   path stays microsecond-class (O(text length), per the research doc).
+  (Names present in `MIXED_PII_TEXT` Tier 9 + `Name: Jane Doe`; `mark_piis/names`
+  ~25 µs, `mark_piis/mixed_2kb` ~547 µs — microsecond-class, linear in text length.
+  Benches justified the deferred 20.5 caps-start optimisation, applied below.)
 
 **AC:**
 - `per_detector` entry + `PERSON_NAME_TEXT` corpus added; names present in `MIXED_PII_TEXT`.
@@ -1453,3 +1461,38 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   determinism command.
 - `crates/pii/CLAUDE.md` lists `DictionaryDetector` as the third detector type with its
   scope, activation gate, and build-tool location.
+
+### 20.13 DictionaryDetector throughput optimization
+After 20.9 (caps-start skip), the `throughput` benches show `DictionaryDetector`
+is still the dominant cost in any scan with `PersonName` enabled:
+`throughput_dictionary_detector` runs at **~26 MiB/s** (clean) / ~13 MiB/s
+(names) for `mark_piis`, versus **~1.0–1.4 GiB/s** for `HyperscanDetector` and
+`KeywordContextDetector` — roughly **40× slower**. It accounts for ~425 µs of the
+~490 µs full-scanner `mark_piis/clean_10kb` time, and on `has_piis/clean_10kb`
+(~493 µs) it defeats the cheap detectors' short-circuit. Reduce this without
+changing the emitted match set.
+
+- [ ] Profile the detector to confirm the hotspots (expected: per-window key
+  building — `normalize` + `String` alloc + `key.clone()` per emitted window —
+  and the per-window FST `get`, plus `analyze` re-normalizing every token a
+  second time for the 1-token `raw` lookup).
+- [ ] Implement FST prefix-pruning (the deferred 20.5 item): walk the `raw::Fst`
+  node/transition path token-by-token across a window start, stopping as soon as a
+  prefix has no continuation — so a window is never extended (and no key/lookup is
+  built) past a dead prefix. Avoids both redundant key construction and redundant
+  full-string lookups.
+- [ ] Remove redundant work: share the per-token normalization between `analyze`
+  and `windows` (normalize each token once), and avoid the per-window `String`
+  clone where the FST walk makes it unnecessary.
+- [ ] Re-run `cargo bench -p pii --bench pii_benchmark throughput` and record
+  before/after `throughput_dictionary_detector` and `throughput_mark_piis` /
+  `throughput_has_piis` numbers.
+
+**AC:**
+- Emitted match set is **unchanged** — the full `dictionary_detector` test suite and
+  the AI4Privacy name eval (20.11) stay green with identical matches.
+- `throughput_dictionary_detector` `mark_piis` throughput improves materially over the
+  ~26 MiB/s (clean) / ~13 MiB/s (names) baseline; before/after numbers recorded.
+- No regression to the other detectors' benches (`throughput_hyperscan_detector`,
+  `throughput_keyword_detector`).
+- No PII values logged; spans stay document-absolute byte offsets.

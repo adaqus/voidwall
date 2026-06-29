@@ -1,5 +1,6 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use pii::detector::Detector;
+use pii::dictionary_detector::DictionaryDetector;
 use pii::hyperscan_detector::HyperscanDetector;
 use pii::keyword_context_detector::KeywordContextDetector;
 use pii::{Language, PiiKind, Scanner};
@@ -1720,6 +1721,33 @@ fn throughput_keyword_detector(c: &mut Criterion) {
     group.finish();
 }
 
+// Measures bytes/second throughput of DictionaryDetector in isolation. The FST
+// membership lookup is O(text length) — cost scales with the input, not with the
+// ~124k-entry gazetteer. The clean_10kb input confirms the names path stays
+// microsecond-class on long text with no embedded names.
+fn throughput_dictionary_detector(c: &mut Criterion) {
+    let detector = DictionaryDetector::new().unwrap();
+    let long_clean = make_long_clean_text();
+
+    let inputs: &[(&str, &str)] = &[
+        ("clean_500b", CLEAN_TEXT),
+        ("names", PERSON_NAME_TEXT),
+        ("clean_10kb", &long_clean),
+    ];
+
+    let mut group = c.benchmark_group("throughput_dictionary_detector");
+    for (name, text) in inputs {
+        group.throughput(Throughput::Bytes(text.len() as u64));
+        group.bench_with_input(BenchmarkId::new("has_piis", name), text, |b, input| {
+            b.iter(|| detector.has_piis(input));
+        });
+        group.bench_with_input(BenchmarkId::new("mark_piis", name), text, |b, input| {
+            b.iter(|| detector.mark_piis(input));
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     throughput_mark_piis,
@@ -1731,6 +1759,7 @@ criterion_group!(
     per_pii_kind,
     clean_text_overhead,
     throughput_hyperscan_detector,
-    throughput_keyword_detector
+    throughput_keyword_detector,
+    throughput_dictionary_detector
 );
 criterion_main!(benches);
