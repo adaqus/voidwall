@@ -23,7 +23,7 @@ pub mod flags {
 
 use crate::detector::Detector;
 use crate::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
-use crate::{PiiError, PiiKind, PiiMatch};
+use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 use fst::Map;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
@@ -319,6 +319,22 @@ impl Detector for DictionaryDetector {
                 .is_some_and(|f| a.gated(w.tok_start, w.tok_len, f))
         })
     }
+
+    /// Names need no key-path context, so each fragment's **value** is scanned
+    /// directly (like a pattern-only detector) and matches are shifted by
+    /// `fragment.offset` to document-absolute spans.
+    fn mark_piis_structured(&self, fragments: &[ContextFragment<'_>]) -> Vec<PiiMatch> {
+        fragments
+            .iter()
+            .flat_map(|f| {
+                self.mark_piis(f.value).into_iter().map(|mut m| {
+                    m.start += f.offset;
+                    m.end += f.offset;
+                    m
+                })
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -387,6 +403,25 @@ mod tests {
             got.contains(&("Kowalski".into(), expected_start, expected_start + 8)),
             "got {got:?}"
         );
+    }
+
+    #[test]
+    fn structured_value_detected_with_absolute_offsets() {
+        // Simulates a parsed `{"name": "John Smith"}` fragment: only the value
+        // is scanned, and the match span is shifted to document-absolute bytes.
+        let doc = r#"{"name": "John Smith"}"#;
+        let value_off = doc.find("John Smith").unwrap();
+        let frag = ContextFragment {
+            context: "name",
+            value: "John Smith",
+            offset: value_off,
+        };
+        let d = DictionaryDetector::new().unwrap();
+        let got = d.mark_piis_structured(&[frag]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].kind, PiiKind::PersonName);
+        assert_eq!((got[0].start, got[0].end), (value_off, value_off + 10));
+        assert_eq!(&doc[got[0].start..got[0].end], "John Smith");
     }
 
     #[test]

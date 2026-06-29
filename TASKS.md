@@ -1347,10 +1347,11 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - No PII values are logged (kind names / counts only).
 
 ### 20.6 pii crate: structured scanning support
-- [ ] Override `mark_piis_structured` in `DictionaryDetector` to scan each
+- [x] Override `mark_piis_structured` in `DictionaryDetector` to scan each
   fragment's **value** text directly (names need no key-path context) and
   offset-adjust matches by `fragment.offset`.
-- [ ] Unit test: `{"name": "John Smith"}`-style fragment value → detected with
+  (Mirrors `HyperscanDetector` — reuses `mark_piis(f.value)`, shifts by `f.offset`.)
+- [x] Unit test: `{"name": "John Smith"}`-style fragment value → detected with
   document-absolute offsets.
 
 **AC:**
