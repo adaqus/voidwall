@@ -1222,3 +1222,152 @@ flag defaults on and is never set in any shipped/default config.
   is: set `pii.validate = false` in `docker/proxy.toml`, restart the proxy, run
   `docker/ctl eval` as usual. Add a one-line note in `docs/ai4privacy-eval.md`
   (folded into task 18.4) pointing to the flag for structural-recall runs.
+
+---
+
+## Phase 20 — Dictionary-Based Name Detection (`DictionaryDetector`)
+
+See DESIGN.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
+`docs/ner-vs-regex-latency-research.md`. A new `pii`-crate detector that catches
+dictionary-shaped PII via FST membership lookup over a gazetteer. **Scope: English
+only, `PersonName` (given + surname), standalone candidate detector** (no NER
+second tier). It is built and the FST loaded **only when `PersonName` is enabled**.
+Recall and false-positive rate are to be observed before any further tier is added.
+Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
+
+### 20.1 Data sourcing & offline FST build tool
+- [ ] Add a standalone build tool in the `pii` crate (e.g.
+  `tools/build_names_fst.rs` as a non-default `[[bin]]`, or an `xtask`) that
+  reads the source name lists and emits a single `fst::Map` artifact
+  (`names_en.fst`). It is a **build-time** tool, not shipped in the proxy image.
+- [ ] Source English data from license-clean sources: US SSA given names
+  (public domain), US Census 2010 surnames (public domain), optionally Wikidata
+  given/family names (CC0) for breadth. Do **not** use scraped/leaked dumps.
+  Record provenance + license in a `NOTICE`/README next to the tool.
+- [ ] Normalize on build: lowercase (Unicode-correct) + a fixed Unicode form
+  (NFC); dedup; **sort** keys lexicographically (required by `fst`). Apply the
+  **identical** normalization that the detector will use at query time.
+- [ ] Compute the `u64` value bitmask per form: `IS_GIVEN`, `IS_SURNAME`
+  (a form can be both → OR the bits), and `ALSO_COMMON_WORD` — the latter
+  auto-derived by intersecting the name set with an English word-frequency list
+  (e.g. `wordfreq` / SCOWL / `google-10000-english`) above a chosen threshold.
+- [ ] Frequency-cut the surname long tail to a documented coverage band (keep the
+  artifact to a few MB). Print final entry count + artifact size.
+- [ ] Commit the generated `names_en.fst` artifact (a few MB) to the repo (or
+  document a fetch step); record the build inputs/threshold so it is reproducible.
+- [ ] Verify: rebuild is deterministic (same inputs → byte-identical artifact).
+
+### 20.2 pii crate: kind, flags, dependencies
+- [ ] Confirm or add `PiiKind::PersonName` in `lib.rs` (the proxy config already
+  references `"PersonName"`); ensure `label()` returns `PERSON_NAME` and it is
+  reachable for `Country::International` so it is not country-gated.
+- [ ] Add dependencies to `crates/pii/Cargo.toml`: `fst` and
+  `unicode-segmentation`. (Exact-membership + prefix walk only — the `levenshtein`
+  feature is **not** needed for v1.)
+- [ ] Define the flag bitmask constants in one place (e.g.
+  `dictionary_detector.rs`): `IS_GIVEN`, `IS_SURNAME`, `ALSO_COMMON_WORD`. These
+  must match the build tool (20.1) exactly — add a comment cross-linking the two.
+
+### 20.3 pii crate: FST loading
+- [ ] Load the artifact into a `fst::Map` and wrap it for read-only sharing. Use
+  `include_bytes!` to embed the committed artifact (gives a `&'static [u8]`, so a
+  single copy is shared across all threads with no per-thread cost and no runtime
+  file path), or mmap a path if embedding proves too large — pick one, document why.
+- [ ] Map load/parse failure to a clear `PiiError` surfaced at scanner build time
+  (so `--validate` catches a corrupt artifact), not a runtime panic.
+- [ ] Unit test: the artifact loads, `len() > 0`, and a known name (`"smith"`)
+  resolves with the expected flags. → verify: `cargo test -p pii dictionary`.
+
+### 20.4 pii crate: tokenization & windowing
+- [ ] Implement tokenization via `unicode_word_indices`, producing tokens with
+  `(start, end)` **byte offsets** into the input (skips whitespace/punctuation,
+  valid UTF-8 boundaries).
+- [ ] Implement 1–3 adjacent-token windowing producing, per window: a **canonical
+  lookup key** (tokens lowercased + NFC, single-space joined) and the **original
+  byte span** `(first.start, last.end)`.
+- [ ] Unit tests: token offsets correct for ASCII + accented input; multi-space /
+  newline between tokens still yields a single-space canonical key;
+  hyphenated token (`Jean-Pierre`) splits (documented behaviour).
+
+### 20.5 pii crate: `DictionaryDetector` core (lookup + gating)
+- [ ] Implement `DictionaryDetector` (`crates/pii/src/dictionary_detector.rs`)
+  implementing the `Detector` trait (`Send + Sync`).
+- [ ] `mark_piis`: tokenize → window → FST lookup → emit a `PersonName`
+  `PiiMatch` over the original byte span on a (gated) hit.
+- [ ] Precision gating: a hit with `ALSO_COMMON_WORD` set is **suppressed unless
+  promoted** by cheap evidence — capitalisation mid-sentence, an adjacent
+  given+surname pair, or a nearby title/honorific keyword (`Mr.`, `Dr.`). Forms
+  **without** `ALSO_COMMON_WORD` fire on a bare hit.
+- [ ] Prefer the **longest** overlapping window at the same start (or emit all and
+  rely on `resolve_overlaps`); ensure spans are document-absolute byte offsets.
+- [ ] `has_piis`: return `true` on the first gated hit (short-circuit).
+- [ ] Optimisations (keep simple; add only if benches justify): start windows only
+  at a capitalised, non-numeric token; FST prefix-pruning via the `raw::Fst`
+  node/transition walk to stop extending a window on a dead prefix.
+- [ ] Unit tests via `#[test_case]`:
+  - bare-hit name with no `ALSO_COMMON_WORD` (`"Kowalski"`/`"Smith"`) → detected,
+    span correct
+  - multi-token name (`"John Smith"`) → single longest-window match
+  - `ALSO_COMMON_WORD` form lowercase mid-prose (`"i will go"`) → **not** detected
+  - same form promoted by evidence (`"Mr. Will"` / `"Will Smith"`) → detected
+  - no-hit token (`"asdfghjkl"`) → not detected
+  - offsets are document-absolute within surrounding text
+
+### 20.6 pii crate: structured scanning support
+- [ ] Override `mark_piis_structured` in `DictionaryDetector` to scan each
+  fragment's **value** text directly (names need no key-path context) and
+  offset-adjust matches by `fragment.offset`.
+- [ ] Unit test: `{"name": "John Smith"}`-style fragment value → detected with
+  document-absolute offsets.
+
+### 20.7 pii crate: registration & activation
+- [ ] Register `DictionaryDetector` in `Scanner::new()` / `ScannerBuilder::build()`
+  **after `KeywordContextDetector` (last in the chain)** — rationale: `mark_piis`
+  order is output-neutral (`resolve_overlaps` arbitrates), and last placement lets
+  the cheap vectorscan detectors short-circuit `has_piis` first.
+- [ ] **Activation gate:** construct the detector and load the FST **only when
+  `PersonName` is in the enabled kind set** (present in `detect`, or not in
+  `ignore`). When `PersonName` is disabled, the detector is not built and the FST
+  is never loaded.
+- [ ] Unit tests: with `PersonName` enabled, the scanner has the detector and
+  detects a sample name; with `PersonName` excluded (via `ignore` / absent from
+  `detect`), no `PersonName` match fires and the artifact is not loaded. → verify:
+  `cargo test -p pii`.
+
+### 20.8 Overlap resolution
+- [ ] Confirm no `overlap.rs` priority-group entry is needed initially —
+  `PersonName` rarely produces an equal-span match with a structured kind; the
+  generic containment/longest rules cover the rare overlap (a name token inside an
+  address). Add a test asserting a name contained in a wider address span is
+  dropped by the generic rule; only add a priority entry if an equal-span clash is
+  observed.
+
+### 20.9 Benchmarks
+- [ ] Add a `PERSON_NAME_TEXT` corpus constant (realistic prose with embedded
+  names) in `benches/pii_benchmark.rs`.
+- [ ] Add a `per_detector` benchmark entry for `DictionaryDetector`.
+- [ ] Add names into `MIXED_PII_TEXT` so throughput / comparison benches cover the
+  new kind. → verify: `cargo bench -p pii throughput_mark_piis` shows the names
+  path stays microsecond-class (O(text length), per the research doc).
+
+### 20.10 Proxy integration (verification only — no new config)
+- [ ] Verify `PersonName` flows end-to-end through the existing pipeline with **no
+  new config keys**: enabling via `[pii].detect` / `ignore`,
+  `pii_proxy_detections_total{pii_kind="PERSON_NAME"}`, `X-PII-Detected`, and
+  `[PERSON_NAME]` `type_label` redaction.
+- [ ] Integration test (`crates/proxy/tests/`): a request/body containing a name
+  → `PersonName` detected, redacted as `[PERSON_NAME]`, metric labelled
+  `pii_kind="PERSON_NAME"`; with `PersonName` disabled in config, no detection.
+
+### 20.11 AI4Privacy eval
+- [ ] Run `docker/ctl eval` for the name categories
+  (`GIVENNAME*`/`LASTNAME*` → `PERSON_NAME`) before/after the detector to record
+  the recall lift and the false-positive impact (the metric the standalone phase
+  exists to measure). Capture the numbers in the eval notes.
+
+### 20.12 Documentation
+- [ ] Document the offline FST build (inputs, licenses, normalization, frequency
+  threshold, rebuild command) next to the build tool.
+- [ ] Update `crates/pii/CLAUDE.md`: note `DictionaryDetector` as a third detector
+  type (dictionary/FST membership), its English-only/`PersonName` scope, the
+  activation gate, and the build-tool location.

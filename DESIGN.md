@@ -278,6 +278,143 @@ existing rules (no PII in logs/metrics/responses) are unaffected.
 
 ---
 
+## Dictionary-Based Detection (`DictionaryDetector`)
+
+The keyword-gated regex detectors have low recall on **dictionary-shaped PII** —
+values drawn from a finite, enumerable vocabulary rather than a generated format.
+Names are the motivating case (recall ~12–38%); see
+`docs/ner-vs-regex-latency-research.md` for the full analysis. `DictionaryDetector`
+is a new `pii`-crate detector that catches this class via **FST membership lookup**
+over a gazetteer — microsecond-class, complementing (not replacing) the
+vectorscan + regex chain.
+
+**Scope of this design.** Ships **standalone, English-only, for `PersonName`
+(given + surname)**, and **only when `PersonName` is enabled in configuration**
+(see "Activation"). It is a *candidate detector*, not a contextual disambiguator:
+recall and false-positive rate are observed in production before any second tier is
+added. The data structure and scan flow are dictionary- and language-agnostic (the
+same machinery later serves other languages and other dictionaries — cities,
+organisations, etc.), but only the English names instantiation is in scope here. A
+contextual NER second tier is **explicitly out of scope** (see "Phasing").
+
+### Data structure
+
+A memory-mapped **`fst::Map`** of English name surface forms; the value is a `u64`
+flag bitmask:
+
+| Flag | Meaning |
+|------|---------|
+| `IS_GIVEN` / `IS_SURNAME` | role of the form |
+| `ALSO_COMMON_WORD` | the form is also an ordinary word (`Will`, `Rose`) → don't fire on a bare hit |
+
+There is **no per-language flag**: a name form (`Anna`, `Thomas`) routinely belongs
+to several languages, so a language bit would be ambiguous and wrong. The FST holds
+one English set; multi-language support (later) builds separate artifacts or merges
+without per-entry language tagging — see "Phasing".
+
+- Built **offline** from public-domain / CC0 sources (US SSA given names, US Census
+  surnames, optionally Wikidata for breadth). `ALSO_COMMON_WORD` is auto-derived by
+  intersecting the name set with an English word-frequency list — not hand-curated.
+- One artifact, **loaded once and shared read-only across all scanner threads**
+  (`Arc` over an mmap). Unlike the per-thread `pii::Scanner` state, the FST is
+  immutable, so a single copy is shared — it does **not** multiply per thread.
+- Size: a few MB for English common coverage (smaller than a quantised NER model).
+  It is a **separate structure**, not added to the vectorscan DB, so it does not
+  affect vectorscan compile time or the keyword-DFA size budget.
+
+### Detection flow
+
+`DictionaryDetector` behaves like a pattern-only detector (no keyword context
+required). For each scanned text:
+
+1. **Tokenize** with Unicode-aware word boundaries (`unicode-segmentation`),
+   keeping each token's `(start, end)` **byte offsets** (so `Will` is never matched
+   inside `Williams`, and spans feed redaction / `resolve_overlaps`).
+2. **Window** 1–3 adjacent tokens (covers `De La Cruz`, `van der Berg`). Per window
+   build a canonical lookup key (tokens lowercased, single-space joined) and keep
+   the original byte span.
+3. **Look up** the key in the FST; on a hit, apply gating (below) and emit a
+   `PersonName` match over the original byte span.
+
+Cost is **O(text length)**, tens of µs/request, and **independent of dictionary
+size**. The ~3× window constant is trimmed by (a) only starting a window at a
+capitalised, non-numeric token, and (b) FST prefix-pruning (stop extending a window
+once its prefix dead-ends in the automaton).
+
+In **structured scanning**, it overrides `mark_piis_structured` to scan each
+fragment's **value** text directly and offset-adjust — names need no key-path
+context, unlike keyword-gated kinds.
+
+### Precision gating
+
+A hit means "known name *form*," not "person *here*." To control false positives in
+the standalone phase, a hit with `ALSO_COMMON_WORD` set is **suppressed unless
+promoted** by cheap evidence:
+
+- capitalisation mid-sentence,
+- an adjacent given+surname pair (`John Smith`),
+- nearby title/honorific keyword (`Mr.`, `Dr.`) — reusing existing keyword context.
+
+Forms without `ALSO_COMMON_WORD` fire on a bare hit. The residual name-*use* vs
+word-*use* call (`will`/`rose`/`mark` used as ordinary words) is genuine
+disambiguation that a lookup cannot make; it is deferred, not solved here. (When
+other languages are added, the capitalisation gate weakens — notably German, where
+all nouns are capitalised; see the research doc.)
+
+### Placement in the detector chain
+
+Registered in `Scanner::new()` **after `KeywordContextDetector` (last in the
+chain)**:
+
+- `mark_piis` concatenates all detectors and the proxy resolves the union via
+  `pii::resolve_overlaps`, so chain order **does not affect output**.
+- `has_piis` short-circuits on the first match, so the cheap single-pass vectorscan
+  detectors should run first; the tokenisation-heavy `DictionaryDetector` runs last
+  and is skipped once structured PII is already found.
+- `PersonName` rarely produces an equal-span match with a structured kind, so no
+  `overlap.rs` priority-group entry is needed initially — the generic
+  containment/longest rules cover the rare overlap (a name token inside an address).
+
+### Activation
+
+The detector is **built and registered only when `PersonName` is in the enabled
+kind set** — i.e. present in `[pii].detect`, or (in `ignore` mode) not listed in
+`ignore`. When `PersonName` is disabled, `DictionaryDetector` is **not constructed
+and the FST is never loaded**, so disabling it costs nothing at startup or on the
+hot path. This is the existing kind-enable mechanism (`detect`/`ignore`) used as the
+on/off switch — no new config keys. A dedicated threshold/gating knob may be added
+later if the observed FP rate requires finer control than the kind-level toggle.
+
+### Proxy-facing surface
+
+Minimal — `PersonName` already exists as a `PiiKind` and flows through the existing
+pipeline unchanged: it appears in `[pii].detect` / `ignore`,
+`pii_proxy_detections_total{pii_kind="PERSON_NAME"}`, `X-PII-Detected`, and
+`[PERSON_NAME]` redaction output. No new config keys, metrics, or response fields.
+
+### Phasing
+
+- **Phase 1 (this design):** standalone, English-only FST `PersonName` detector with
+  conservative gating, active only when `PersonName` is enabled. Measure recall and
+  false-positive rate on real traffic and the AI4Privacy eval.
+- **Phase 2 (future, out of scope):** additional languages (separate/merged FST
+  artifacts, no per-entry language tag) and/or an optional, GPU-backed contextual NER
+  second tier for the residual disambiguation, with the FST acting as a candidate
+  generator / recall booster. Whether either is worth building depends on whether
+  high name recall is a paid requirement — see the research doc's verdict.
+
+### Known limits (to be measured)
+
+- **Recall ceiling** — only matches forms in the gazetteer; OOV / foreign / novel
+  names are missed.
+- **Precision** — homographs leak where the cheap gates fail (English female names
+  like `Rose`/`Grace` and verb-names like `Will`/`May`/`Mark`/`Sue` used as ordinary
+  words). This is the axis that does not improve as the dictionary grows; it is
+  handled by the `ALSO_COMMON_WORD` flag and, ultimately, the Phase-2 NER. (Other
+  languages add their own homograph profiles — see the research doc.)
+
+---
+
 ## Specializations
 
 A *specialization* is an adapter that knows the wire format of a specific
