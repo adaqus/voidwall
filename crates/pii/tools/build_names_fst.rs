@@ -24,22 +24,17 @@ use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 use fst::MapBuilder;
-use unicode_normalization::UnicodeNormalization;
 
-// Flag bitmask — imported from the crate so the artifact and the detector can
-// never drift (single source of truth in src/dictionary_detector.rs). The FST
-// value for each key is the OR of these bits.
+// Imported from the crate so the artifact and the detector can never drift
+// (single source of truth in src/dictionary_detector.rs):
+//   - flag bitmask: the FST value for each key is the OR of these bits;
+//   - `normalize`: the canonical lowercase + NFC key normalization, applied
+//     identically here (build) and at query time (or lookups silently miss).
 use pii::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
+use pii::dictionary_detector::normalize;
 
 /// Drop name forms shorter than this (initials, stray single letters).
 const MIN_NAME_LEN: usize = 2;
-
-/// Canonical normalization for a name key. **Must be identical** at build time
-/// (here) and at query time in the detector (TASKS.md 20.4/20.5), or `contains`
-/// silently misses. Order: lowercase (Unicode-correct) → NFC.
-fn normalize(s: &str) -> String {
-    s.trim().to_lowercase().nfc().collect()
-}
 
 fn main() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

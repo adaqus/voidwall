@@ -1290,13 +1290,15 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   resolves with the expected flags. → verify: `cargo test -p pii dictionary`.
 
 ### 20.4 pii crate: tokenization & windowing
-- [ ] Implement tokenization via `unicode_word_indices`, producing tokens with
+- [x] Implement tokenization via `unicode_word_indices`, producing tokens with
   `(start, end)` **byte offsets** into the input (skips whitespace/punctuation,
   valid UTF-8 boundaries).
-- [ ] Implement 1–3 adjacent-token windowing producing, per window: a **canonical
+- [x] Implement 1–3 adjacent-token windowing producing, per window: a **canonical
   lookup key** (tokens lowercased + NFC, single-space joined) and the **original
   byte span** `(first.start, last.end)`.
-- [ ] Unit tests: token offsets correct for ASCII + accented input; multi-space /
+  (Shared `normalize` (lowercase+NFC) used by both detector and build tool —
+  artifact verified byte-identical after the switch.)
+- [x] Unit tests: token offsets correct for ASCII + accented input; multi-space /
   newline between tokens still yields a single-space canonical key;
   hyphenated token (`Jean-Pierre`) splits (documented behaviour).
 

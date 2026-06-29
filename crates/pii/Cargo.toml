@@ -11,22 +11,22 @@ vectorscan-rs = "0.0.5"
 percent-encoding = "2"
 log = "0.4"
 
-# DictionaryDetector (PersonName): FST gazetteer membership + Unicode-aware
-# tokenization. Also used by the offline `build_names_fst` tool.
+# DictionaryDetector: FST gazetteer membership + Unicode-aware tokenization and
+# NFC key normalization. `normalize` is shared with the offline build tool so
+# build-time and query-time keys can never drift.
 fst = "0.4"
 unicode-segmentation = "1"
-# NFC normalization — currently only the offline `build_names_fst` tool needs
-# it (feature `build-names-fst`); the proxy build does not pull it in.
-unicode-normalization = { version = "0.1", optional = true }
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3"
 
 [features]
-# Enables the standalone offline FST build tool. Build-time only — the proxy
-# image never enables this, so `unicode-normalization` stays out of it.
-build-names-fst = ["dep:unicode-normalization"]
+# Marker feature gating the offline `build_names_fst` bin so it isn't compiled
+# in normal builds/tests. It pulls in no extra deps (the bin reuses the crate's
+# runtime `fst` + `unicode-normalization`).
+build-names-fst = []
 
 [[bench]]
 name = "pii_benchmark"
