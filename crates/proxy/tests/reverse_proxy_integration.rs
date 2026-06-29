@@ -1252,3 +1252,105 @@ async fn custom_pii_coexists_with_builtin_detection() {
         "kinds should include built-in EMAIL, got {kinds:?}"
     );
 }
+
+/// PersonName (DictionaryDetector) flows end-to-end through the existing
+/// pipeline with no PersonName-specific config: a name in the request body is
+/// detected, redacted as `[PERSON_NAME]`, flagged via `X-PII-Detected`, and
+/// counted under the `pii_kind="PERSON_NAME"` detection-metric label.
+#[tokio::test]
+async fn person_name_detected_redacted_and_metric_labelled() {
+    let upstream = start_echo_upstream().await;
+    // Redact + header together: the echo upstream reflects request headers into
+    // its body, so one round-trip exercises both the [PERSON_NAME] redaction and
+    // the X-PII-Detected header.
+    let request_dir = DirectionConfig {
+        actions: vec![Action::Redact, Action::Header],
+        ..direction_redact()
+    };
+    let proxy = TestProxy::start(
+        upstream,
+        vec![("/", "")],
+        request_dir,
+        direction_empty(),
+        ScanConfig::default(),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("Please contact John Smith about the order")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    // Name redacted with the type label; the raw name does not survive.
+    assert!(
+        body.contains("[PERSON_NAME]"),
+        "expected [PERSON_NAME] marker, got: {body}"
+    );
+    assert!(!body.contains("John Smith"));
+    // X-PII-Detected lists the PERSON_NAME kind (echo reflects request headers).
+    let lower = body.to_lowercase();
+    assert!(
+        lower.contains("x-pii-detected") && body.contains("PERSON_NAME"),
+        "expected X-PII-Detected: …PERSON_NAME…, got: {body}"
+    );
+
+    // Detection metric carries the PERSON_NAME kind label.
+    let metrics = prometheus::default_registry().gather();
+    let labelled = metrics
+        .iter()
+        .find(|m| m.get_name() == "pii_proxy_detections_total")
+        .is_some_and(|mf| {
+            mf.get_metric().iter().any(|metric| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|l| l.get_name() == "pii_kind" && l.get_value() == "PERSON_NAME")
+            })
+        });
+    assert!(
+        labelled,
+        "expected pii_proxy_detections_total with pii_kind=\"PERSON_NAME\""
+    );
+}
+
+/// Disabling PersonName via `[pii].ignore` is the only knob needed to turn the
+/// detector off: the same name now passes through unredacted.
+#[tokio::test]
+async fn person_name_disabled_via_ignore_not_detected() {
+    let upstream = start_echo_upstream().await;
+    let mut pii_config = default_pii_config();
+    pii_config.ignore = Some(vec![pii::PiiKind::PersonName]);
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        direction_redact(),
+        direction_empty(),
+        ScanConfig::default(),
+        pii_config,
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("Please contact John Smith about the order")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    // Name flows through unredacted; no PersonName marker emitted.
+    assert!(
+        body.contains("John Smith"),
+        "name should pass through unredacted, got: {body}"
+    );
+    assert!(!body.contains("[PERSON_NAME]"));
+}

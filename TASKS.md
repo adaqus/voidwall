@@ -1422,13 +1422,19 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - No material regression to the other detectors' existing benchmark numbers.
 
 ### 20.10 Proxy integration (verification only — no new config)
-- [ ] Verify `PersonName` flows end-to-end through the existing pipeline with **no
+- [x] Verify `PersonName` flows end-to-end through the existing pipeline with **no
   new config keys**: enabling via `[pii].detect` / `ignore`,
   `pii_proxy_detections_total{pii_kind="PERSON_NAME"}`, `X-PII-Detected`, and
   `[PERSON_NAME]` `type_label` redaction.
-- [ ] Integration test (`crates/proxy/tests/`): a request/body containing a name
+  (No production changes needed — `PersonName` already flows through the existing
+  reverse-proxy pipeline; matches DESIGN.md §"Proxy-facing surface".)
+- [x] Integration test (`crates/proxy/tests/`): a request/body containing a name
   → `PersonName` detected, redacted as `[PERSON_NAME]`, metric labelled
   `pii_kind="PERSON_NAME"`; with `PersonName` disabled in config, no detection.
+  (`reverse_proxy_integration.rs`: `person_name_detected_redacted_and_metric_labelled`
+  asserts `[PERSON_NAME]` redaction + `X-PII-Detected: …PERSON_NAME…` + the metric
+  label; `person_name_disabled_via_ignore_not_detected` asserts pass-through when
+  `ignore = [PersonName]`.)
 
 **AC:**
 - No new config keys/metrics/response fields added — toggled purely via `[pii].detect`/`ignore`.
