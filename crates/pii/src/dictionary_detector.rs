@@ -21,18 +21,15 @@ pub mod flags {
     pub const ALSO_COMMON_WORD: u64 = 1 << 2;
 }
 
-use crate::PiiError;
+use crate::detector::Detector;
+use crate::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
+use crate::{PiiError, PiiKind, PiiMatch};
 use fst::Map;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
-// NOTE: the tokenization/windowing helpers below are consumed by the
-// `Detector` impl added in task 20.5 (and exercised by this module's tests).
-// The `allow(dead_code)` attributes are removed once that impl wires them in.
-
 /// Longest token window (in tokens) we look up — covers names like
 /// `de la cruz` / `van der berg`.
-#[allow(dead_code)]
 const MAX_WINDOW: usize = 3;
 
 /// Canonical key normalization: lowercase (Unicode-correct) → NFC.
@@ -46,7 +43,6 @@ pub fn normalize(s: &str) -> String {
 }
 
 /// A word token with its byte span `[start, end)` into the source text.
-#[allow(dead_code)]
 struct Token {
     start: usize,
     end: usize,
@@ -57,7 +53,6 @@ struct Token {
 /// Skips whitespace and punctuation, and yields valid UTF-8 boundaries. Note
 /// punctuation *inside* a token also splits it: `Jean-Pierre` becomes two
 /// tokens (`Jean`, `Pierre`) — the hyphen is a word boundary.
-#[allow(dead_code)]
 fn tokenize(text: &str) -> Vec<Token> {
     text.unicode_word_indices()
         .map(|(start, word)| Token {
@@ -67,36 +62,47 @@ fn tokenize(text: &str) -> Vec<Token> {
         .collect()
 }
 
-/// A 1–`MAX_WINDOW` token window: the canonical lookup key plus the original
-/// byte span (for redaction / `resolve_overlaps`).
-#[allow(dead_code)]
+/// A 1–`MAX_WINDOW` token window: the canonical lookup key, the original byte
+/// span (for redaction / `resolve_overlaps`), and the token range it covers
+/// (for gating).
 struct Window {
     /// Tokens normalized (lowercase + NFC) and single-space joined.
     key: String,
     /// Document-absolute byte span of the original (un-normalized) text.
     start: usize,
     end: usize,
+    /// Index of the first token and number of tokens in the window.
+    tok_start: usize,
+    tok_len: usize,
 }
 
-/// Produce every 1–`MAX_WINDOW`-token window over `tokens`, in start order.
+/// Lazily yield every 1–`MAX_WINDOW`-token window over `tokens`, in start order
+/// (and, per start, increasing length). Being lazy lets `has_piis` stop at the
+/// first gated hit without building the rest.
 ///
 /// The canonical key collapses any run of separators between tokens to a single
 /// space, so `"Jan   Kowalski"` and `"Jan\nKowalski"` both key as `jan kowalski`.
-#[allow(dead_code)]
-fn windows(text: &str, tokens: &[Token]) -> Vec<Window> {
-    let mut out = Vec::new();
-    for i in 0..tokens.len() {
-        let mut parts: Vec<String> = Vec::with_capacity(MAX_WINDOW);
-        for tok in &tokens[i..(i + MAX_WINDOW).min(tokens.len())] {
-            parts.push(normalize(&text[tok.start..tok.end]));
-            out.push(Window {
-                key: parts.join(" "),
-                start: tokens[i].start,
-                end: tok.end,
-            });
-        }
-    }
-    out
+fn windows<'a>(text: &'a str, tokens: &'a [Token]) -> impl Iterator<Item = Window> + 'a {
+    (0..tokens.len()).flat_map(move |i| {
+        let upper = (i + MAX_WINDOW).min(tokens.len());
+        // `scan` grows the canonical key one token at a time across the window.
+        tokens[i..upper]
+            .iter()
+            .enumerate()
+            .scan(String::new(), move |key, (j, tok)| {
+                if j > 0 {
+                    key.push(' ');
+                }
+                key.push_str(&normalize(&text[tok.start..tok.end]));
+                Some(Window {
+                    key: key.clone(),
+                    start: tokens[i].start,
+                    end: tok.end,
+                    tok_start: i,
+                    tok_len: j + 1,
+                })
+            })
+    })
 }
 
 /// The committed names gazetteer, embedded at compile time.
@@ -142,10 +148,246 @@ impl Gazetteer {
     }
 }
 
+/// Title/honorific tokens (normalized) that promote a following common-word
+/// name form. Trailing dots are stripped by tokenization, so `Mr.` → `mr`.
+const TITLES: &[&str] = &[
+    "mr", "mrs", "ms", "mx", "miss", "dr", "prof", "sir", "madam", "mister",
+];
+
+/// Per-token signals precomputed once per scanned text, used for precision
+/// gating of common-word name forms.
+struct Analysis {
+    /// FST flag bitmask for each token's 1-token key (`None` = not a name form).
+    raw: Vec<Option<u64>>,
+    /// First character is uppercase.
+    cap: Vec<bool>,
+    /// Token begins a sentence (index 0, or preceded by `.`/`!`/`?`).
+    sent_init: Vec<bool>,
+    /// Token is a title/honorific (`TITLES`).
+    title: Vec<bool>,
+}
+
+impl Analysis {
+    fn has(&self, i: usize, bit: u64) -> bool {
+        self.raw[i].is_some_and(|f| f & bit != 0)
+    }
+
+    /// Is a capitalised common-word form at tokens `i..i+len` promoted by cheap
+    /// evidence? A *lowercase* common word in prose is never a name.
+    fn promoted(&self, i: usize, len: usize) -> bool {
+        if !self.cap[i] {
+            return false;
+        }
+        // Capitalised mid-sentence is itself sufficient.
+        if !self.sent_init[i] {
+            return true;
+        }
+        // Sentence-initial capitals need corroboration: a given+surname pair
+        // (both capitalised — so `Will you` does not pair), or a preceding title.
+        let n = self.raw.len();
+        let right = i + len;
+        let pair_fwd =
+            self.has(i, IS_GIVEN) && right < n && self.cap[right] && self.has(right, IS_SURNAME);
+        let pair_bwd =
+            self.has(i, IS_SURNAME) && i > 0 && self.cap[i - 1] && self.has(i - 1, IS_GIVEN);
+        let titled = i > 0 && self.title[i - 1];
+        pair_fwd || pair_bwd || titled
+    }
+
+    /// A window hit fires if it is not a common word, else only when promoted.
+    fn gated(&self, tok_start: usize, tok_len: usize, flags: u64) -> bool {
+        flags & ALSO_COMMON_WORD == 0 || self.promoted(tok_start, tok_len)
+    }
+}
+
+/// Dictionary/FST membership detector for dictionary-shaped PII (English
+/// `PersonName`). See the module docs and DESIGN.md.
+pub struct DictionaryDetector {
+    gaz: Gazetteer,
+}
+
+impl DictionaryDetector {
+    /// Build the detector, loading the embedded gazetteer. Surfaces
+    /// [`PiiError::GazetteerLoad`] at scanner-build time on a corrupt artifact.
+    pub fn new() -> Result<Self, PiiError> {
+        Ok(Self {
+            gaz: Gazetteer::load()?,
+        })
+    }
+
+    fn analyze(&self, text: &str, tokens: &[Token]) -> Analysis {
+        let mut raw = Vec::with_capacity(tokens.len());
+        let mut cap = Vec::with_capacity(tokens.len());
+        let mut sent_init = Vec::with_capacity(tokens.len());
+        let mut title = Vec::with_capacity(tokens.len());
+        for (i, t) in tokens.iter().enumerate() {
+            let slice = &text[t.start..t.end];
+            let key = normalize(slice);
+            raw.push(self.gaz.get(&key));
+            cap.push(slice.chars().next().is_some_and(char::is_uppercase));
+            sent_init.push(i == 0 || text[tokens[i - 1].end..t.start].contains(['.', '!', '?']));
+            title.push(TITLES.contains(&key.as_str()));
+        }
+        Analysis {
+            raw,
+            cap,
+            sent_init,
+            title,
+        }
+    }
+
+    /// Compute non-overlapping `PersonName` byte spans over `text`: the longest
+    /// gated window per start, then adjacent (whitespace-gap) windows merged
+    /// into one span (so `John Smith` is a single match).
+    fn name_spans(&self, text: &str) -> Vec<(usize, usize)> {
+        let tokens = tokenize(text);
+        if tokens.is_empty() {
+            return Vec::new();
+        }
+        let a = self.analyze(text, &tokens);
+
+        // Longest gated window starting at each token, stored as
+        // `(last_token, byte_start, byte_end)`.
+        let mut best: Vec<Option<(usize, usize, usize)>> = vec![None; tokens.len()];
+        for w in windows(text, &tokens) {
+            if let Some(f) = self.gaz.get(&w.key)
+                && a.gated(w.tok_start, w.tok_len, f)
+            {
+                let last = w.tok_start + w.tok_len - 1;
+                let slot = &mut best[w.tok_start];
+                if slot.is_none_or(|(prev_last, ..)| last > prev_last) {
+                    *slot = Some((last, w.start, w.end));
+                }
+            }
+        }
+
+        // Merge runs of adjacent name windows separated only by whitespace. A
+        // non-name (skipped) token between two hits leaves non-whitespace in the
+        // gap, which breaks the run.
+        let mut out = Vec::new();
+        let mut run: Option<(usize, usize, usize)> = None; // (last_token, byte_start, byte_end)
+        for (s, slot) in best.iter().enumerate() {
+            let Some((last, bs, be)) = *slot else {
+                continue;
+            };
+            run = match run {
+                // window starts within/overlapping the current run (e.g. a
+                // 1-token sub-hit inside a matched `de la cruz`)
+                Some((l, rbs, rbe)) if s <= l => Some((last.max(l), rbs, be.max(rbe))),
+                // contiguous: only whitespace between the run end and this window
+                Some((l, rbs, rbe)) if text[rbe..bs].chars().all(char::is_whitespace) => {
+                    Some((last.max(l), rbs, be.max(rbe)))
+                }
+                Some((_, rbs, rbe)) => {
+                    out.push((rbs, rbe));
+                    Some((last, bs, be))
+                }
+                None => Some((last, bs, be)),
+            };
+        }
+        if let Some((_, bs, be)) = run {
+            out.push((bs, be));
+        }
+        out
+    }
+}
+
+impl Detector for DictionaryDetector {
+    fn mark_piis(&self, input: &str) -> Vec<PiiMatch> {
+        self.name_spans(input)
+            .into_iter()
+            .map(|(start, end)| PiiMatch {
+                kind: PiiKind::PersonName,
+                start,
+                end,
+                user_label: None,
+            })
+            .collect()
+    }
+
+    fn has_piis(&self, input: &str) -> bool {
+        let tokens = tokenize(input);
+        if tokens.is_empty() {
+            return false;
+        }
+        let a = self.analyze(input, &tokens);
+        // `windows` is lazy, so `any` stops at the first gated hit without
+        // building the rest.
+        windows(input, &tokens).any(|w| {
+            self.gaz
+                .get(&w.key)
+                .is_some_and(|f| a.gated(w.tok_start, w.tok_len, f))
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::flags::*;
     use super::*;
+    use test_case::test_case;
+
+    /// `(value, start, end)` for each detected match.
+    fn detect(text: &str) -> Vec<(String, usize, usize)> {
+        let d = DictionaryDetector::new().expect("detector builds");
+        d.mark_piis(text)
+            .into_iter()
+            .map(|m| {
+                assert_eq!(m.kind, PiiKind::PersonName);
+                (text[m.start..m.end].to_string(), m.start, m.end)
+            })
+            .collect()
+    }
+
+    fn values(text: &str) -> Vec<String> {
+        detect(text).into_iter().map(|(v, ..)| v).collect()
+    }
+
+    #[test_case("Kowalski"        ; "bare surname, not a common word")]
+    #[test_case("John Smith"      ; "given+surname pair, both common words")]
+    #[test_case("Will Smith"      ; "common given promoted by adjacent surname")]
+    #[test_case("Mr. Will"        ; "common given promoted by preceding title")]
+    #[test_case("I met Rose today"; "common given promoted by mid-sentence caps")]
+    fn detected(text: &str) {
+        assert!(
+            DictionaryDetector::new().unwrap().has_piis(text),
+            "expected a detection in {text:?}"
+        );
+        assert!(!values(text).is_empty());
+    }
+
+    #[test_case("asdfghjkl"  ; "unknown token")]
+    #[test_case("i will go"  ; "lowercase common words in prose")]
+    #[test_case("Will you go"; "sentence-initial common word, no name pair")]
+    fn not_detected(text: &str) {
+        assert!(
+            !DictionaryDetector::new().unwrap().has_piis(text),
+            "expected no detection in {text:?}"
+        );
+        assert!(values(text).is_empty());
+    }
+
+    #[test]
+    fn bare_surname_span_is_exact() {
+        assert_eq!(detect("Kowalski"), vec![("Kowalski".into(), 0, 8)]);
+    }
+
+    #[test]
+    fn multi_token_name_is_single_longest_match() {
+        // `John` and `Smith` merge into one span, not two matches.
+        assert_eq!(detect("John Smith"), vec![("John Smith".into(), 0, 10)]);
+    }
+
+    #[test]
+    fn offsets_are_document_absolute() {
+        let text = "please contact Kowalski regarding the case";
+        let got = detect(text);
+        let expected_start = text.find("Kowalski").unwrap();
+        assert!(
+            got.contains(&("Kowalski".into(), expected_start, expected_start + 8)),
+            "got {got:?}"
+        );
+    }
 
     #[test]
     fn loads_and_resolves_known_name() {
@@ -192,7 +434,8 @@ mod tests {
     #[test]
     fn windows_keys_and_spans() {
         let text = "John Smith";
-        let ws = windows(text, &tokenize(text));
+        let tokens = tokenize(text);
+        let ws: Vec<Window> = windows(text, &tokens).collect();
         let got: Vec<(&str, usize, usize)> = ws
             .iter()
             .map(|w| (w.key.as_str(), w.start, w.end))
@@ -208,7 +451,6 @@ mod tests {
         for text in ["John   Smith", "John\nSmith", "John \t Smith"] {
             let tokens = tokenize(text);
             let two = windows(text, &tokens)
-                .into_iter()
                 .find(|w| w.key.contains(' '))
                 .expect("a 2-token window");
             assert_eq!(two.key, "john smith");
@@ -223,7 +465,6 @@ mod tests {
         let text = "a b c d e";
         let tokens = tokenize(text);
         let max_key_tokens = windows(text, &tokens)
-            .iter()
             .map(|w| w.key.split(' ').count())
             .max()
             .unwrap();

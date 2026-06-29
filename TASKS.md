@@ -1303,21 +1303,28 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   hyphenated token (`Jean-Pierre`) splits (documented behaviour).
 
 ### 20.5 pii crate: `DictionaryDetector` core (lookup + gating)
-- [ ] Implement `DictionaryDetector` (`crates/pii/src/dictionary_detector.rs`)
+- [x] Implement `DictionaryDetector` (`crates/pii/src/dictionary_detector.rs`)
   implementing the `Detector` trait (`Send + Sync`).
-- [ ] `mark_piis`: tokenize → window → FST lookup → emit a `PersonName`
+- [x] `mark_piis`: tokenize → window → FST lookup → emit a `PersonName`
   `PiiMatch` over the original byte span on a (gated) hit.
-- [ ] Precision gating: a hit with `ALSO_COMMON_WORD` set is **suppressed unless
+- [x] Precision gating: a hit with `ALSO_COMMON_WORD` set is **suppressed unless
   promoted** by cheap evidence — capitalisation mid-sentence, an adjacent
   given+surname pair, or a nearby title/honorific keyword (`Mr.`, `Dr.`). Forms
   **without** `ALSO_COMMON_WORD` fire on a bare hit.
-- [ ] Prefer the **longest** overlapping window at the same start (or emit all and
+  (Pair uses given→surname *roles* with both tokens capitalised — most common
+  names carry `ALSO_COMMON_WORD`, so a "non-common neighbour" rule would fail;
+  `GO`/`YOU` are real surnames, so caps is required to reject lowercase prose.)
+- [x] Prefer the **longest** overlapping window at the same start (or emit all and
   rely on `resolve_overlaps`); ensure spans are document-absolute byte offsets.
-- [ ] `has_piis`: return `true` on the first gated hit (short-circuit).
+  (Longest gated window per start, then adjacent whitespace-gap windows merged →
+  `John Smith` is one span.)
+- [x] `has_piis`: return `true` on the first gated hit (short-circuit).
+  (Lazy reused-buffer windowing — no full window/key materialization; per review.)
 - [ ] Optimisations (keep simple; add only if benches justify): start windows only
   at a capitalised, non-numeric token; FST prefix-pruning via the `raw::Fst`
   node/transition walk to stop extending a window on a dead prefix.
-- [ ] Unit tests via `#[test_case]`:
+  (Deferred to 20.9 per the task's own "add only if benches justify".)
+- [x] Unit tests via `#[test_case]`:
   - bare-hit name with no `ALSO_COMMON_WORD` (`"Kowalski"`/`"Smith"`) → detected,
     span correct
   - multi-token name (`"John Smith"`) → single longest-window match
