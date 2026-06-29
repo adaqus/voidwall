@@ -26,14 +26,10 @@ use std::path::{Path, PathBuf};
 use fst::MapBuilder;
 use unicode_normalization::UnicodeNormalization;
 
-// ---------------------------------------------------------------------------
-// Flag bitmask — MUST stay byte-for-byte in sync with the constants in the
-// `DictionaryDetector` (crates/pii/src/dictionary_detector.rs, TASKS.md 20.2).
-// The FST value for each key is the OR of these bits.
-// ---------------------------------------------------------------------------
-const IS_GIVEN: u64 = 1 << 0;
-const IS_SURNAME: u64 = 1 << 1;
-const ALSO_COMMON_WORD: u64 = 1 << 2;
+// Flag bitmask — imported from the crate so the artifact and the detector can
+// never drift (single source of truth in src/dictionary_detector.rs). The FST
+// value for each key is the OR of these bits.
+use pii::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
 
 /// Drop name forms shorter than this (initials, stray single letters).
 const MIN_NAME_LEN: usize = 2;
@@ -78,7 +74,11 @@ fn main() {
     let given = load_ssa_given(&data_dir.join("ssa"), given_min, &mut forms);
     eprintln!("given-name forms : {given}");
 
-    let surname = load_census_surnames(&data_dir.join("Names_2010Census.csv"), surname_min, &mut forms);
+    let surname = load_census_surnames(
+        &data_dir.join("Names_2010Census.csv"),
+        surname_min,
+        &mut forms,
+    );
     eprintln!("surname forms    : {surname}");
 
     // Tag homographs of common words.
@@ -95,28 +95,43 @@ fn main() {
     let file = File::create(&out_path).expect("create output fst");
     let mut builder = MapBuilder::new(BufWriter::new(file)).expect("init MapBuilder");
     for (key, flags) in &forms {
-        builder.insert(key, *flags).expect("insert key (must be sorted+unique)");
+        builder
+            .insert(key, *flags)
+            .expect("insert key (must be sorted+unique)");
     }
     builder.finish().expect("finish fst");
 
-    let both = forms.values().filter(|f| **f & (IS_GIVEN | IS_SURNAME) == (IS_GIVEN | IS_SURNAME)).count();
+    let both = forms
+        .values()
+        .filter(|f| **f & (IS_GIVEN | IS_SURNAME) == (IS_GIVEN | IS_SURNAME))
+        .count();
     let size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
 
     eprintln!("---");
     eprintln!("total entries        : {}", forms.len());
     eprintln!("  given|surname both : {both}");
     eprintln!("  also-common-word   : {common_flagged}");
-    eprintln!("artifact size        : {size} bytes ({:.2} MB)", size as f64 / 1_048_576.0);
+    eprintln!(
+        "artifact size        : {size} bytes ({:.2} MB)",
+        size as f64 / 1_048_576.0
+    );
     eprintln!("wrote {}", out_path.display());
 }
 
 fn env_num(name: &str, default: u64) -> u64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn open_lines(path: &Path) -> BufReader<File> {
-    let f = File::open(path)
-        .unwrap_or_else(|e| panic!("open {} : {e}\n(download the source data — see data/names/README.md)", path.display()));
+    let f = File::open(path).unwrap_or_else(|e| {
+        panic!(
+            "open {} : {e}\n(download the source data — see data/names/README.md)",
+            path.display()
+        )
+    });
     BufReader::new(f)
 }
 
@@ -136,8 +151,12 @@ fn load_common_words(path: &Path) -> HashSet<String> {
 /// normalized name across sexes/years, then OR `IS_GIVEN` for names ≥ `min`.
 fn load_ssa_given(dir: &Path, min: u64, forms: &mut BTreeMap<String, u64>) -> usize {
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    let entries = fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("read SSA dir {} : {e}\n(unzip names.zip here — see data/names/README.md)", dir.display()));
+    let entries = fs::read_dir(dir).unwrap_or_else(|e| {
+        panic!(
+            "read SSA dir {} : {e}\n(unzip names.zip here — see data/names/README.md)",
+            dir.display()
+        )
+    });
     let mut files = 0;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -157,7 +176,11 @@ fn load_ssa_given(dir: &Path, min: u64, forms: &mut BTreeMap<String, u64>) -> us
             *counts.entry(key).or_insert(0) += cnt.trim().parse::<u64>().unwrap_or(0);
         }
     }
-    assert!(files > 0, "no .txt files in {} — unzip SSA names.zip there", dir.display());
+    assert!(
+        files > 0,
+        "no .txt files in {} — unzip SSA names.zip there",
+        dir.display()
+    );
 
     let mut kept = 0;
     for (name, total) in counts {

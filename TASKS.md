@@ -1263,15 +1263,18 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   (Verified with synthetic inputs: two runs produce byte-identical SHA-256.)
 
 ### 20.2 pii crate: kind, flags, dependencies
-- [ ] Confirm or add `PiiKind::PersonName` in `lib.rs` (the proxy config already
+- [x] Confirm or add `PiiKind::PersonName` in `lib.rs` (the proxy config already
   references `"PersonName"`); ensure `label()` returns `PERSON_NAME` and it is
   reachable for `Country::International` so it is not country-gated.
-- [ ] Add dependencies to `crates/pii/Cargo.toml`: `fst` and
+  (Already present: variant, `label()` → `PERSON_NAME`, `Country::International`, `ALL_KINDS`.)
+- [x] Add dependencies to `crates/pii/Cargo.toml`: `fst` and
   `unicode-segmentation`. (Exact-membership + prefix walk only — the `levenshtein`
   feature is **not** needed for v1.)
-- [ ] Define the flag bitmask constants in one place (e.g.
+- [x] Define the flag bitmask constants in one place (e.g.
   `dictionary_detector.rs`): `IS_GIVEN`, `IS_SURNAME`, `ALSO_COMMON_WORD`. These
   must match the build tool (20.1) exactly — add a comment cross-linking the two.
+  (Canonical in `dictionary_detector::flags`; the build tool imports them — single
+  source, no duplicated constants to keep in sync.)
 
 ### 20.3 pii crate: FST loading
 - [ ] Load the artifact into a `fst::Map` and wrap it for read-only sharing. Use

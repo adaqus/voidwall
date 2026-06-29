@@ -11,9 +11,12 @@ vectorscan-rs = "0.0.5"
 percent-encoding = "2"
 log = "0.4"
 
-# Used only by the offline `build_names_fst` tool (feature `build-names-fst`),
-# not by the proxy build. See tools/build_names_fst.rs and data/names/README.md.
-fst = { version = "0.4", optional = true }
+# DictionaryDetector (PersonName): FST gazetteer membership + Unicode-aware
+# tokenization. Also used by the offline `build_names_fst` tool.
+fst = "0.4"
+unicode-segmentation = "1"
+# NFC normalization — currently only the offline `build_names_fst` tool needs
+# it (feature `build-names-fst`); the proxy build does not pull it in.
 unicode-normalization = { version = "0.1", optional = true }
 
 [dev-dependencies]
@@ -22,8 +25,8 @@ test-case = "3"
 
 [features]
 # Enables the standalone offline FST build tool. Build-time only — the proxy
-# image never enables this, so `fst`/`unicode-normalization` stay out of it.
-build-names-fst = ["dep:fst", "dep:unicode-normalization"]
+# image never enables this, so `unicode-normalization` stays out of it.
+build-names-fst = ["dep:unicode-normalization"]
 
 [[bench]]
 name = "pii_benchmark"
