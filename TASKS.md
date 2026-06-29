@@ -1236,26 +1236,31 @@ Recall and false-positive rate are to be observed before any further tier is add
 Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 
 ### 20.1 Data sourcing & offline FST build tool
-- [ ] Add a standalone build tool in the `pii` crate (e.g.
+- [x] Add a standalone build tool in the `pii` crate (e.g.
   `tools/build_names_fst.rs` as a non-default `[[bin]]`, or an `xtask`) that
   reads the source name lists and emits a single `fst::Map` artifact
   (`names_en.fst`). It is a **build-time** tool, not shipped in the proxy image.
-- [ ] Source English data from license-clean sources: US SSA given names
+- [x] Source English data from license-clean sources: US SSA given names
   (public domain), US Census 2010 surnames (public domain), optionally Wikidata
   given/family names (CC0) for breadth. Do **not** use scraped/leaked dumps.
   Record provenance + license in a `NOTICE`/README next to the tool.
-- [ ] Normalize on build: lowercase (Unicode-correct) + a fixed Unicode form
+  (Provenance/licenses recorded in `data/names/README.md`; using SSA + Census 2010
+  + `google-10000-english` (MIT) for the common-word flag. Wikidata not used in v1.)
+- [x] Normalize on build: lowercase (Unicode-correct) + a fixed Unicode form
   (NFC); dedup; **sort** keys lexicographically (required by `fst`). Apply the
   **identical** normalization that the detector will use at query time.
-- [ ] Compute the `u64` value bitmask per form: `IS_GIVEN`, `IS_SURNAME`
+- [x] Compute the `u64` value bitmask per form: `IS_GIVEN`, `IS_SURNAME`
   (a form can be both → OR the bits), and `ALSO_COMMON_WORD` — the latter
   auto-derived by intersecting the name set with an English word-frequency list
   (e.g. `wordfreq` / SCOWL / `google-10000-english`) above a chosen threshold.
-- [ ] Frequency-cut the surname long tail to a documented coverage band (keep the
+- [x] Frequency-cut the surname long tail to a documented coverage band (keep the
   artifact to a few MB). Print final entry count + artifact size.
+  (`SURNAME_MIN_COUNT` env, default 100 = full Census file; `GIVEN_MIN_COUNT` default 0.)
 - [ ] Commit the generated `names_en.fst` artifact (a few MB) to the repo (or
   document a fetch step); record the build inputs/threshold so it is reproducible.
-- [ ] Verify: rebuild is deterministic (same inputs → byte-identical artifact).
+  (BLOCKED on manual data download — run the tool, then commit the artifact.)
+- [x] Verify: rebuild is deterministic (same inputs → byte-identical artifact).
+  (Verified with synthetic inputs: two runs produce byte-identical SHA-256.)
 
 ### 20.2 pii crate: kind, flags, dependencies
 - [ ] Confirm or add `PiiKind::PersonName` in `lib.rs` (the proxy config already

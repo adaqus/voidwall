@@ -1,0 +1,5 @@
+# Raw source name lists are re-fetchable (see README.md); only the built
+# ../names_en.fst artifact is committed.
+*
+!.gitignore
+!README.md

@@ -11,10 +11,28 @@ vectorscan-rs = "0.0.5"
 percent-encoding = "2"
 log = "0.4"
 
+# Used only by the offline `build_names_fst` tool (feature `build-names-fst`),
+# not by the proxy build. See tools/build_names_fst.rs and data/names/README.md.
+fst = { version = "0.4", optional = true }
+unicode-normalization = { version = "0.1", optional = true }
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3"
 
+[features]
+# Enables the standalone offline FST build tool. Build-time only — the proxy
+# image never enables this, so `fst`/`unicode-normalization` stay out of it.
+build-names-fst = ["dep:fst", "dep:unicode-normalization"]
+
 [[bench]]
 name = "pii_benchmark"
 harness = false
+
+# Offline gazetteer build tool — produces data/names_en.fst from the source
+# name lists. Not compiled into the proxy. Run with:
+#   cargo run -p pii --features build-names-fst --bin build_names_fst
+[[bin]]
+name = "build_names_fst"
+path = "tools/build_names_fst.rs"
+required-features = ["build-names-fst"]
