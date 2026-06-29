@@ -51,7 +51,12 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| manifest_dir.join("data/names_en.fst"));
 
-    let surname_min: u64 = env_num("SURNAME_MIN_COUNT", 100);
+    // Surnames below this Census 2010 occurrence count are dropped. The Census
+    // tail (100–~1000) is dominated by word-like / foreign rare surnames
+    // (Steuer, Leipzig, Found, Siren…) that, lowercased, collide with ordinary
+    // words and wreck precision; the names we care about are far more frequent
+    // (Smith 2.4M, Lopez 874k, Kowalski 18k). 1000 keeps those and cuts the noise.
+    let surname_min: u64 = env_num("SURNAME_MIN_COUNT", 1000);
     let given_min: u64 = env_num("GIVEN_MIN_COUNT", 0);
 
     eprintln!("data dir : {}", data_dir.display());

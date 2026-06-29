@@ -44,11 +44,15 @@ query time — see `DictionaryDetector` — or lookups silently miss.
 
 | Env var | Default | Meaning |
 |---|---:|---|
-| `SURNAME_MIN_COUNT` | `100` | keep Census surnames with `count ≥ N` (100 = the full published file) |
+| `SURNAME_MIN_COUNT` | `1000` | keep Census surnames with `count ≥ N` |
 | `GIVEN_MIN_COUNT` | `0` | keep SSA given names with summed `count ≥ N` (0 = all) |
 
-Default band = full Census surname file (≥100 occurrences) + all SSA given names.
-Record any change here so the artifact stays reproducible.
+Default band = Census surnames with **≥1000 occurrences** (~25k forms) + all SSA
+given names (~106k). The Census tail below ~1000 is dominated by word-like /
+foreign rare surnames (`Steuer`, `Leipzig`, `Found`, `Siren`…) that, lowercased,
+collide with ordinary words and wreck precision; the surnames we care about are
+far more frequent (Smith 2.4M, Lopez 874k, Kowalski 18k). Record any change here
+so the artifact stays reproducible.
 
 ## Value bitmask
 

@@ -154,6 +154,30 @@ const TITLES: &[&str] = &[
     "mr", "mrs", "ms", "mx", "miss", "dr", "prof", "sir", "madam", "mister",
 ];
 
+/// High-frequency function words from the other supported languages
+/// (DE/FR/ES/IT/NL/PL) that collide with rare US-Census surnames in the
+/// English-only gazetteer (e.g. German `Alle`). They are suppressed as
+/// **single-token** hits only — multi-word gazetteer entries such as
+/// `de la cruz` look up the full window and are unaffected.
+///
+/// Deliberately small and incomplete: a proper per-language stoplist (and the
+/// capitalisation gate German defeats) is Phase-2 work — see the research doc
+/// §7. Stored normalized (lowercase + NFC), so accented forms keep their marks.
+const STOPWORDS: &[&str] = &[
+    // German
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "und", "oder", "aber", "alle",
+    "aller", "allen", "auch", "über", "für", "mit", "von", "aus", "auf", "ist", "sind", "wird",
+    "werden", "nicht", "wir", "sie", "ihr", "ihre", "dass", "zum", "zur", "bei", "nach",
+    // French
+    "le", "la", "les", "un", "une", "du", "et", "ou", "que", "qui", "pour", "par", "sur", "dans",
+    "avec", "sont", "sera", "ne", "pas", "ce", "cette", "leur", "aux", // Spanish
+    "el", "los", "unos", "unas", "para", "con", "sin", "sus", "está", "están", "este", "esto",
+    "como", // Italian
+    "lo", "gli", "della", "che", "per", "suo", "questo", "questa", "nel", // Dutch
+    "het", "een", "en", "dat", "voor", "op", "zijn", "niet", "ook", "naar", // Polish
+    "oraz", "lub", "ale", "na", "do", "od", "za", "ten", "jest", "czy",
+];
+
 /// Per-token signals precomputed once per scanned text, used for precision
 /// gating of common-word name forms.
 struct Analysis {
@@ -161,10 +185,13 @@ struct Analysis {
     raw: Vec<Option<u64>>,
     /// First character is uppercase.
     cap: Vec<bool>,
-    /// Token begins a sentence (index 0, or preceded by `.`/`!`/`?`).
-    sent_init: Vec<bool>,
     /// Token is a title/honorific (`TITLES`).
     title: Vec<bool>,
+    /// Token is a non-English function word (`STOPWORDS`).
+    stop: Vec<bool>,
+    /// The gap before this token is whitespace-only (so the previous token is a
+    /// true left-neighbour, not separated by punctuation). `false` for token 0.
+    ws_before: Vec<bool>,
 }
 
 impl Analysis {
@@ -172,31 +199,42 @@ impl Analysis {
         self.raw[i].is_some_and(|f| f & bit != 0)
     }
 
-    /// Is a capitalised common-word form at tokens `i..i+len` promoted by cheap
-    /// evidence? A *lowercase* common word in prose is never a name.
+    /// Is a capitalised common-word form at tokens `i..i+len` promoted by
+    /// corroborating evidence? Capitalisation **alone** is too weak — it fires
+    /// on `Home`, `Test`, header-case, and sentence starts — so a capitalised
+    /// common word is treated as an ordinary word unless corroborated. A lone
+    /// capitalised common-word name (`I met Rose`) is a deliberate recall gap,
+    /// deferred to a future contextual tier.
     fn promoted(&self, i: usize, len: usize) -> bool {
-        if !self.cap[i] {
-            return false;
-        }
-        // Capitalised mid-sentence is itself sufficient.
-        if !self.sent_init[i] {
-            return true;
-        }
-        // Sentence-initial capitals need corroboration: a given+surname pair
-        // (both capitalised — so `Will you` does not pair), or a preceding title.
+        // Corroboration: a given+surname pair (both capitalised and whitespace-
+        // adjacent, so `Will you` and `Friday. The` do not pair), or a title.
         let n = self.raw.len();
         let right = i + len;
-        let pair_fwd =
-            self.has(i, IS_GIVEN) && right < n && self.cap[right] && self.has(right, IS_SURNAME);
-        let pair_bwd =
-            self.has(i, IS_SURNAME) && i > 0 && self.cap[i - 1] && self.has(i - 1, IS_GIVEN);
+        let pair_fwd = self.has(i, IS_GIVEN)
+            && right < n
+            && self.ws_before[right]
+            && self.cap[right]
+            && self.has(right, IS_SURNAME);
+        let pair_bwd = self.has(i, IS_SURNAME)
+            && i > 0
+            && self.ws_before[i]
+            && self.cap[i - 1]
+            && self.has(i - 1, IS_GIVEN);
+        // Titles carry a trailing dot (`Mr.`), so no whitespace-gap requirement.
         let titled = i > 0 && self.title[i - 1];
         pair_fwd || pair_bwd || titled
     }
 
-    /// A window hit fires if it is not a common word, else only when promoted.
+    /// A window hit fires only if the first token is **capitalised** (a name
+    /// occurrence looks like a name — this rejects lowercase foreign words / URL
+    /// params that merely coincide with a gazetteer entry). A non-common form
+    /// then fires; a common-word form additionally needs [`Self::promoted`]. A
+    /// lone foreign function word (`STOPWORDS`) never fires.
     fn gated(&self, tok_start: usize, tok_len: usize, flags: u64) -> bool {
-        flags & ALSO_COMMON_WORD == 0 || self.promoted(tok_start, tok_len)
+        if tok_len == 1 && self.stop[tok_start] {
+            return false;
+        }
+        self.cap[tok_start] && (flags & ALSO_COMMON_WORD == 0 || self.promoted(tok_start, tok_len))
     }
 }
 
@@ -218,21 +256,35 @@ impl DictionaryDetector {
     fn analyze(&self, text: &str, tokens: &[Token]) -> Analysis {
         let mut raw = Vec::with_capacity(tokens.len());
         let mut cap = Vec::with_capacity(tokens.len());
-        let mut sent_init = Vec::with_capacity(tokens.len());
         let mut title = Vec::with_capacity(tokens.len());
+        let mut stop = Vec::with_capacity(tokens.len());
+        let mut ws_before = Vec::with_capacity(tokens.len());
         for (i, t) in tokens.iter().enumerate() {
             let slice = &text[t.start..t.end];
             let key = normalize(slice);
             raw.push(self.gaz.get(&key));
-            cap.push(slice.chars().next().is_some_and(char::is_uppercase));
-            sent_init.push(i == 0 || text[tokens[i - 1].end..t.start].contains(['.', '!', '?']));
+            // "Capitalised" means Titlecase, not ALL-CAPS: an all-uppercase
+            // token (NHI, AWS, VIN) is an acronym, not a name, so it must carry
+            // at least one lowercase letter to count.
+            cap.push(
+                slice.chars().next().is_some_and(char::is_uppercase)
+                    && slice.chars().any(char::is_lowercase),
+            );
             title.push(TITLES.contains(&key.as_str()));
+            stop.push(STOPWORDS.contains(&key.as_str()));
+            ws_before.push(
+                i > 0
+                    && text[tokens[i - 1].end..t.start]
+                        .chars()
+                        .all(char::is_whitespace),
+            );
         }
         Analysis {
             raw,
             cap,
-            sent_init,
             title,
+            stop,
+            ws_before,
         }
     }
 
@@ -359,11 +411,10 @@ mod tests {
         detect(text).into_iter().map(|(v, ..)| v).collect()
     }
 
-    #[test_case("Kowalski"        ; "bare surname, not a common word")]
-    #[test_case("John Smith"      ; "given+surname pair, both common words")]
-    #[test_case("Will Smith"      ; "common given promoted by adjacent surname")]
-    #[test_case("Mr. Will"        ; "common given promoted by preceding title")]
-    #[test_case("I met Rose today"; "common given promoted by mid-sentence caps")]
+    #[test_case("Kowalski"   ; "bare surname, not a common word")]
+    #[test_case("John Smith" ; "given+surname pair, both common words")]
+    #[test_case("Will Smith" ; "common given promoted by adjacent surname")]
+    #[test_case("Mr. Will"   ; "common given promoted by preceding title")]
     fn detected(text: &str) {
         assert!(
             DictionaryDetector::new().unwrap().has_piis(text),
@@ -372,9 +423,10 @@ mod tests {
         assert!(!values(text).is_empty());
     }
 
-    #[test_case("asdfghjkl"  ; "unknown token")]
-    #[test_case("i will go"  ; "lowercase common words in prose")]
-    #[test_case("Will you go"; "sentence-initial common word, no name pair")]
+    #[test_case("asdfghjkl"       ; "unknown token")]
+    #[test_case("i will go"       ; "lowercase common words in prose")]
+    #[test_case("Will you go"     ; "sentence-initial common word, no name pair")]
+    #[test_case("I met Rose today"; "lone capitalised common-word name, uncorroborated (recall gap)")]
     fn not_detected(text: &str) {
         assert!(
             !DictionaryDetector::new().unwrap().has_piis(text),

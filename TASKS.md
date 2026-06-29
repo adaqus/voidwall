@@ -1255,10 +1255,11 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   (e.g. `wordfreq` / SCOWL / `google-10000-english`) above a chosen threshold.
 - [x] Frequency-cut the surname long tail to a documented coverage band (keep the
   artifact to a few MB). Print final entry count + artifact size.
-  (`SURNAME_MIN_COUNT` env, default 100 = full Census file; `GIVEN_MIN_COUNT` default 0.)
+  (`SURNAME_MIN_COUNT` env, default 1000 — the Census tail below that is word-like/
+  foreign rare surnames that wreck precision; `GIVEN_MIN_COUNT` default 0.)
 - [x] Commit the generated `names_en.fst` artifact (a few MB) to the repo (or
   document a fetch step); record the build inputs/threshold so it is reproducible.
-  (Built: 250,550 entries, 1.22 MB at `crates/pii/data/names_en.fst`; inputs/band in
+  (Built: ~124k entries, 0.54 MB at `crates/pii/data/names_en.fst`; inputs/band in
   `data/names/README.md`. Staged for commit per project no-auto-commit rule.)
 - [x] Verify: rebuild is deterministic (same inputs → byte-identical artifact).
   (Verified with synthetic inputs: two runs produce byte-identical SHA-256.)
@@ -1282,7 +1283,7 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   `include_bytes!` to embed the committed artifact (gives a `&'static [u8]`, so a
   single copy is shared across all threads with no per-thread cost and no runtime
   file path), or mmap a path if embedding proves too large — pick one, document why.
-  (Chose `include_bytes!` — 1.22 MB `&'static` slice, no Arc/mmap; rationale documented.)
+  (Chose `include_bytes!` — ~0.5 MB `&'static` slice, no Arc/mmap; rationale documented.)
 - [x] Map load/parse failure to a clear `PiiError` surfaced at scanner build time
   (so `--validate` catches a corrupt artifact), not a runtime panic.
   (New `PiiError::GazetteerLoad`; `Gazetteer::load()` maps `fst::Error` to it.)
@@ -1360,18 +1361,22 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - Test asserts the absolute offset, not just that a match exists.
 
 ### 20.7 pii crate: registration & activation
-- [ ] Register `DictionaryDetector` in `Scanner::new()` / `ScannerBuilder::build()`
+- [x] Register `DictionaryDetector` in `Scanner::new()` / `ScannerBuilder::build()`
   **after `KeywordContextDetector` (last in the chain)** — rationale: `mark_piis`
   order is output-neutral (`resolve_overlaps` arbitrates), and last placement lets
   the cheap vectorscan detectors short-circuit `has_piis` first.
-- [ ] **Activation gate:** construct the detector and load the FST **only when
+- [x] **Activation gate:** construct the detector and load the FST **only when
   `PersonName` is in the enabled kind set** (present in `detect`, or not in
   `ignore`). When `PersonName` is disabled, the detector is not built and the FST
   is never loaded.
-- [ ] Unit tests: with `PersonName` enabled, the scanner has the detector and
+- [x] Unit tests: with `PersonName` enabled, the scanner has the detector and
   detects a sample name; with `PersonName` excluded (via `ignore` / absent from
   `detect`), no `PersonName` match fires and the artifact is not loaded. → verify:
   `cargo test -p pii`.
+  (Activating names by default surfaced a broad FP class; gating was tightened —
+  caps-required + Titlecase-only (no ALL-CAPS acronyms) + given/surname pair needs
+  whitespace adjacency + foreign-function-word stoplist — and the surname band
+  re-cut to ≥1000 to drop the word-like rare Census tail. Full suite green.)
 
 **AC:**
 - Detector is registered **last** in the chain (after `KeywordContextDetector`).

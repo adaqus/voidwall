@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::detector::Detector;
+use crate::dictionary_detector::DictionaryDetector;
 use crate::hyperscan_detector::HyperscanDetector;
 use crate::keyword_context_detector::KeywordContextDetector;
 use crate::user_detector::{UserDetector, UserPiiDefinition};
@@ -215,6 +216,15 @@ impl ScannerBuilder {
 
         if !self.user_piis.is_empty() {
             detectors.push(Box::new(UserDetector::new(&self.user_piis, &countries)?));
+        }
+
+        // DictionaryDetector runs last: `mark_piis` order is output-neutral
+        // (`resolve_overlaps` arbitrates), and last placement lets the cheap
+        // single-pass vectorscan detectors short-circuit `has_piis` first.
+        // Built — and the FST loaded — only when `PersonName` is enabled, so a
+        // corrupt artifact surfaces here (caught by `--validate`).
+        if enabled_kinds.contains(&PiiKind::PersonName) {
+            detectors.push(Box::new(DictionaryDetector::new()?));
         }
 
         Ok(Scanner { detectors })
@@ -809,6 +819,40 @@ mod tests {
         assert!(kinds.contains(&PiiKind::UsSsn), "should detect ssn");
     }
 
+    // --- DictionaryDetector activation gate (PersonName) ---
+
+    #[test]
+    fn person_name_detected_when_enabled() {
+        // Allowlist with only PersonName builds the dictionary detector.
+        let scanner = Scanner::builder()
+            .pii_kinds([PiiKind::PersonName])
+            .build()
+            .unwrap();
+        assert!(scanner.has_piis("Jan Kowalski"));
+        assert!(
+            scanner
+                .mark_piis("Jan Kowalski")
+                .iter()
+                .any(|m| m.kind == PiiKind::PersonName)
+        );
+    }
+
+    #[test]
+    fn person_name_absent_when_excluded() {
+        // Blocklisting PersonName means the detector is never constructed and
+        // the FST is never loaded; no PERSON_NAME match can fire.
+        let scanner = Scanner::builder()
+            .exclude_pii_kinds([PiiKind::PersonName])
+            .build()
+            .unwrap();
+        assert!(
+            scanner
+                .mark_piis("Jan Kowalski")
+                .iter()
+                .all(|m| m.kind != PiiKind::PersonName)
+        );
+    }
+
     // --- PII in Matomo tracking requests ---
 
     // uid param often carries an email or other user identifier
@@ -882,8 +926,10 @@ mod tests {
     )]
     fn detects_pii_in_matomo(input: &str, kind: PiiKind, expected_span: &str) {
         let scanner = &*SCANNER;
-        let matches: Vec<_> = scanner
-            .mark_piis(input)
+        // Resolve overlaps to match how the proxy counts: a name value can fire
+        // both the keyword-context rule (e.g. `first_name=`) and the dictionary
+        // detector on the same span; resolve_overlaps dedupes them.
+        let matches: Vec<_> = crate::resolve_overlaps(scanner.mark_piis(input))
             .into_iter()
             .filter(|m| m.kind == kind)
             .collect();
@@ -1017,8 +1063,10 @@ mod tests {
     )]
     fn detects_pii_in_ga(input: &str, kind: PiiKind, expected_span: &str) {
         let scanner = &*SCANNER;
-        let matches: Vec<_> = scanner
-            .mark_piis(input)
+        // Resolve overlaps to match how the proxy counts: a name value can fire
+        // both the keyword-context rule (e.g. `first_name=`) and the dictionary
+        // detector on the same span; resolve_overlaps dedupes them.
+        let matches: Vec<_> = crate::resolve_overlaps(scanner.mark_piis(input))
             .into_iter()
             .filter(|m| m.kind == kind)
             .collect();
@@ -1195,8 +1243,10 @@ mod tests {
     )]
     fn detects_pii_in_capi(input: &str, kind: PiiKind, expected_span: &str) {
         let scanner = &*SCANNER;
-        let matches: Vec<_> = scanner
-            .mark_piis(input)
+        // Resolve overlaps to match how the proxy counts: a name value can fire
+        // both the keyword-context rule (e.g. `first_name=`) and the dictionary
+        // detector on the same span; resolve_overlaps dedupes them.
+        let matches: Vec<_> = crate::resolve_overlaps(scanner.mark_piis(input))
             .into_iter()
             .filter(|m| m.kind == kind)
             .collect();
