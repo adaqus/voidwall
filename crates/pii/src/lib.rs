@@ -26,6 +26,8 @@ pub enum PiiError {
     /// Builder configuration is inconsistent (e.g. PII kinds unreachable from
     /// the selected countries, or countries that contribute no enabled PII kinds).
     InvalidConfiguration(String),
+    /// The embedded names gazetteer (FST) failed to load or parse.
+    GazetteerLoad(String),
 }
 
 impl std::fmt::Display for PiiError {
@@ -38,6 +40,9 @@ impl std::fmt::Display for PiiError {
             PiiError::InvalidConfiguration(e) => {
                 write!(f, "invalid scanner configuration: {e}")
             }
+            PiiError::GazetteerLoad(e) => {
+                write!(f, "names gazetteer failed to load: {e}")
+            }
         }
     }
 }
@@ -46,7 +51,9 @@ impl std::error::Error for PiiError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PiiError::RegexCompilation(e) => Some(e),
-            PiiError::HyperscanCompilation(_) | PiiError::InvalidConfiguration(_) => None,
+            PiiError::HyperscanCompilation(_)
+            | PiiError::InvalidConfiguration(_)
+            | PiiError::GazetteerLoad(_) => None,
         }
     }
 }

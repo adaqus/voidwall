@@ -1256,9 +1256,10 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - [x] Frequency-cut the surname long tail to a documented coverage band (keep the
   artifact to a few MB). Print final entry count + artifact size.
   (`SURNAME_MIN_COUNT` env, default 100 = full Census file; `GIVEN_MIN_COUNT` default 0.)
-- [ ] Commit the generated `names_en.fst` artifact (a few MB) to the repo (or
+- [x] Commit the generated `names_en.fst` artifact (a few MB) to the repo (or
   document a fetch step); record the build inputs/threshold so it is reproducible.
-  (BLOCKED on manual data download — run the tool, then commit the artifact.)
+  (Built: 250,550 entries, 1.22 MB at `crates/pii/data/names_en.fst`; inputs/band in
+  `data/names/README.md`. Staged for commit per project no-auto-commit rule.)
 - [x] Verify: rebuild is deterministic (same inputs → byte-identical artifact).
   (Verified with synthetic inputs: two runs produce byte-identical SHA-256.)
 
@@ -1277,13 +1278,15 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   source, no duplicated constants to keep in sync.)
 
 ### 20.3 pii crate: FST loading
-- [ ] Load the artifact into a `fst::Map` and wrap it for read-only sharing. Use
+- [x] Load the artifact into a `fst::Map` and wrap it for read-only sharing. Use
   `include_bytes!` to embed the committed artifact (gives a `&'static [u8]`, so a
   single copy is shared across all threads with no per-thread cost and no runtime
   file path), or mmap a path if embedding proves too large — pick one, document why.
-- [ ] Map load/parse failure to a clear `PiiError` surfaced at scanner build time
+  (Chose `include_bytes!` — 1.22 MB `&'static` slice, no Arc/mmap; rationale documented.)
+- [x] Map load/parse failure to a clear `PiiError` surfaced at scanner build time
   (so `--validate` catches a corrupt artifact), not a runtime panic.
-- [ ] Unit test: the artifact loads, `len() > 0`, and a known name (`"smith"`)
+  (New `PiiError::GazetteerLoad`; `Gazetteer::load()` maps `fst::Error` to it.)
+- [x] Unit test: the artifact loads, `len() > 0`, and a known name (`"smith"`)
   resolves with the expected flags. → verify: `cargo test -p pii dictionary`.
 
 ### 20.4 pii crate: tokenization & windowing
