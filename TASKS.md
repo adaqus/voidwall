@@ -1326,12 +1326,30 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   - no-hit token (`"asdfghjkl"`) → not detected
   - offsets are document-absolute within surrounding text
 
+**AC:**
+- Implements `Detector` and is `Send + Sync`.
+- Emitted spans are document-absolute byte offsets; slicing the original text at a
+  match returns the exact (un-normalized) name.
+- Forms without `ALSO_COMMON_WORD` fire on a bare hit; forms with it are suppressed
+  unless promoted, and **each** promotion path (caps mid-sentence, adjacent
+  given+surname, nearby title) is shown to recover the same form.
+- A bare common-word use (lowercase `will` mid-prose) yields no match.
+- Overlapping windows at one start do not double-emit (longest preferred, or left to
+  `resolve_overlaps`).
+- `has_piis` short-circuits on the first gated hit and agrees with `mark_piis` emptiness.
+- No PII values are logged (kind names / counts only).
+
 ### 20.6 pii crate: structured scanning support
 - [ ] Override `mark_piis_structured` in `DictionaryDetector` to scan each
   fragment's **value** text directly (names need no key-path context) and
   offset-adjust matches by `fragment.offset`.
 - [ ] Unit test: `{"name": "John Smith"}`-style fragment value → detected with
   document-absolute offsets.
+
+**AC:**
+- Only the fragment **value** is scanned (no key-path/keyword gating applied).
+- Match offsets are adjusted by `fragment.offset` → document-absolute, not fragment-local.
+- Test asserts the absolute offset, not just that a match exists.
 
 ### 20.7 pii crate: registration & activation
 - [ ] Register `DictionaryDetector` in `Scanner::new()` / `ScannerBuilder::build()`
@@ -1347,6 +1365,13 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   `detect`), no `PersonName` match fires and the artifact is not loaded. → verify:
   `cargo test -p pii`.
 
+**AC:**
+- Detector is registered **last** in the chain (after `KeywordContextDetector`).
+- `Gazetteer::load` runs **only** when `PersonName` is enabled; when disabled the
+  detector is not constructed and the FST is never loaded (no startup cost).
+- Chain placement does not change the resolved output (verified via `resolve_overlaps`).
+- Tests cover both the enabled and disabled paths.
+
 ### 20.8 Overlap resolution
 - [ ] Confirm no `overlap.rs` priority-group entry is needed initially —
   `PersonName` rarely produces an equal-span match with a structured kind; the
@@ -1355,6 +1380,12 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   dropped by the generic rule; only add a priority entry if an equal-span clash is
   observed.
 
+**AC:**
+- A test shows a name contained in a wider address span is dropped by the generic
+  containment rule.
+- No `PRIORITY_GROUPS` entry is added unless an equal-span clash is actually observed
+  (and if added, it is justified by a failing case, not speculation).
+
 ### 20.9 Benchmarks
 - [ ] Add a `PERSON_NAME_TEXT` corpus constant (realistic prose with embedded
   names) in `benches/pii_benchmark.rs`.
@@ -1362,6 +1393,12 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - [ ] Add names into `MIXED_PII_TEXT` so throughput / comparison benches cover the
   new kind. → verify: `cargo bench -p pii throughput_mark_piis` shows the names
   path stays microsecond-class (O(text length), per the research doc).
+
+**AC:**
+- `per_detector` entry + `PERSON_NAME_TEXT` corpus added; names present in `MIXED_PII_TEXT`.
+- Names path stays microsecond-class (O(text length)); throughput scales with text
+  length, not gazetteer size.
+- No material regression to the other detectors' existing benchmark numbers.
 
 ### 20.10 Proxy integration (verification only — no new config)
 - [ ] Verify `PersonName` flows end-to-end through the existing pipeline with **no
@@ -1372,11 +1409,24 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   → `PersonName` detected, redacted as `[PERSON_NAME]`, metric labelled
   `pii_kind="PERSON_NAME"`; with `PersonName` disabled in config, no detection.
 
+**AC:**
+- No new config keys/metrics/response fields added — toggled purely via `[pii].detect`/`ignore`.
+- End-to-end works: detection, `[PERSON_NAME]` redaction, `X-PII-Detected`, and the
+  `pii_kind="PERSON_NAME"` metric label.
+- Integration test covers both enabled (detected + redacted + metric) and disabled
+  (no detection) cases.
+
 ### 20.11 AI4Privacy eval
 - [ ] Run `docker/ctl eval` for the name categories
   (`GIVENNAME*`/`LASTNAME*` → `PERSON_NAME`) before/after the detector to record
   the recall lift and the false-positive impact (the metric the standalone phase
   exists to measure). Capture the numbers in the eval notes.
+
+**AC:**
+- Before/after recall **and** false-positive numbers for the name categories are
+  recorded in the eval notes.
+- Numbers come from the standard `docker/ctl eval` workflow — no detector tweaks made
+  purely to flatter the score.
 
 ### 20.12 Documentation
 - [ ] Document the offline FST build (inputs, licenses, normalization, frequency
@@ -1384,3 +1434,9 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - [ ] Update `crates/pii/CLAUDE.md`: note `DictionaryDetector` as a third detector
   type (dictionary/FST membership), its English-only/`PersonName` scope, the
   activation gate, and the build-tool location.
+
+**AC:**
+- Build doc covers inputs, licenses, normalization, frequency band, and the rebuild +
+  determinism command.
+- `crates/pii/CLAUDE.md` lists `DictionaryDetector` as the third detector type with its
+  scope, activation gate, and build-tool location.

@@ -172,3 +172,8 @@ Do NOT commit finished task.
 ## Task Tracking
 
 After completing each task from `TASKS.md`, mark its checkbox as done (`- [x]`).
+
+Every task in `TASKS.md` must carry an **AC:** (acceptance criteria) block — a short
+list of checks naming what is crucial when reviewing that task's implementation. Keep
+each sentence short. Add the block when writing or refining a task. Before marking the
+task done, review the implementation against its ACs using the `code-review` skill.
