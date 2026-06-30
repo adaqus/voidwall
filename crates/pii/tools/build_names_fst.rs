@@ -1,5 +1,5 @@
 //! Offline gazetteer build tool — produces `data/names.fst` from the source
-//! name lists (EN given+surnames, IT/ES surnames). **Build-time only**; not
+//! name lists (EN/IT/ES + multilingual Wikidata names). **Build-time only**; not
 //! compiled into the proxy image (gated behind the `build-names-fst` feature).
 //!
 //! Run:
@@ -12,8 +12,11 @@
 //!   - `Names_2010Census.csv`   US Census 2010 surnames      (`name,rank,count,…`)
 //!   - `it/cognomi.txt`         Italian surnames             (one surname per line)
 //!   - `es/apellidos.txt`       Spanish surnames, accented   (one surname per line)
+//!   - `wikidata/{given,surname}.txt`  Multilingual Wikidata names, one per line
+//!     (fetch with `tools/fetch_wikidata_names.sh`)
 //!   - `google-10000-english.txt`  EN common-word list (one word per line)
-//!   - `it/common.txt`, `es/common.txt`  IT/ES common-word lists (one word per line)
+//!   - `english-words.txt`      Full EN dictionary (Wikidata homograph exclusion)
+//!   - `{de,fr,it,es,nl,pl}/common.txt`  Per-language common-word lists
 //!
 //! Output (committed): `<crate>/data/names.fst` — an `fst::Map` whose value is
 //! the `u64` flag bitmask below.
@@ -76,11 +79,53 @@ fn main() {
     common.extend(load_common_words(&data_dir.join("es/common.txt")));
     eprintln!("common words loaded: {}", common.len());
 
+    // Homograph-exclusion set for the broad Wikidata name lists. A Wikidata form
+    // present here is dropped (not gated): gating via ALSO_COMMON_WORD was tried
+    // and is strictly worse — it over-gates legit names (recall ↓) while the kept
+    // homographs still fire when promoted (precision ↓). Only the Wikidata lists
+    // are filtered; the curated EN/IT/ES sources vouch for their own entries.
+    //
+    // It unions: (1) the full English **dictionary** (`english-words.txt` —
+    // proper-noun-free, so `stone`/`brown` but not `García`/`Rossi`), and (2) the
+    // common-word list of every **supported language**. Both are needed: the broad
+    // multilingual set collides with ordinary words in each language the proxy
+    // serves — `Steuer` (DE "tax"), `le maire` (FR) — and those fire on caps alone
+    // in that language's clean text. The per-language lists are the same curated,
+    // surname-free `oprogramador` lists used for gating, so real surnames survive.
+    let mut wd_exclude = load_common_words(&data_dir.join("english-words.txt"));
+    for lang in ["de", "fr", "it", "es", "nl", "pl"] {
+        wd_exclude.extend(load_common_words(&data_dir.join(lang).join("common.txt")));
+    }
+    eprintln!("wikidata exclusion words: {}", wd_exclude.len());
+
     // 2./3. Accumulate flags per normalized form across both sources.
     let mut forms: BTreeMap<String, u64> = BTreeMap::new();
 
     let given = load_ssa_given(&data_dir.join("ssa"), given_min, &mut forms);
     eprintln!("given-name forms : {given}");
+
+    // Multilingual given names from Wikidata CC0 (instances of male/female/unisex
+    // given name). License-clean, one normalized form per line; extends SSA's
+    // US-centric coverage to the foreign given names the eval misses (Sündüz,
+    // Olexandr, Génesis…). Word homographs are dropped (see `wd_exclude`).
+    let (wd_given, wd_given_dropped) = load_name_list_excluding(
+        &data_dir.join("wikidata/given.txt"),
+        IS_GIVEN,
+        &wd_exclude,
+        &mut forms,
+    );
+    eprintln!("WD given forms   : {wd_given} (dropped {wd_given_dropped} homographs)");
+
+    // Multilingual surnames from Wikidata CC0 (instances of family name). Word
+    // homographs are dropped (see `wd_exclude` above); legit word-surnames
+    // (`Brown`, `Hill`) survive via the Census source, which is unfiltered.
+    let (wd_surname, wd_surname_dropped) = load_name_list_excluding(
+        &data_dir.join("wikidata/surname.txt"),
+        IS_SURNAME,
+        &wd_exclude,
+        &mut forms,
+    );
+    eprintln!("WD surname forms : {wd_surname} (dropped {wd_surname_dropped} homographs)");
 
     let surname = load_census_surnames(
         &data_dir.join("Names_2010Census.csv"),
@@ -205,6 +250,44 @@ fn load_ssa_given(dir: &Path, min: u64, forms: &mut BTreeMap<String, u64>) -> us
         }
     }
     kept
+}
+
+/// A normalized key is a single name token if it holds no internal separator.
+/// Multi-word Wikidata entries (`le maire`, `la roche`) collide with ordinary
+/// foreign-language phrases ("le maire" = the mayor) and are the dominant false
+/// positive once the broad set is added; the high-value missed names are all
+/// single-token, so we keep only those. (Multi-word native names still come from
+/// the curated EN/IT/ES sources, which are not filtered.) Hyphenated forms are
+/// excluded too — they would never match anyway, since the detector keys windows
+/// with space-joined tokens.
+fn is_single_token(key: &str) -> bool {
+    !key.bytes().any(|b| b == b' ' || b == b'-')
+}
+
+/// Load a one-name-per-line Wikidata list, OR-ing `flag` (`IS_GIVEN`/`IS_SURNAME`)
+/// for each single-token form ≥ `MIN_NAME_LEN` that is **not** in `exclude`. The
+/// exclusion drops cross-language word homographs (`stone`, `Steuer`) that would
+/// otherwise fire on caps alone and wreck precision. Returns `(kept, dropped)`.
+fn load_name_list_excluding(
+    path: &Path,
+    flag: u64,
+    exclude: &HashSet<String>,
+    forms: &mut BTreeMap<String, u64>,
+) -> (usize, usize) {
+    let (mut kept, mut dropped) = (0, 0);
+    for line in open_lines(path).lines().map_while(Result::ok) {
+        let key = normalize(&line);
+        if key.len() < MIN_NAME_LEN || !is_single_token(&key) {
+            continue;
+        }
+        if exclude.contains(&key) {
+            dropped += 1;
+            continue;
+        }
+        *forms.entry(key).or_insert(0) |= flag;
+        kept += 1;
+    }
+    (kept, dropped)
 }
 
 /// Read a one-surname-per-line list (IT/ES gazetteers), OR `IS_SURNAME` for each

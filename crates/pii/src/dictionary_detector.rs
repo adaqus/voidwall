@@ -3,8 +3,8 @@
 //! See DESIGN.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
 //! `docs/ner-vs-regex-latency-research.md`. A name form is looked up in an FST
 //! whose value carries the flag bitmask below. The embedded gazetteer covers
-//! English given names + surnames and Italian/Spanish surnames; the detector
-//! itself is language-agnostic.
+//! English (US) given names + surnames, multilingual given names (Wikidata CC0),
+//! and Italian/Spanish surnames; the detector itself is language-agnostic.
 
 /// Flag bitmask stored as the `fst::Map` value for each name form.
 ///
@@ -123,8 +123,8 @@ fn windows<'a>(
 /// `include_bytes!` (rather than a runtime mmap) is deliberate: it yields a
 /// single `&'static [u8]` baked into the binary, shared read-only across every
 /// scanner thread with **no per-thread cost and no runtime file path** to
-/// resolve. At ~0.8 MB the artifact is small enough that embedding it is
-/// cheaper and simpler than mmap; revisit only if it grows to many MB.
+/// resolve. At ~3.5 MB the artifact is small enough that embedding it is
+/// cheaper and simpler than mmap; revisit only if it grows to many tens of MB.
 const NAMES_FST_BYTES: &[u8] = include_bytes!("../data/names.fst");
 
 /// Read-only name gazetteer backed by an `fst::Map` over the embedded artifact.
