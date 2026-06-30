@@ -879,6 +879,17 @@ pub(crate) fn dob_check(s: &str) -> bool {
         }
     }
 
+    // "Month/YY" — month name + 2-digit year, no day (e.g. "October/97"). A
+    // reduced-precision birth date; only accepted because the keyword gate already
+    // confirmed birth context. Requires a real month name so "12/97" can't match.
+    if parts.len() == 2
+        && parts[1].trim().len() == 2
+        && month_from_name(parts[0].trim()).is_some()
+        && parts[1].trim().parse::<u32>().is_ok()
+    {
+        return true;
+    }
+
     // Parse a day with an optional English ordinal suffix and trailing comma:
     // "15", "3rd", "10th," → the leading digits. Any other trailing text → None.
     let parse_day = |w: &str| -> Option<u32> {

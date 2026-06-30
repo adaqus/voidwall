@@ -421,7 +421,7 @@ impl KeywordContextDetector {
             (
                 PiiKind::DateOfBirth,
                 Language::En,
-                r"(?i)(?:date[\s_-]?of[\s_-]?birth|birth[\s_-]?date|birthdate|dob|d\.o\.b\.?|born[\s_-]?on)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})",
+                r"(?i)(?:date[\s_-]?of[\s_-]?birth|birth[\s_-]?date|birthdate|dob|d\.o\.b\.?|born[\s_-]?on)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|/\d{2}))",
                 dob_check,
             ),
             // Bank accounts
@@ -2007,6 +2007,9 @@ mod tests {
     #[test_case("date of birth: 3rd October 1965", PiiKind::DateOfBirth, "3rd October 1965" ; "dob ordinal day first")]
     #[test_case("date of birth: November 10th, 1997", PiiKind::DateOfBirth, "November 10th, 1997" ; "dob ordinal month first")]
     #[test_case("born on: 01-01-2000", PiiKind::DateOfBirth, "01-01-2000" ; "dob born on")]
+    #[test_case("date of birth: October/97", PiiKind::DateOfBirth, "October/97" ; "dob month slash yy")]
+    #[test_case("birthdate: April/04", PiiKind::DateOfBirth, "April/04" ; "dob month slash yy abbrevless")]
+    #[test_case("\"Date_of_Birth\": \"September/59\"", PiiKind::DateOfBirth, "September/59" ; "dob month slash yy json")]
     #[test_case("BSB: 012-345", PiiKind::AuBankAccount, "012-345" ; "au bsb bare")]
     #[test_case("bsb number: 012345", PiiKind::AuBankAccount, "012345" ; "au bsb no hyphen")]
     #[test_case("transit number: 12345 001 1234567", PiiKind::CaBankAccount, "12345 001 1234567" ; "ca transit full")]
