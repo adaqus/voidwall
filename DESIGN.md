@@ -288,9 +288,12 @@ is a new `pii`-crate detector that catches this class via **FST membership looku
 over a gazetteer — microsecond-class, complementing (not replacing) the
 vectorscan + regex chain.
 
-**Scope of this design.** Ships **standalone, English-only, for `PersonName`
-(given + surname)**, and **only when `PersonName` is enabled in configuration**
-(see "Activation"). It is a *candidate detector*, not a contextual disambiguator:
+**Scope of this design.** Ships **standalone, for `PersonName` (given +
+surname)**, and **only when `PersonName` is enabled in configuration**
+(see "Activation"). The gazetteer covers **English given names + surnames plus
+Italian and Spanish surnames**, merged into one artifact with no per-entry
+language tag (the multilingual-surname step originally sketched under "Phasing"
+below). It is a *candidate detector*, not a contextual disambiguator:
 recall and false-positive rate are observed in production before any second tier is
 added. The data structure and scan flow are dictionary- and language-agnostic (the
 same machinery later serves other languages and other dictionaries — cities,
@@ -394,14 +397,17 @@ pipeline unchanged: it appears in `[pii].detect` / `ignore`,
 
 ### Phasing
 
-- **Phase 1 (this design):** standalone, English-only FST `PersonName` detector with
-  conservative gating, active only when `PersonName` is enabled. Measure recall and
-  false-positive rate on real traffic and the AI4Privacy eval.
-- **Phase 2 (future, out of scope):** additional languages (separate/merged FST
-  artifacts, no per-entry language tag) and/or an optional, GPU-backed contextual NER
-  second tier for the residual disambiguation, with the FST acting as a candidate
-  generator / recall booster. Whether either is worth building depends on whether
-  high name recall is a paid requirement — see the research doc's verdict.
+- **Phase 1 (this design):** standalone FST `PersonName` detector with conservative
+  gating, active only when `PersonName` is enabled. Measure recall and false-positive
+  rate on real traffic and the AI4Privacy eval. *(Shipped English given+surnames;
+  then merged in Italian + Spanish surnames into the same artifact — no per-entry
+  language tag, always active with `PersonName` — to lift LASTNAME recall. See
+  `docs/person-name-eval.md`.)*
+- **Phase 2 (future, out of scope):** further languages (same merged-FST mechanism)
+  and/or an optional, GPU-backed contextual NER second tier for the residual
+  disambiguation, with the FST acting as a candidate generator / recall booster.
+  Whether either is worth building depends on whether high name recall is a paid
+  requirement — see the research doc's verdict.
 
 ### Known limits (to be measured)
 

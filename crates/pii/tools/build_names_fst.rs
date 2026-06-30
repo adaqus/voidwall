@@ -1,6 +1,6 @@
-//! Offline gazetteer build tool — produces `data/names_en.fst` from the source
-//! English name lists. **Build-time only**; not compiled into the proxy image
-//! (gated behind the `build-names-fst` feature).
+//! Offline gazetteer build tool — produces `data/names.fst` from the source
+//! name lists (EN given+surnames, IT/ES surnames). **Build-time only**; not
+//! compiled into the proxy image (gated behind the `build-names-fst` feature).
 //!
 //! Run:
 //! ```text
@@ -10,9 +10,12 @@
 //! Inputs (download per `data/names/README.md`, default dir `<crate>/data/names`):
 //!   - `ssa/*.txt`              US SSA national given names  (`Name,Sex,Count`)
 //!   - `Names_2010Census.csv`   US Census 2010 surnames      (`name,rank,count,…`)
-//!   - `google-10000-english.txt`  common-word list (one word per line)
+//!   - `it/cognomi.txt`         Italian surnames             (one surname per line)
+//!   - `es/apellidos.txt`       Spanish surnames, accented   (one surname per line)
+//!   - `google-10000-english.txt`  EN common-word list (one word per line)
+//!   - `it/common.txt`, `es/common.txt`  IT/ES common-word lists (one word per line)
 //!
-//! Output (committed): `<crate>/data/names_en.fst` — an `fst::Map` whose value is
+//! Output (committed): `<crate>/data/names.fst` — an `fst::Map` whose value is
 //! the `u64` flag bitmask below.
 //!
 //! Override paths with env vars (or positional args): `NAMES_DATA_DIR`, `NAMES_FST_OUT`.
@@ -49,7 +52,7 @@ fn main() {
         .next()
         .or_else(|| std::env::var("NAMES_FST_OUT").ok())
         .map(PathBuf::from)
-        .unwrap_or_else(|| manifest_dir.join("data/names_en.fst"));
+        .unwrap_or_else(|| manifest_dir.join("data/names.fst"));
 
     // Surnames below this Census 2010 occurrence count are dropped. The Census
     // tail (100–~1000) is dominated by word-like / foreign rare surnames
@@ -63,9 +66,14 @@ fn main() {
     eprintln!("out      : {}", out_path.display());
     eprintln!("surname_min_count = {surname_min}, given_min_count = {given_min}");
 
-    // 1. Common-word list → set of normalized words. A name form present here
-    //    gets ALSO_COMMON_WORD (auto-derived, not hand-curated).
-    let common = load_common_words(&data_dir.join("google-10000-english.txt"));
+    // 1. Common-word lists → set of normalized words. A name form present here
+    //    gets ALSO_COMMON_WORD (auto-derived, not hand-curated), so a bare hit
+    //    on it is suppressed unless corroborated. EN + IT + ES so that surnames
+    //    which are also ordinary IT/ES words (`Costa`, `Forte`, `Sole`) are
+    //    homograph-gated the same way English ones (`Will`, `Rose`) are.
+    let mut common = load_common_words(&data_dir.join("google-10000-english.txt"));
+    common.extend(load_common_words(&data_dir.join("it/common.txt")));
+    common.extend(load_common_words(&data_dir.join("es/common.txt")));
     eprintln!("common words loaded: {}", common.len());
 
     // 2./3. Accumulate flags per normalized form across both sources.
@@ -80,6 +88,13 @@ fn main() {
         &mut forms,
     );
     eprintln!("surname forms    : {surname}");
+
+    // IT/ES surnames (plain one-per-line lists, not frequency-ranked, so no
+    // count filter). Accented forms pass through `normalize` (NFC) unchanged.
+    let it_surname = load_surname_list(&data_dir.join("it/cognomi.txt"), &mut forms);
+    eprintln!("IT surname forms : {it_surname}");
+    let es_surname = load_surname_list(&data_dir.join("es/apellidos.txt"), &mut forms);
+    eprintln!("ES surname forms : {es_surname}");
 
     // Tag homographs of common words.
     let mut common_flagged = 0usize;
@@ -188,6 +203,22 @@ fn load_ssa_given(dir: &Path, min: u64, forms: &mut BTreeMap<String, u64>) -> us
             *forms.entry(name).or_insert(0) |= IS_GIVEN;
             kept += 1;
         }
+    }
+    kept
+}
+
+/// Read a one-surname-per-line list (IT/ES gazetteers), OR `IS_SURNAME` for each
+/// normalized form ≥ `MIN_NAME_LEN`. Unlike the Census source these lists carry
+/// no occurrence counts, so every entry is kept.
+fn load_surname_list(path: &Path, forms: &mut BTreeMap<String, u64>) -> usize {
+    let mut kept = 0;
+    for line in open_lines(path).lines().map_while(Result::ok) {
+        let key = normalize(&line);
+        if key.len() < MIN_NAME_LEN {
+            continue;
+        }
+        *forms.entry(key).or_insert(0) |= IS_SURNAME;
+        kept += 1;
     }
     kept
 }

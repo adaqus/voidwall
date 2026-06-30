@@ -2,8 +2,9 @@
 //!
 //! See DESIGN.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
 //! `docs/ner-vs-regex-latency-research.md`. A name form is looked up in an FST
-//! whose value carries the flag bitmask below. The detector itself is added in
-//! a later task; this module currently defines the shared flag contract.
+//! whose value carries the flag bitmask below. The embedded gazetteer covers
+//! English given names + surnames and Italian/Spanish surnames; the detector
+//! itself is language-agnostic.
 
 /// Flag bitmask stored as the `fst::Map` value for each name form.
 ///
@@ -122,9 +123,9 @@ fn windows<'a>(
 /// `include_bytes!` (rather than a runtime mmap) is deliberate: it yields a
 /// single `&'static [u8]` baked into the binary, shared read-only across every
 /// scanner thread with **no per-thread cost and no runtime file path** to
-/// resolve. At ~1.2 MB the artifact is small enough that embedding it is
+/// resolve. At ~0.8 MB the artifact is small enough that embedding it is
 /// cheaper and simpler than mmap; revisit only if it grows to many MB.
-const NAMES_FST_BYTES: &[u8] = include_bytes!("../data/names_en.fst");
+const NAMES_FST_BYTES: &[u8] = include_bytes!("../data/names.fst");
 
 /// Read-only name gazetteer backed by an `fst::Map` over the embedded artifact.
 ///
@@ -250,8 +251,8 @@ impl Analysis {
     }
 }
 
-/// Dictionary/FST membership detector for dictionary-shaped PII (English
-/// `PersonName`). See the module docs and DESIGN.md.
+/// Dictionary/FST membership detector for dictionary-shaped PII (`PersonName`:
+/// EN given+surnames, IT/ES surnames). See the module docs and DESIGN.md.
 pub struct DictionaryDetector {
     gaz: Gazetteer,
 }
@@ -427,6 +428,9 @@ mod tests {
     #[test_case("John Smith" ; "given+surname pair, both common words")]
     #[test_case("Will Smith" ; "common given promoted by adjacent surname")]
     #[test_case("Mr. Will"   ; "common given promoted by preceding title")]
+    #[test_case("Esposito"   ; "bare Italian surname")]
+    #[test_case("García"     ; "bare accented Spanish surname")]
+    #[test_case("John Costa" ; "common IT/ES word surname promoted by adjacent given")]
     fn detected(text: &str) {
         assert!(
             DictionaryDetector::new().unwrap().has_piis(text),
@@ -439,6 +443,7 @@ mod tests {
     #[test_case("i will go"       ; "lowercase common words in prose")]
     #[test_case("Will you go"     ; "sentence-initial common word, no name pair")]
     #[test_case("I met Rose today"; "lone capitalised common-word name, uncorroborated (recall gap)")]
+    #[test_case("Costa"           ; "bare IT/ES common-word surname, uncorroborated")]
     fn not_detected(text: &str) {
         assert!(
             !DictionaryDetector::new().unwrap().has_piis(text),
@@ -503,6 +508,37 @@ mod tests {
 
         // A clearly absent token resolves to nothing.
         assert!(g.get("asdfghjkl").is_none());
+
+        // Italian and (accent-preserving) Spanish surnames resolve as surnames.
+        // Look up through `normalize` so the query key is NFC — identical to the
+        // scan path — rather than depending on this source file's Unicode form.
+        assert!(
+            g.get(&normalize("Esposito"))
+                .is_some_and(|f| f & IS_SURNAME != 0),
+            "`esposito` should be present as IT surname"
+        );
+        assert!(
+            g.get(&normalize("García"))
+                .is_some_and(|f| f & IS_SURNAME != 0),
+            "`garcía` (accented) should be present as ES surname"
+        );
+
+        // Homograph gating: a surname that is also a common IT/ES word (`Costa`)
+        // carries ALSO_COMMON_WORD so a bare hit needs corroboration; a surname
+        // that is *only* a surname (`García`, `Esposito`) must NOT — otherwise
+        // standalone-surname recall is lost.
+        let costa = g.get(&normalize("Costa")).expect("`costa` present");
+        assert!(
+            costa & IS_SURNAME != 0 && costa & ALSO_COMMON_WORD != 0,
+            "`costa` should be a common-word surname"
+        );
+        for pure in ["García", "Esposito"] {
+            let f = g.get(&normalize(pure)).expect("surname present");
+            assert!(
+                f & ALSO_COMMON_WORD == 0,
+                "`{pure}` is a surname, not a common word — must not be gated"
+            );
+        }
     }
 
     /// Collect `(slice, start, end)` for each token to assert offsets.

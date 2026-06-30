@@ -1444,10 +1444,13 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   (no detection) cases.
 
 ### 20.11 AI4Privacy eval
-- [ ] Run `docker/ctl eval` for the name categories
+- [x] Run `docker/ctl eval` for the name categories
   (`GIVENNAME*`/`LASTNAME*` → `PERSON_NAME`) before/after the detector to record
   the recall lift and the false-positive impact (the metric the standalone phase
   exists to measure). Capture the numbers in the eval notes.
+  (`docs/person-name-eval.md`, mini10k EN, 2026-06-30: GIVENNAME1 0→51.0%,
+  LASTNAME1 0→21.0%; supported det R 0.238→0.397 / F1 0.384→0.559; cost = 140
+  PERSON_NAME FPs, det P 1.000→0.948 / typed P 0.994→0.893, homograph-driven.)
 
 **AC:**
 - Before/after recall **and** false-positive numbers for the name categories are
@@ -1501,4 +1504,32 @@ changing the emitted match set.
   ~26 MiB/s (clean) / ~13 MiB/s (names) baseline; before/after numbers recorded.
 - No regression to the other detectors' benches (`throughput_hyperscan_detector`,
   `throughput_keyword_detector`).
+- No PII values logged; spans stay document-absolute byte offsets.
+
+### 20.14 IT/ES surname support in DictionaryDetector
+LASTNAME recall on the merged structured eval tops out (~43%) because many misses
+are Italian/Spanish surnames absent from the English gazetteer. Add IT+ES surnames
+to the single embedded FST (merge-all; no `[pii].languages` plumbing, no language
+bit). Surnames only this round (no IT/ES given names).
+
+- [x] Source data: IT = `filippotoso/nomi-cognomi-italiani` (~37k, licensing
+  exception granted); ES = INE frequency set with accents restored from Wikidata
+  CC0 labels (~26k). Placed git-ignored under `data/names/{it,es}/`.
+- [x] Build tool: `load_surname_list` (one-per-line, no count filter) OR-ing
+  `IS_SURNAME`; default output renamed `names_en.fst` → `names.fst`.
+- [x] Detector: `include_bytes!` points at `names.fst`; docs updated; IT/ES
+  `#[test_case]` rows + gazetteer resolution asserts (`esposito`, `garcía`).
+- [x] README provenance: IT exception + INE/Wikidata accent-restoration rationale.
+- [x] Before/after eval recorded in `docs/person-name-eval.md` (LASTNAME1 +5.3pp,
+  LASTNAME2 +10.7pp, LASTNAME3 +14.8pp; PERSON_NAME +386 tp / +36 fp, precision held).
+
+**AC:**
+- Single merged FST (`names.fst`), built reproducibly (byte-identical sha256);
+  no `languages` / scanner / config changes.
+- ES forms carry accents so real text (`García`) matches; `garcía` resolves as
+  `IS_SURNAME`. INE alone (accent-stripped) is not used raw.
+- Italian licensing exception is documented; no other scraped *person* dumps used.
+- LASTNAME recall rises on the merged structured eval; PERSON_NAME adjusted
+  precision (`P_adj`) does not materially regress (recall-first bar). Numbers
+  recorded.
 - No PII values logged; spans stay document-absolute byte offsets.

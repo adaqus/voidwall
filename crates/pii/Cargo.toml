@@ -32,7 +32,7 @@ build-names-fst = []
 name = "pii_benchmark"
 harness = false
 
-# Offline gazetteer build tool — produces data/names_en.fst from the source
+# Offline gazetteer build tool — produces data/names.fst from the source
 # name lists. Not compiled into the proxy. Run with:
 #   cargo run -p pii --features build-names-fst --bin build_names_fst
 [[bin]]
