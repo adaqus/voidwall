@@ -1525,6 +1525,40 @@ changing the emitted match set.
   `throughput_keyword_detector`).
 - No PII values logged; spans stay document-absolute byte offsets.
 
+**Follow-up pass (per-token allocation + gate scans):** load-test showed the
+detector still dominated on the API scan path for medium payloads (JSON/text
+lorem ≈10 KB). Phase-profiling `name_spans` isolated the residual cost as (a)
+`normalized` — a `String` alloc per token even for already-lowercase ASCII, and
+(b) `analyze` — a linear `TITLES`/`STOPWORDS` `.contains` (10 / ~85 entries) per
+token. Fixes:
+- `normalize_token` returns `Cow<str>`: **borrow** already-lowercase ASCII (no
+  alloc), `to_ascii_lowercase` for mixed-case ASCII (skip the NFC iterator),
+  full `normalize` only for non-ASCII. Byte-identical keys.
+- `TITLES`/`STOPWORDS` moved out of the per-token precompute into the gate,
+  backed by O(1) `LazyLock<HashSet>` — the scan now runs only on capitalised FST
+  hits, not every token.
+Result (phase-profiled `name_spans`, 10 KB): lowercase prose **250 → 32 µs
+(≈8×)**, name-dense CSV **496 → 336 µs**. Isolation
+`throughput_dictionary_detector/mark_piis`: `clean_10kb` 34 → **204 MiB/s**,
+`clean_500b` 33 → **190 MiB/s**, `names` 23 → **37 MiB/s**. Full scanner
+`mark_piis/clean_10kb` 426 → **143 µs** (536 µs pre-20.13 → 143 µs, **3.7×**).
+Match set unchanged (`walk_emits_same_gated_windows_as_get_per_window` +
+suite green). End-to-end `run.sh http_api` confirmed the lift: JSON/text medium
+≈10k → **≈24k req/s** (2.4×, matching the pre-regression baseline), large ≈2.5×.
+
+**Deferred future candidate — name-dense / structured CSV path.** `run.sh
+http_api` CSV stayed the bottleneck (csv_medium only 1.17×, csv_large ≈flat at
+~1s p50) because it is dense capitalised names scanned per-cell. Two costs, both
+left as future work:
+1. *Redundant FST traversal* — `analyze`'s `raw` `gaz.get` and the walk both
+   traverse the FST for every capitalised token. Deduping is blocked by
+   `promoted`'s **forward reference** to `raw[right]` (the token after a window),
+   so a single-pass rewrite isn't clean.
+2. *Per-cell fixed overhead* — structured scanning calls `mark_piis` once per
+   cell, so a one-token cell still allocates `tokens`/`norm`/`raw`/`cap`/
+   `ws_before` Vecs. Profile the structured route before optimising (e.g. reuse
+   scratch buffers across fragments).
+
 ### 20.14 IT/ES surname support in DictionaryDetector
 LASTNAME recall on the merged structured eval tops out (~43%) because many misses
 are Italian/Spanish surnames absent from the English gazetteer. Add IT+ES surnames

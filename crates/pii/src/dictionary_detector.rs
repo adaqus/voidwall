@@ -27,6 +27,9 @@ use crate::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 use fst::Map;
 use fst::raw::Output;
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::sync::LazyLock;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -64,13 +67,36 @@ fn tokenize(text: &str) -> Vec<Token> {
         .collect()
 }
 
-/// Normalize each token once (lowercase + NFC), shared by `analyze` (1-token
-/// FST lookups, title/stop tests) and the window walk (FST prefix traversal) so
-/// no token is normalized twice.
-fn normalized(text: &str, tokens: &[Token]) -> Vec<String> {
+/// Per-token normalization that **borrows without allocating** for the common
+/// case — a token already pure-ASCII with no uppercase (the overwhelming
+/// majority of lowercase prose). Such a token is unchanged by `normalize`
+/// (`trim`/`to_lowercase`/`nfc` are all no-ops on lowercase ASCII with no
+/// surrounding whitespace), so returning the original slice is byte-identical
+/// to the canonical key. Anything else (uppercase, non-ASCII) falls back to the
+/// shared [`normalize`] so the query key still matches the stored FST key.
+fn normalize_token(s: &str) -> Cow<'_, str> {
+    if s.is_ascii() {
+        // Word tokens carry no surrounding whitespace, so `trim` is a no-op, and
+        // NFC is identity on ASCII — normalization reduces to ASCII-lowercasing.
+        // Already-lowercase tokens (the bulk of prose) borrow with no allocation;
+        // mixed-case ASCII (`John`) lowercases without the NFC iterator chain.
+        if s.bytes().any(|b| b.is_ascii_uppercase()) {
+            Cow::Owned(s.to_ascii_lowercase())
+        } else {
+            Cow::Borrowed(s)
+        }
+    } else {
+        Cow::Owned(normalize(s))
+    }
+}
+
+/// Normalize each token once, shared by `analyze` (1-token FST lookups) and the
+/// window walk (FST prefix traversal) so no token is normalized twice. Uses the
+/// zero-alloc [`normalize_token`] fast path.
+fn normalized<'a>(text: &'a str, tokens: &[Token]) -> Vec<Cow<'a, str>> {
     tokens
         .iter()
-        .map(|t| normalize(&text[t.start..t.end]))
+        .map(|t| normalize_token(&text[t.start..t.end]))
         .collect()
 }
 
@@ -153,6 +179,15 @@ const STOPWORDS: &[&str] = &[
     "oraz", "lub", "ale", "na", "do", "od", "za", "ten", "jest", "czy",
 ];
 
+/// O(1) membership sets over [`TITLES`]/[`STOPWORDS`], built once. Gating on a
+/// name-dense document (e.g. a CSV of names) calls these on every FST hit; a
+/// linear `slice.contains` over ~85 stopwords there dominated the walk, so the
+/// lookup is hashed instead. Process-global (`&'static`), shared read-only.
+static TITLE_SET: LazyLock<HashSet<&'static str>> =
+    LazyLock::new(|| TITLES.iter().copied().collect());
+static STOPWORD_SET: LazyLock<HashSet<&'static str>> =
+    LazyLock::new(|| STOPWORDS.iter().copied().collect());
+
 /// Per-token signals precomputed once per scanned text, used for precision
 /// gating of common-word name forms.
 struct Analysis {
@@ -162,10 +197,6 @@ struct Analysis {
     raw: Vec<Option<u64>>,
     /// First character is uppercase.
     cap: Vec<bool>,
-    /// Token is a title/honorific (`TITLES`).
-    title: Vec<bool>,
-    /// Token is a non-English function word (`STOPWORDS`).
-    stop: Vec<bool>,
     /// The gap before this token is whitespace-only (so the previous token is a
     /// true left-neighbour, not separated by punctuation). `false` for token 0.
     ws_before: Vec<bool>,
@@ -182,7 +213,7 @@ impl Analysis {
     /// common word is treated as an ordinary word unless corroborated. A lone
     /// capitalised common-word name (`I met Rose`) is a deliberate recall gap,
     /// deferred to a future contextual tier.
-    fn promoted(&self, i: usize, len: usize) -> bool {
+    fn promoted(&self, norm: &[Cow<'_, str>], i: usize, len: usize) -> bool {
         // Corroboration: a given+surname pair (both capitalised and whitespace-
         // adjacent, so `Will you` and `Friday. The` do not pair), or a title.
         let n = self.raw.len();
@@ -198,7 +229,10 @@ impl Analysis {
             && self.cap[i - 1]
             && self.has(i - 1, IS_GIVEN);
         // Titles carry a trailing dot (`Mr.`), so no whitespace-gap requirement.
-        let titled = i > 0 && self.title[i - 1];
+        // Checked here rather than precomputed per-token: gating only reaches
+        // this point at a capitalised FST hit, so the `TITLES` scan runs on a
+        // handful of tokens, not every token in the text.
+        let titled = i > 0 && TITLE_SET.contains(norm[i - 1].as_ref());
         pair_fwd || pair_bwd || titled
     }
 
@@ -207,11 +241,17 @@ impl Analysis {
     /// params that merely coincide with a gazetteer entry). A non-common form
     /// then fires; a common-word form additionally needs [`Self::promoted`]. A
     /// lone foreign function word (`STOPWORDS`) never fires.
-    fn gated(&self, tok_start: usize, tok_len: usize, flags: u64) -> bool {
-        if tok_len == 1 && self.stop[tok_start] {
+    ///
+    /// `STOPWORDS`/`TITLES` membership is tested here (from `norm`) instead of
+    /// precomputed for every token: `gated` is only called on capitalised
+    /// windows the FST already matched, so the scans run a handful of times per
+    /// document rather than once per token.
+    fn gated(&self, norm: &[Cow<'_, str>], tok_start: usize, tok_len: usize, flags: u64) -> bool {
+        if tok_len == 1 && STOPWORD_SET.contains(norm[tok_start].as_ref()) {
             return false;
         }
-        self.cap[tok_start] && (flags & ALSO_COMMON_WORD == 0 || self.promoted(tok_start, tok_len))
+        self.cap[tok_start]
+            && (flags & ALSO_COMMON_WORD == 0 || self.promoted(norm, tok_start, tok_len))
     }
 }
 
@@ -230,15 +270,12 @@ impl DictionaryDetector {
         })
     }
 
-    fn analyze(&self, text: &str, tokens: &[Token], norm: &[String]) -> Analysis {
+    fn analyze(&self, text: &str, tokens: &[Token], norm: &[Cow<'_, str>]) -> Analysis {
         let mut raw = Vec::with_capacity(tokens.len());
         let mut cap = Vec::with_capacity(tokens.len());
-        let mut title = Vec::with_capacity(tokens.len());
-        let mut stop = Vec::with_capacity(tokens.len());
         let mut ws_before = Vec::with_capacity(tokens.len());
         for (i, t) in tokens.iter().enumerate() {
             let slice = &text[t.start..t.end];
-            let key = norm[i].as_str();
             // "Capitalised" means Titlecase, not ALL-CAPS: an all-uppercase
             // token (NHI, AWS, VIN) is an acronym, not a name, so it must carry
             // at least one lowercase letter to count.
@@ -248,10 +285,12 @@ impl DictionaryDetector {
             // `raw` is only ever read at capitalised indices (see `promoted`),
             // so skipping the lookup on lowercase tokens is behaviour-preserving
             // and removes the bulk of the work on lowercase prose.
-            raw.push(if is_cap { self.gaz.get(key) } else { None });
+            raw.push(if is_cap {
+                self.gaz.get(norm[i].as_ref())
+            } else {
+                None
+            });
             cap.push(is_cap);
-            title.push(TITLES.contains(&key));
-            stop.push(STOPWORDS.contains(&key));
             ws_before.push(
                 i > 0
                     && text[tokens[i - 1].end..t.start]
@@ -262,8 +301,6 @@ impl DictionaryDetector {
         Analysis {
             raw,
             cap,
-            title,
-            stop,
             ws_before,
         }
     }
@@ -283,7 +320,7 @@ impl DictionaryDetector {
     fn walk_gated(
         &self,
         tokens: &[Token],
-        norm: &[String],
+        norm: &[Cow<'_, str>],
         a: &Analysis,
         mut emit: impl FnMut(usize, usize, usize, usize) -> bool,
     ) {
@@ -322,7 +359,9 @@ impl DictionaryDetector {
                 }
                 if node.is_final() {
                     let flags = out.cat(node.final_output()).value();
-                    if a.gated(i, j + 1, flags) && !emit(i, j + 1, tokens[i].start, tokens[t].end) {
+                    if a.gated(norm, i, j + 1, flags)
+                        && !emit(i, j + 1, tokens[i].start, tokens[t].end)
+                    {
                         return;
                     }
                 }
@@ -631,9 +670,13 @@ mod tests {
                     if i + len > tokens.len() {
                         break;
                     }
-                    let key = norm[i..i + len].join(" ");
+                    let key = norm[i..i + len]
+                        .iter()
+                        .map(|c| c.as_ref())
+                        .collect::<Vec<&str>>()
+                        .join(" ");
                     if let Some(f) = d.gaz.get(&key)
-                        && a.gated(i, len, f)
+                        && a.gated(&norm, i, len, f)
                     {
                         reference.push((i, len, tokens[i].start, tokens[i + len - 1].end));
                     }
