@@ -1471,7 +1471,7 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
 - `crates/pii/CLAUDE.md` lists `DictionaryDetector` as the third detector type with its
   scope, activation gate, and build-tool location.
 
-### 20.13 DictionaryDetector throughput optimization
+### 20.13 DictionaryDetector throughput optimization ✅
 After 20.9 (caps-start skip), the `throughput` benches show `DictionaryDetector`
 is still the dominant cost in any scan with `PersonName` enabled:
 `throughput_dictionary_detector` runs at **~26 MiB/s** (clean) / ~13 MiB/s
@@ -1481,21 +1481,40 @@ is still the dominant cost in any scan with `PersonName` enabled:
 (~493 µs) it defeats the cheap detectors' short-circuit. Reduce this without
 changing the emitted match set.
 
-- [ ] Profile the detector to confirm the hotspots (expected: per-window key
+- [x] Profile the detector to confirm the hotspots (expected: per-window key
   building — `normalize` + `String` alloc + `key.clone()` per emitted window —
   and the per-window FST `get`, plus `analyze` re-normalizing every token a
   second time for the 1-token `raw` lookup).
-- [ ] Implement FST prefix-pruning (the deferred 20.5 item): walk the `raw::Fst`
+  (Confirmed: for the *clean* path the dominant cost was `analyze` calling
+  `gaz.get` on **every** token — mostly lowercase — plus a full `normalize`
+  alloc per token; for the *names* path it was per-window key build + clone +
+  from-root `get`.)
+- [x] Implement FST prefix-pruning (the deferred 20.5 item): walk the `raw::Fst`
   node/transition path token-by-token across a window start, stopping as soon as a
   prefix has no continuation — so a window is never extended (and no key/lookup is
   built) past a dead prefix. Avoids both redundant key construction and redundant
   full-string lookups.
-- [ ] Remove redundant work: share the per-token normalization between `analyze`
+  (`DictionaryDetector::walk_gated`: one incremental `find_input`/`transition`
+  walk per capitalised start, `break 'extend` on a dead prefix or missing
+  inter-token space; feeds `emit(tok_start, tok_len, byte_start, byte_end)`,
+  short-circuiting for `has_piis`. `Window` struct + `windows` iterator removed.)
+- [x] Remove redundant work: share the per-token normalization between `analyze`
   and `windows` (normalize each token once), and avoid the per-window `String`
   clone where the FST walk makes it unnecessary.
-- [ ] Re-run `cargo bench -p pii --bench pii_benchmark throughput` and record
+  (New `normalized()` helper normalizes each token once; `analyze` takes the
+  shared slice. Also skip the 1-token `gaz.get` for un-capitalised tokens —
+  `raw` is only ever read at capitalised indices — removing the bulk of the
+  lowercase-prose work. No key `String` is materialized on the walk path.)
+- [x] Re-run `cargo bench -p pii --bench pii_benchmark throughput` and record
   before/after `throughput_dictionary_detector` and `throughput_mark_piis` /
   `throughput_has_piis` numbers.
+  (Isolation `throughput_dictionary_detector`: `mark_piis/names` 12.2→23.0 MiB/s
+  (27.7→14.6 µs, **−47%**), `has_piis/names` 19.4→25.6 MiB/s (−24%),
+  `mark_piis/clean_10kb` 25.8→34.1 MiB/s (448→338 µs), `has_piis/clean_10kb`
+  25.9→33.8 MiB/s, `mark_piis/clean_500b` ≈24.9→33.4 MiB/s. Full scanner:
+  `mark_piis/clean_10kb` 536→426 µs (−20%), `has_piis/clean_10kb` 534→431 µs
+  (−19%). No regression on `throughput_hyperscan_detector` /
+  `throughput_keyword_detector` (within ±2% noise).)
 
 **AC:**
 - Emitted match set is **unchanged** — the full `dictionary_detector` test suite and

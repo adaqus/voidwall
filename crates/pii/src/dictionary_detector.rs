@@ -26,6 +26,7 @@ use crate::detector::Detector;
 use crate::dictionary_detector::flags::{ALSO_COMMON_WORD, IS_GIVEN, IS_SURNAME};
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 use fst::Map;
+use fst::raw::Output;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -63,59 +64,14 @@ fn tokenize(text: &str) -> Vec<Token> {
         .collect()
 }
 
-/// A 1–`MAX_WINDOW` token window: the canonical lookup key, the original byte
-/// span (for redaction / `resolve_overlaps`), and the token range it covers
-/// (for gating).
-struct Window {
-    /// Tokens normalized (lowercase + NFC) and single-space joined.
-    key: String,
-    /// Document-absolute byte span of the original (un-normalized) text.
-    start: usize,
-    end: usize,
-    /// Index of the first token and number of tokens in the window.
-    tok_start: usize,
-    tok_len: usize,
-}
-
-/// Lazily yield every 1–`MAX_WINDOW`-token window over `tokens`, in start order
-/// (and, per start, increasing length). Being lazy lets `has_piis` stop at the
-/// first gated hit without building the rest.
-///
-/// Windows are produced **only** at a capitalised start token (`cap[i]`):
-/// `gated` rejects any window whose first token isn't capitalised, so skipping
-/// those starts avoids building their keys and FST lookups entirely — a large
-/// win on lowercase prose — while leaving the emitted set unchanged. (A numeric
-/// token is never `cap`, so this also covers the non-numeric-start rule.)
-///
-/// The canonical key collapses any run of separators between tokens to a single
-/// space, so `"Jan   Kowalski"` and `"Jan\nKowalski"` both key as `jan kowalski`.
-fn windows<'a>(
-    text: &'a str,
-    tokens: &'a [Token],
-    cap: &'a [bool],
-) -> impl Iterator<Item = Window> + 'a {
-    (0..tokens.len())
-        .filter(move |&i| cap[i])
-        .flat_map(move |i| {
-            let upper = (i + MAX_WINDOW).min(tokens.len());
-            // `scan` grows the canonical key one token at a time across the window.
-            tokens[i..upper]
-                .iter()
-                .enumerate()
-                .scan(String::new(), move |key, (j, tok)| {
-                    if j > 0 {
-                        key.push(' ');
-                    }
-                    key.push_str(&normalize(&text[tok.start..tok.end]));
-                    Some(Window {
-                        key: key.clone(),
-                        start: tokens[i].start,
-                        end: tok.end,
-                        tok_start: i,
-                        tok_len: j + 1,
-                    })
-                })
-        })
+/// Normalize each token once (lowercase + NFC), shared by `analyze` (1-token
+/// FST lookups, title/stop tests) and the window walk (FST prefix traversal) so
+/// no token is normalized twice.
+fn normalized(text: &str, tokens: &[Token]) -> Vec<String> {
+    tokens
+        .iter()
+        .map(|t| normalize(&text[t.start..t.end]))
+        .collect()
 }
 
 /// The committed names gazetteer, embedded at compile time.
@@ -159,6 +115,12 @@ impl Gazetteer {
     pub fn get(&self, key: &str) -> Option<u64> {
         self.map.get(key)
     }
+
+    /// The underlying raw FST, for byte-by-byte prefix traversal (see
+    /// [`DictionaryDetector::walk_gated`]).
+    fn fst(&self) -> &fst::raw::Fst<&'static [u8]> {
+        self.map.as_fst()
+    }
 }
 
 /// Title/honorific tokens (normalized) that promote a following common-word
@@ -194,7 +156,9 @@ const STOPWORDS: &[&str] = &[
 /// Per-token signals precomputed once per scanned text, used for precision
 /// gating of common-word name forms.
 struct Analysis {
-    /// FST flag bitmask for each token's 1-token key (`None` = not a name form).
+    /// FST flag bitmask for each token's 1-token key (`None` = not a name form
+    /// **or** an un-capitalised token whose lookup was skipped — `raw` is only
+    /// ever read at capitalised indices, see [`Analysis::promoted`]).
     raw: Vec<Option<u64>>,
     /// First character is uppercase.
     cap: Vec<bool>,
@@ -266,7 +230,7 @@ impl DictionaryDetector {
         })
     }
 
-    fn analyze(&self, text: &str, tokens: &[Token]) -> Analysis {
+    fn analyze(&self, text: &str, tokens: &[Token], norm: &[String]) -> Analysis {
         let mut raw = Vec::with_capacity(tokens.len());
         let mut cap = Vec::with_capacity(tokens.len());
         let mut title = Vec::with_capacity(tokens.len());
@@ -274,17 +238,20 @@ impl DictionaryDetector {
         let mut ws_before = Vec::with_capacity(tokens.len());
         for (i, t) in tokens.iter().enumerate() {
             let slice = &text[t.start..t.end];
-            let key = normalize(slice);
-            raw.push(self.gaz.get(&key));
+            let key = norm[i].as_str();
             // "Capitalised" means Titlecase, not ALL-CAPS: an all-uppercase
             // token (NHI, AWS, VIN) is an acronym, not a name, so it must carry
             // at least one lowercase letter to count.
-            cap.push(
-                slice.chars().next().is_some_and(char::is_uppercase)
-                    && slice.chars().any(char::is_lowercase),
-            );
-            title.push(TITLES.contains(&key.as_str()));
-            stop.push(STOPWORDS.contains(&key.as_str()));
+            let is_cap = slice.chars().next().is_some_and(char::is_uppercase)
+                && slice.chars().any(char::is_lowercase);
+            // The 1-token FST lookup is the detector's dominant per-token cost.
+            // `raw` is only ever read at capitalised indices (see `promoted`),
+            // so skipping the lookup on lowercase tokens is behaviour-preserving
+            // and removes the bulk of the work on lowercase prose.
+            raw.push(if is_cap { self.gaz.get(key) } else { None });
+            cap.push(is_cap);
+            title.push(TITLES.contains(&key));
+            stop.push(STOPWORDS.contains(&key));
             ws_before.push(
                 i > 0
                     && text[tokens[i - 1].end..t.start]
@@ -301,6 +268,68 @@ impl DictionaryDetector {
         }
     }
 
+    /// Walk the FST once per capitalised start token, extending token-by-token
+    /// with **prefix-pruning**: as soon as a prefix has no continuation in the
+    /// FST the window is abandoned, so no key string is built and no from-root
+    /// lookup is repeated. For each gated 1–`MAX_WINDOW`-token window that
+    /// resolves to a name form, `emit(tok_start, tok_len, byte_start, byte_end)`
+    /// is called in (start, increasing-length) order. Emitting stops early — and
+    /// the whole walk returns — the first time `emit` returns `false`, letting
+    /// `has_piis` short-circuit on the first hit.
+    ///
+    /// Emits exactly the set the old per-window `gaz.get` produced: a single
+    /// space separates tokens (matching the canonical key), and only capitalised
+    /// starts are considered (`gated` requires it). See `walk_emits_same_*` test.
+    fn walk_gated(
+        &self,
+        tokens: &[Token],
+        norm: &[String],
+        a: &Analysis,
+        mut emit: impl FnMut(usize, usize, usize, usize) -> bool,
+    ) {
+        let fst = self.gaz.fst();
+        for i in 0..tokens.len() {
+            if !a.cap[i] {
+                continue;
+            }
+            let mut node = fst.root();
+            let mut out = Output::zero();
+            // Extend the window from start `i` one token at a time.
+            'extend: for j in 0..MAX_WINDOW {
+                let t = i + j;
+                if t >= tokens.len() {
+                    break;
+                }
+                // A single space joins tokens in the canonical key; if the FST
+                // has no such continuation, no longer window can match.
+                if j > 0 {
+                    let Some(idx) = node.find_input(b' ') else {
+                        break 'extend;
+                    };
+                    let tr = node.transition(idx);
+                    out = out.cat(tr.out);
+                    node = fst.node(tr.addr);
+                }
+                // Feed token `t`'s normalized bytes; a dead prefix ends the walk
+                // (this window and every longer one contain token `t` in full).
+                for &b in norm[t].as_bytes() {
+                    let Some(idx) = node.find_input(b) else {
+                        break 'extend;
+                    };
+                    let tr = node.transition(idx);
+                    out = out.cat(tr.out);
+                    node = fst.node(tr.addr);
+                }
+                if node.is_final() {
+                    let flags = out.cat(node.final_output()).value();
+                    if a.gated(i, j + 1, flags) && !emit(i, j + 1, tokens[i].start, tokens[t].end) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     /// Compute non-overlapping `PersonName` byte spans over `text`: the longest
     /// gated window per start, then adjacent (whitespace-gap) windows merged
     /// into one span (so `John Smith` is a single match).
@@ -309,22 +338,20 @@ impl DictionaryDetector {
         if tokens.is_empty() {
             return Vec::new();
         }
-        let a = self.analyze(text, &tokens);
+        let norm = normalized(text, &tokens);
+        let a = self.analyze(text, &tokens, &norm);
 
         // Longest gated window starting at each token, stored as
         // `(last_token, byte_start, byte_end)`.
         let mut best: Vec<Option<(usize, usize, usize)>> = vec![None; tokens.len()];
-        for w in windows(text, &tokens, &a.cap) {
-            if let Some(f) = self.gaz.get(&w.key)
-                && a.gated(w.tok_start, w.tok_len, f)
-            {
-                let last = w.tok_start + w.tok_len - 1;
-                let slot = &mut best[w.tok_start];
-                if slot.is_none_or(|(prev_last, ..)| last > prev_last) {
-                    *slot = Some((last, w.start, w.end));
-                }
+        self.walk_gated(&tokens, &norm, &a, |tok_start, tok_len, start, end| {
+            let last = tok_start + tok_len - 1;
+            let slot = &mut best[tok_start];
+            if slot.is_none_or(|(prev_last, ..)| last > prev_last) {
+                *slot = Some((last, start, end));
             }
-        }
+            true
+        });
 
         // Merge runs of adjacent name windows separated only by whitespace. A
         // non-name (skipped) token between two hits leaves non-whitespace in the
@@ -375,14 +402,16 @@ impl Detector for DictionaryDetector {
         if tokens.is_empty() {
             return false;
         }
-        let a = self.analyze(input, &tokens);
-        // `windows` is lazy, so `any` stops at the first gated hit without
-        // building the rest.
-        windows(input, &tokens, &a.cap).any(|w| {
-            self.gaz
-                .get(&w.key)
-                .is_some_and(|f| a.gated(w.tok_start, w.tok_len, f))
-        })
+        let norm = normalized(input, &tokens);
+        let a = self.analyze(input, &tokens, &norm);
+        // Returning `false` from `emit` on the first gated hit stops the walk
+        // immediately (short-circuit).
+        let mut found = false;
+        self.walk_gated(&tokens, &norm, &a, |_, _, _, _| {
+            found = true;
+            false
+        });
+        found
     }
 
     /// Names need no key-path context, so each fragment's **value** is scanned
@@ -566,46 +595,57 @@ mod tests {
         assert_eq!(toks("Jean-Pierre"), vec![("Jean", 0, 4), ("Pierre", 5, 11)]);
     }
 
-    #[test]
-    fn windows_keys_and_spans() {
-        let text = "John Smith";
-        let tokens = tokenize(text);
-        let cap = vec![true; tokens.len()];
-        let ws: Vec<Window> = windows(text, &tokens, &cap).collect();
-        let got: Vec<(&str, usize, usize)> = ws
-            .iter()
-            .map(|w| (w.key.as_str(), w.start, w.end))
-            .collect();
-        assert_eq!(
-            got,
-            vec![("john", 0, 4), ("john smith", 0, 10), ("smith", 5, 10),]
-        );
+    #[test_case("John   Smith" ; "multiple spaces")]
+    #[test_case("John\nSmith"   ; "newline")]
+    #[test_case("John \t Smith" ; "mixed whitespace")]
+    fn adjacent_names_merge_across_any_whitespace(text: &str) {
+        // Any run of separators keys tokens the same, and adjacent name windows
+        // separated only by whitespace merge into one span over the whole input.
+        assert_eq!(detect(text), vec![(text.to_string(), 0, text.len())]);
     }
 
+    /// The prefix-pruning FST walk must emit exactly the gated windows the
+    /// straightforward per-window `gaz.get` (walked from root for every length)
+    /// would — this is the AC guaranteeing the emitted match set is unchanged.
     #[test]
-    fn multi_space_and_newline_collapse_to_single_space_key() {
-        for text in ["John   Smith", "John\nSmith", "John \t Smith"] {
+    fn walk_emits_same_gated_windows_as_get_per_window() {
+        let d = DictionaryDetector::new().unwrap();
+        let texts = [
+            "please contact John Smith and Will Smith about Mr. Will today",
+            "i will go home then Rose Costa and José García called",
+            "John\n\nSmith   and    Kowalski wrote to Esposito",
+            "asdfghjkl Will you go, Home Test AWS VIN",
+        ];
+        for text in texts {
             let tokens = tokenize(text);
-            let cap = vec![true; tokens.len()];
-            let two = windows(text, &tokens, &cap)
-                .find(|w| w.key.contains(' '))
-                .expect("a 2-token window");
-            assert_eq!(two.key, "john smith");
-            // Span covers the original text from first token start to last end.
-            assert_eq!(two.start, 0);
-            assert_eq!(&text[two.start..two.end], text);
-        }
-    }
+            let norm = normalized(text, &tokens);
+            let a = d.analyze(text, &tokens, &norm);
 
-    #[test]
-    fn windows_capped_at_max_window() {
-        let text = "a b c d e";
-        let tokens = tokenize(text);
-        let cap = vec![true; tokens.len()];
-        let max_key_tokens = windows(text, &tokens, &cap)
-            .map(|w| w.key.split(' ').count())
-            .max()
-            .unwrap();
-        assert_eq!(max_key_tokens, MAX_WINDOW);
+            // Reference: brute-force every gated window via a from-root lookup.
+            let mut reference = Vec::new();
+            for i in 0..tokens.len() {
+                if !a.cap[i] {
+                    continue;
+                }
+                for len in 1..=MAX_WINDOW {
+                    if i + len > tokens.len() {
+                        break;
+                    }
+                    let key = norm[i..i + len].join(" ");
+                    if let Some(f) = d.gaz.get(&key)
+                        && a.gated(i, len, f)
+                    {
+                        reference.push((i, len, tokens[i].start, tokens[i + len - 1].end));
+                    }
+                }
+            }
+
+            let mut got = Vec::new();
+            d.walk_gated(&tokens, &norm, &a, |ts, tl, bs, be| {
+                got.push((ts, tl, bs, be));
+                true
+            });
+            assert_eq!(got, reference, "walk vs get mismatch on {text:?}");
+        }
     }
 }
