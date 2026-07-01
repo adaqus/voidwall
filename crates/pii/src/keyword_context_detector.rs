@@ -119,11 +119,11 @@ impl KeywordContextDetector {
             (
                 PiiKind::SecondaryAddress,
                 Language::En,
-                r"(?i)(?:secondary[\s_-]?address(?:es)?|second[\s_-]?address(?:es)?|sec[\s_-]?address(?:es)?|address[\s_-]?line[\s_-]?2|addr[\s_-]?line[\s_-]?2)<<C>>((?:mobile\s+home|[A-Za-z][A-Za-z.'\-]{0,14})\s#?\d{1,5}[A-Za-z]?)",
+                r"(?i)(?:secondary[\s_-]?address(?:es)?|second[\s_-]?address(?:es)?|sec[\s_-]?address(?:es)?|additional[\s_-]?address(?:es)?(?:[\s_-]?(?:details?|info(?:rmation)?))?|alternat(?:e|ive)[\s_-]?address(?:es)?|auxiliary[\s_-]?address(?:es)?|address[\s_-]?line[\s_-]?2|addr[\s_-]?line[\s_-]?2)<<C>>((?:mobile\s+home|[A-Za-z][A-Za-z.'\-]{0,14})\s#?\d{1,5}[A-Za-z]?)",
                 always_valid,
             ),
             (
-                PiiKind::Street,
+                PiiKind::UsGbCaAuNzIeZaStreet,
                 Language::En,
                 r"(?i)(?:streets?|street[\s_-]?names?|address(?:es)?)<<C>>(?:(?:at|on|in|to)\s+)?(?:\d{1,4}[A-Za-z]?\s+)?((?:(?:\d{1,4}(?:st|nd|rd|th)\s+|[A-Za-z][A-Za-z'\-]+\s+)(?:[A-Za-z][A-Za-z'\-]+\s+){0,4}|\d{1,4}\s+)(?:Road|Street|Lane|Avenue|Boulevard|Way|Close|Drive|Court|Place|Terrace|Crescent|Square|Walk|Row|Gardens|Grove|Mews|Parade|Trail|Fields|Yard|Park|Hill|Highway|Parkway|Circle|Rise|Green|Common|Gate|View|Vale|Croft|Meadow|Heights|Path|Alley|Pike|Line|Sideroad|Concession)(?:\s+(?:North|South|East|West|Northwest|Northeast|Southwest|Southeast|N|S|E|W|NW|NE|SW|SE))?(?:\s+\d{1,4})?|Broadway|Highway\s+\d{1,4}[A-Za-z]?)",
                 always_valid,
@@ -2802,26 +2802,32 @@ mod tests {
     #[test_case("\"SecondaryAddress\":\"Mobile Home 133\"", PiiKind::SecondaryAddress, "Mobile Home 133" ; "secaddr json two-word value")]
     #[test_case("Address Line 2: Co-op 273", PiiKind::SecondaryAddress, "Co-op 273" ; "secaddr address line 2 hyphen value")]
     #[test_case("the secondary address is Penthouse 299", PiiKind::SecondaryAddress, "Penthouse 299" ; "secaddr connector is")]
-    #[test_case("Street: Maple Street", PiiKind::Street, "Maple Street" ; "street single word name")]
-    #[test_case("Street: Station Road", PiiKind::Street, "Station Road" ; "street station road")]
-    #[test_case("Street: Chapel Lane", PiiKind::Street, "Chapel Lane" ; "street chapel lane")]
-    #[test_case("Street: Pacific Crest National Scenic Trail", PiiKind::Street, "Pacific Crest National Scenic Trail" ; "street multi word name")]
-    #[test_case("Street: 216th Lane", PiiKind::Street, "216th Lane" ; "street ordinal numbered")]
-    #[test_case("Street: County Road 53", PiiKind::Street, "County Road 53" ; "street trailing number")]
-    #[test_case("Street: Broadway", PiiKind::Street, "Broadway" ; "street standalone broadway")]
-    #[test_case("Street: Maud's Yard", PiiKind::Street, "Maud's Yard" ; "street apostrophe name")]
-    #[test_case("Streets: Park Avenue", PiiKind::Street, "Park Avenue" ; "street plural label")]
-    #[test_case("streetName: Central Boulevard", PiiKind::Street, "Central Boulevard" ; "street name camelcase")]
-    #[test_case("street_name: South Lane", PiiKind::Street, "South Lane" ; "street name snake_case")]
-    #[test_case("street-name: Freitag Way", PiiKind::Street, "Freitag Way" ; "street name kebab-case")]
-    #[test_case("\"Street\":\"Pitchens Close\"", PiiKind::Street, "Pitchens Close" ; "street json shape")]
-    #[test_case("Street: Old Bristol Road", PiiKind::Street, "Old Bristol Road" ; "street three word name")]
-    #[test_case("local address at 22 Argyle Avenue", PiiKind::Street, "Argyle Avenue" ; "street address keyword strips house number")]
-    #[test_case("current residential address at 3014 Francis Peninsula Road", PiiKind::Street, "Francis Peninsula Road" ; "street residential address strips house number")]
-    #[test_case("Residential Address: Lakeshore Road", PiiKind::Street, "Lakeshore Road" ; "street residential address label")]
-    #[test_case("address: 4th Line", PiiKind::Street, "4th Line" ; "street line suffix ontario")]
-    #[test_case("home address: Highway 6", PiiKind::Street, "Highway 6" ; "street highway numbered")]
-    #[test_case("address: 2 Avenue Southwest", PiiKind::Street, "2 Avenue Southwest" ; "street numbered avenue with direction")]
+    #[test_case("Additional Address: Tower 28", PiiKind::SecondaryAddress, "Tower 28" ; "secaddr additional address")]
+    #[test_case("Additional Address Details: Apt 194", PiiKind::SecondaryAddress, "Apt 194" ; "secaddr additional address details")]
+    #[test_case("Additional Address Info: Barracks 435", PiiKind::SecondaryAddress, "Barracks 435" ; "secaddr additional address info")]
+    #[test_case("Alternate Address: Attic 198", PiiKind::SecondaryAddress, "Attic 198" ; "secaddr alternate address")]
+    #[test_case("Alternative Address: Ranch 181", PiiKind::SecondaryAddress, "Ranch 181" ; "secaddr alternative address")]
+    #[test_case("Auxiliary Address: Chalet 106", PiiKind::SecondaryAddress, "Chalet 106" ; "secaddr auxiliary address")]
+    #[test_case("Street: Maple Street", PiiKind::UsGbCaAuNzIeZaStreet, "Maple Street" ; "street single word name")]
+    #[test_case("Street: Station Road", PiiKind::UsGbCaAuNzIeZaStreet, "Station Road" ; "street station road")]
+    #[test_case("Street: Chapel Lane", PiiKind::UsGbCaAuNzIeZaStreet, "Chapel Lane" ; "street chapel lane")]
+    #[test_case("Street: Pacific Crest National Scenic Trail", PiiKind::UsGbCaAuNzIeZaStreet, "Pacific Crest National Scenic Trail" ; "street multi word name")]
+    #[test_case("Street: 216th Lane", PiiKind::UsGbCaAuNzIeZaStreet, "216th Lane" ; "street ordinal numbered")]
+    #[test_case("Street: County Road 53", PiiKind::UsGbCaAuNzIeZaStreet, "County Road 53" ; "street trailing number")]
+    #[test_case("Street: Broadway", PiiKind::UsGbCaAuNzIeZaStreet, "Broadway" ; "street standalone broadway")]
+    #[test_case("Street: Maud's Yard", PiiKind::UsGbCaAuNzIeZaStreet, "Maud's Yard" ; "street apostrophe name")]
+    #[test_case("Streets: Park Avenue", PiiKind::UsGbCaAuNzIeZaStreet, "Park Avenue" ; "street plural label")]
+    #[test_case("streetName: Central Boulevard", PiiKind::UsGbCaAuNzIeZaStreet, "Central Boulevard" ; "street name camelcase")]
+    #[test_case("street_name: South Lane", PiiKind::UsGbCaAuNzIeZaStreet, "South Lane" ; "street name snake_case")]
+    #[test_case("street-name: Freitag Way", PiiKind::UsGbCaAuNzIeZaStreet, "Freitag Way" ; "street name kebab-case")]
+    #[test_case("\"Street\":\"Pitchens Close\"", PiiKind::UsGbCaAuNzIeZaStreet, "Pitchens Close" ; "street json shape")]
+    #[test_case("Street: Old Bristol Road", PiiKind::UsGbCaAuNzIeZaStreet, "Old Bristol Road" ; "street three word name")]
+    #[test_case("local address at 22 Argyle Avenue", PiiKind::UsGbCaAuNzIeZaStreet, "Argyle Avenue" ; "street address keyword strips house number")]
+    #[test_case("current residential address at 3014 Francis Peninsula Road", PiiKind::UsGbCaAuNzIeZaStreet, "Francis Peninsula Road" ; "street residential address strips house number")]
+    #[test_case("Residential Address: Lakeshore Road", PiiKind::UsGbCaAuNzIeZaStreet, "Lakeshore Road" ; "street residential address label")]
+    #[test_case("address: 4th Line", PiiKind::UsGbCaAuNzIeZaStreet, "4th Line" ; "street line suffix ontario")]
+    #[test_case("home address: Highway 6", PiiKind::UsGbCaAuNzIeZaStreet, "Highway 6" ; "street highway numbered")]
+    #[test_case("address: 2 Avenue Southwest", PiiKind::UsGbCaAuNzIeZaStreet, "2 Avenue Southwest" ; "street numbered avenue with direction")]
     fn detects_with_keyword(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -3452,9 +3458,9 @@ mod tests {
     #[test_case("ref 12345/67/8901", PiiKind::PlDriversLicense ; "pl dl no keyword")]
     #[test_case("We rented Apartment 201 for the summer", PiiKind::SecondaryAddress ; "secaddr no keyword in prose")]
     #[test_case("Building 282 is on the left", PiiKind::SecondaryAddress ; "secaddr bare unit no keyword")]
-    #[test_case("I walked down Maple Street yesterday", PiiKind::Street ; "street bare name in prose no label")]
-    #[test_case("the shop on Oxford Street today", PiiKind::Street ; "street suffix mention no label")]
-    #[test_case("please update your email address soon", PiiKind::Street ; "street address keyword no suffix")]
+    #[test_case("I walked down Maple Street yesterday", PiiKind::UsGbCaAuNzIeZaStreet ; "street bare name in prose no label")]
+    #[test_case("the shop on Oxford Street today", PiiKind::UsGbCaAuNzIeZaStreet ; "street suffix mention no label")]
+    #[test_case("please update your email address soon", PiiKind::UsGbCaAuNzIeZaStreet ; "street address keyword no suffix")]
     fn no_detection_without_keyword(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

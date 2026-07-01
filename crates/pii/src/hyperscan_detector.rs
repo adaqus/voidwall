@@ -245,6 +245,26 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: false,
         },
+        // Bare street name: 1–4 leading capitalized words (or an ordinal like
+        // `216th`) followed by an unambiguous street-type suffix and an optional
+        // trailing compass direction (`Main Street West`). Keyword-less — the
+        // suffix set is restricted to words that are almost never anything but a
+        // street type. Excluded to protect precision (these collide with common
+        // nouns / product names / surnames in real traffic): `Drive` (Google
+        // Drive, hard drive), `Court` (Supreme Court), `Way` (Milky Way, no
+        // way), `Hill`/`Green`/`Park`/`Bank` (surnames + common nouns),
+        // `Close`/`Place`/`Drove`. The `[A-Z][a-z]…` leading token means
+        // lowercase prose words naturally bound the match to the capitalized
+        // street name. Labeled streets are also caught by the keyword-gated
+        // STREET rule in KeywordContextDetector; resolve_overlaps dedupes the
+        // same-span pair.
+        PatternDef {
+            kind: PiiKind::UsGbCaAuNzIeZaStreet,
+            expr: r"\b(?:(?:[A-Z][a-z][A-Za-z'\-]*|\d{1,4}(?:st|nd|rd|th))\s+){1,4}(?:Road|Lane|Avenue|Boulevard|Crescent|Parkway|Motorway|Street|Highway|Freeway)(?:\s+(?:North|South|East|West|Northwest|Northeast|Southwest|Southeast|N|S|E|W|NW|NE|SW|SE))?\b",
+            som_fallback: false,
+            validator: always_valid,
+            needs_ucp: false,
+        },
         // US ZIP+4 (`12345-6789`) is structurally distinctive enough to detect
         // without a keyword — the 5+4 hyphenated shape is almost always a ZIP+4.
         // The bare 5-digit form stays keyword-gated in KeywordContextDetector
@@ -681,6 +701,15 @@ mod tests {
     #[test_case("Casablanca: +212 522 123456", PiiKind::InternationalPhoneNumber, "+212 522 123456" ; "intl phone morocco 3 digit cc")]
     #[test_case("Moscow: +7 495 1234567", PiiKind::InternationalPhoneNumber, "+7 495 1234567" ; "intl phone russia 1 digit cc")]
     #[test_case("freephone +800 12345678", PiiKind::InternationalPhoneNumber, "+800 12345678" ; "intl phone uifn service code")]
+    #[test_case("They live at Station Road these days", PiiKind::UsGbCaAuNzIeZaStreet, "Station Road" ; "street bare road no keyword")]
+    #[test_case("meet me on School Lane tomorrow", PiiKind::UsGbCaAuNzIeZaStreet, "School Lane" ; "street bare lane no keyword")]
+    #[test_case("the office at Portsmouth Road, London", PiiKind::UsGbCaAuNzIeZaStreet, "Portsmouth Road" ; "street bare road comma")]
+    #[test_case("moved to 216th Lane last year", PiiKind::UsGbCaAuNzIeZaStreet, "216th Lane" ; "street bare ordinal lane")]
+    #[test_case("near Sunset Boulevard downtown", PiiKind::UsGbCaAuNzIeZaStreet, "Sunset Boulevard" ; "street bare boulevard")]
+    #[test_case("a flat on Cavendish Crescent", PiiKind::UsGbCaAuNzIeZaStreet, "Cavendish Crescent" ; "street bare crescent")]
+    #[test_case("the shop on High Street closed", PiiKind::UsGbCaAuNzIeZaStreet, "High Street" ; "street bare street suffix")]
+    #[test_case("delivery to Main Street West please", PiiKind::UsGbCaAuNzIeZaStreet, "Main Street West" ; "street bare trailing direction")]
+    #[test_case("just off Portland Road South", PiiKind::UsGbCaAuNzIeZaStreet, "Portland Road South" ; "street bare road south")]
     fn detects_pii(input: &str, kind: PiiKind, expected_span: &str) {
         let detector = &*DETECTOR;
         let matches: Vec<_> = detector
@@ -755,6 +784,8 @@ mod tests {
     #[test_case("call +89 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone unassigned 2 digit cc")]
     #[test_case("call +210 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone unassigned 3 digit cc")]
     #[test_case("call +999 12345678 today", PiiKind::InternationalPhoneNumber ; "intl phone reserved 999")]
+    #[test_case("please walk down the road slowly", PiiKind::UsGbCaAuNzIeZaStreet ; "street lowercase prose no cap")]
+    #[test_case("we went the long way home", PiiKind::UsGbCaAuNzIeZaStreet ; "street excluded suffix way")]
     fn rejects_invalid_pii(input: &str, kind: PiiKind) {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis(input);

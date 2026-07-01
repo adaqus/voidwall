@@ -501,7 +501,7 @@ fn typed_match(label: &str, predicted: &str) -> bool {
         "STREET" => {
             matches!(
                 predicted,
-                "STREET" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
+                "US_GB_CA_AU_NZ_IE_ZA_STREET" | "GB_ADDRESS" | "DE_AT_CH_ADDRESS" | "FR_CH_ADDRESS"
             )
         }
         "PASSPORT" => predicted.ends_with("PASSPORT_NUMBER") || predicted == "US_PASSPORT_NEW",
@@ -1796,7 +1796,7 @@ mod tests {
     #[test_case("POSTCODE", "GB_POSTCODE", true)]
     #[test_case("POSTCODE", "FR_POSTAL_CODE", true)]
     #[test_case("STREET", "GB_ADDRESS", true)]
-    #[test_case("STREET", "STREET", true)]
+    #[test_case("STREET", "US_GB_CA_AU_NZ_IE_ZA_STREET", true)]
     #[test_case("BUILDING", "GB_ADDRESS", false)] // gap — no dedicated detector, not credited
     #[test_case("LASTNAME1", "PERSON_NAME", true)]
     #[test_case("PASSPORT", "DE_PASSPORT_NUMBER", true)]
