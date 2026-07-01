@@ -245,6 +245,17 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             validator: always_valid,
             needs_ucp: false,
         },
+        // US ZIP+4 (`12345-6789`) is structurally distinctive enough to detect
+        // without a keyword — the 5+4 hyphenated shape is almost always a ZIP+4.
+        // The bare 5-digit form stays keyword-gated in KeywordContextDetector
+        // (too ambiguous to fire on its own).
+        PatternDef {
+            kind: PiiKind::UsZaPostalCode,
+            expr: r"\b\d{5}-\d{4}\b",
+            som_fallback: false,
+            validator: us_zip_check,
+            needs_ucp: false,
+        },
         // CaPostalCode: 3 large character classes (~40 chars each) cause DFA
         // state explosion with SOM_LEFTMOST. Use short prefix for detection;
         // regex extraction verifies the full format.
@@ -629,6 +640,9 @@ mod tests {
     #[test_case("postcode: EH1 1YZ", PiiKind::GbPostcode, "EH1 1YZ" ; "gb postcode edinburgh")]
     #[test_case("postal code: M5V 3L9", PiiKind::CaPostalCode, "M5V 3L9" ; "ca postal code with space")]
     #[test_case("postal code: K1A0B1", PiiKind::CaPostalCode, "K1A0B1" ; "ca postal code no space")]
+    // US ZIP+4 detected structurally (no keyword needed).
+    #[test_case("Tampa, FL, 33604-6258 USA", PiiKind::UsZaPostalCode, "33604-6258" ; "us zip+4 in address no keyword")]
+    #[test_case("ship to 90210-1234", PiiKind::UsZaPostalCode, "90210-1234" ; "us zip+4 bare")]
     // Eircode: real Dublin / Cork / Donegal codes from Wikipedia and eircode.ie.
     #[test_case("eircode: D02 X285", PiiKind::IeEircode, "D02 X285" ; "ie eircode dublin 2")]
     #[test_case("Eircode D02X285", PiiKind::IeEircode, "D02X285" ; "ie eircode dublin no space")]
