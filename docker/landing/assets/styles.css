@@ -661,6 +661,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 80px; }
 }
 .vw-prose p { margin: 0 0 24px; text-wrap: pretty; }
 .vw-prose ul, .vw-prose ol { margin: 0 0 24px; padding-left: 24px; }
+.vw-prose img { display: block; width: 100%; height: auto; margin: 0 0 24px; border-radius: 8px; }
 .vw-prose li { margin: 0 0 8px; }
 .vw-prose li::marker { color: var(--vw-paper-ink-3); }
 .vw-prose strong { color: var(--vw-paper-ink); font-weight: 600; }

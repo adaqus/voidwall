@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280">
+  <title>Voidwall - Prevent Sensitive-Data Propagation</title>
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/styles.css">
+  <!-- MailerLite Universal -->
+  <script async="" src="https://assets.mailerlite.com/js/universal.js"></script><script>
+    (function(w,d,e,u,f,l,n){w[f]=w[f]||function(){(w[f].q=w[f].q||[])
+    .push(arguments);},l=d.createElement(e),l.async=1,l.src=u,
+    n=d.getElementsByTagName(e)[0],n.parentNode.insertBefore(l,n);})
+    (window,document,'script','https://assets.mailerlite.com/js/universal.js','ml');
+    ml('account', '2387377');
+  </script>
+  <!-- End MailerLite Universal -->
+<link rel="stylesheet" type="text/css" media="all" href="https://assets.mailerlite.com/css/universal.css"><script src="https://assets.mailerlite.com/jsonp/2387377/forms?callback=ml.fn.renderPopupsAndPromotions" async="true"></script></head>
+<body data-screen-label="01 Voidwall landing">
+  <div id="root"><header style="position: sticky; top: 0px; z-index: 50; background: rgba(241, 238, 232, 0.86); backdrop-filter: blur(12px); border-bottom: 1px solid var(--vw-paper-line);"><div style="max-width: var(--max-w); margin: 0px auto; padding: 16px var(--gutter); display: flex; align-items: center; gap: 32px;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-paper-ink); text-decoration: none;"><img src="../../assets/logo-mark.svg" width="26" height="26" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px;">VOIDWALL</span></a><nav style="display: flex; gap: 28px; margin-left: 24px;"><a href="/#product" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Product</a><a href="/#detection" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Detection</a><a href="/#specializations" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Specializations</a><a href="/#formats" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Formats</a><a href="/#performance" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Performance</a><a href="/blog/" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Blog</a></nav><div style="margin-left: auto; display: flex; align-items: center; gap: 12px;"><a href="/demo" target="_blank" rel="noopener noreferrer" class="vw-btn vw-btn--primary">Try the live demo <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a><a href="/#early-adopters" class="vw-btn vw-btn--primary" style="background: white; color: var(--vw-void);">Become early adopter <span class="arrow">→</span></a></div></div></header><main style="background: var(--vw-paper);"><article class="vw-container" style="max-width: 760px; padding: 80px var(--gutter) 96px;"><a href="/blog/" class="vw-btn vw-btn--ghost" style="margin-bottom: 40px;"><span class="arrow">←</span> All posts</a><div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0px 9px; font-family: var(--vw-font-body); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vw-violet-500); background: rgba(139, 125, 246, 0.12); border-radius: 4px;">Data Protection</span><span style="font-family: var(--vw-font-mono); font-size: 11.5px; color: var(--vw-paper-ink-3);">2026-07-07</span><span style="font-family: var(--vw-font-body); font-size: 13px; color: var(--vw-paper-ink-3);">· 5 min read</span></div><h1 style="font-family: var(--vw-font-display); font-size: 46px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.04; color: var(--vw-paper-ink); margin: 0px 0px 40px; text-wrap: balance;">Understanding PII Detection Effectiveness</h1><div class="vw-prose"><p>At first glance, it may seem straightforward: the more PII a given tool detects in a text, the better. And this is broadly true. But the reality of PII, PHI, and other sensitive-data detection is more nuanced, because detectors can be wrong in more than one direction.</p>
+<p>The first direction that comes to mind is that the detector may fail to detect all PII present in a given text. The second is false positives: things that are not PII, but that the detector marks as PII. This is what almost always happens in practice: some sensitive data is detected correctly, some non-sensitive data is detected as sensitive, and some sensitive data is omitted even though it should have been found.</p>
+<p>Because PII detection can be wrong in more than one direction, you need more than one number to describe a detector’s quality. These are the metrics to look at.</p>
+<h2 id="precision">Precision</h2>
+<p>The detector found sensitive data in a given text. But what number of the detected data is actually sensitive? And what number of text spans marked as PII are false positives? These questions are answered by <code>precision</code>.</p>
+<p>For example, precision of 90%, or 0.9, means that 90% of detected PII instances are in fact PII. It also means that 10% of detections are false positives.</p>
+<h2 id="recall">Recall</h2>
+<p>When measuring only precision, it may happen that a detector has precision of 99%. That sounds great, but we need to remember that this is 99% of what it found, not 99% of all PII present in the text. A detector may be 99% precise, while finding only half of the PII in the text.</p>
+<p>This is where another metric comes in: <code>recall</code>. Recall measures what share of all PII in a given text was found. For example, recall of 80% means that 80% of PII in the text was detected, while 20% was missed.</p>
+<h2 id="precision-vs-recall">Precision vs Recall</h2>
+<p>Precision and recall are two metrics used to measure detection effectiveness. Improving recall often means accepting more false positives, which lowers precision. Improving precision may increase the number of false negatives, which reduces recall.</p>
+<h3 id="example">Example</h3>
+<p>Let’s take a look at the following text, where true positives, false positives, and false negatives are marked.</p>
+<p><img src="../../assets/blog/understanding-pii-effectiveness-example-text-2.png" alt="Example text with true positives, false positives, and false negatives highlighted"></p>
+<p>How does it all relate to each other? The answer is shown in the diagram below:</p>
+<p><img src="../../assets/blog/understanding-pii-effectiveness-venn-diagram-2.png" alt="Venn diagram relating precision and recall through true positives, false positives, and false negatives"></p>
+<p>The more true positives, and the fewer false positives and false negatives, the better. Therefore, the higher both precision and recall are, the better. So the ideal target would be 100% precision and 100% recall, right? In practice, such numbers are hard to achieve, even for humans.</p>
+<p>Generally, we want balanced detection, where both precision and recall are as high as possible. But there are cases where we care more about precision than recall, or the other way around.</p>
+<p>For example, in systems that generate alerts about sensitive-data leakage and send them to humans for review, precision matters a lot. Otherwise, the detector may trigger a large number of false alarms. These alerts become hard to verify at scale, and they can undermine trust in the detector.</p>
+<p>On the other hand, we may want to remove as much PII as possible, even at the cost of more false positives. In that case, false positives may be less harmful than failing to detect sensitive data that should be removed for privacy or compliance reasons.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>It is crucial to know both the precision and recall of the detection tool you use, and to understand your own use case. This allows you to choose a tool that best fits your needs.</p>
+<p>How does Voidwall look in this context? Due to the nature of its underlying technology, primarily regular expressions and dictionaries, it usually offers very high precision and slightly lower recall. We will show the results of our measurements in the next blog post. Stay tuned!</p>
+</div></article></main><footer style="background: var(--vw-void); color: var(--vw-void-ink); border-top: 1px solid var(--vw-void-line);"><div class="vw-container" style="padding: 32px var(--gutter);"><div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; font-family: var(--vw-font-body); font-size: 12.5px; color: var(--vw-void-ink-3); flex-wrap: wrap;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-violet-300); text-decoration: none;"><img src="../../assets/logo-mark-light.svg" width="24" height="24" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px; color: var(--vw-void-ink);">VOIDWALL</span></a><span>© 2026 Voidwall</span></div></div></footer></div>
+  <noscript>
+    <div style="position:fixed;bottom:12px;left:12px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#999;background:rgba(255,255,255,0.9);padding:6px 12px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      This page requires JavaScript to display.
+    </div>
+  </noscript>
+  <script src="../../assets/vendor/react.production.min.js"></script>
+  <script src="../../assets/vendor/react-dom.production.min.js"></script>
+  <script src="../../assets/posts.js"></script>
+  <script src="../../assets/app.js"></script>
+
+
+</body></html>

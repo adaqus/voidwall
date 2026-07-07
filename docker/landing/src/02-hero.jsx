@@ -29,16 +29,16 @@ function Hero() {
             color: "var(--vw-paper-ink)",
             margin: "0 0 28px",
             textWrap: "balance",
-            minHeight: 220,
+            minHeight: 120,
           }}>
-            The cheapest sensitive data to delete is data <span style={{ color: "var(--vw-violet-400)" }}>never stored</span>.
+            Stop sensitive data <span style={{ color: "var(--vw-violet-400)" }}>before it spreads</span>.
           </h1>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 17, lineHeight: 1.55,
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
             margin: "0 0 36px",
           }}>
-            Voidwall stops sensitive data at the edge of every request - inbound and outbound - before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers.
+            Voidwall is a self-hosted PII firewall for HTTP, API, and AI traffic. It detects, redacts, or blocks personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services.
           </p>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">

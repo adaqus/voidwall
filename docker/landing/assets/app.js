@@ -756,13 +756,13 @@ function Hero() {
       color: "var(--vw-paper-ink)",
       margin: "0 0 28px",
       textWrap: "balance",
-      minHeight: 220
+      minHeight: 120
     }
-  }, "The cheapest sensitive data to delete is data ", /*#__PURE__*/React.createElement("span", {
+  }, "Stop sensitive data ", /*#__PURE__*/React.createElement("span", {
     style: {
       color: "var(--vw-violet-400)"
     }
-  }, "never stored"), "."), /*#__PURE__*/React.createElement("p", {
+  }, "before it spreads"), "."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 17,
@@ -771,7 +771,7 @@ function Hero() {
       maxWidth: 480,
       margin: "0 0 36px"
     }
-  }, "Voidwall stops sensitive data at the edge of every request - inbound and outbound - before it spreads across internal infrastructure, external services, logs, AI systems, and storage layers."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall is a self-hosted PII firewall for HTTP, API, and AI traffic. It detects, redacts, or blocks personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
