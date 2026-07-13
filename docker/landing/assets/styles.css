@@ -683,4 +683,30 @@ html { scroll-behavior: smooth; scroll-padding-top: 80px; }
   font-family: var(--vw-font-mono); font-size: 14px; line-height: 1.55;
 }
 .vw-prose pre code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; }
+.vw-prose table {
+  display: block; overflow-x: auto;
+  width: 100%; margin: 0 0 24px;
+  border-collapse: collapse;
+  font-size: 14.5px; line-height: 1.5;
+}
+.vw-prose thead { border-bottom: 2px solid var(--vw-paper-line); }
+.vw-prose th {
+  font-family: var(--vw-font-body); font-weight: 600;
+  color: var(--vw-paper-ink); text-align: left;
+  padding: 10px 16px; white-space: nowrap;
+}
+.vw-prose td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--vw-paper-line);
+  color: var(--vw-paper-ink-2);
+}
+.vw-prose td[align="right"], .vw-prose th[align="right"] { font-variant-numeric: tabular-nums; }
+.vw-prose tbody tr:last-child td { border-bottom: 0; }
+.vw-prose .vw-footnote {
+  margin: 32px 0 24px; padding-top: 16px;
+  border-top: 1px solid var(--vw-paper-line);
+  font-size: 13.5px; line-height: 1.6;
+  color: var(--vw-paper-ink-3);
+}
+.vw-prose .vw-footnote-mark { color: var(--vw-violet-500); font-weight: 600; }
 

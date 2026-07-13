@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280">
+  <title>Voidwall - Prevent Sensitive-Data Propagation</title>
+  <link rel="icon" href="../../assets/favicon.svg">
+  <link rel="stylesheet" href="../../assets/styles.css">
+  <!-- MailerLite Universal -->
+  <script async="" src="https://assets.mailerlite.com/js/universal.js"></script><script>
+    (function(w,d,e,u,f,l,n){w[f]=w[f]||function(){(w[f].q=w[f].q||[])
+    .push(arguments);},l=d.createElement(e),l.async=1,l.src=u,
+    n=d.getElementsByTagName(e)[0],n.parentNode.insertBefore(l,n);})
+    (window,document,'script','https://assets.mailerlite.com/js/universal.js','ml');
+    ml('account', '2387377');
+  </script>
+  <!-- End MailerLite Universal -->
+<link rel="stylesheet" type="text/css" media="all" href="https://assets.mailerlite.com/css/universal.css"><script src="https://assets.mailerlite.com/jsonp/2387377/forms?callback=ml.fn.renderPopupsAndPromotions" async="true"></script></head>
+<body data-screen-label="01 Voidwall landing">
+  <div id="root"><header style="position: sticky; top: 0px; z-index: 50; background: rgba(241, 238, 232, 0.86); backdrop-filter: blur(12px); border-bottom: 1px solid var(--vw-paper-line);"><div style="max-width: var(--max-w); margin: 0px auto; padding: 16px var(--gutter); display: flex; align-items: center; gap: 32px;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-paper-ink); text-decoration: none;"><img src="../../assets/logo-mark.svg" width="26" height="26" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px;">VOIDWALL</span></a><nav style="display: flex; gap: 28px; margin-left: 24px;"><a href="/#product" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Product</a><a href="/#detection" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Detection</a><a href="/#specializations" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Specializations</a><a href="/#formats" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Formats</a><a href="/#performance" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Performance</a><a href="/blog/" style="font-family: var(--vw-font-body); font-size: 14px; color: var(--vw-paper-ink-2); text-decoration: none;">Blog</a></nav><div style="margin-left: auto; display: flex; align-items: center; gap: 12px;"><a href="/demo" target="_blank" rel="noopener noreferrer" class="vw-btn vw-btn--primary">Try the live demo <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a><a href="/#early-adopters" class="vw-btn vw-btn--primary" style="background: white; color: var(--vw-void);">Become early adopter <span class="arrow">→</span></a></div></div></header><main style="background: var(--vw-paper);"><article class="vw-container" style="max-width: 760px; padding: 80px var(--gutter) 96px;"><a href="/blog/" class="vw-btn vw-btn--ghost" style="margin-bottom: 40px;"><span class="arrow">←</span> All posts</a><div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0px 9px; font-family: var(--vw-font-body); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vw-violet-500); background: rgba(139, 125, 246, 0.12); border-radius: 4px;">Data Protection</span><span style="font-family: var(--vw-font-mono); font-size: 11.5px; color: var(--vw-paper-ink-3);">2026-07-13</span><span style="font-family: var(--vw-font-body); font-size: 13px; color: var(--vw-paper-ink-3);">· 8 min read</span></div><h1 style="font-family: var(--vw-font-display); font-size: 46px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.04; color: var(--vw-paper-ink); margin: 0px 0px 40px; text-wrap: balance;">Measuring Voidwall’s PII Detection Effectiveness</h1><div class="vw-prose"><p>In the previous post, we explained the basics of measuring PII detection effectiveness. The knowledge from that post provides a good foundation for understanding how well Voidwall performs.</p>
+<p>Measuring precision and recall is not a trivial task. It requires a high-quality input dataset. But wait, does that mean we need real PII belonging to real people? Not necessarily. The strongest evidence usually comes from representative production data with reliable annotations. Before such data is available, a carefully validated synthetic dataset can provide a useful initial evaluation.</p>
+<p>Our choice was one of the AI4Privacy datasets: <a href="https://huggingface.co/datasets/ai4privacy/pii-masking-300k">ai4privacy/pii-masking-300k</a>. It is a synthetic dataset supporting most of the languages covered by Voidwall. During the initial dataset review, it became clear that it had to be additionally curated to improve its quality. The steps taken to achieve this are described at the end of this post.</p>
+<p>As the dataset review turned out to require a significant amount of work, we decided to limit the first evaluation to English only. The curated dataset contains 5,766 rows with 31,371 text spans containing PII. The dataset is large enough to characterize Voidwall’s behaviour on this English subset, although it does not replace evaluation on production traffic.</p>
+<h2 id="results">Results</h2>
+<p>To characterize Voidwall’s effectiveness, we measured precision and recall for supported PII in the following ways:</p>
+<ul>
+<li>general, aggregated across all supported PII types and data structures</li>
+<li>per category</li>
+<li>per data structure, separately for structured, semi-structured, and prose text</li>
+</ul>
+<h3 id="general-precision-and-recall">General precision and recall</h3>
+<table>
+<thead>
+<tr>
+<th align="right">Precision</th>
+<th align="right">Recall</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">0.965</td>
+<td align="right">0.713</td>
+</tr>
+</tbody></table>
+<p>Precision turned out to be very high. This means that when Voidwall signals that it has found PII in a given piece of data, there is little chance that the detection is wrong. The corresponding recall is lower, reflecting Voidwall’s conservative approach. It prefers not to guess and signals the presence of PII only when there is a high probability of being correct.</p>
+<p>On the curated dataset, Voidwall showed that it is especially well suited to use cases where false positives are costly and maintaining confidence in detection results is crucial.</p>
+<h3 id="category-breakdown">Category breakdown</h3>
+<p>The categories and their names were taken from the AI4Privacy dataset and mapped to PII types supported by Voidwall.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th align="right">Ground-truth spans</th>
+<th align="right">Recall</th>
+<th align="right">Precision</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BOD (day of birth)</td>
+<td align="right">2,308</td>
+<td align="right">0.795</td>
+<td align="right">0.995</td>
+</tr>
+<tr>
+<td>DRIVERLICENSE</td>
+<td align="right">2,180</td>
+<td align="right">0.398</td>
+<td align="right">0.992</td>
+</tr>
+<tr>
+<td>EMAIL</td>
+<td align="right">2,172</td>
+<td align="right">0.999</td>
+<td align="right">0.973</td>
+</tr>
+<tr>
+<td>GEOCOORD</td>
+<td align="right">371</td>
+<td align="right">0.790</td>
+<td align="right">0.983</td>
+</tr>
+<tr>
+<td>GIVENNAME1</td>
+<td align="right">1,664</td>
+<td align="right">0.714</td>
+<td align="right">0.896</td>
+</tr>
+<tr>
+<td>GIVENNAME2</td>
+<td align="right">416</td>
+<td align="right">0.644</td>
+<td align="right">0.896</td>
+</tr>
+<tr>
+<td>IP</td>
+<td align="right">1,812</td>
+<td align="right">1.000</td>
+<td align="right">0.984</td>
+</tr>
+<tr>
+<td>LASTNAME1</td>
+<td align="right">1,789</td>
+<td align="right">0.706</td>
+<td align="right">0.896</td>
+</tr>
+<tr>
+<td>LASTNAME2</td>
+<td align="right">447</td>
+<td align="right">0.653</td>
+<td align="right">0.896</td>
+</tr>
+<tr>
+<td>LASTNAME3</td>
+<td align="right">142</td>
+<td align="right">0.627</td>
+<td align="right">0.896</td>
+</tr>
+<tr>
+<td>PASSPORT</td>
+<td align="right">3,595</td>
+<td align="right">0.822</td>
+<td align="right">0.999</td>
+</tr>
+<tr>
+<td>POSTCODE</td>
+<td align="right">4,008</td>
+<td align="right">0.573</td>
+<td align="right">0.981</td>
+</tr>
+<tr>
+<td>SECADDRESS</td>
+<td align="right">1,798</td>
+<td align="right">0.653</td>
+<td align="right">0.987</td>
+</tr>
+<tr>
+<td>SOCIALNUMBER</td>
+<td align="right">3,242</td>
+<td align="right">0.494</td>
+<td align="right">0.997</td>
+</tr>
+<tr>
+<td>STREET</td>
+<td align="right">3,793</td>
+<td align="right">0.807</td>
+<td align="right">0.988</td>
+</tr>
+<tr>
+<td>TEL</td>
+<td align="right">1,634</td>
+<td align="right">0.736</td>
+<td align="right">0.982</td>
+</tr>
+</tbody></table>
+<p>Precision remained high for most structured identifiers. Name detection was a notable exception, with precision of 89.6%, reflecting the ambiguity of identifying names without stronger contextual signals. First names and last names may also be ordinary words.</p>
+<p>The situation is different for recall. It varies among categories, ranging from 39.8% to 100%. We will take a closer look at the weaker categories and work on improving their results.</p>
+<h3 id="data-structure-breakdown">Data structure breakdown</h3>
+<p>We divided the data into the following structure types:</p>
+<ul>
+<li>structured, with a rigid and well-defined structure, such as JSON, XML, or YAML</li>
+<li>semi-structured, such as lists or Markdown containing explicit labels and values, for example <code>- name: Tom - surname: Smith</code></li>
+<li>plain prose, such as emails, letters, and chats, where PII values may appear on their own or alongside contextual keywords</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Data type</th>
+<th align="right">Precision</th>
+<th align="right">Recall</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Structured (JSON, XML, YAML)</td>
+<td align="right">0.960</td>
+<td align="right">0.729</td>
+</tr>
+<tr>
+<td>Semi-structured (Markdown, lists)</td>
+<td align="right">0.969</td>
+<td align="right">0.708</td>
+</tr>
+<tr>
+<td>Plain prose (emails, letters, chats)</td>
+<td align="right">0.963</td>
+<td align="right">0.640</td>
+</tr>
+</tbody></table>
+<p>Voidwall achieved similar precision across all data types. It performed best on structured and semi-structured data. Recall was lower for prose, by approximately eight percentage points compared with structured data.</p>
+<h2 id="dataset">Dataset</h2>
+<p>We used <a href="https://huggingface.co/datasets/ai4privacy/pii-masking-300k">ai4privacy/pii-masking-300k</a> as available on 23 June 2026. Instead of treating every synthetic label as ground truth, we created a curated evaluation set by removing rows containing examples that appeared invalid, mislabeled, or unrealistic for the claimed locale or data type.</p>
+<p>Some records were labelled as national identity-card numbers even though the generated values could not be associated with a recognized issuing authority or country-specific format. We therefore excluded that category from the evaluation.</p>
+<p>To review as many rows as possible within a reasonable amount of time, we created an evaluation skill in Claude Code and ran it using the Opus 4.8 model. The evaluation followed these steps, using mainly the <code>source_text</code> and <code>privacy_mask</code> fields from each row:</p>
+<ol>
+<li><p>Retrieve the first or next 100 rows.</p>
+</li>
+<li><p>Delete a row if:</p>
+<ul>
+<li>all span annotations in the row are broken, meaning that they point to values different from those present in <code>privacy_mask</code></li>
+<li>all values in <code>privacy_mask</code> fail validation using a Voidwall validator*</li>
+</ul>
+</li>
+<li><p>Keep a row if:</p>
+<ul>
+<li>it is unclear whether a value is valid, for example because Voidwall has no validator for it or no real-world specification exists or describes its validation</li>
+<li>at least one value in the row is valid</li>
+</ul>
+</li>
+<li><p>Repeat from step 1.</p>
+</li>
+</ol>
+<p class="vw-footnote"><span class="vw-footnote-mark">*</span> Voidwall validators are well tested and implemented on the basis of issuing-authority specifications.</p>
+
+<p>The curated dataset contains the following numbers of rows and ground-truth spans for each data structure:</p>
+<table>
+<thead>
+<tr>
+<th>Data type</th>
+<th align="right">Rows</th>
+<th align="right">Ground-truth spans</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Structured (JSON, XML, YAML)</td>
+<td align="right">2,332</td>
+<td align="right">10,645</td>
+</tr>
+<tr>
+<td>Semi-structured (Markdown, lists, key-value data)</td>
+<td align="right">3,228</td>
+<td align="right">19,572</td>
+</tr>
+<tr>
+<td>Plain prose (emails, letters, chats)</td>
+<td align="right">206</td>
+<td align="right">1,154</td>
+</tr>
+</tbody></table>
+<p>Plain prose is substantially underrepresented in this evaluation, so its result should be treated as preliminary. The dataset provides stronger evidence for structured and semi-structured payloads, which are also Voidwall’s primary target.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>On this curated English subset, Voidwall achieved 96.5% precision and 71.3% recall across the evaluated categories. These results characterize it as a conservative, low-noise detector, with the strongest evidence covering structured and semi-structured data.</p>
+<p>Deployed at the HTTP boundary, Voidwall can serve as an early preventive layer, blocking or redacting high-confidence PII detections before requests reach logs, databases, analytics platforms, LLM applications, AI agents, or external APIs.</p>
+</div></article></main><footer style="background: var(--vw-void); color: var(--vw-void-ink); border-top: 1px solid var(--vw-void-line);"><div class="vw-container" style="padding: 32px var(--gutter);"><div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; font-family: var(--vw-font-body); font-size: 12.5px; color: var(--vw-void-ink-3); flex-wrap: wrap;"><a href="/" style="display: inline-flex; align-items: center; gap: 10px; color: var(--vw-violet-300); text-decoration: none;"><img src="../../assets/logo-mark-light.svg" width="24" height="24" alt=""><span style="font-family: var(--vw-font-display); font-weight: 500; letter-spacing: 0.14em; font-size: 15px; color: var(--vw-void-ink);">VOIDWALL</span></a><span>© 2026 Voidwall</span></div></div></footer></div>
+  <noscript>
+    <div style="position:fixed;bottom:12px;left:12px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#999;background:rgba(255,255,255,0.9);padding:6px 12px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      This page requires JavaScript to display.
+    </div>
+  </noscript>
+  <script src="../../assets/vendor/react.production.min.js"></script>
+  <script src="../../assets/vendor/react-dom.production.min.js"></script>
+  <script src="../../assets/posts.js"></script>
+  <script src="../../assets/app.js"></script>
+
+
+</body></html>

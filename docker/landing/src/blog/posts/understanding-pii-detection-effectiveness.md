@@ -8,19 +8,19 @@ excerpt: Evaluating PII detection tools may seem straightforward, but choosing t
 
 At first glance, it may seem straightforward: the more PII a given tool detects in a text, the better. And this is broadly true. But the reality of PII, PHI, and other sensitive-data detection is more nuanced, because detectors can be wrong in more than one direction.
 
-The first direction that comes to mind is that the detector may fail to detect all PII present in a given text. The second is false positives: things that are not PII, but that the detector marks as PII. This is what almost always happens in practice: some sensitive data is detected correctly, some non-sensitive data is detected as sensitive, and some sensitive data is omitted even though it should have been found.
+The first direction that comes to mind is that the detector may fail to detect all PII present in a given text. The second is false positives: things that are not PII, but that the detector marks as PII. In practice, both happen at once: some sensitive data is detected correctly, some non-sensitive data is detected as sensitive, and some sensitive data is omitted even though it should have been found.
 
 Because PII detection can be wrong in more than one direction, you need more than one number to describe a detector’s quality. These are the metrics to look at.
 
 ## Precision
 
-The detector found sensitive data in a given text. But what number of the detected data is actually sensitive? And what number of text spans marked as PII are false positives? These questions are answered by `precision`.
+Say the detector found sensitive data in a given text. But what share of the detected data is actually sensitive? And what share of the text spans marked as PII are false positives? These questions are answered by `precision`.
 
 For example, precision of 90%, or 0.9, means that 90% of detected PII instances are in fact PII. It also means that 10% of detections are false positives.
 
 ## Recall
 
-When measuring only precision, it may happen that a detector has precision of 99%. That sounds great, but we need to remember that this is 99% of what it found, not 99% of all PII present in the text. A detector may be 99% precise, while finding only half of the PII in the text.
+When measuring only precision, a detector may have precision of 99%. That sounds great, but we need to remember that this is 99% of what it found, not 99% of all PII present in the text. A detector may be 99% precise, while finding only half of the PII in the text.
 
 This is where another metric comes in: `recall`. Recall measures what share of all PII in a given text was found. For example, recall of 80% means that 80% of PII in the text was detected, while 20% was missed.
 
