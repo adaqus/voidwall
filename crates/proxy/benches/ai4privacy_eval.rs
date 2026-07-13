@@ -1086,6 +1086,29 @@ fn bucket_display(label: &str, bucket: Bucket) -> &'static str {
     }
 }
 
+/// Per-category precision numerators/denominator, attributed through the
+/// predicted-kind → category map (`typed_match` inverse). A detection FP overlaps
+/// no GT, so it has no category of its own; we credit it to every category its
+/// predicted kind is a typed match for. Returns `(det_tp, typed_tp, fp)` summed
+/// over the kinds claiming `label` — the same per-kind counts the
+/// "precision by predicted kind" block reports, just regrouped by GT category.
+///
+/// Caveats this inherits: a kind mapping to several categories (e.g. `GB_ADDRESS`
+/// → both `STREET` and `SECADDRESS`) contributes its full counts to each, and a
+/// category whose kinds never fire gets `(0, 0, 0)` → precision prints as "—".
+fn cat_precision(agg: &Aggregate, label: &str) -> (u64, u64, u64) {
+    let kinds: BTreeSet<&String> = agg.tp_by_kind.keys().chain(agg.fp_by_kind.keys()).collect();
+    let (mut tp, mut typed_tp, mut fp) = (0u64, 0u64, 0u64);
+    for k in kinds {
+        if typed_match(label, k) {
+            tp += agg.tp_by_kind.get(k).copied().unwrap_or(0);
+            typed_tp += agg.typed_tp_by_kind.get(k).copied().unwrap_or(0);
+            fp += agg.fp_by_kind.get(k).copied().unwrap_or(0);
+        }
+    }
+    (tp, typed_tp, fp)
+}
+
 /// Emit the captured rows for one missed value: to the file sink when present,
 /// otherwise inline to stdout when `DUMP_CONTEXT=1`. No-op when neither applies.
 fn emit_rows(
@@ -1197,24 +1220,36 @@ fn report(agg: &Aggregate, cfg: &Config) -> bool {
         }
     }
 
-    // Per-category table.
+    // Per-category table. `det P`/`typed P` are precision partners of the recall
+    // columns, attributed to the category via `cat_precision` (see there for the
+    // FP-attribution caveat). Printed as "—" when no prediction claims the row.
     println!(
-        "\n{:<22} {:>5} {:>11} {:>8} {:>8}",
-        "category", "n", "bucket", "det R", "typed R"
+        "\n{:<22} {:>5} {:>11} {:>8} {:>8} {:>8} {:>8}",
+        "category", "n", "bucket", "det R", "det P", "typed R", "typed P"
     );
-    println!("{}", "-".repeat(58));
+    println!("{}", "-".repeat(76));
     for (label, c) in &agg.per_cat {
         let bucket = c.bucket.unwrap_or(Bucket::Unclassified);
         if cfg.supported_only && !matches!(bucket, Bucket::Exact | Bucket::KeywordGated) {
             continue;
         }
+        let (ptp, ptyped, pfp) = cat_precision(agg, label);
+        let pct = |num: u64, den: u64| {
+            if den == 0 {
+                "—".to_string()
+            } else {
+                format!("{:.1}%", ratio(num, den) * 100.0)
+            }
+        };
         println!(
-            "{:<22} {:>5} {:>11} {:>7.1}% {:>7.1}%",
+            "{:<22} {:>5} {:>11} {:>7.1}% {:>8} {:>7.1}% {:>8}",
             label,
             c.gt,
             bucket_display(label, bucket),
             ratio(c.det_hits, c.gt) * 100.0,
+            pct(ptp, ptp + pfp),
             ratio(c.typed_hits, c.gt) * 100.0,
+            pct(ptyped, ptp + pfp),
         );
     }
 
