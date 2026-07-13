@@ -794,6 +794,32 @@ pub(crate) fn ie_driver_check(s: &str) -> bool {
     s.len() == 9 && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Canadian driver's-licence number, letter-carrying provincial formats only
+/// (ON, QC, NL, NS, MB). No province publishes a check digit, so this is
+/// structural validation of the layout after stripping optional hyphens. Each
+/// accepted format has a unique cleaned length, so length selects the layout:
+///   ON  1 letter + 14 digits            (len 15)
+///   NS  5 letters + 9 digits            (len 14)
+///   QC  1 letter + 12 digits            (len 13)
+///   MB  7 letters + 3 digits + 2 letters(len 12)
+///   NL  1 letter + 9 digits             (len 10)
+/// A digit run that is a single repeated digit is rejected as a placeholder.
+pub(crate) fn ca_dl_check(s: &str) -> bool {
+    let clean: Vec<u8> = s.bytes().filter(|&b| b != b'-').collect();
+    let alpha = |sl: &[u8]| sl.iter().all(|b| b.is_ascii_alphabetic());
+    // All digits, and not a single repeated digit (rejects 000000000 filler).
+    let digits =
+        |sl: &[u8]| sl.iter().all(|b| b.is_ascii_digit()) && !sl.iter().all(|&b| b == sl[0]);
+    match clean.len() {
+        15 => alpha(&clean[..1]) && digits(&clean[1..]), // ON
+        14 => alpha(&clean[..5]) && digits(&clean[5..]), // NS
+        13 => alpha(&clean[..1]) && digits(&clean[1..]), // QC
+        12 => alpha(&clean[..7]) && digits(&clean[7..10]) && alpha(&clean[10..]), // MB
+        10 => alpha(&clean[..1]) && digits(&clean[1..]), // NL
+        _ => false,
+    }
+}
+
 /// ZA Tax Reference Number: 10 digits, first digit in {0,1,2,3,9}.
 pub(crate) fn za_trn_check(s: &str) -> bool {
     if s.len() != 10 || !s.bytes().all(|b| b.is_ascii_digit()) {
@@ -2389,6 +2415,25 @@ mod tests {
     #[test_case("1234567890", false ; "invalid 10 digits")]
     fn ie_driver(input: &str, expected: bool) {
         assert_eq!(ie_driver_check(input), expected);
+    }
+
+    // --- ca_dl_check --- (letter-carrying provincial formats, hyphens optional)
+    #[test_case("A1234-56789-01234", true ; "ontario hyphenated")]
+    #[test_case("A12345678901234", true ; "ontario plain l+14")]
+    #[test_case("L1234-567890-12", true ; "quebec hyphenated")]
+    #[test_case("L123456789012", true ; "quebec plain l+12")]
+    #[test_case("A123456789", true ; "newfoundland l+9")]
+    #[test_case("SMITH123456789", true ; "nova scotia 5l+9")]
+    #[test_case("SMITH-123456789", true ; "nova scotia hyphenated")]
+    #[test_case("ABCDEFG123HI", true ; "manitoba 7l+3d+2l")]
+    #[test_case("AB-CD-EF-G123HI", true ; "manitoba hyphenated")]
+    #[test_case("A000000000", false ; "placeholder all zeros nl")]
+    #[test_case("A12345", false ; "too short")]
+    #[test_case("ABCDEF123456789", false ; "six letter prefix not ns")]
+    #[test_case("A1234567890123", false ; "l+13 unknown length")]
+    #[test_case("1234567890", false ; "no letter prefix")]
+    fn ca_dl(input: &str, expected: bool) {
+        assert_eq!(ca_dl_check(input), expected);
     }
 
     // --- person_name_check ---

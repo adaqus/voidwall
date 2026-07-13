@@ -303,6 +303,14 @@ Driver numbers for licence check:\n\
 All driver numbers must be verified against RSA records.\n\
 Contact the NDLS for any corrections.";
 
+const CA_DL_TEXT: &str = "\
+Provincial Licensing — Canadian Driver's Licence Verification\n\n\
+Driver's licence numbers for identity check:\n\
+- Ontario: Driver's licence: A1234-56789-01234\n\
+- Quebec: Driver's licence: L123456789012\n\
+All driver's licences must be verified against provincial records.\n\
+Contact ServiceOntario or SAAQ for any discrepancies.";
+
 const ZA_TRN_TEXT: &str = "\
 South African Revenue Service — Tax Reference Verification\n\n\
 Tax reference numbers for filing:\n\
@@ -715,7 +723,8 @@ Tier 4 Verification Records:\n\
   Licence number: AB123456\n\
   Driver number: 123456789\n\
   Tax reference: 0123456789\n\
-  OHIP: 1234567897\n\n\
+  OHIP: 1234567897\n\
+  CA driver's licence: A1234-56789-01234\n\n\
 Tier 5 Verification Records:\n\
   GB phone: +44 7911 123456\n\
   AU phone: +61 4 1234 5678\n\
@@ -1393,6 +1402,10 @@ fn per_pii_kind(c: &mut Criterion) {
 
     group.bench_function("ie_driver_number", |b| {
         b.iter(|| scanner.mark_piis(IE_DRIVER_TEXT));
+    });
+
+    group.bench_function("ca_drivers_license", |b| {
+        b.iter(|| scanner.mark_piis(CA_DL_TEXT));
     });
 
     group.bench_function("za_tax_reference", |b| {

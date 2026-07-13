@@ -211,6 +211,7 @@ pub enum PiiKind {
     NzNhiNumber,
     NzDriverLicence,
     IeDriverNumber,
+    CaDriversLicense,
     ZaTaxReference,
     CaOhip,
     GbPhoneNumber,
@@ -344,6 +345,7 @@ impl PiiKind {
             PiiKind::NzNhiNumber => "NZ_NHI_NUMBER",
             PiiKind::NzDriverLicence => "NZ_DRIVER_LICENCE",
             PiiKind::IeDriverNumber => "IE_DRIVER_NUMBER",
+            PiiKind::CaDriversLicense => "CA_DRIVERS_LICENSE",
             PiiKind::ZaTaxReference => "ZA_TAX_REFERENCE",
             PiiKind::CaOhip => "CA_OHIP",
             PiiKind::GbPhoneNumber => "GB_PHONE_NUMBER",
@@ -486,6 +488,7 @@ impl PiiKind {
 
             PiiKind::CaSin
             | PiiKind::CaOhip
+            | PiiKind::CaDriversLicense
             | PiiKind::CaPassportNumber
             | PiiKind::CaPostalCode
             | PiiKind::CaBankAccount => Country::Ca,
@@ -606,6 +609,7 @@ impl PiiKind {
         PiiKind::NzNhiNumber,
         PiiKind::NzDriverLicence,
         PiiKind::IeDriverNumber,
+        PiiKind::CaDriversLicense,
         PiiKind::ZaTaxReference,
         PiiKind::CaOhip,
         PiiKind::GbPhoneNumber,

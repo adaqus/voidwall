@@ -10,7 +10,7 @@ use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
     a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
-    au_dl_check, bsn_check, ch_ahv_check, ch_postal_check, de_at_address_check,
+    au_dl_check, bsn_check, ca_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check,
     de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
     de_postal_check, de_steuer_id_check, dob_check, ein_check, es_dni_check, es_nuss_check,
     es_passport_check, es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check,
@@ -265,6 +265,20 @@ impl KeywordContextDetector {
                 Language::En,
                 r"(?i)(?:irish[\s_-]?driver[\s_-]?numbers?|irish[\s_-]?driving[\s_-]?licen[cs]es?|ireland[\s_-]?driver[\s_-]?numbers?|ireland[\s_-]?driving[\s_-]?licen[cs]es?|ie[\s_-]?driver[\s_-]?numbers?|ie[\s_-]?driving[\s_-]?licen[cs]es?|driver[\s_-]?numbers?|driving[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|driver[\s_-]?no\.?)<<C>>(\d{9})\b",
                 ie_driver_check,
+            ),
+            // Canadian driver's licence — letter-carrying provincial formats only
+            // (ON/QC/NL/NS/MB). Value alternation is ordered longest-first so
+            // leftmost-first matching captures the full number; `ca_dl_check`
+            // then selects the province layout by cleaned length. The
+            // letter-prefixed ON/QC/NL values also satisfy the US alpha rule, so
+            // a generic-keyword hit can additionally produce a UsDriversLicense
+            // match on the same span — `resolve_overlaps` collapses the pair,
+            // matching how the existing US/NZ/IE/ZA DL kinds already coexist.
+            (
+                PiiKind::CaDriversLicense,
+                Language::En,
+                r"(?i)(?:canadian[\s_-]?driver'?s?[\s_-]?licen[cs]es?|canada[\s_-]?driver'?s?[\s_-]?licen[cs]es?|ca[\s_-]?driver'?s?[\s_-]?licen[cs]es?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?numbers?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?no\.?|driver'?s?[\s_-]?licen[cs]es?|driving[\s_-]?licen[cs]es?[\s_-]?numbers?|driving[\s_-]?licen[cs]es?[\s_-]?no\.?|driving[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|licen[cs]es?[\s_-]?no\.?|dl[\s_-]?numbers?|dl[\s_-]?no\.?|dl)<<C>>([A-Za-z]\d{4}-?\d{5}-?\d{5}|[A-Za-z]\d{4}-?\d{6}-?\d{2}|[A-Za-z]\d{12}|[A-Za-z]{5}-?\d{9}|[A-Za-z]{2}-?[A-Za-z]{2}-?[A-Za-z]{2}-?[A-Za-z]\d{3}[A-Za-z]{2}|[A-Za-z]\d{9})\b",
+                ca_dl_check,
             ),
             (
                 PiiKind::ZaTaxReference,
@@ -1910,6 +1924,15 @@ mod tests {
     #[test_case("SARS: 9876543210", PiiKind::ZaTaxReference, "9876543210" ; "za trn sars")]
     #[test_case("OHIP: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip")]
     #[test_case("health card: 1234567897", PiiKind::CaOhip, "1234567897" ; "ca ohip span")]
+    #[test_case("driver's licence: A1234-56789-01234", PiiKind::CaDriversLicense, "A1234-56789-01234" ; "ca dl ontario hyphenated")]
+    #[test_case("driver's licences: A12345678901234", PiiKind::CaDriversLicense, "A12345678901234" ; "ca dl ontario plural plain")]
+    #[test_case("driverLicense: L1234-567890-12", PiiKind::CaDriversLicense, "L1234-567890-12" ; "ca dl quebec camelcase")]
+    #[test_case("drivers_license: L123456789012", PiiKind::CaDriversLicense, "L123456789012" ; "ca dl quebec snakecase")]
+    #[test_case("driver-licence: A123456789", PiiKind::CaDriversLicense, "A123456789" ; "ca dl newfoundland kebabcase")]
+    #[test_case("licence number: A123456789", PiiKind::CaDriversLicense, "A123456789" ; "ca dl newfoundland licence number")]
+    #[test_case("\"drivers_licence\":\"SMITH123456789\"", PiiKind::CaDriversLicense, "SMITH123456789" ; "ca dl nova scotia json")]
+    #[test_case("canadian driver's licence: L123456789012", PiiKind::CaDriversLicense, "L123456789012" ; "ca dl canada specific keyword")]
+    #[test_case("dl AB-CD-EF-G123HI", PiiKind::CaDriversLicense, "AB-CD-EF-G123HI" ; "ca dl manitoba plaintext dl")]
     #[test_case("phone: +44 7911 123456", PiiKind::GbPhoneNumber, "+44 7911 123456" ; "gb phone mobile intl")]
     #[test_case("phone: 07700 900123", PiiKind::GbPhoneNumber, "07700 900123" ; "gb phone mobile local")]
     #[test_case("\"phone_uk\":\"+44 20 7946 0958\"", PiiKind::GbPhoneNumber, "+44 20 7946 0958" ; "gb phone json phone_uk suffix")]
@@ -3226,6 +3249,8 @@ mod tests {
     #[test_case("DL: B123", PiiKind::UsDriversLicense ; "us dl too few digits")]
     #[test_case("Driver's license number: 00000000", PiiKind::UsDriversLicense ; "us dl numeric all zeros")]
     #[test_case("Driver's license number: 12345", PiiKind::UsDriversLicense ; "us dl numeric too few digits")]
+    #[test_case("driver's licence: A000000000", PiiKind::CaDriversLicense ; "ca dl placeholder all zeros")]
+    #[test_case("driver's licence: A12345", PiiKind::CaDriversLicense ; "ca dl too short")]
     #[test_case("passport: 12345678", PiiKind::PassportNumber ; "passportnum 8 digits")]
     #[test_case("passport: 1234567897", PiiKind::PassportNumber ; "passportnum 10 digits")]
     #[test_case("NHI: DAI5765", PiiKind::NzNhiNumber ; "nz nhi letter I")]
@@ -3377,6 +3402,7 @@ mod tests {
     #[test_case("code is DAB8745", PiiKind::NzNhiNumber ; "nz nhi no keyword")]
     #[test_case("code is AB123456", PiiKind::NzDriverLicence ; "nz dl no keyword")]
     #[test_case("code is 123456789", PiiKind::IeDriverNumber ; "ie driver no keyword")]
+    #[test_case("code is A12345678901234", PiiKind::CaDriversLicense ; "ca dl no keyword")]
     #[test_case("code is 0123456789", PiiKind::ZaTaxReference ; "za trn no keyword")]
     #[test_case("code is 1234567897", PiiKind::CaOhip ; "ca ohip no keyword")]
     #[test_case("+44 7911 123456", PiiKind::GbPhoneNumber ; "gb phone no keyword")]
