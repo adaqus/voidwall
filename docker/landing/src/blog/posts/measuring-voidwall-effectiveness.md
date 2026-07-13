@@ -1,12 +1,12 @@
 ---
 title: Measuring Voidwall’s PII Detection Effectiveness
-tag: Data Protection
+tag: Evaluation
 date: 2026-07-13
 read: 8 min read
 excerpt: How well does Voidwall actually detect PII? We measure precision and recall on a curated English AI4Privacy dataset, broken down by category and data structure.
 ---
 
-In the previous post, we explained the basics of measuring PII detection effectiveness. The knowledge from that post provides a good foundation for understanding how well Voidwall performs.
+In the [previous post](/blog/understanding-pii-detection-effectiveness), we explained the basics of measuring PII detection effectiveness. The knowledge from that post provides a good foundation for understanding how well Voidwall performs.
 
 Measuring precision and recall is not a trivial task. It requires a high-quality input dataset. But wait, does that mean we need real PII belonging to real people? Not necessarily. The strongest evidence usually comes from representative production data with reliable annotations. Before such data is available, a carefully validated synthetic dataset can provide a useful initial evaluation.
 
