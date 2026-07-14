@@ -17,28 +17,29 @@ the order it appears on the page.
 
 | File                       | Section                                                            |
 | -------------------------- | ------------------------------------------------------------------ |
-| `src/00-icons.jsx`         | Shared SVG icon set used by every other section                    |
-| `src/01-nav.jsx`           | Top navigation bar                                                 |
-| `src/02-hero.jsx`          | Hero ("invisible wall…") + headline variants                       |
-| `src/03-metrics.jsx`       | Metrics strip below the hero                                       |
-| `src/04-features.jsx`      | "Inspect → Enforce → Sanitize → Audit" feature row                 |
-| `src/05-coverage.jsx`      | Detection coverage — PII types, languages, **countries**           |
-| `src/06-analytics.jsx`     | GA4 / Matomo example                                               |
-| `src/07-formats.jsx`       | Tabbed JSON / CSV / TSV / plain-text panel (only interactive part) |
-| `src/08-custom-pii.jsx`    | Custom PII detector demo                                           |
+| `src/00-base.jsx`          | Asset-path base + `vwAsset` helper (loaded first)                  |
+| `src/01-icons.jsx`         | Shared SVG icon set used by every other section                    |
+| `src/02-nav.jsx`           | Top navigation bar                                                 |
+| `src/03-hero.jsx`          | Hero ("invisible wall…") + headline variants                       |
+| `src/04-metrics.jsx`       | Metrics strip below the hero                                       |
+| `src/05-features.jsx`      | "Inspect → Enforce → Sanitize → Audit" feature row                 |
+| `src/06-coverage.jsx`      | Detection coverage — PII types, languages, **countries**           |
+| `src/07-analytics.jsx`     | GA4 / Matomo example                                               |
+| `src/08-formats.jsx`       | Tabbed JSON / CSV / TSV / plain-text panel (only interactive part) |
 | `src/09-performance.jsx`   | Performance numbers                                                |
 | `src/10-blog.jsx`          | Blog teaser cards (home page) + the shared `PostCard`              |
 | `src/11-cta.jsx`           | Bottom call-to-action                                              |
 | `src/12-footer.jsx`        | Footer                                                             |
 | `src/13-blog-index.jsx`    | Blog listing page rendered at `/blog/`                             |
-| `src/14-blog-post.jsx`     | Single blog post rendered at `/blog/<slug>/`                       |
-| `src/15-app.jsx`           | Top-level component order + path router; hydrates the page         |
+| `src/14-privacy.jsx`       | Privacy policy page rendered at `/privacy/`                        |
+| `src/15-blog-post.jsx`     | Single blog post rendered at `/blog/<slug>/`                       |
+| `src/16-app.jsx`           | Top-level component order + path router; hydrates the page         |
 | `src/blog/posts/*.md`      | Blog post content (markdown + frontmatter). Filename = URL slug.   |
 | `build-posts.cjs`          | Build step: markdown → `assets/posts.js` (`window.POSTS`).         |
 | `src/index.template.html`  | HTML shell (title, viewport, asset links). No content goes here.   |
 | `assets/styles.css`        | All design-system styles. Hand-edit for layout/color tweaks.       |
 
-The `15-app.jsx` entry point must stay the highest-numbered file: it calls
+The `16-app.jsx` entry point must stay the highest-numbered file: it calls
 `hydrateRoot`, which renders the view components, so every component file has to
 be concatenated before it.
 
@@ -115,7 +116,7 @@ missing. Posts are ordered newest-first by `date`.
 
 ## Worked example — update the supported-country count
 
-The country list is split across two places in `src/05-coverage.jsx`:
+The country list is split across two places in `src/06-coverage.jsx`:
 
 1. The headline copy (currently `"Eleven countries."`):
    ```jsx
@@ -139,8 +140,8 @@ To add Sweden as the twelfth country:
 
 ## Adding a whole new section
 
-1. Create e.g. `src/08-new-section.jsx` (use a number that places it where you
-   want in the page, but **below `15-app.jsx`**). Define one React component and
+1. Create e.g. `src/NN-new-section.jsx` (use a number that places it where you
+   want in the page, but **below `16-app.jsx`**). Define one React component and
    publish it on `window`, matching the pattern in the existing files:
    ```jsx
    function NewSection() {
@@ -148,7 +149,7 @@ To add Sweden as the twelfth country:
    }
    window.NewSection = NewSection;
    ```
-2. Add `<NewSection/>` to the `App` JSX in `src/15-app.jsx` at the right spot.
+2. Add `<NewSection/>` to the `App` JSX in `src/16-app.jsx` at the right spot.
 3. `./build.sh`.
 
 ## Styling
@@ -176,7 +177,7 @@ existing logo files) is static and not regenerated.
 - **Page renders blank after build** — open the browser console. A
   hydration mismatch usually means a JSX file references a variable that
   isn't defined yet at load time; remember the files are concatenated in
-  filename order, so a component used in `02-hero.jsx` must be declared in
-  a file with a lower prefix (e.g. `00-icons.jsx`).
+  filename order, so a component used in `03-hero.jsx` must be declared in
+  a file with a lower prefix (e.g. `01-icons.jsx`).
 - **`index.html` no longer matches the JSX after editing** — you forgot to
   run `./build.sh`. The HTML is a build artifact, not a hand-edited file.

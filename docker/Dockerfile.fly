@@ -50,6 +50,7 @@ RUN printf 'window.PII_API_URL = window.location.origin;\n' > /srv/demo/config.j
 COPY docker/landing/index.html /srv/landing/index.html
 COPY docker/landing/assets /srv/landing/assets
 COPY docker/landing/blog /srv/landing/blog
+COPY docker/landing/privacy /srv/landing/privacy
 
 ENTRYPOINT ["pii-proxy"]
 CMD ["--config", "/etc/pii-proxy/proxy.toml"]

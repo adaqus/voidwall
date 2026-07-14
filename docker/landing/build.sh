@@ -40,7 +40,7 @@ echo "[2/2] pre-rendering with headless Chromium"
 # URL (/blog/<slug>/ → blog/<slug>/index.html) so both nginx (here) and
 # tower-http ServeDir (in production) resolve <route> to <route>/index.html.
 # The router in src/15-app.jsx picks the view from location.pathname.
-routes="/ /blog/"
+routes="/ /blog/ /privacy/"
 for f in src/blog/posts/*.md; do
   [ -e "$f" ] || continue
   routes="$routes /blog/$(basename "$f" .md)/"

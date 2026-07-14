@@ -12,7 +12,10 @@ function Footer() {
             <img src={vwAsset("logo-mark-light.svg")} width="24" height="24" alt=""/>
             <span style={{ fontFamily: "var(--vw-font-display)", fontWeight: 500, letterSpacing: "0.14em", fontSize: 15, color: "var(--vw-void-ink)" }}>VOIDWALL</span>
           </a>
-          <span>© 2026 Voidwall</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 16 }}>
+            <a href="/privacy/" style={{ color: "var(--vw-void-ink-3)", textDecoration: "none" }}>Privacy Policy</a>
+            <span>© 2026 Voidwall</span>
+          </span>
         </div>
       </div>
     </footer>

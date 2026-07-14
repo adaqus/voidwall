@@ -50,6 +50,7 @@ function Root() {
   const post = path.match(/^\/blog\/([^/]+)\/$/);
   if (post) return <BlogPost slug={post[1]}/>;
   if (path === "/blog/") return <BlogIndex/>;
+  if (path === "/privacy/") return <PrivacyPolicy/>;
   return <App/>;
 }
 

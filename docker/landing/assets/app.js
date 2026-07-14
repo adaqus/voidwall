@@ -17,7 +17,7 @@ function vwAsset(name) {
 }
 window.vwAsset = vwAsset;
 
-/* === 00-icons.jsx === */
+/* === 01-icons.jsx === */
 // Centralized icon registry - Lucide-aligned stroke set. currentColor only.
 function Icon({
   name,
@@ -605,7 +605,7 @@ function Icon({
 }
 window.Icon = Icon;
 
-/* === 01-nav.jsx === */
+/* === 02-nav.jsx === */
 // Nav - paper surface, wall mark + wordmark on the left, links + CTA on the right.
 function Nav() {
   // Anchors are written as "/#id" so they also work from subpages (e.g. the
@@ -694,7 +694,7 @@ function Nav() {
 }
 window.Nav = Nav;
 
-/* === 02-hero.jsx === */
+/* === 03-hero.jsx === */
 // Hero - paper surface, left text column, right "wall" illustration with traffic flow.
 
 function Hero() {
@@ -1080,7 +1080,7 @@ function EnvItem({
 }
 window.Hero = Hero;
 
-/* === 03-metrics.jsx === */
+/* === 04-metrics.jsx === */
 // Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
@@ -1141,7 +1141,7 @@ function Metrics() {
 }
 window.Metrics = Metrics;
 
-/* === 04-features.jsx === */
+/* === 05-features.jsx === */
 // Features - void surface, 4-up row separated by hairlines.
 // Anchored on the four Voidwall verbs: Inspect → Enforce → Sanitize → Audit.
 function Features() {
@@ -1267,7 +1267,7 @@ function ModeTag({
 }
 window.Features = Features;
 
-/* === 05-coverage.jsx === */
+/* === 06-coverage.jsx === */
 // Coverage - void surface. The breadth-of-detection story.
 // 100+ PII types organized by category, plus languages + countries strip.
 function Coverage() {
@@ -1507,7 +1507,7 @@ function Coverage() {
 }
 window.Coverage = Coverage;
 
-/* === 06-analytics.jsx === */
+/* === 07-analytics.jsx === */
 // Analytics - void surface. GA4 + Matomo real-time scanning.
 // Shows the same tracking event in raw vs. sanitized form, for each platform.
 function Analytics() {
@@ -1706,7 +1706,7 @@ function ParamColumn({
 }
 window.Analytics = Analytics;
 
-/* === 07-formats.jsx === */
+/* === 08-formats.jsx === */
 // Formats - void surface. Tabbed code pane: JSON / CSV / TSV / URL / plain text.
 // React state drives the active tab.
 function Formats() {
@@ -2427,7 +2427,22 @@ function CTA() {
   }, /*#__PURE__*/React.createElement("div", {
     class: "ml-embedded",
     "data-form": "GUKjOD"
-  })));
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 13,
+      lineHeight: 1.5,
+      color: "var(--vw-void-ink-3)",
+      textAlign: "center",
+      margin: "16px auto 0",
+      maxWidth: 480
+    }
+  }, "By subscribing you agree to our", " ", /*#__PURE__*/React.createElement("a", {
+    href: "/privacy/",
+    style: {
+      color: "var(--vw-violet-300)"
+    }
+  }, "Privacy Policy"), ".")));
 }
 window.CTA = CTA;
 
@@ -2478,7 +2493,19 @@ function Footer() {
       fontSize: 15,
       color: "var(--vw-void-ink)"
     }
-  }, "VOIDWALL")), /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall"))));
+  }, "VOIDWALL")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: "/privacy/",
+    style: {
+      color: "var(--vw-void-ink-3)",
+      textDecoration: "none"
+    }
+  }, "Privacy Policy"), /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall")))));
 }
 window.Footer = Footer;
 
@@ -2540,7 +2567,222 @@ function BlogIndex() {
 }
 window.BlogIndex = BlogIndex;
 
-/* === 14-blog-post.jsx === */
+/* === 14-privacy.jsx === */
+// Privacy policy - paper surface. Static legal text rendered at /privacy/
+// (see the router in 16-app.jsx and the route list in build.sh).
+// Organised by processing activity; each activity lists the same compact fields.
+function PrivacyPolicy() {
+  const h2 = {
+    fontFamily: "var(--vw-font-display)",
+    fontSize: 22,
+    fontWeight: 600,
+    letterSpacing: "-0.015em",
+    color: "var(--vw-paper-ink)",
+    margin: "44px 0 12px"
+  };
+  const h3 = {
+    fontFamily: "var(--vw-font-display)",
+    fontSize: 18,
+    fontWeight: 600,
+    letterSpacing: "-0.01em",
+    color: "var(--vw-paper-ink)",
+    margin: "28px 0 10px"
+  };
+  const p = {
+    fontFamily: "var(--vw-font-body)",
+    fontSize: 16,
+    lineHeight: 1.6,
+    color: "var(--vw-paper-ink-2)",
+    margin: "0 0 14px",
+    textWrap: "pretty"
+  };
+  const link = {
+    color: "var(--vw-violet-500)"
+  };
+
+  // One activity block: a heading and a compact field list
+  // (data / purpose / legal basis / recipients / retention + optional note).
+  function Activity({
+    title,
+    data,
+    purpose,
+    basis,
+    recipients,
+    retention,
+    note
+  }) {
+    const fields = [["Data processed", data], ["Purpose", purpose], ["Legal basis", basis], ["Recipients", recipients], ["Retention", retention]];
+    if (note) fields.push(["Please note", note]);
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h3", {
+      style: h3
+    }, title), /*#__PURE__*/React.createElement("ul", {
+      style: {
+        listStyle: "none",
+        padding: 0,
+        margin: "0 0 8px"
+      }
+    }, fields.map(([label, value]) => /*#__PURE__*/React.createElement("li", {
+      key: label,
+      style: {
+        ...p,
+        display: "flex",
+        gap: 8,
+        margin: "0 0 8px"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: "0 0 130px",
+        fontWeight: 600,
+        color: "var(--vw-paper-ink)"
+      }
+    }, label), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1
+      }
+    }, value)))));
+  }
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement("main", {
+    style: {
+      background: "var(--vw-paper)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "vw-container",
+    style: {
+      padding: "96px var(--gutter)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 760
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "vw-eyebrow",
+    style: {
+      margin: "0 0 18px",
+      color: "var(--vw-violet-500)"
+    }
+  }, "Legal"), /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "var(--vw-font-display)",
+      fontSize: 48,
+      fontWeight: 600,
+      letterSpacing: "-0.025em",
+      lineHeight: 1.04,
+      color: "var(--vw-paper-ink)",
+      margin: "0 0 16px",
+      textWrap: "balance"
+    }
+  }, "Privacy Policy"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...p,
+      color: "var(--vw-paper-ink-3)",
+      fontSize: 14
+    }
+  }, "Last updated: 14 July 2026"), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "Who we are"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "This website (voidwall.io), including the live demo and the early-adopter programme, is operated by NRTW Adam Tulejko, ul. B\u0142. Ks. Jolanty 3/2, 71-220 Szczecin, Poland \u2014 the data controller responsible for your personal data. For any question about this policy or your data, contact us at", " ", /*#__PURE__*/React.createElement("a", {
+    href: "mailto:privacy@voidwall.io",
+    style: link
+  }, "privacy@voidwall.io"), "."), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "This policy is organised by activity. For each one we set out what data we process, why, our legal basis, who receives it, and how long we keep it."), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "How we process your data"), /*#__PURE__*/React.createElement(Activity, {
+    title: "1. Early-adopter subscription",
+    data: "Your email address, and a record of your consent (date and time).",
+    purpose: "To send you early-access invitations and occasional Voidwall product updates.",
+    basis: /*#__PURE__*/React.createElement(React.Fragment, null, "Your consent (GDPR Art. 6(1)(a)). Providing your email is voluntary; without it you cannot join the early-adopter mailing list."),
+    recipients: "MailerLite, which stores your email and delivers our messages on our behalf.",
+    retention: /*#__PURE__*/React.createElement(React.Fragment, null, "We keep your email until you unsubscribe or ask us to delete it. After that we keep proof of your consent for up to 3 years (the period during which related claims may arise), and a minimal suppression-list entry for as long as necessary to make sure we do not add you again."),
+    note: /*#__PURE__*/React.createElement(React.Fragment, null, "You can withdraw consent at any time via the unsubscribe link in any email or by contacting us. Withdrawal does not affect the lawfulness of processing carried out before you withdrew.")
+  }), /*#__PURE__*/React.createElement(Activity, {
+    title: "2. Email enquiries and early-adopter correspondence",
+    data: "Your email address and anything you choose to include \u2014 for example your name, company, job role, use case, or message content \u2014 such as when you reply to our welcome email.",
+    purpose: "To respond to you and to discuss possible participation in the early-adopter programme.",
+    basis: "Our legitimate interest (GDPR Art. 6(1)(f)) in handling enquiries, and/or taking steps at your request before entering a possible agreement.",
+    recipients: "Cloudflare (Email Routing) forwards messages sent to our addresses to Google (Gmail), where we read and reply to them. Both act on our behalf.",
+    retention: "Until your enquiry is resolved and for up to 24 months after our last substantive exchange, then deleted.",
+    note: "Please do not include special-category data or confidential information you would not want us to process."
+  }), /*#__PURE__*/React.createElement(Activity, {
+    title: "3. Live demo",
+    data: "The payload you submit, the operation you select (scan or redaction), the content type, and related request options.",
+    purpose: "Solely to produce the scan or redaction result you requested.",
+    basis: "Our legitimate interest (GDPR Art. 6(1)(f)) in letting you try the product.",
+    recipients: "Processed by our own application on Fly.io; not shared with anyone else.",
+    retention: /*#__PURE__*/React.createElement(React.Fragment, null, "Your payload is processed in memory and discarded once the response is returned \u2014 we do not store it. Our servers keep only operational logs (for example errors and request counts) that do not contain your payload."),
+    note: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("strong", null, "Do not submit real personal data, credentials, special-category data, or confidential information."), " Use test or sample data only.")
+  }), /*#__PURE__*/React.createElement(Activity, {
+    title: "4. Website delivery, security, and technical logs",
+    data: "Technical data needed to serve and protect the site: IP address, request time, requested path, user agent, response status, and abuse-prevention events (rate limiting).",
+    purpose: "To deliver the website, keep it available and secure, and prevent abuse.",
+    basis: "Our legitimate interest (GDPR Art. 6(1)(f)) in operating a secure, reliable service.",
+    recipients: "Fly.io, which hosts the site on our behalf. Your IP address is read only to apply per-IP rate limiting and is held transiently in memory for that purpose; it is not written to an application database.",
+    retention: "Operational and platform logs are kept only for a short period (no longer than 30 days) and are then deleted."
+  }), /*#__PURE__*/React.createElement(Activity, {
+    title: "5. Aggregate website analytics",
+    data: "Cookieless, aggregate measurements such as page views, referrer, approximate country, and device or browser type.",
+    purpose: "To understand traffic and improve the site.",
+    basis: "Our legitimate interest (GDPR Art. 6(1)(f)) in measuring and improving the site.",
+    recipients: /*#__PURE__*/React.createElement(React.Fragment, null, "Cloudflare, which provides the Web Analytics on our behalf. When your browser sends the analytics beacon, Cloudflare also receives your IP address and user agent to process it, but Cloudflare states it does not store your IP, does not use cookies or local storage, and does not fingerprint you or track you across sites."),
+    retention: "We hold only aggregate figures, which contain no personal data."
+  }), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "Cookies"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "We use no tracking or advertising cookies, and our analytics are cookieless. The MailerLite signup form sets a small number of functional cookies and local-storage entries to operate the form \u2014 for example to keep your form session and to remember that you have already submitted it. They are limited to running the form and are not used to track you."), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "International transfers"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "Some of our providers are based outside the European Economic Area (EEA):"), /*#__PURE__*/React.createElement("ul", {
+    style: {
+      paddingLeft: 20,
+      margin: "0 0 14px"
+    }
+  }, /*#__PURE__*/React.createElement("li", {
+    style: {
+      ...p,
+      margin: "0 0 8px"
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Fly.io"), " (United States) \u2014 hosting \u2014 relies on the EU\u2013US Data Privacy Framework."), /*#__PURE__*/React.createElement("li", {
+    style: {
+      ...p,
+      margin: "0 0 8px"
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Cloudflare"), " (United States) \u2014 analytics and email routing \u2014 relies on the EU\u2013US Data Privacy Framework and, where applicable, Standard Contractual Clauses."), /*#__PURE__*/React.createElement("li", {
+    style: {
+      ...p,
+      margin: "0 0 8px"
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Google"), " (United States) \u2014 email inbox (Gmail) \u2014 relies on the EU\u2013US Data Privacy Framework and, where applicable, Standard Contractual Clauses."), /*#__PURE__*/React.createElement("li", {
+    style: {
+      ...p,
+      margin: "0 0 8px"
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "MailerLite Limited"), " (Ireland) \u2014 email \u2014 provides our email-marketing service. Where MailerLite or its sub-processors transfer personal data outside the EEA, they use Standard Contractual Clauses or another valid transfer mechanism.")), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "You can ask us for more information about these safeguards, or a copy of them, using the contact details above."), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "Automated decision-making"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "We do not use your personal data for profiling or automated decisions that produce legal or similarly significant effects."), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "Your rights"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "Where the relevant legal conditions are met, you have the right to access, correct, delete, or restrict processing of your data, to object to processing based on our legitimate interests, to data portability, and to withdraw consent at any time (see the subscription activity above). You can unsubscribe from any email using the link in its footer, or contact us at", " ", /*#__PURE__*/React.createElement("a", {
+    href: "mailto:privacy@voidwall.io",
+    style: link
+  }, "privacy@voidwall.io"), "."), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "If you believe we have handled your data unlawfully, you can lodge a complaint with the Polish supervisory authority \u2014 the President of the Personal Data Protection Office (Prezes Urz\u0119du Ochrony Danych Osobowych, UODO), ul. Stawki 2, 00-193 Warsaw \u2014 or with the supervisory authority where you live or work."), /*#__PURE__*/React.createElement("h2", {
+    style: h2
+  }, "Changes to this policy"), /*#__PURE__*/React.createElement("p", {
+    style: p
+  }, "We may update this policy from time to time. For minor editorial changes we will simply update the date at the top. For material changes \u2014 for example to the purposes, recipients, or legal bases \u2014 we will take reasonable steps to inform subscribers before the change takes effect.")))), /*#__PURE__*/React.createElement(Footer, null));
+}
+window.PrivacyPolicy = PrivacyPolicy;
+
+/* === 15-blog-post.jsx === */
 // Single blog post - paper surface, narrow reading column. Rendered at
 // /blog/<slug>/ (see the router in 15-app.jsx). The post body is pre-rendered
 // HTML (markdown → HTML at build time) injected into a .vw-prose container.
@@ -2645,7 +2887,7 @@ function BlogPost({
 }
 window.BlogPost = BlogPost;
 
-/* === 15-app.jsx === */
+/* === 16-app.jsx === */
 // Entry point - renders the landing page. The original standalone export
 // used a Tweaks editor panel; the production build renders the components
 // directly with a fixed headline variant.
@@ -2684,6 +2926,7 @@ function Root() {
     slug: post[1]
   });
   if (path === "/blog/") return /*#__PURE__*/React.createElement(BlogIndex, null);
+  if (path === "/privacy/") return /*#__PURE__*/React.createElement(PrivacyPolicy, null);
   return /*#__PURE__*/React.createElement(App, null);
 }
 ReactDOM.hydrateRoot(document.getElementById("root"), /*#__PURE__*/React.createElement(Root, null));
