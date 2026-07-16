@@ -1084,7 +1084,7 @@ window.Hero = Hero;
 // Metrics strip - replaces "trusted by" since the product is pre-launch.
 // Four key numbers presented as a horizontal hairline-divided row on a paper-2 band.
 function Metrics() {
-  const items = [["115", "", "PII types", "supported out of the box"], ["7", "", "Languages", "English, French, German, Dutch, Italian, Spanish, Polish"], ["15", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
+  const items = [["118", "", "PII types", "supported out of the box"], ["7", "", "Languages", "English, French, German, Dutch, Italian, Spanish, Polish"], ["15", "", "Countries", "USA, UK, France, Germany..."], ["2", "", "Specializations", "Google Analytics, Matomo"], ["5", "", "Formats", "JSON, URL, CSV, TSV, plain text"]];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--vw-paper-2)",
@@ -1333,7 +1333,7 @@ function Coverage() {
       margin: "0 0 22px",
       textWrap: "balance"
     }
-  }, "115 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
+  }, "118 PII types.", /*#__PURE__*/React.createElement("br", null), "And growing."), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 15.5,
