@@ -51,6 +51,8 @@ COPY docker/landing/index.html /srv/landing/index.html
 COPY docker/landing/assets /srv/landing/assets
 COPY docker/landing/blog /srv/landing/blog
 COPY docker/landing/privacy /srv/landing/privacy
+COPY docker/landing/robots.txt /srv/landing/robots.txt
+COPY docker/landing/sitemap.xml /srv/landing/sitemap.xml
 
 ENTRYPOINT ["pii-proxy"]
 CMD ["--config", "/etc/pii-proxy/proxy.toml"]

@@ -38,7 +38,7 @@ function Hero() {
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
             margin: "0 0 36px",
           }}>
-            Voidwall is a self-hosted PII firewall for HTTP, API, and AI traffic. It detects, redacts, or blocks personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services.
+            Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic. It redacts, blocks, or alerts on personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services.
           </p>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">

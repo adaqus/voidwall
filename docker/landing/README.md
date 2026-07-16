@@ -36,7 +36,8 @@ the order it appears on the page.
 | `src/16-app.jsx`           | Top-level component order + path router; hydrates the page         |
 | `src/blog/posts/*.md`      | Blog post content (markdown + frontmatter). Filename = URL slug.   |
 | `build-posts.cjs`          | Build step: markdown → `assets/posts.js` (`window.POSTS`).         |
-| `src/index.template.html`  | HTML shell (title, viewport, asset links). No content goes here.   |
+| `src/index.template.html`  | HTML shell (title, meta/OG tags, asset links). No content goes here. |
+| `src/og-image.html`        | Social share card; screenshot to `assets/og-image.png` (1200×630). |
 | `assets/styles.css`        | All design-system styles. Hand-edit for layout/color tweaks.       |
 
 The `16-app.jsx` entry point must stay the highest-numbered file: it calls
@@ -162,13 +163,16 @@ the bottom.
 
 ## Output
 
-`./build.sh` writes two files:
+`./build.sh` writes:
 
 - `assets/app.js` — transpiled bundle
-- `index.html` — pre-rendered, ~100 KB, contains the full page content
+- `index.html` (+ `blog/`, `privacy/` pages) — pre-rendered, contains the full page content
+- `assets/og-image.png` — 1200×630 social card, screenshot of `src/og-image.html`
+- `sitemap.xml` — absolute URLs for every route (home, blog index, privacy, each post)
 
 Everything else under `assets/` (fonts, SVGs, vendor React builds, the
-existing logo files) is static and not regenerated.
+existing logo files) is static and not regenerated. `robots.txt` is a static
+file that points crawlers at `sitemap.xml`.
 
 ## Troubleshooting
 

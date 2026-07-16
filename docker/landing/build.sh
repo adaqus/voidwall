@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 mkdir -p assets
 
 # ── 1) Transpile JSX + build blog post data ─────────────────────────────────
-echo "[1/2] transpiling src/*.jsx → assets/app.js, building assets/posts.js"
+echo "[1/3] transpiling src/*.jsx → assets/app.js, building assets/posts.js"
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/src":/src:ro \
@@ -34,7 +34,7 @@ docker run --rm \
   '
 
 # ── 2) Pre-render via headless Chromium ─────────────────────────────────────
-echo "[2/2] pre-rendering with headless Chromium"
+echo "[2/3] pre-rendering with headless Chromium"
 
 # Route list: home, blog index, one page per post. The output path mirrors the
 # URL (/blog/<slug>/ → blog/<slug>/index.html) so both nginx (here) and
@@ -110,5 +110,39 @@ for route in $routes; do
   while [ "$i" -gt 0 ]; do prefix="../$prefix"; i=$((i - 1)); done
   sed -i "s#\"/assets/#\"${prefix}assets/#g" "$out"
 
+  # Fill the per-page canonical/OG URL. The template ships one placeholder so
+  # every route self-canonicalizes to its own absolute URL (a hard-coded home
+  # URL would make /blog/ and each post look like duplicates of the home page).
+  sed -i "s#PAGE_URL_PLACEHOLDER#https://voidwall.io${route}#g" "$out"
+
   echo "  wrote $out ($(wc -c < "$out") bytes)"
 done
+
+# Open Graph card → assets/og-image.png. Same nginx (for the Geist webfont) and
+# headless Chromium, but --screenshot at a fixed 1200×630 viewport instead of
+# --dump-dom. Social platforms don't rasterize SVG og:images, so this must be a
+# real PNG. Source: src/og-image.html.
+echo "  screenshotting src/og-image.html → assets/og-image.png"
+docker run --rm --network "$NET" \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD":/work -w /work zenika/alpine-chrome \
+  --no-sandbox --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=1 --window-size=1200,630 \
+  --virtual-time-budget=8000 \
+  --screenshot=/work/assets/og-image.png \
+  "http://$NGINX/src/og-image.html" >/dev/null 2>&1
+echo "  wrote assets/og-image.png ($(wc -c < assets/og-image.png) bytes)"
+
+# ── 3) Generate sitemap.xml ─────────────────────────────────────────────────
+# Same route list as the pre-render loop, mapped to absolute URLs. robots.txt
+# (static, alongside this script) points crawlers here.
+echo "[3/3] writing sitemap.xml"
+{
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+  printf '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+  for route in $routes; do
+    printf '  <url><loc>https://voidwall.io%s</loc></url>\n' "$route"
+  done
+  printf '</urlset>\n'
+} > sitemap.xml
+echo "  wrote sitemap.xml ($(wc -c < sitemap.xml) bytes)"
