@@ -6,7 +6,7 @@ function Analytics() {
       <div className="vw-section-head" style={{ marginBottom: 56 }}>
         <div>
           <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>Analytics, sanitized</p>
-          <h2 style={{
+          <h2 className="r-section-h2" style={{
             fontFamily: "var(--vw-font-display)", fontSize: 44, fontWeight: 600,
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: 0, textWrap: "balance",
@@ -127,7 +127,7 @@ function PlatformCard({ name, endpoint, tag }) {
         }}>{endpoint}</code>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+      <div className="r-params" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         <ParamColumn label="Received" rows={raw}/>
         <ParamColumn label="Forwarded" rows={san} sanitized/>
       </div>

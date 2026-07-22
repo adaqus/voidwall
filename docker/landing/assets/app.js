@@ -607,10 +607,13 @@ window.Icon = Icon;
 
 /* === 02-nav.jsx === */
 // Nav - paper surface, wall mark + wordmark on the left, links + CTA on the right.
+// Below desktop widths (see .r-nav-* rules in styles.css) the links + CTAs hide
+// and a hamburger toggles the dropdown panel rendered under the bar.
 function Nav() {
   // Anchors are written as "/#id" so they also work from subpages (e.g. the
   // blog), where the target sections don't exist on the current document.
   const links = [["Product", "/#product"], ["Detection", "/#detection"], ["Specializations", "/#specializations"], ["Formats", "/#formats"], ["Performance", "/#performance"], ["Blog", "/blog/"]];
+  const [open, setOpen] = React.useState(false);
   return /*#__PURE__*/React.createElement("header", {
     style: {
       position: "sticky",
@@ -652,6 +655,7 @@ function Nav() {
       fontSize: 15
     }
   }, "VOIDWALL")), /*#__PURE__*/React.createElement("nav", {
+    className: "r-nav-links",
     style: {
       display: "flex",
       gap: 28,
@@ -667,6 +671,7 @@ function Nav() {
       textDecoration: "none"
     }
   }, l))), /*#__PURE__*/React.createElement("div", {
+    className: "r-nav-actions",
     style: {
       marginLeft: "auto",
       display: "flex",
@@ -690,6 +695,82 @@ function Nav() {
     }
   }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
+  }, "\u2192"))), /*#__PURE__*/React.createElement("button", {
+    className: "r-nav-toggle",
+    onClick: () => setOpen(o => !o),
+    "aria-label": "Toggle menu",
+    "aria-expanded": open,
+    style: {
+      display: "none",
+      marginLeft: "auto",
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      background: "transparent",
+      border: "1px solid var(--vw-paper-line)",
+      borderRadius: 8,
+      color: "var(--vw-paper-ink)",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: open ? "x" : "menu",
+    size: 20
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "r-nav-panel",
+    "data-open": open ? "1" : "0",
+    style: {
+      display: "none",
+      background: "var(--vw-paper)",
+      borderBottom: "1px solid var(--vw-paper-line)",
+      padding: "8px var(--gutter) 20px"
+    }
+  }, /*#__PURE__*/React.createElement("nav", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, links.map(([l, href]) => /*#__PURE__*/React.createElement("a", {
+    key: l,
+    href: href,
+    onClick: () => setOpen(false),
+    style: {
+      padding: "12px 0",
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 16,
+      color: "var(--vw-paper-ink)",
+      textDecoration: "none",
+      borderBottom: "1px solid var(--vw-paper-line)"
+    }
+  }, l))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: "/demo",
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "vw-btn vw-btn--primary",
+    style: {
+      justifyContent: "center"
+    }
+  }, "Try the live demo ", /*#__PURE__*/React.createElement(Icon, {
+    name: "external-link",
+    size: 14
+  })), /*#__PURE__*/React.createElement("a", {
+    href: "/#early-adopters",
+    onClick: () => setOpen(false),
+    className: "vw-btn vw-btn--primary",
+    style: {
+      background: "white",
+      color: "var(--vw-void)",
+      justifyContent: "center"
+    }
+  }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
+    className: "arrow"
   }, "\u2192")))));
 }
 window.Nav = Nav;
@@ -705,6 +786,7 @@ function Hero() {
       paddingBottom: 88
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-hero",
     style: {
       display: "grid",
       gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
@@ -747,6 +829,7 @@ function Hero() {
       margin: "0 0 22px"
     }
   }, "Stop privacy debt at the edge."), /*#__PURE__*/React.createElement("h1", {
+    className: "r-hero-h1",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontWeight: 600,
@@ -775,7 +858,8 @@ function Hero() {
     style: {
       display: "flex",
       gap: 12,
-      alignItems: "center"
+      alignItems: "center",
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("a", {
     href: "/demo",
@@ -795,6 +879,7 @@ function Hero() {
   }, "Become early adopter ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
   }, "\u2192")))), /*#__PURE__*/React.createElement("div", {
+    className: "r-hero-art",
     style: {
       position: "relative",
       width: "100%",
@@ -1097,6 +1182,7 @@ function Metrics() {
       padding: "44px var(--gutter)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-metrics",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(5, 1fr)"
@@ -1108,6 +1194,7 @@ function Metrics() {
       borderLeft: i === 0 ? "0" : "1px solid var(--vw-paper-line)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-stat",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 56,
@@ -1158,6 +1245,7 @@ function Features() {
       maxWidth: 720
     }
   }, /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 48,
@@ -1188,6 +1276,7 @@ function Features() {
       fontWeight: 600
     }
   }, "REST API"), " you call to scan and redact on demand. The tag on each card shows where it applies.")), /*#__PURE__*/React.createElement("div", {
+    className: "r-features",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(5, 1fr)"
@@ -1306,6 +1395,7 @@ function Coverage() {
       borderTop: "1px solid var(--vw-void-line)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-coverage",
     style: {
       display: "grid",
       gridTemplateColumns: "minmax(0, 0.7fr) minmax(0, 1.3fr)",
@@ -1313,6 +1403,7 @@ function Coverage() {
       alignItems: "start"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-coverage-side",
     style: {
       position: "sticky",
       top: 100
@@ -1323,6 +1414,7 @@ function Coverage() {
       margin: "0 0 18px"
     }
   }, "Detection coverage"), /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 44,
@@ -1352,6 +1444,7 @@ function Coverage() {
   }, /*#__PURE__*/React.createElement("span", {
     className: "vw-eyebrow vw-eyebrow--muted"
   }, "Languages"), /*#__PURE__*/React.createElement("div", {
+    className: "r-langs",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(3, max-content)",
@@ -1444,6 +1537,7 @@ function Coverage() {
     name: "plus",
     size: 12
   }), " more soon")))), /*#__PURE__*/React.createElement("div", {
+    className: "r-cov-cards",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(2, 1fr)",
@@ -1529,6 +1623,7 @@ function Analytics() {
       margin: "0 0 18px"
     }
   }, "Analytics, sanitized"), /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 44,
@@ -1627,6 +1722,7 @@ function PlatformCard({
       color: "var(--vw-void-ink-3)"
     }
   }, endpoint)), /*#__PURE__*/React.createElement("div", {
+    className: "r-params",
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr"
@@ -1814,6 +1910,7 @@ Thanks!`
       margin: "0 0 18px"
     }
   }, "Format-aware"), /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 44,
@@ -1838,7 +1935,8 @@ Thanks!`
       display: "flex",
       gap: 4,
       marginBottom: 16,
-      borderBottom: "1px solid var(--vw-void-line)"
+      borderBottom: "1px solid var(--vw-void-line)",
+      overflowX: "auto"
     }
   }, Object.entries(samples).map(([key, s]) => {
     const active = tab === key;
@@ -1856,6 +1954,8 @@ Thanks!`
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
         fontFamily: "var(--vw-font-body)",
         fontSize: 13.5,
         fontWeight: 500,
@@ -1867,6 +1967,7 @@ Thanks!`
       size: 16
     }), " ", s.label);
   })), /*#__PURE__*/React.createElement("div", {
+    className: "r-codepanes",
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
@@ -1987,6 +2088,7 @@ function Performance() {
       padding: "96px var(--gutter)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-perf-head",
     style: {
       display: "grid",
       gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
@@ -2001,6 +2103,7 @@ function Performance() {
       color: "var(--vw-violet-500)"
     }
   }, "Performance"), /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 44,
@@ -2021,6 +2124,7 @@ function Performance() {
       maxWidth: 460
     }
   }, "Voidwall scales horizontally, runs in your cluster, and adds a budget you can measure in single-digit milliseconds. It's designed to be a lightweight, self-hosted service that doesn't break the bank as you grow.")), /*#__PURE__*/React.createElement("div", {
+    className: "r-perf-cards",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(3, 1fr)",
@@ -2053,6 +2157,7 @@ function Performance() {
     unit: "MiB",
     sub: "single container, 6 logical cores, 10 KiB payload"
   })), /*#__PURE__*/React.createElement("div", {
+    className: "r-perf-feats",
     style: {
       marginTop: 56,
       display: "grid",
@@ -2138,6 +2243,7 @@ function PerfCard({
     name: icon,
     size: 16
   }))), /*#__PURE__*/React.createElement("div", {
+    className: "r-stat",
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -2267,6 +2373,7 @@ function Blog() {
       padding: "96px var(--gutter)"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "r-blog-head",
     style: {
       display: "flex",
       alignItems: "end",
@@ -2281,6 +2388,7 @@ function Blog() {
       color: "var(--vw-violet-500)"
     }
   }, "From the blog"), /*#__PURE__*/React.createElement("h2", {
+    className: "r-section-h2",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 44,
@@ -2298,6 +2406,7 @@ function Blog() {
   }, "All posts ", /*#__PURE__*/React.createElement("span", {
     className: "arrow"
   }, "\u2192"))), /*#__PURE__*/React.createElement("div", {
+    className: "r-cards-3",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(3, 1fr)",
@@ -2536,6 +2645,7 @@ function BlogIndex() {
       color: "var(--vw-violet-500)"
     }
   }, "Blog"), /*#__PURE__*/React.createElement("h1", {
+    className: "r-page-h1",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 56,
@@ -2556,6 +2666,7 @@ function BlogIndex() {
       textWrap: "pretty"
     }
   }, "Engineering notes, detection deep-dives, and what we learn watching personal data move through real systems.")), /*#__PURE__*/React.createElement("div", {
+    className: "r-cards-3",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(3, 1fr)",
@@ -2661,6 +2772,7 @@ function PrivacyPolicy() {
       color: "var(--vw-violet-500)"
     }
   }, "Legal"), /*#__PURE__*/React.createElement("h1", {
+    className: "r-page-h1",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 48,
@@ -2790,6 +2902,7 @@ function BlogPost({
   slug
 }) {
   const post = (window.POSTS || []).find(p => p.slug === slug);
+  const [zoom, setZoom] = React.useState(null);
   if (!post) {
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Nav, null), /*#__PURE__*/React.createElement("main", {
       style: {
@@ -2868,6 +2981,7 @@ function BlogPost({
       color: "var(--vw-paper-ink-3)"
     }
   }, "\xB7 ", post.read)), /*#__PURE__*/React.createElement("h1", {
+    className: "r-page-h1",
     style: {
       fontFamily: "var(--vw-font-display)",
       fontSize: 46,
@@ -2880,10 +2994,98 @@ function BlogPost({
     }
   }, post.title), /*#__PURE__*/React.createElement("div", {
     className: "vw-prose",
+    onClick: e => {
+      if (e.target.tagName === "IMG") {
+        setZoom({
+          src: e.target.currentSrc || e.target.src,
+          alt: e.target.alt
+        });
+      }
+    },
     dangerouslySetInnerHTML: {
       __html: post.html
     }
-  }))), /*#__PURE__*/React.createElement(Footer, null));
+  }))), /*#__PURE__*/React.createElement(Footer, null), zoom && /*#__PURE__*/React.createElement(Lightbox, {
+    src: zoom.src,
+    alt: zoom.alt,
+    onClose: () => setZoom(null)
+  }));
+}
+
+// Full-screen image zoom for blog-post figures. The image renders at up to its
+// natural size and the overlay scrolls, so wide images (e.g. the example-text
+// strip) can be panned for detail on small screens. Close via the button,
+// a tap on the backdrop, or Escape.
+function Lightbox({
+  src,
+  alt,
+  onClose
+}) {
+  React.useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: onClose,
+    style: {
+      position: "fixed",
+      inset: 0,
+      zIndex: 100,
+      background: "rgba(10,14,26,0.92)",
+      overflow: "auto",
+      cursor: "zoom-out"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "inline-flex",
+      minWidth: "100%",
+      minHeight: "100%",
+      boxSizing: "border-box",
+      padding: 24,
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: src,
+    alt: alt,
+    onClick: e => e.stopPropagation(),
+    style: {
+      display: "block",
+      maxWidth: 1600,
+      borderRadius: 8,
+      cursor: "default",
+      boxShadow: "0 24px 60px -20px rgba(0,0,0,0.6)"
+    }
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    "aria-label": "Close image",
+    style: {
+      position: "fixed",
+      top: 16,
+      right: 16,
+      width: 40,
+      height: 40,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "rgba(244,242,238,0.14)",
+      border: "1px solid rgba(244,242,238,0.28)",
+      borderRadius: 8,
+      color: "var(--vw-void-ink)",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 20
+  })));
 }
 window.BlogPost = BlogPost;
 

@@ -109,13 +109,13 @@ function Coverage() {
 
   return (
     <section id="detection" className="vw-container" style={{ padding: "60px var(--gutter) 80px", borderTop: "1px solid var(--vw-void-line)" }}>
-      <div style={{
+      <div className="r-coverage" style={{
         display: "grid", gridTemplateColumns: "minmax(0, 0.7fr) minmax(0, 1.3fr)",
         gap: 80, alignItems: "start",
       }}>
-        <div style={{ position: "sticky", top: 100 }}>
+        <div className="r-coverage-side" style={{ position: "sticky", top: 100 }}>
           <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>Detection coverage</p>
-          <h2 style={{
+          <h2 className="r-section-h2" style={{
             fontFamily: "var(--vw-font-display)", fontSize: 44, fontWeight: 600,
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: "0 0 22px", textWrap: "balance",
@@ -132,7 +132,7 @@ function Coverage() {
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
             <span className="vw-eyebrow vw-eyebrow--muted">Languages</span>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, max-content)", gap: 8 }}>
+            <div className="r-langs" style={{ display: "grid", gridTemplateColumns: "repeat(3, max-content)", gap: 8 }}>
               {languages.map(([code, name]) => (
                 <div key={code} style={{
                   display: "inline-flex", alignItems: "center", gap: 8,
@@ -186,7 +186,7 @@ function Coverage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+        <div className="r-cov-cards" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
           {groups.map(g => (
             <div key={g.title} style={{
               background: "var(--vw-void-2)",

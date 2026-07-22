@@ -11,7 +11,7 @@ function BlogIndex() {
         <div className="vw-container" style={{ padding: "96px var(--gutter)" }}>
           <div style={{ marginBottom: 56, maxWidth: 720 }}>
             <p className="vw-eyebrow" style={{ margin: "0 0 18px", color: "var(--vw-violet-500)" }}>Blog</p>
-            <h1 style={{
+            <h1 className="r-page-h1" style={{
               fontFamily: "var(--vw-font-display)", fontSize: 56, fontWeight: 600,
               letterSpacing: "-0.025em", lineHeight: 1.02,
               color: "var(--vw-paper-ink)", margin: "0 0 20px", textWrap: "balance",
@@ -27,7 +27,7 @@ function BlogIndex() {
             </p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+          <div className="r-cards-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
             {posts.map((p, i) => <PostCard key={i} {...p}/>)}
           </div>
         </div>

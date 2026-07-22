@@ -3,7 +3,7 @@
 function Hero() {
   return (
     <section className="vw-container" style={{ paddingTop: 56, paddingBottom: 88 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 48, alignItems: "center" }}>
+      <div className="r-hero" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 48, alignItems: "center" }}>
         {/* Left */}
         <div>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 22 }}>
@@ -22,7 +22,7 @@ function Hero() {
             </span>
           </div>
           <p className="vw-eyebrow" style={{ margin: "0 0 22px" }}>Stop privacy debt at the edge.</p>
-          <h1 style={{
+          <h1 className="r-hero-h1" style={{
             fontFamily: "var(--vw-font-display)",
             fontWeight: 600, fontSize: 60, lineHeight: 1.0,
             letterSpacing: "-0.025em",
@@ -40,7 +40,7 @@ function Hero() {
           }}>
             Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic. It redacts, blocks, or alerts on personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services.
           </p>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
               Try the live demo <Icon name="external-link" size={14}/>
             </a>
@@ -51,7 +51,7 @@ function Hero() {
         </div>
 
         {/* Right - wall illustration + traffic flow */}
-        <div style={{ position: "relative", width: "100%", aspectRatio: "600/520" }}>
+        <div className="r-hero-art" style={{ position: "relative", width: "100%", aspectRatio: "600/520" }}>
           <img src="assets/hero-wall.svg" alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}/>
 
           {/* Voidwall logo - centered on the vertical axis of the wall below (wall center ≈ 57% across 600px viewBox) */}

@@ -3,6 +3,7 @@
 // HTML (markdown → HTML at build time) injected into a .vw-prose container.
 function BlogPost({ slug }) {
   const post = (window.POSTS || []).find(p => p.slug === slug);
+  const [zoom, setZoom] = React.useState(null);
 
   if (!post) {
     return (
@@ -45,17 +46,76 @@ function BlogPost({ slug }) {
             <span style={{ fontFamily: "var(--vw-font-body)", fontSize: 13, color: "var(--vw-paper-ink-3)" }}>· {post.read}</span>
           </div>
 
-          <h1 style={{
+          <h1 className="r-page-h1" style={{
             fontFamily: "var(--vw-font-display)", fontSize: 46, fontWeight: 600,
             letterSpacing: "-0.025em", lineHeight: 1.04,
             color: "var(--vw-paper-ink)", margin: "0 0 40px", textWrap: "balance",
           }}>{post.title}</h1>
 
-          <div className="vw-prose" dangerouslySetInnerHTML={{ __html: post.html }}/>
+          {/* Tap any figure to open it in the lightbox. Delegated from the
+              container because the prose HTML is injected, not React-managed. */}
+          <div
+            className="vw-prose"
+            onClick={(e) => {
+              if (e.target.tagName === "IMG") {
+                setZoom({ src: e.target.currentSrc || e.target.src, alt: e.target.alt });
+              }
+            }}
+            dangerouslySetInnerHTML={{ __html: post.html }}
+          />
         </article>
       </main>
       <Footer/>
+      {zoom && <Lightbox src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)}/>}
     </>
+  );
+}
+
+// Full-screen image zoom for blog-post figures. The image renders at up to its
+// natural size and the overlay scrolls, so wide images (e.g. the example-text
+// strip) can be panned for detail on small screens. Close via the button,
+// a tap on the backdrop, or Escape.
+function Lightbox({ src, alt, onClose }) {
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      background: "rgba(10,14,26,0.92)",
+      overflow: "auto", cursor: "zoom-out",
+    }}>
+      {/* inline-flex sizes to the image but stays at least viewport-sized, so
+          the picture centres when it fits and both scroll edges stay reachable
+          when it doesn't. */}
+      <div style={{
+        display: "inline-flex", minWidth: "100%", minHeight: "100%",
+        boxSizing: "border-box", padding: 24,
+        alignItems: "center", justifyContent: "center",
+      }}>
+        <img src={src} alt={alt} onClick={(e) => e.stopPropagation()} style={{
+          display: "block", maxWidth: 1600, borderRadius: 8, cursor: "default",
+          boxShadow: "0 24px 60px -20px rgba(0,0,0,0.6)",
+        }}/>
+      </div>
+      <button onClick={onClose} aria-label="Close image" style={{
+        position: "fixed", top: 16, right: 16, width: 40, height: 40,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(244,242,238,0.14)",
+        border: "1px solid rgba(244,242,238,0.28)",
+        borderRadius: 8, color: "var(--vw-void-ink)", cursor: "pointer",
+      }}>
+        <Icon name="x" size={20}/>
+      </button>
+    </div>
   );
 }
 

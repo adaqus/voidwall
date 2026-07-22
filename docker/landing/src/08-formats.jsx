@@ -105,7 +105,7 @@ Thanks!`,
       <div className="vw-section-head" style={{ marginBottom: 40 }}>
         <div>
           <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>Format-aware</p>
-          <h2 style={{
+          <h2 className="r-section-h2" style={{
             fontFamily: "var(--vw-font-display)", fontSize: 44, fontWeight: 600,
             letterSpacing: "-0.025em", lineHeight: 1.02,
             color: "var(--vw-void-ink)", margin: 0, textWrap: "balance",
@@ -128,6 +128,7 @@ Thanks!`,
       <div style={{
         display: "flex", gap: 4, marginBottom: 16,
         borderBottom: "1px solid var(--vw-void-line)",
+        overflowX: "auto",
       }}>
         {Object.entries(samples).map(([key, s]) => {
           const active = tab === key;
@@ -142,6 +143,7 @@ Thanks!`,
                 borderBottom: `2px solid ${active ? "var(--vw-violet-400)" : "transparent"}`,
                 marginBottom: -1,
                 display: "inline-flex", alignItems: "center", gap: 8,
+                flexShrink: 0, whiteSpace: "nowrap",
                 fontFamily: "var(--vw-font-body)", fontSize: 13.5, fontWeight: 500,
                 color: active ? "var(--vw-void-ink)" : "var(--vw-void-ink-2)",
                 transition: "color .18s var(--vw-ease-out), border-color .18s var(--vw-ease-out)",
@@ -153,7 +155,7 @@ Thanks!`,
         })}
       </div>
 
-      <div style={{
+      <div className="r-codepanes" style={{
         display: "grid", gridTemplateColumns: "1fr 1fr",
         gap: 0,
         background: "var(--vw-void-2)",

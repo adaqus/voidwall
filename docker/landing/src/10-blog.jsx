@@ -6,13 +6,13 @@ function Blog() {
   return (
     <section id="blog" style={{ background: "var(--vw-paper)", borderTop: "1px solid var(--vw-paper-line)" }}>
       <div className="vw-container" style={{ padding: "96px var(--gutter)" }}>
-        <div style={{
+        <div className="r-blog-head" style={{
           display: "flex", alignItems: "end", justifyContent: "space-between",
           marginBottom: 56, gap: 32,
         }}>
           <div>
             <p className="vw-eyebrow" style={{ margin: "0 0 18px", color: "var(--vw-violet-500)" }}>From the blog</p>
-            <h2 style={{
+            <h2 className="r-section-h2" style={{
               fontFamily: "var(--vw-font-display)", fontSize: 44, fontWeight: 600,
               letterSpacing: "-0.025em", lineHeight: 1.02,
               color: "var(--vw-paper-ink)", margin: 0, textWrap: "balance", maxWidth: 560,
@@ -23,7 +23,7 @@ function Blog() {
           <a href="/blog/" className="vw-btn vw-btn--ghost">All posts <span className="arrow">→</span></a>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+        <div className="r-cards-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
           {posts.map((p, i) => <PostCard key={i} {...p}/>)}
         </div>
       </div>

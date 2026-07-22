@@ -49,7 +49,7 @@ function PrivacyPolicy() {
         <div className="vw-container" style={{ padding: "96px var(--gutter)" }}>
           <div style={{ maxWidth: 760 }}>
             <p className="vw-eyebrow" style={{ margin: "0 0 18px", color: "var(--vw-violet-500)" }}>Legal</p>
-            <h1 style={{
+            <h1 className="r-page-h1" style={{
               fontFamily: "var(--vw-font-display)", fontSize: 48, fontWeight: 600,
               letterSpacing: "-0.025em", lineHeight: 1.04,
               color: "var(--vw-paper-ink)", margin: "0 0 16px", textWrap: "balance",

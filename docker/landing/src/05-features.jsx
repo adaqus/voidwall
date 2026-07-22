@@ -12,7 +12,7 @@ function Features() {
     <section id="product" className="vw-container" style={{ padding: "96px var(--gutter) 60px" }}>
       <div style={{ marginBottom: 64, maxWidth: 720 }}>
         {/* <p className="vw-eyebrow" style={{ margin: "0 0 18px" }}>What Voidwall does</p> */}
-        <h2 style={{
+        <h2 className="r-section-h2" style={{
           fontFamily: "var(--vw-font-display)", fontSize: 48, fontWeight: 600,
           letterSpacing: "-0.025em", lineHeight: 1.02,
           color: "var(--vw-void-ink)", margin: 0, textWrap: "balance",
@@ -28,7 +28,7 @@ function Features() {
           call to scan and redact on demand. The tag on each card shows where it applies.
         </p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+      <div className="r-features" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
         {items.map(([icon, title, body, mode], i) => (
           <div key={title} style={{
             padding: "0 28px",

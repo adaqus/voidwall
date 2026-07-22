@@ -11,13 +11,13 @@ function Metrics() {
   return (
     <div style={{ background: "var(--vw-paper-2)", borderTop: "1px solid var(--vw-paper-line)", borderBottom: "1px solid var(--vw-paper-line)" }}>
       <div className="vw-container" style={{ padding: "44px var(--gutter)" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+        <div className="r-metrics" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
           {items.map(([n, suffix, label, sub], i) => (
             <div key={label} style={{
               padding: "0 28px",
               borderLeft: i === 0 ? "0" : "1px solid var(--vw-paper-line)",
             }}>
-              <div style={{
+              <div className="r-stat" style={{
                 fontFamily: "var(--vw-font-display)",
                 fontSize: 56, fontWeight: 600, letterSpacing: "-0.03em",
                 lineHeight: 1, color: "var(--vw-paper-ink)",

@@ -4,13 +4,13 @@ function Performance() {
   return (
     <section id="performance" style={{ background: "var(--vw-paper)", borderTop: "1px solid var(--vw-void-line)" }}>
       <div className="vw-container" style={{ padding: "96px var(--gutter)" }}>
-        <div style={{
+        <div className="r-perf-head" style={{
           display: "grid", gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
           gap: 64, alignItems: "end", marginBottom: 64,
         }}>
           <div>
             <p className="vw-eyebrow" style={{ margin: "0 0 18px", color: "var(--vw-violet-500)" }}>Performance</p>
-            <h2 style={{
+            <h2 className="r-section-h2" style={{
               fontFamily: "var(--vw-font-display)", fontSize: 44, fontWeight: 600,
               letterSpacing: "-0.025em", lineHeight: 1.02,
               color: "var(--vw-paper-ink)", margin: 0, textWrap: "balance",
@@ -28,7 +28,7 @@ function Performance() {
           </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+        <div className="r-perf-cards" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
           <PerfCard
             icon="gauge"
             eyebrow="Latency (p99)"
@@ -54,7 +54,7 @@ function Performance() {
           />
         </div>
 
-        <div style={{
+        <div className="r-perf-feats" style={{
           marginTop: 56,
           display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
           gap: 0,
@@ -110,7 +110,7 @@ function PerfCard({ icon, eyebrow, big, unit, sub, chart }) {
           <Icon name={icon} size={16}/>
         </span>
       </div>
-      <div style={{
+      <div className="r-stat" style={{
         display: "flex", alignItems: "baseline", gap: 6,
         fontFamily: "var(--vw-font-display)", fontSize: 56, fontWeight: 600,
         letterSpacing: "-0.03em", lineHeight: 1,

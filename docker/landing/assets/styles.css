@@ -661,7 +661,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 80px; }
 }
 .vw-prose p { margin: 0 0 24px; text-wrap: pretty; }
 .vw-prose ul, .vw-prose ol { margin: 0 0 24px; padding-left: 24px; }
-.vw-prose img { display: block; width: 100%; height: auto; margin: 0 0 24px; border-radius: 8px; }
+.vw-prose img { display: block; width: 100%; height: auto; margin: 0 0 24px; border-radius: 8px; cursor: zoom-in; }
 .vw-prose li { margin: 0 0 8px; }
 .vw-prose li::marker { color: var(--vw-paper-ink-3); }
 .vw-prose strong { color: var(--vw-paper-ink); font-weight: 600; }
@@ -709,4 +709,93 @@ html { scroll-behavior: smooth; scroll-padding-top: 80px; }
   color: var(--vw-paper-ink-3);
 }
 .vw-prose .vw-footnote-mark { color: var(--vw-violet-500); font-weight: 600; }
+
+/* ============================================================
+   Responsive — mobile & tablet
+   ------------------------------------------------------------
+   The desktop styles above are the ≥1025px baseline. Layout
+   grids are authored as inline styles in the JSX, which a plain
+   stylesheet rule can't override — so the collapses below use
+   !important to win over the inline grid-template-columns.
+   Marker classes (.r-*) are added in the JSX purely as hooks.
+   ============================================================ */
+
+/* Nav → hamburger. Collapses first (the full link row + two CTAs
+   need ~1140px to fit), before the body layout does. */
+@media (max-width: 1024px) {
+  .r-nav-links,
+  .r-nav-actions { display: none !important; }
+  .r-nav-toggle { display: inline-flex !important; }
+  .r-nav-panel[data-open="1"] { display: block !important; }
+}
+
+/* Tablet and below — multi-column layouts collapse. */
+@media (max-width: 900px) {
+  :root { --gutter: 24px; }
+
+  .r-hero,
+  .r-coverage,
+  .r-perf-head,
+  .r-features,
+  .r-perf-cards,
+  .r-perf-feats,
+  .r-cards-3,
+  .r-cov-cards,
+  .r-params,
+  .r-codepanes,
+  .vw-section-head { grid-template-columns: 1fr !important; }
+
+  .r-hero { gap: 40px !important; }
+  .r-hero-art { display: none !important; }              /* decorative; drop it on small screens */
+  .r-coverage { gap: 40px !important; }
+  .r-coverage-side { position: static !important; }
+  .r-perf-head { gap: 24px !important; align-items: start !important; }
+  .vw-section-head { gap: 16px !important; margin-bottom: 40px !important; }
+
+  /* Two-up numbers rather than five squeezed across. */
+  .r-metrics { grid-template-columns: 1fr 1fr !important; gap: 32px 24px !important; }
+
+  /* Divider rows: drop the vertical hairlines and the horizontal
+     padding they spaced, lean on the grid gap instead. */
+  .r-metrics > div,
+  .r-features > div,
+  .r-perf-feats > div {
+    border-left: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .r-features { gap: 40px !important; }
+  .r-perf-feats { gap: 32px !important; }
+  .r-perf-cards,
+  .r-cards-3 { gap: 16px !important; }
+  .r-cov-cards { gap: 12px !important; }
+  .r-cards-3 h3 { min-height: 0 !important; }            /* uneven title heights don't matter stacked */
+
+  /* Stacked side-by-side panes: swap the inner right divider for a
+     bottom one on the first pane. */
+  .r-params > div:first-child,
+  .r-codepanes > div:first-child {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--vw-void-line) !important;
+  }
+}
+
+/* Phone — single column throughout, tighter gutter, smaller display type. */
+@media (max-width: 640px) {
+  :root { --gutter: 16px; }
+
+  .r-metrics { grid-template-columns: 1fr !important; }
+  .r-langs { grid-template-columns: 1fr 1fr !important; }
+
+  .r-blog-head {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 20px !important;
+  }
+
+  .r-hero-h1 { font-size: 40px !important; min-height: 0 !important; }
+  .r-section-h2 { font-size: 30px !important; }
+  .r-page-h1 { font-size: 34px !important; }
+  .r-stat { font-size: 40px !important; }
+}
 
