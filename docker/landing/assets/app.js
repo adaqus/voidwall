@@ -823,12 +823,7 @@ function Hero() {
       borderRadius: 999,
       background: "var(--vw-violet-400)"
     }
-  }), "Live demo available - early access")), /*#__PURE__*/React.createElement("p", {
-    className: "vw-eyebrow",
-    style: {
-      margin: "0 0 22px"
-    }
-  }, "Stop privacy debt at the edge."), /*#__PURE__*/React.createElement("h1", {
+  }), "Live demo available - early access")), /*#__PURE__*/React.createElement("h1", {
     className: "r-hero-h1",
     style: {
       fontFamily: "var(--vw-font-display)",
@@ -841,20 +836,52 @@ function Hero() {
       textWrap: "balance",
       minHeight: 120
     }
-  }, "Stop sensitive data ", /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
       color: "var(--vw-violet-400)"
     }
-  }, "before it spreads"), "."), /*#__PURE__*/React.createElement("p", {
+  }, "Ultra-fast"), " PII detection inside your infrastructure"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontFamily: "var(--vw-font-body)",
       fontSize: 17,
       lineHeight: 1.55,
       color: "var(--vw-paper-ink-2)",
       maxWidth: 480,
-      margin: "0 0 36px"
+      margin: "0 0 24px"
     }
-  }, "Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic. It redacts, blocks, or alerts on personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services."), /*#__PURE__*/React.createElement("div", {
+  }, "Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic."), /*#__PURE__*/React.createElement("ul", {
+    style: {
+      listStyle: "none",
+      margin: "0 0 36px",
+      padding: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      maxWidth: 480
+    }
+  }, ["Predictable infrastructure costs", "Single-digit millisecond latency (P99)", "Scales to thousands of PII types", "Add custom PII types without retraining models"].map(point => /*#__PURE__*/React.createElement("li", {
+    key: point,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      fontFamily: "var(--vw-font-body)",
+      fontSize: 16,
+      lineHeight: 1.4,
+      color: "var(--vw-paper-ink)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: "0 0 auto",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "var(--vw-violet-400)"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 18
+  })), point))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,

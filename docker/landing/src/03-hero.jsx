@@ -21,7 +21,6 @@ function Hero() {
               Live demo available - early access
             </span>
           </div>
-          <p className="vw-eyebrow" style={{ margin: "0 0 22px" }}>Stop privacy debt at the edge.</p>
           <h1 className="r-hero-h1" style={{
             fontFamily: "var(--vw-font-display)",
             fontWeight: 600, fontSize: 60, lineHeight: 1.0,
@@ -31,15 +30,40 @@ function Hero() {
             textWrap: "balance",
             minHeight: 120,
           }}>
-            Stop sensitive data <span style={{ color: "var(--vw-violet-400)" }}>before it spreads</span>.
+            <span style={{ color: "var(--vw-violet-400)" }}>Ultra-fast</span> PII detection inside your infrastructure
           </h1>
           <p style={{
             fontFamily: "var(--vw-font-body)", fontSize: 17, lineHeight: 1.55,
             color: "var(--vw-paper-ink-2)", maxWidth: 480,
-            margin: "0 0 36px",
+            margin: "0 0 24px",
           }}>
-            Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic. It redacts, blocks, or alerts on personal data before it reaches LLM providers, agent tools, analytics, logs, traces, databases, storage, or third-party services.
+            Voidwall is a self-hosted HTTP proxy and API that detects PII across HTTP, API, and AI traffic.
           </p>
+          <ul style={{
+            listStyle: "none", margin: "0 0 36px", padding: 0,
+            display: "flex", flexDirection: "column", gap: 12, maxWidth: 480,
+          }}>
+            {[
+              "Predictable infrastructure costs",
+              "Single-digit millisecond latency (P99)",
+              "Scales to thousands of PII types",
+              "Add custom PII types without retraining models",
+            ].map((point) => (
+              <li key={point} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                fontFamily: "var(--vw-font-body)", fontSize: 16, lineHeight: 1.4,
+                color: "var(--vw-paper-ink)",
+              }}>
+                <span style={{
+                  flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--vw-violet-400)",
+                }}>
+                  <Icon name="check" size={18}/>
+                </span>
+                {point}
+              </li>
+            ))}
+          </ul>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <a href="/demo" target="_blank" rel="noopener noreferrer" className="vw-btn vw-btn--primary">
               Try the live demo <Icon name="external-link" size={14}/>
