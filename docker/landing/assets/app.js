@@ -936,25 +936,29 @@ function Hero() {
   }, /*#__PURE__*/React.createElement(DataChip, {
     label: label
   }))), [{
+    icon: "box",
+    label: "LLMs",
+    topPct: 160 / 520
+  }, {
+    icon: "wrench",
+    label: "Agents",
+    topPct: 204 / 520
+  }, {
     icon: "chart",
     label: "Web Analytics",
-    topPct: 170 / 520
+    topPct: 248 / 520
   }, {
     icon: "server",
     label: "CDPs",
-    topPct: 220 / 520
+    topPct: 292 / 520
+  }, {
+    icon: "audit",
+    label: "Logs",
+    topPct: 336 / 520
   }, {
     icon: "globe",
     label: "Other third parties",
-    topPct: 270 / 520
-  }, {
-    icon: "database",
-    label: "Databases",
-    topPct: 320 / 520
-  }, {
-    icon: "hard-drive",
-    label: "Storage",
-    topPct: 370 / 520
+    topPct: 380 / 520
   }].map(({
     icon,
     label,

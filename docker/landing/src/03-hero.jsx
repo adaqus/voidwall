@@ -86,11 +86,12 @@ function Hero() {
 
           {/* Env list - protected side (right of the wall). Y% matches outgoing lines in hero-wall.svg. */}
           {[
-            { icon: "chart",      label: "Web Analytics",        topPct: 170 / 520 },
-            { icon: "server",     label: "CDPs",                  topPct: 220 / 520 },
-            { icon: "globe",      label: "Other third parties",  topPct: 270 / 520 },
-            { icon: "database",   label: "Databases",             topPct: 320 / 520 },
-            { icon: "hard-drive", label: "Storage",               topPct: 370 / 520 },
+            { icon: "box",     label: "LLMs",                 topPct: 160 / 520 },
+            { icon: "wrench",  label: "Agents",               topPct: 204 / 520 },
+            { icon: "chart",   label: "Web Analytics",        topPct: 248 / 520 },
+            { icon: "server",  label: "CDPs",                 topPct: 292 / 520 },
+            { icon: "audit",   label: "Logs",                 topPct: 336 / 520 },
+            { icon: "globe",   label: "Other third parties",  topPct: 380 / 520 },
           ].map(({ icon, label, topPct }) => (
             <div key={label} style={{
               position: "absolute",
