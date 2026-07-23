@@ -36,6 +36,11 @@ docker run --rm \
 # ── 2) Pre-render via headless Chromium ─────────────────────────────────────
 echo "[2/3] pre-rendering with headless Chromium"
 
+# NOTE: the demo page (docker/demo/index.html) is NOT built here. It is a
+# standalone, hand-maintained page shipped via Dockerfile.fly / docker-compose.
+# Any site-wide <head>/analytics change made to src/index.template.html — e.g.
+# the Cloudflare beacon, meta tags — must be mirrored into it by hand.
+#
 # Route list: home, blog index, one page per post. The output path mirrors the
 # URL (/blog/<slug>/ → blog/<slug>/index.html) so both nginx (here) and
 # tower-http ServeDir (in production) resolve <route> to <route>/index.html.
