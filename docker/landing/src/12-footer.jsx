@@ -14,6 +14,7 @@ function Footer() {
           </a>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 16 }}>
             <a href="/privacy/" style={{ color: "var(--vw-void-ink-3)", textDecoration: "none" }}>Privacy Policy</a>
+            <a href="mailto:contact@voidwall.io" style={{ color: "var(--vw-void-ink-3)", textDecoration: "none" }}>Contact</a>
             <span>© 2026 Voidwall</span>
           </span>
         </div>

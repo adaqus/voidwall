@@ -2645,7 +2645,13 @@ function Footer() {
       color: "var(--vw-void-ink-3)",
       textDecoration: "none"
     }
-  }, "Privacy Policy"), /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall")))));
+  }, "Privacy Policy"), /*#__PURE__*/React.createElement("a", {
+    href: "mailto:contact@voidwall.io",
+    style: {
+      color: "var(--vw-void-ink-3)",
+      textDecoration: "none"
+    }
+  }, "Contact"), /*#__PURE__*/React.createElement("span", null, "\xA9 2026 Voidwall")))));
 }
 window.Footer = Footer;
 

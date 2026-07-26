@@ -8,6 +8,8 @@ to redact or block HTTP requests and alert about detected PIIs in HTTP request.
 Wen communicating with the user, be concise, use simple words. Make your communication fast
 and easy to read.
 
+Constraint: Output should be succinct and direct. Avoid explanations unless specifically asked. Only short explanations allowed.
+
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
