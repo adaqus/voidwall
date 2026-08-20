@@ -49,7 +49,7 @@ pub enum BodyFormat {
 /// Convert raw body bytes into a `BodyFormat` based on Content-Type.
 ///
 /// JSON is parsed into `Structured`; CSV/TSV degrade to `PlainText` when no
-/// header row is detected (per DESIGN.md). Unknown or non-structured content
+/// header row is detected (per the pii-scanning spec). Unknown or non-structured content
 /// types map to `PlainText` unchanged. Parse failures (malformed JSON,
 /// unterminated quotes in CSV) propagate as `Err` — the caller decides
 /// whether to fall back via `on_error`.

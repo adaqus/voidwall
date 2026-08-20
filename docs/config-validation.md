@@ -5,7 +5,7 @@ semantic-checks, and compiles the PII scanner for a given TOML config — all
 without binding any sockets or spawning scanner threads. Use it in CI/CD to
 catch bad configs before they reach production.
 
-See DESIGN.md § "Pre-flight Validation" for the full specification.
+See `openspec/specs/configuration/spec.md` for the full specification.
 
 ```
 pii-proxy --validate /etc/pii-proxy/config.toml

@@ -69,7 +69,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Project
 
 PII Proxy — a multi-mode HTTP proxy that inspects HTTP traffic for PII using the `pii` crate. Except proxy, it also offers REST API to check/redact data in terms if PII presence.
-Design: `DESIGN.md`. Tasks: `TASKS.md`. Load testing: `docs/load-testing.md`.
+Where things live:
+- Architecture and rationale: `ARCHITECTURE.md`
+- Built behaviour, one file per capability: `openspec/specs/`
+- Active work: `openspec/changes/`
+- Unbuilt work: `docs/backlog.md`
+- Load testing: `docs/load-testing.md`
+- History, Phases 1 to 20: `docs/history/tasks-phases-1-20.md`
 
 ## Workspace
 
@@ -163,19 +169,60 @@ metrics (detections, blocked, redacted) are always incremented unconditionally
 when PII is detected. Actions are configured separately for requests and
 responses in reverse proxy and forward proxy modes.
 
+## Spec-Driven Development (OpenSpec)
+
+The project tracks work with OpenSpec. `openspec/specs/` states what the system does
+today. `openspec/changes/` holds the work in flight.
+
+**A spec describes built behaviour only.** Never write a spec for something unbuilt.
+Unbuilt work goes to `docs/backlog.md` until a change starts it.
+
+### When to use OpenSpec
+
+Use it when one of these is true:
+- The change alters observable behaviour: an endpoint, a config field, an action, a
+  metric name, an error code, or a detector output.
+- The change touches more than one crate.
+- The change is a pivot phase, that is Phase 21 to Phase 30.
+- The change builds something `docs/backlog.md` lists, such as the forward proxy, TLS,
+  or the checksum toggle.
+- The change needs a decision recorded, because a later change depends on it.
+- You cannot review the change in one diff.
+
+Do not use it when:
+- The change fixes a bug and restores already-specified behaviour.
+- The change adds a country or a language through the `add-pii` skill. The skill is the
+  spec.
+- The change optimizes performance and the match set stays the same.
+- The change touches documentation, research notes, the landing page, or eval datasets.
+- The work takes about an hour and one diff shows all of it.
+
+The test: **would somebody disagree about what "done" means?** Yes — write a proposal
+first. No — write the code.
+
+### The workflow
+
+1. Run `/opsx:propose <description>`. It creates `openspec/changes/<name>/` with
+   `proposal.md`, `design.md`, `tasks.md`, and the spec deltas.
+2. Run `openspec validate <name> --strict` → verify: it exits zero.
+3. Run `/opsx:apply`. Mark each task done in the change's `tasks.md`, never elsewhere.
+4. Verify with `cargo test --workspace` and `cargo clippy --workspace --all-targets`.
+5. Review the diff against the change's spec deltas with the `code-review` skill.
+6. Run `openspec archive <name>`. It merges the deltas into `openspec/specs/`.
+
+Rules:
+- A tracked change lives in `openspec/changes/<name>/`. Do not add tasks anywhere else.
+- Do not edit `openspec/specs/` by hand. `openspec archive` writes it, and
+  `/opsx:sync` writes it early when a change lands in parts. The one exception was the
+  initial migration, which seeded the twelve capabilities from `DESIGN.md` and the code.
+  That is done. Every later change goes through a delta.
+- Do not tick a box in `docs/history/tasks-phases-1-20.md`. It is history.
+
 ## Implementation verification
 
-After implementing a task from TASKS.md, always verify the implementation with DESIGN.md file.
+Verify every implementation against the change's spec deltas, then against
+`ARCHITECTURE.md`.
 
 ## Commiting
 
 Do NOT commit finished task.
-
-## Task Tracking
-
-After completing each task from `TASKS.md`, mark its checkbox as done (`- [x]`).
-
-Every task in `TASKS.md` must carry an **AC:** (acceptance criteria) block — a short
-list of checks naming what is crucial when reviewing that task's implementation. Keep
-each sentence short. Add the block when writing or refining a task. Before marking the
-task done, review the implementation against its ACs using the `code-review` skill.

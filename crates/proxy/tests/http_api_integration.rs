@@ -667,7 +667,7 @@ async fn spec_ga4_json_scan_detects_pii_in_user_data_email() {
     // GA4 /mp/collect-shape payload: top-level object with `user_data` —
     // the explicit PII envelope — under the allowlist. Spec walks the JSON
     // and feeds string leaves into the scanner. `user_id` is an
-    // operator-acknowledged channel and skipped (see DESIGN.md § ga4).
+    // operator-acknowledged channel and skipped (see docs/specializations.md § ga4).
     let body =
         r#"{"client_id":"abc.123","user_data":{"email_address":"user@example.com"},"events":[]}"#;
     let resp = client
@@ -837,7 +837,7 @@ async fn no_spec_omits_x_pii_specialization_header() {
 async fn spec_unsupported_outer_content_type_returns_415() {
     // The outer Content-Type allowlist is enforced *before* the spec runs —
     // operators control which content types reach the spec at all
-    // (DESIGN.md § HTTP API).
+    // (openspec/specs/http-api/spec.md).
     let api = TestApi::start().await;
     let client = reqwest::Client::new();
     let resp = client

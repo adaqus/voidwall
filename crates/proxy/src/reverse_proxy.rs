@@ -55,8 +55,8 @@ struct ResolvedRoute {
     upstream: String,
     scan: ScanConfig,
     /// Optional specialization that owns query+body decoding for this route.
-    /// Wired up by config in TASKS.md § 16.5; always `None` at this stage so
-    /// existing behaviour is unchanged.
+    /// Wired up by config in `docs/history/tasks-phases-1-20.md` § 16.5; always
+    /// `None` at this stage so existing behaviour is unchanged.
     specialization: Option<&'static dyn Specialization>,
 }
 

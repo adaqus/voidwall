@@ -5,7 +5,7 @@ built-in detectors. Matches surface with the operator's chosen `label` in
 metrics (`pii_kind` counter), block responses (`kinds` list), the
 `X-PII-Detected` header, and `[LABEL]`-style redaction output.
 
-See DESIGN.md § "User-Defined PII Definitions" for the full specification.
+See `openspec/specs/custom-pii/spec.md` for the full specification.
 
 ## Example
 

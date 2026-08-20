@@ -1,7 +1,7 @@
 //! Specialization framework — per-endpoint adapters that decode a known
 //! analytics wire format (GA4, Matomo, ...), scan a curated subset of fields,
-//! and re-encode the result. See DESIGN.md § "Specializations" for the design
-//! and TASKS.md § Phase 16 for the rollout plan.
+//! and re-encode the result. See `openspec/specs/specializations/spec.md` for the
+//! and `docs/history/tasks-phases-1-20.md` § Phase 16 for the rollout plan.
 //!
 //! Phase 16.1 introduces the trait, registry, rate-limited warn helper, and
 //! placeholder GA4/Matomo stubs. The real decoders land in 16.3 and 16.4.
@@ -141,7 +141,7 @@ impl std::error::Error for SpecializationError {}
 pub type ProcessFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ProcessedRequest, SpecializationError>> + Send + 'a>>;
 
-/// Adapter for a specific third-party endpoint's wire format. See DESIGN.md
+/// Adapter for a specific third-party endpoint's wire format. See the spec
 /// § "Specializations" for the contract.
 ///
 /// Specializations own the full decode → scan → encode loop for the query

@@ -1,6 +1,6 @@
 //! Dictionary-based PII detection via FST gazetteer membership.
 //!
-//! See DESIGN.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
+//! See `openspec/specs/dictionary-detection/spec.md`, `ARCHITECTURE.md` § 4.5, and
 //! `docs/ner-vs-regex-latency-research.md`. A name form is looked up in an FST
 //! whose value carries the flag bitmask below. The embedded gazetteer covers
 //! English (US) given names + surnames, multilingual given names (Wikidata CC0),
@@ -256,7 +256,7 @@ impl Analysis {
 }
 
 /// Dictionary/FST membership detector for dictionary-shaped PII (`PersonName`:
-/// EN given+surnames, IT/ES surnames). See the module docs and DESIGN.md.
+/// EN given+surnames, IT/ES surnames). See the module docs and the spec.
 pub struct DictionaryDetector {
     gaz: Gazetteer,
 }

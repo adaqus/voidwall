@@ -1,3 +1,19 @@
+> **History. This file is not active work.**
+>
+> These are the implementation tasks for Phases 1 to 20, kept for the record. The
+> project now tracks work with OpenSpec:
+>
+> - Built behaviour — `openspec/specs/`
+> - Active work — `openspec/changes/`
+> - Unbuilt work — `docs/backlog.md`
+> - Architecture — `ARCHITECTURE.md`
+>
+> A `DESIGN.md` reference in this file was rewritten to `ARCHITECTURE.md` when the
+> file was renamed. The named sections moved into `openspec/specs/` at the same time,
+> so a section anchor here points at the pre-migration document, not at the current one.
+>
+> Do not add a task here. Do not tick a box here.
+
 # PII Proxy — Implementation Tasks
 
 Decisions applied:
@@ -35,7 +51,7 @@ Decisions applied:
 - [x] Unit tests for error conversions
 
 ### 1.3 Configuration
-- [x] Define config structs in `config.rs` matching the TOML structure from DESIGN.md:
+- [x] Define config structs in `config.rs` matching the TOML structure from ARCHITECTURE.md:
   `AppConfig`, `PiiConfig`, `ScanConfig`, `ReverseProxyConfig`, `Route`,
   `ForwardProxyConfig`, `RestApiConfig`, `AdminConfig`, `TlsConfig`
 - [x] Derive `serde::Deserialize` for all config structs
@@ -57,7 +73,7 @@ Decisions applied:
   - Rename `pii_kinds` → `detect`, `exclude_pii_kinds` → `ignore` in `PiiConfig`
 - [x] Implement `scanner_threads` default logic: auto-detect via
   `std::thread::available_parallelism()`, cap at 4 when cores <= 8, half otherwise
-- [x] Implement all validation rules from DESIGN.md:
+- [x] Implement all validation rules from ARCHITECTURE.md:
   - At least one mode enabled
   - No port conflicts across enabled listeners
   - `block` and `header` mutually exclusive in same direction's `actions` list
@@ -349,7 +365,7 @@ Setup and infrastructure per `docs/load-testing.md`.
     structured path now matches flat-path detection of URL-encoded /
     HTML-encoded / zero-width-obfuscated separators
   - `default_content_types()` (proxy `config.rs`): add `text/csv` and
-    `text/tab-separated-values` so the default config matches DESIGN.md
+    `text/tab-separated-values` so the default config matches ARCHITECTURE.md
     and exercises the new structured paths out of the box
 
 ---
@@ -493,7 +509,7 @@ Extend load testing from Phase 6 to cover all modes.
 
 ## Phase 13 — User-Defined PII Definitions
 
-See DESIGN.md § "User-Defined PII Definitions".
+See ARCHITECTURE.md § "User-Defined PII Definitions".
 
 ### 13.1 Configuration
 - [x] Add `pub custom: Vec<pii::UserPiiDefinition>` to `PiiConfig` with
@@ -561,7 +577,7 @@ See DESIGN.md § "User-Defined PII Definitions".
 
 ## Phase 14 — Config Validation CLI
 
-See DESIGN.md § "Pre-flight Validation". Lets operators gate config changes in
+See ARCHITECTURE.md § "Pre-flight Validation". Lets operators gate config changes in
 CI/CD before they hit production; especially important now that user-supplied
 regex patterns in `[[pii.custom]]` can fail compilation.
 
@@ -610,7 +626,7 @@ regex patterns in `[[pii.custom]]` can fail compilation.
   prints a clap usage error
 
 ### 14.4 Documentation
-- [x] Ensure DESIGN.md § "Pre-flight Validation" names the flag exactly
+- [x] Ensure ARCHITECTURE.md § "Pre-flight Validation" names the flag exactly
 - [x] Add a `docs/` entry with sample CI usage (pre-commit-hook snippet)
   *(GitHub Actions example skipped per operator request)*
 - [ ] Note the flag in README / quick-start once one exists
@@ -675,7 +691,7 @@ limitation. Common in real JSON schemas (e.g. GA4 `phone_numbers`,
 
 ## Phase 16 — Specializations
 
-See DESIGN.md § "Specializations". Specializations are per-endpoint adapters
+See ARCHITECTURE.md § "Specializations". Specializations are per-endpoint adapters
 that parse a known wire format (GA4, Matomo), scan a declared subset of
 fields, and re-encode the result correctly. They fix two problems flat
 scanning cannot: encoding round-trip correctness (e.g. `[EMAIL]` becoming
@@ -685,7 +701,7 @@ Matomo's `url=` parameter) and false positives on opaque IDs.
 ### 16.1 Framework
 - [x] New module `crates/proxy/src/specialization/mod.rs`:
   - `Specialization` trait with `name()` and async `process()` per
-    DESIGN.md. `process()` takes both the **query string** and the
+    ARCHITECTURE.md. `process()` takes both the **query string** and the
     **body** (each `Option`), plus body content-type and a `ScanHandle`
   - `ScanHandle` exposing a single async method that scans a field value
     and returns matched kinds + redacted replacement (when redaction is
@@ -743,7 +759,7 @@ Matomo's `url=` parameter) and false positives on opaque IDs.
 **Source of truth for the allowlist:** every field that
 `crates/proxy/tests/ga4_integration.rs` demonstrates as a PII vector
 must be allowlisted, so enabling the specialization does not regress
-detection coverage. Use the table in DESIGN.md § "Specializations →
+detection coverage. Use the table in ARCHITECTURE.md § "Specializations →
 ga4" as the canonical list. Cross-reference each test case below to
 confirm coverage before checking the box.
 
@@ -752,7 +768,7 @@ confirm coverage before checking the box.
 - [x] **Query string and form-body transport** (`/g/collect`):
   - Parse as `application/x-www-form-urlencoded`.
   - Recursively decode `dl`, `dr` as URLs and scan each inner query
-    parameter (per DESIGN.md). Path component of the inner URL also
+    parameter (per ARCHITECTURE.md). Path component of the inner URL also
     scanned for embedded PII.
   - Scan as flat string: `dt`, `uid`, `en`, every parameter with a
     prefix of `ep.` or `up.`, `cu`, `cm`, `cs`, `_uip`, `ip_override`.
@@ -826,7 +842,7 @@ confirm coverage before checking the box.
 
 **Source of truth for the allowlist:** every field that
 `crates/proxy/tests/matomo_integration.rs` demonstrates as a PII vector
-must be allowlisted. Use the table in DESIGN.md § "Specializations →
+must be allowlisted. Use the table in ARCHITECTURE.md § "Specializations →
 matomo" as the canonical list.
 
 - [x] Implement `MatomoSpecialization`
@@ -930,7 +946,7 @@ matomo" as the canonical list.
   `POST /v1/redact`. Unknown name → `400` with a structured error body
   naming the unknown value.
 - [x] When set, specialization owns parsing and content-type routing is
-  bypassed (DESIGN.md § HTTP API). In API mode the specialization
+  bypassed (ARCHITECTURE.md § HTTP API). In API mode the specialization
   receives `query=None` (the API's own `?specialization=` is consumed
   by the handler, not handed to the spec); the payload comes entirely
   in the request body. Callers that want to test a `/g/collect`-style
@@ -1016,7 +1032,7 @@ matomo" as the canonical list.
   use them, table of built-in specs with their declared field
   allowlists, how to select them per mode, and the failure-fallback
   semantics.
-- [ ] Cross-link from DESIGN.md and from the HTTP API reference.
+- [ ] Cross-link from ARCHITECTURE.md and from the HTTP API reference.
 - [ ] Update `docs/demo1.md` (or the equivalent demo walkthrough) to
   mention the specialization selector and the auto-select behaviour.
 
@@ -1084,7 +1100,7 @@ numbers are approximate and will drift.
 
 ## Phase 18 — AI4Privacy Effectiveness Eval
 
-See DESIGN.md § "AI4Privacy Effectiveness Evaluation". A benchmarking harness
+See ARCHITECTURE.md § "AI4Privacy Effectiveness Evaluation". A benchmarking harness
 that scores Voidwall's detection against the `ai4privacy/pii-masking-300k`
 dataset and reports span-level precision/recall/F1 per entity type + overall,
 comparable to other PII solutions' published numbers. It drives `POST /v1/redact`
@@ -1172,7 +1188,7 @@ the original. Reporting tool, not a `cargo test` target.
 
 ## Phase 19 — Disable Checksum Validation (eval-only)
 
-See DESIGN.md § "AI4Privacy Effectiveness Evaluation → Disabling checksum
+See ARCHITECTURE.md § "AI4Privacy Effectiveness Evaluation → Disabling checksum
 validation (eval-only)". A single global `pii.validate` boolean (default `true`)
 that bypasses every per-detector checksum/format validator scanner-wide. Its
 only purpose is measuring **structural recall** against AI4Privacy's fabricated
@@ -1227,7 +1243,7 @@ flag defaults on and is never set in any shipped/default config.
 
 ## Phase 20 — Dictionary-Based Name Detection (`DictionaryDetector`)
 
-See DESIGN.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
+See ARCHITECTURE.md § "Dictionary-Based Detection (`DictionaryDetector`)" and
 `docs/ner-vs-regex-latency-research.md`. A new `pii`-crate detector that catches
 dictionary-shaped PII via FST membership lookup over a gazetteer. **Scope: English
 only, `PersonName` (given + surname), standalone candidate detector** (no NER
@@ -1427,7 +1443,7 @@ Follows the "Adding a New Detector" checklist in `crates/pii/CLAUDE.md`.
   `pii_proxy_detections_total{pii_kind="PERSON_NAME"}`, `X-PII-Detected`, and
   `[PERSON_NAME]` `type_label` redaction.
   (No production changes needed — `PersonName` already flows through the existing
-  reverse-proxy pipeline; matches DESIGN.md §"Proxy-facing surface".)
+  reverse-proxy pipeline; matches ARCHITECTURE.md §"Proxy-facing surface".)
 - [x] Integration test (`crates/proxy/tests/`): a request/body containing a name
   → `PersonName` detected, redacted as `[PERSON_NAME]`, metric labelled
   `pii_kind="PERSON_NAME"`; with `PersonName` disabled in config, no detection.

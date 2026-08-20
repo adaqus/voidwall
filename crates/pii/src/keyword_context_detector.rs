@@ -3874,7 +3874,7 @@ mod tests {
     #[test_case("user.phone_number" ; "leaf keyword nested (iter 1)")]
     #[test_case("phone_number.primary" ; "keyword at head (iter 2)")]
     #[test_case("user.phone_number.value" ; "keyword in middle (iter 2)")]
-    // Plural-form variants (TASKS.md 15.1: phone_numbers[0], etc.)
+    // Plural-form variants (history § 15.1: phone_numbers[0], etc.)
     #[test_case("phone_numbers" ; "leaf plural keyword (iter 1)")]
     #[test_case("user.phone_numbers" ; "plural keyword nested (iter 1)")]
     #[test_case("phone_numbers[0]" ; "plural keyword in array (iter 1, indices stripped)")]

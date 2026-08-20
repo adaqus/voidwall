@@ -4,7 +4,7 @@
 //! the declared allowlist of integrator-controlled fields, and re-encodes
 //! the result so redaction labels live at the right encoding layer.
 //!
-//! Source of truth for the allowlists is DESIGN.md § "Specializations →
+//! Field reference for the allowlists is docs/specializations.md § "
 //! ga4". The mapping below mirrors that table; field families are grouped
 //! into `field_treatment()` so the dispatch is in one place.
 
@@ -56,7 +56,7 @@ fn form_field_treatment(name: &str) -> FormFieldTreatment {
     }
 
     match name {
-        // Flat-scan allowlist per DESIGN.md.
+        // Flat-scan allowlist per docs/specializations.md.
         "dt" | "en" | "cu" | "cm" | "cs" => FormFieldTreatment::Flat,
         // Operator-acknowledged identifier / IP-override channels:
         // `uid` is the integrator's chosen user identifier (frequently an
@@ -519,7 +519,7 @@ async fn process_json_body(
     Ok(Bytes::from(out))
 }
 
-/// Walk the GA4 MP JSON tree according to DESIGN.md's allowlist.
+/// Walk the GA4 MP JSON tree according to the docs/specializations.md allowlist.
 async fn scan_json_root(
     root: &mut Value,
     scan: &ScanHandle<'_>,
@@ -950,7 +950,7 @@ mod tests {
     // label sits inside the inner URL, then the inner URL is itself
     // percent-encoded as the outer form's value — so `[EMAIL]` shows up as
     // `%255BEMAIL%255D` (doubly-encoded) in the outer transport. This
-    // matches DESIGN.md § "Specializations" — "doubly-encoded for the
+    // matches openspec/specs/specializations/spec.md — "doubly-encoded for the
     // inner URL layer of `dl`/`dr`".
     #[test_case(
         "dl",
@@ -1302,7 +1302,7 @@ mod tests {
     // we haven't allowlisted yet, it must round-trip verbatim through the
     // re-encoded output. The cost is that PII in the new field goes
     // undetected until the allowlist is updated — explicit deal per
-    // DESIGN.md ("Adding a field requires a code change").
+    // docs/specializations.md ("Adding a field requires a code change").
     #[tokio::test]
     async fn unknown_form_fields_round_trip_verbatim() {
         let h = redact_handle();

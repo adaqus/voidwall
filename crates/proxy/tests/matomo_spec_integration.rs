@@ -884,7 +884,7 @@ async fn auto_generated_visitor_id_does_not_trigger_pii() {
 /// 16.7 request-side wiring: a route configured with `specialization = "matomo"`
 /// must run a doubly-encoded `url=` value through the Matomo spec, detect the
 /// PII inside the inner URL's query, and re-encode the redaction label at both
-/// layers (`%255BEMAIL%255D`). Mirrors the bullet in TASKS.md.
+/// layers (`%255BEMAIL%255D`). Mirrors the bullet in the retired task list.
 #[tokio::test]
 async fn matomo_route_redacts_doubly_encoded_url_via_specialization() {
     let upstream = start_matomo_upstream().await;

@@ -70,7 +70,7 @@ pub fn router(state: ApiState) -> Router {
     // origin in docker/docker-compose.yml) can fetch /openapi.json and
     // exercise /v1/scan and /v1/redact via "Try it out". The HTTP API has no
     // built-in auth — it is expected to sit behind a gateway or NetworkPolicy
-    // (DESIGN.md § HTTP API · Authentication), so allowing any origin here
+    // (openspec/specs/http-api/spec.md, no authentication), so allowing any origin here
     // does not weaken the deployed posture.
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -178,7 +178,7 @@ struct InfoResponse {
 /// Optional `?specialization=<name>` query parameter on `/v1/scan` and
 /// `/v1/redact`. Selects a built-in wire-format adapter (e.g. `ga4`,
 /// `matomo`) that owns parsing and re-encoding of the request body — see
-/// DESIGN.md § "Specializations".
+/// `openspec/specs/specializations/spec.md`.
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct SpecQuery {
@@ -505,7 +505,7 @@ async fn process(
 
     // Outer Content-Type allowlist applies even when a specialization is
     // requested — operators control this surface independently of which
-    // adapter the caller selected (DESIGN.md § HTTP API).
+    // adapter the caller selected (openspec/specs/http-api/spec.md).
     if !is_content_type_allowed(&content_type, &state.scan.content_types) {
         let resp = (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -582,7 +582,7 @@ async fn process(
     // Parse the body according to its declared content type. Malformed
     // structured bodies are always rejected with 400 — the caller declared the
     // type, so silently falling back to flat-text would mask their bug
-    // (DESIGN.md § HTTP API). This rule overrides on_error.
+    // (openspec/specs/http-api/spec.md). This rule overrides on_error.
     let body_format = match classify_body(body.clone(), &content_type) {
         Ok(bf) => bf,
         Err(_) => {

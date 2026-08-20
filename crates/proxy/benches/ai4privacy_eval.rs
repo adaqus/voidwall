@@ -1,4 +1,4 @@
-//! AI4Privacy effectiveness eval (Phase 18). See `DESIGN.md` §"AI4Privacy
+//! AI4Privacy effectiveness eval (Phase 18). See `openspec/specs/evaluation/spec.md` ("AI4Privacy
 //! Effectiveness Evaluation" and `docs/ai4privacy-eval.md`.
 //!
 //! Scores Voidwall's PII detection against the public
@@ -378,7 +378,7 @@ enum Bucket {
 // train files (`GIVENNAME1`, `SOCIALNUMBER`, `TEL`, `POSTCODE`, `IDCARD`, …),
 // NOT the older verbose `pii-masking-200k` vocabulary (`FIRSTNAME`, `SSN`,
 // `PHONENUMBER`, …). The two share only `EMAIL`/`IP`/`STREET`. Keep this in
-// sync with DESIGN.md §"Category → PiiKind mapping".
+// sync with the category mapping recorded in docs/history/tasks-phases-1-20.md § 18.
 
 /// Known-gap dataset labels — Voidwall has no detector for these, so they are
 /// detection-reported but never typed-scored.

@@ -7,10 +7,10 @@
 //! form-encoding pass; values nested inside a URL like `url=` come out
 //! doubly-encoded as `%255B…%255D`).
 //!
-//! Source of truth for the allowlists is DESIGN.md § "Specializations →
+//! Field reference for the allowlists is docs/specializations.md § "
 //! matomo" and the integration scenarios in
 //! `crates/proxy/tests/matomo_integration.rs`. The mapping below mirrors
-//! the table from DESIGN.md; field families are grouped into
+//! the table from docs/specializations.md; field families are grouped into
 //! `field_treatment()` so the dispatch is in one place.
 
 use bytes::Bytes;
@@ -84,7 +84,7 @@ fn form_field_treatment(name: &str) -> FormFieldTreatment {
         // PII in fields not designed to carry identifiers.
         "uid" | "cip" => FormFieldTreatment::Skip,
         // Opaque identifiers, capability flags, and platform diagnostics —
-        // never scanned. Matches DESIGN.md's "Skipped" list.
+        // never scanned. Matches the docs/specializations.md "Skipped" list.
         "idsite" | "rec" | "apiv" | "_id" | "rand" | "revenue" | "idgoal" | "res" | "h" | "m"
         | "s" | "fla" | "qt" | "realp" | "wma" | "dir" | "java" | "cookie" | "pv_id" | "gt_ms" => {
             FormFieldTreatment::Skip
@@ -1179,7 +1179,7 @@ mod tests {
     // we haven't allowlisted yet, it must round-trip verbatim through the
     // re-encoded output instead of being dropped or causing the spec to
     // fail. The cost is that PII in the new field goes undetected until
-    // the allowlist is updated — explicit deal per DESIGN.md.
+    // the allowlist is updated — explicit deal per docs/specializations.md.
     #[tokio::test]
     async fn unknown_form_fields_round_trip_verbatim() {
         let h = redact_handle();
