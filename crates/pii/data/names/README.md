@@ -26,8 +26,8 @@ only `names.fst` is committed. Download/regenerate the sources below, then rebui
 The English/Spanish/word sources are license-clean (public domain / open / CC0 / MIT).
 The **Italian** list is a scraped phone-book-derived gazetteer kept under an
 explicit project licensing exception: its long tail recovers materially more
-LASTNAME recall than the license-clean Wikidata Italian set (+4.7pp vs +1.0pp,
-see `docs/person-name-eval.md`). Do **not** use scraped/leaked *person* dumps
+LASTNAME recall than the license-clean Wikidata Italian set (+4.7pp vs +1.0pp).
+Do **not** use scraped/leaked *person* dumps
 (e.g. `philipperemy/name-dataset`, derived from a Facebook leak) for any other
 category.
 

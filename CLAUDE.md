@@ -83,7 +83,7 @@ Cargo workspace with two members:
 - `crates/proxy/` — this binary (package `pii-proxy`). Integration tests, k6 load tests, and bench scripts live under `crates/proxy/tests/` and `crates/proxy/benches/`.
 - `crates/pii/` — the detection library. Library-internal rules (Vectorscan, detector chain, keyword-context patterns, overlap resolution, adding a new language/country) live in `crates/pii/CLAUDE.md`. Read it before editing anything under `crates/pii/`.
 
-The pii library docs are under `docs/pii/`. Proxy docs are under `docs/`.
+Proxy docs are under `docs/`.
 
 ## Platform
 

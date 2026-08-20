@@ -9,7 +9,6 @@ state behaviour.
 | Work in flight | `openspec/changes/` |
 | Work not started | `docs/backlog.md` |
 | How Phases 1 to 20 were built | `docs/history/tasks-phases-1-20.md` |
-| Where the product is going | the internal roadmap |
 
 ---
 
@@ -260,7 +259,7 @@ Today:
 Read `crates/pii/CLAUDE.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.
 
-Planned, from the internal roadmap § 5.4:
+Planned:
 
 | Crate | Holds |
 |---|---|

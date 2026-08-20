@@ -122,7 +122,7 @@ Cleanup:
 
 - `docs/specializations.md` — written during the OpenSpec migration. It carries the
   GA4 and Matomo field reference. Still to do: cross-link it from the HTTP API
-  reference, and update `docs/demo1.md`. History § 16.11.
+  reference, and update the demo walkthrough. History § 16.11.
 - `docs/ai4privacy-eval.md` — dataset acquisition, scoring, and the caveats.
   History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
