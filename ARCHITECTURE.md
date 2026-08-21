@@ -256,7 +256,7 @@ Today:
 | `crates/pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
 | `crates/proxy` | HTTP, config, actions, specializations, metrics, the binary |
 
-Read `crates/pii/CLAUDE.md` before editing the library. Vectorscan, the detector
+Read `crates/pii/AGENTS.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.
 
 Planned:

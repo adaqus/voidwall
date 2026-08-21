@@ -1,6 +1,6 @@
 //! Overlap resolution for raw PII matches.
 //!
-//! See `CLAUDE.md` § "Overlap resolution" for the policy. The rules, in order:
+//! See `AGENTS.md` section "Overlap Resolution" for the policy. The rules, in order:
 //!
 //! 1. Same span, same kind → dedupe.
 //! 2. Span A strictly contains span B → drop B.

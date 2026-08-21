@@ -1,0 +1,50 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "formatter": true,
+  "lsp": true,
+  "watcher": {
+    "ignore": [
+      "target/**",
+      ".cache/**",
+      "benches/results/**",
+      "crates/proxy/benches/results/**"
+    ]
+  },
+  "permission": {
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+    "bash": {
+      "*": "ask",
+      "cargo *": "allow",
+      "opencode debug *": "allow",
+      "openspec *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "cat *.env*": "deny",
+      "source *.env*": "deny",
+      ". *.env*": "deny",
+      "printenv*": "deny",
+      "git commit*": "deny",
+      "git * commit*": "deny",
+      "*/git commit*": "deny",
+      "*/git * commit*": "deny",
+      "git push*": "deny",
+      "git * push*": "deny",
+      "*/git push*": "deny",
+      "*/git * push*": "deny",
+      "git reset --hard*": "deny",
+      "git * reset --hard*": "deny",
+      "git checkout --*": "deny",
+      "git restore*": "deny",
+      "git clean*": "deny",
+      "git * clean*": "deny"
+    }
+  }
+}

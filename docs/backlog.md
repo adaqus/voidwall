@@ -5,7 +5,8 @@ OpenSpec. That file is the former `TASKS.md`.
 
 Rules:
 
-- A feature item here needs an OpenSpec change before the code. Run `/opsx:propose`.
+- A feature item here needs an OpenSpec change before the code. Use the
+  `openspec-propose` workflow.
 - A test, `pii`-crate, or documentation item does not. Take it directly.
 - Nothing here has a spec under `openspec/specs/`. The specs describe built behaviour
   only.
@@ -98,7 +99,7 @@ Load the page in a browser. Click each example. Check the result.
 
 ## 3. `pii` crate follow-ups — history § 17.1, § 17.2
 
-Read `crates/pii/CLAUDE.md` first. These came out of the Italian support review.
+Read `crates/pii/AGENTS.md` first. These came out of the Italian support review.
 
 Correctness:
 
@@ -127,8 +128,6 @@ Cleanup:
   History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
   normalization, and frequency handling. History § 20.12.
-- Note `DictionaryDetector` as a third detector in `crates/pii/CLAUDE.md`.
-  History § 20.12.
 - Note the `--validate` flag in a README or quick-start. There is no README yet.
   History § 14.4.
 

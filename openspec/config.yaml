@@ -9,7 +9,7 @@ context: |
   Workspace, two crates:
   - `crates/proxy/` — the binary, package `pii-proxy`. Integration tests in
     `crates/proxy/tests/`. Load tests and benches in `crates/proxy/benches/`.
-  - `crates/pii/` — the detection library. Read `crates/pii/CLAUDE.md` before you
+  - `crates/pii/` — the detection library. Read `crates/pii/AGENTS.md` before you
     edit anything under it.
 
   Four modes share one `ScannerPool`: reverse proxy :8082, forward proxy :8084,

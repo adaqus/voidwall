@@ -7,6 +7,11 @@ target/
 .idea/
 .vscode/
 .claude/
+.agents/
+.opencode/
+opencode.json
+opencode.jsonc
+skills-lock.json
 docs/
 *.md
 benches/results/
