@@ -183,7 +183,7 @@ Use it when one of these is true:
 - The change alters observable behaviour: an endpoint, a config field, an action, a
   metric name, an error code, or a detector output.
 - The change touches more than one crate.
-- The change is a pivot phase, that is Phase 21 to Phase 30.
+- The change is a pivot phase, that is Phase 21 to Phase 31.
 - The change builds something `docs/backlog.md` lists, such as the forward proxy, TLS,
   or the checksum toggle.
 - The change needs a decision recorded, because a later change depends on it.
