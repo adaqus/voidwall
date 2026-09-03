@@ -84,7 +84,7 @@ a NetworkPolicy.
 ### Modules
 
 `config`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`, `admin`,
-`metrics`, `rate_limit`, `specialization`, `structured`, `tls`, `validate`, `error`.
+`metrics`, `specialization`, `structured`, `tls`, `validate`, `error`.
 
 `forward_proxy` and `tls` are empty files. See § 7.
 

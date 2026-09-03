@@ -5,8 +5,6 @@ pub mod error;
 pub mod forward_proxy;
 pub mod http_api;
 pub mod metrics;
-#[cfg(feature = "fly-rate-limit")]
-pub mod rate_limit;
 pub mod reverse_proxy;
 pub mod scanner;
 pub mod specialization;

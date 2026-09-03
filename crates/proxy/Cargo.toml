@@ -62,25 +62,8 @@ utoipa = "5"
 # used unconditionally by the integration tests.
 reqwest = { version = "0.12", features = ["json"], optional = true }
 
-# Rate limiting — only compiled when deploying to Fly.io (see docker/Dockerfile.fly).
-# The demo deployment is unauthenticated, so we cap clients at 3 req/s/IP to keep
-# a single noisy visitor from soaking up the small Fly machine's CPU budget.
-tower_governor = { version = "0.7", optional = true }
-# `governor` is pulled in transitively by `tower_governor`, but we name
-# `NoOpMiddleware` directly in our layer's return type so we depend on it
-# explicitly to keep the path stable.
-governor = { version = "0.8", optional = true }
-
 [features]
 default = []
-# Enables a per-IP rate-limit middleware on the HTTP API. Used by the Fly.io
-# build (the public demo) — not for self-hosted deployments, which are expected
-# to sit behind their own gateway.
-fly-rate-limit = ["dep:tower_governor", "dep:governor"]
-# Serves the Voidwall landing page at / from a fixed image directory
-# (/srv/landing). Used by the Fly.io build — not for self-hosted or local
-# deployments, which have no landing page to serve.
-fly-landing = ["tower-http/fs"]
 # Builds the AI4Privacy effectiveness-eval binary. Off by default — it is a
 # benchmarking tool, not part of the proxy. Run via `docker/ctl eval`.
 eval = ["dep:reqwest"]

@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
-#[cfg(feature = "fly-landing")]
-use tower_http::services::ServeDir;
 use tracing::warn;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
@@ -83,23 +81,6 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/info", get(info_handler))
         .route("/openapi.json", get(openapi_handler))
         .layer(DefaultBodyLimit::max(max_body));
-
-    // Per-IP rate limit for the public Fly.io demo. See `rate_limit` module
-    // for the threat model — the limit is intentionally absent from self-hosted
-    // builds, which run behind their own gateway. Applied inside CORS so that
-    // OPTIONS preflights short-circuit before the limiter and don't burn
-    // tokens against the user's real POST throughput.
-    #[cfg(feature = "fly-rate-limit")]
-    let router = router.layer(crate::rate_limit::layer());
-
-    // Serve the Voidwall landing page (Fly.io build only) for any request not
-    // matching the API routes above. ServeDir serves `index.html` at `/` and
-    // resolves `/assets/*` against the same directory. The path is fixed by the
-    // Fly image layout (docker/Dockerfile.fly copies the page to /srv/landing).
-    // Added after the rate limiter so static assets aren't counted against the
-    // per-IP API budget.
-    #[cfg(feature = "fly-landing")]
-    let router = router.fallback_service(ServeDir::new("/srv/landing"));
 
     router.layer(cors).with_state(state)
 }

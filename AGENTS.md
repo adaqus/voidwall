@@ -157,7 +157,7 @@ Do not use OpenSpec when any of these apply:
 - A bug fix restores behavior already specified.
 - A country or language is added through the `add-pii` skill. That skill is the spec.
 - A performance change preserves the match set.
-- Work affects only documentation, research, the landing page, or evaluation datasets.
+- Work affects only documentation, research, or evaluation datasets.
 - The work takes about an hour and one diff shows all of it.
 
 The test is: would somebody disagree about what done means? If yes, write a proposal.

@@ -4,6 +4,7 @@ use std::sync::{Arc, LazyLock};
 use pii_proxy::config::{AppConfig, HttpApiConfig, OnError, PiiConfig, RedactStrategy, ScanConfig};
 use pii_proxy::http_api;
 use pii_proxy::scanner::ScannerPool;
+use test_case::test_case;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
@@ -370,6 +371,32 @@ async fn redact_no_pii_omits_x_pii_detected() {
 // ---------------------------------------------------------------------------
 // Error / fallback paths
 // ---------------------------------------------------------------------------
+
+/// The listener serves exactly the four documented routes and nothing else.
+/// It briefly did serve more: a Fly-only build feature mounted a static-file
+/// catch-all to host the marketing page off the same listener, which
+/// contradicted the requirement unspecced. The page now lives in its own repo
+/// behind nginx, so an unrouted path must 404 again.
+#[test_case("/" ; "root")]
+#[test_case("/index.html" ; "landing index")]
+#[test_case("/assets/app.js" ; "landing asset")]
+#[test_case("/healthz" ; "health probe")]
+#[test_case("/readyz" ; "readiness probe")]
+#[test_case("/metrics" ; "admin metrics")]
+#[test_case("/config" ; "config endpoint")]
+#[tokio::test]
+async fn unrouted_path_returns_404(path: &str) {
+    let api = TestApi::start().await;
+    let client = reqwest::Client::new();
+    let resp = client.get(api.url(path)).send().await.unwrap();
+
+    assert_eq!(
+        resp.status(),
+        404,
+        "the API listener must not serve {path} — probes and the admin surface \
+         live on the admin listener, or nowhere"
+    );
+}
 
 #[tokio::test]
 async fn unsupported_content_type_returns_415() {
