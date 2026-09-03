@@ -111,7 +111,7 @@ no misses left to triage — skip Steps 4–6 and go straight to **Step 7 (final
 Do this **once, before triaging**, and it decides the whole audit.
 
 1. List the supported countries for the row's `language`. Read the `Country` and
-   `PiiKind` enums in `crates/pii/src/lib.rs`. For English the supported countries
+   `PiiKind` enums in `crates/voidwall-pii/src/lib.rs`. For English the supported countries
    are `Us, Gb, Au, Nz, Ca, Ie, Za` (+ `International`); other languages map to
    their own subset.
 2. Map the dataset `<CATEGORY>` to the `PiiKind` variant(s) that represent it for
@@ -121,7 +121,7 @@ Do this **once, before triaging**, and it decides the whole audit.
    none).
 3. Record the outcome:
    - **In scope** → note the candidate country validator(s) in
-     `crates/pii/src/validators.rs` (e.g. `ZaId` → `za_luhn13_check`). Step 4 will
+     `crates/voidwall-pii/src/validators.rs` (e.g. `ZaId` → `za_luhn13_check`). Step 4 will
      validate every value against them.
    - **Out of scope** (no supported country has the category) → **every value is
      invalid**. Skip per-value validation: move **all** rows to `.invalid` and
@@ -143,7 +143,7 @@ confident one of these holds:**
 - **Invalid value** — the value is not valid for the category **for any in-scope
   country** (Step 3.5). **Validate it yourself, rigorously**, against each
   candidate country's real-world spec **and** the crate's checks in
-  `crates/pii/src/validators.rs` (Luhn for cards, date validity, country ID
+  `crates/voidwall-pii/src/validators.rs` (Luhn for cards, date validity, country ID
   checksums, passport shape, length). A value that fails **every** in-scope
   country's spec is fabricated GT. This is the meticulous check sweep skipped — do
   not pass a value to `.clean` without confirming it is valid for at least one

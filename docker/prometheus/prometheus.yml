@@ -2,6 +2,6 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
-  - job_name: pii-proxy
+  - job_name: voidwall
     static_configs:
-      - targets: ["proxy:9090"]
+      - targets: ["voidwall:9090"]

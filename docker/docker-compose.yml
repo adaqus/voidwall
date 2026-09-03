@@ -1,11 +1,11 @@
 services:
-  proxy:
+  voidwall:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.proxy
-    command: ["--config", "/etc/pii-proxy/proxy.toml"]
+      dockerfile: docker/Dockerfile.voidwall
+    command: ["--config", "/etc/voidwall/voidwall.toml"]
     volumes:
-      - ./proxy.toml:/etc/pii-proxy/proxy.toml:ro
+      - ./voidwall.toml:/etc/voidwall/voidwall.toml:ro
     ports:
       - "8082:8082"
       - "8083:8083"
@@ -24,12 +24,12 @@ services:
     ports:
       - "8088:80"
     depends_on:
-      - proxy
+      - voidwall
 
   echo-server:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.proxy
+      dockerfile: docker/Dockerfile.voidwall
     entrypoint: ["echo-server", "--listen", "0.0.0.0:8090"]
     ports:
       - "8090:8090"
@@ -41,7 +41,7 @@ services:
     ports:
       - "9091:9090"
     depends_on:
-      - proxy
+      - voidwall
 
   grafana:
     image: grafana/grafana:latest

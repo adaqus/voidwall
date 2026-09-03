@@ -1,6 +1,6 @@
 ---
 name: add-pii
-description: Add support for a new language and/or country to the `pii` crate (crates/pii). Use when asked to add a new country's PII types (e.g. national ID, postcode, phone, passport) or to add detection/keywords for a new language. Use also when language or country is already supported, but new PII type is added. Covers the full checklist, real-world validation, keyword-context pattern rules, test requirements, and known pitfalls.
+description: Add support for a new language and/or country to the `pii` crate (crates/voidwall-pii). Use when asked to add a new country's PII types (e.g. national ID, postcode, phone, passport) or to add detection/keywords for a new language. Use also when language or country is already supported, but new PII type is added. Covers the full checklist, real-world validation, keyword-context pattern rules, test requirements, and known pitfalls.
 ---
 
 Add support for the language and country named in the user's request.
@@ -8,7 +8,7 @@ Add support for the language and country named in the user's request.
 # Adding a New Language + Country to the `pii` crate
 
 Distilled from the French (`Language::Fr`, `Country::Fr`) implementation. Read
-`crates/pii/AGENTS.md` first for the crate's architecture (detector chain,
+`crates/voidwall-pii/AGENTS.md` first for the crate's architecture (detector chain,
 overlap resolution, detector chain). This skill is the authoritative workflow for
 the language/country task and is self-contained for it.
 
@@ -66,7 +66,7 @@ to the files below.
 
 If the new kind can produce equal-span matches with an existing kind, also add it to a
 priority group in `overlap.rs` (see the "Overlap resolution" section of
-`crates/pii/AGENTS.md`). Containment cases (a wider kind whose match strictly contains a
+`crates/voidwall-pii/AGENTS.md`). Containment cases (a wider kind whose match strictly contains a
 narrower one, e.g. address ⊃ postcode) are handled by generic rules and need no priority entry.
 
 ## Validate with real-world examples
@@ -327,8 +327,8 @@ independently before writing test values.
 
 ## Verify when done
 
-- `cargo test -p pii` — all tests pass, including the new real-example cases.
-- `cargo clippy -p pii --all-targets` — no warnings.
+- `cargo test -p voidwall-pii` — all tests pass, including the new real-example cases.
+- `cargo clippy -p voidwall-pii --all-targets` — no warnings.
 - Confirm new `PiiKind` variants appear in `country()`, `label()`, and `ALL`, and that
   `Country::all()` / `Language::all()` include the new entries.
 - If any English structured-key keyword was added (`<kind>_number` etc.), add an En-only

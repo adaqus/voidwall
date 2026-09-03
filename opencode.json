@@ -8,7 +8,7 @@
       "target/**",
       ".cache/**",
       "benches/results/**",
-      "crates/proxy/benches/results/**"
+      "crates/voidwall/benches/results/**"
     ]
   },
   "permission": {

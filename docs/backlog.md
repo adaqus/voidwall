@@ -21,7 +21,7 @@ Each item needs an OpenSpec proposal first.
 
 ### 1.1 Reverse proxy TLS termination — history § 5.2
 
-`crates/proxy/src/tls.rs` is empty. `TlsConfig` (`config.rs:426`) parses and validates,
+`crates/voidwall/src/tls.rs` is empty. `TlsConfig` (`config.rs:426`) parses and validates,
 then nothing reads it.
 
 - Build a `tokio_rustls::TlsAcceptor` from the configured certificate and key paths.
@@ -29,7 +29,7 @@ then nothing reads it.
 
 ### 1.2 Forward proxy mode — history § 9.1, § 9.2
 
-`crates/proxy/src/forward_proxy.rs` is empty. `main.rs:122` logs
+`crates/voidwall/src/forward_proxy.rs` is empty. `main.rs:122` logs
 `forward proxy mode is enabled but not yet implemented`. `ForwardProxyConfig`
 (`config.rs:311`) parses and validates.
 
@@ -99,7 +99,7 @@ Load the page in a browser. Click each example. Check the result.
 
 ## 3. `pii` crate follow-ups — history § 17.1, § 17.2
 
-Read `crates/pii/AGENTS.md` first. These came out of the Italian support review.
+Read `crates/voidwall-pii/AGENTS.md` first. These came out of the Italian support review.
 
 Correctness:
 

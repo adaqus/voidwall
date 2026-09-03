@@ -7,14 +7,14 @@ context: |
   Language: Rust, edition 2024. Platform: Linux only. Never add code for another OS.
 
   Workspace, two crates:
-  - `crates/proxy/` — the binary, package `pii-proxy`. Integration tests in
-    `crates/proxy/tests/`. Load tests and benches in `crates/proxy/benches/`.
-  - `crates/pii/` — the detection library. Read `crates/pii/AGENTS.md` before you
+  - `crates/voidwall/` — the binary, package `voidwall`. Integration tests in
+    `crates/voidwall/tests/`. Load tests and benches in `crates/voidwall/benches/`.
+  - `crates/voidwall-pii/` — the detection library. Read `crates/voidwall-pii/AGENTS.md` before you
     edit anything under it.
 
   Four modes share one `ScannerPool`: reverse proxy :8082, forward proxy :8084,
   REST API :8083, admin :9090. Config is TOML, loaded with `--config` or
-  `PII_PROXY_CONFIG`.
+  `VOIDWALL_CONFIG`.
 
   Build and verify:
     cargo check --workspace
@@ -28,19 +28,19 @@ context: |
   - Drop the body buffer as soon as the scan ends.
 
   Threading. The scanner is CPU-bound and must never run on the tokio runtime.
-  `ScannerPool` spawns dedicated OS threads. Each thread owns one `pii::Scanner`.
+  `ScannerPool` spawns dedicated OS threads. Each thread owns one `voidwall_pii::Scanner`.
   A bounded channel carries the request. A `tokio::sync::oneshot` carries the reply.
 
   Match resolution. `execute_scan` runs every scanner result through
-  `pii::resolve_overlaps` before it counts, redacts, or reports. The proxy works on
-  the resolved set only. The policy lives in `crates/pii/src/overlap.rs`.
+  `voidwall_pii::resolve_overlaps` before it counts, redacts, or reports. The proxy works on
+  the resolved set only. The policy lives in `crates/voidwall-pii/src/overlap.rs`.
 
   Action precedence: block, then redact, then header. Block short-circuits. There is
   no `warn` action.
 
   Errors. Use the `Error` enum in `error.rs`. Scanner failures and limit violations
   follow the `on_error` policy, `fail_open` or `fail_close`. Always increment
-  `pii_proxy_errors_total`.
+  `voidwall_errors_total`.
 
   Config. Validation runs at startup and the proxy refuses to start on bad config.
   A per-route override fully replaces the default. It never merges.
@@ -52,7 +52,7 @@ context: |
   History for Phases 1 to 20: `docs/history/tasks-phases-1-20.md`.
 
 rules:
-  spec:
+  specs:
     - A spec states behaviour that is built and covered by a test. Never write a
       requirement for unbuilt work. Unbuilt work belongs in docs/backlog.md.
     - Never put a PII value in an example. Use a placeholder.

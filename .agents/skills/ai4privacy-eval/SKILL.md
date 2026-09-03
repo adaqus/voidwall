@@ -98,10 +98,10 @@ its `input` and `expected` rows and find the **detection signal that should have
 fired but didn't**. Check, in order:
 
 - **Keyword-gated vs structural.** Most of these categories live in the
-  keyword-context detector (`crates/pii/src/keyword_context_detector.rs`), which
+  keyword-context detector (`crates/voidwall-pii/src/keyword_context_detector.rs`), which
   needs a trigger word near the value; a few are structural
-  (`crates/pii/src/hyperscan_detector.rs`), which match on format alone. Read
-  `crates/pii/AGENTS.md` for the detector chain if unsure which applies.
+  (`crates/voidwall-pii/src/hyperscan_detector.rs`), which match on format alone. Read
+  `crates/voidwall-pii/AGENTS.md` for the detector chain if unsure which applies.
 - **Missing keyword** — for a keyword-gated category, is there a trigger word in
   the input we simply don't list? (label synonym, abbreviation, emoji/icon label,
   another language's word).
@@ -110,7 +110,7 @@ fired but didn't**. Check, in order:
 - **Format variant** — is this a valid real-world format the detector's pattern
   doesn't cover (length, grouping, prefix, country variant)?
 - **Validator rejection** — is the value valid but rejected by a check in
-  `crates/pii/src/validators.rs` (checksum, length, date validity)? Confirm the
+  `crates/voidwall-pii/src/validators.rs` (checksum, length, date validity)? Confirm the
   value really is valid against the real-world spec before blaming the validator.
 
 State the root cause for the dominant pattern(s) in one or two sentences, citing
@@ -122,7 +122,7 @@ For the root cause(s) you found, propose a concrete change: add a keyword, allow
 separator, broaden a pattern to a format variant, add a country tuple, or relax a
 validator. Note the precision tradeoff if one exists. Point at the exact place to
 change (file + the list/pattern/validator). For pattern/keyword/format work,
-  reference `crates/pii/AGENTS.md` and the **add-pii** skill (keyword-context rules,
+  reference `crates/voidwall-pii/AGENTS.md` and the **add-pii** skill (keyword-context rules,
 required test cases, overlap/validation pitfalls).
 
 Present the proposal and stop. Do not implement unless the user asks.
@@ -130,9 +130,9 @@ Present the proposal and stop. Do not implement unless the user asks.
 ## Step 6 — (Optional) Implement, if the user asks
 
 If the user confirms the fix:
-- Follow `crates/pii/AGENTS.md` and the **add-pii** skill. Add `#[test_case]`
+- Follow `crates/voidwall-pii/AGENTS.md` and the **add-pii** skill. Add `#[test_case]`
   coverage for the exact missed value(s).
-- `cargo test -p pii` must pass, then `docker/ctl start` to rebuild + restart so
+- `cargo test -p voidwall-pii` must pass, then `docker/ctl start` to rebuild + restart so
   the new detection is live.
 - Re-run the Step 3 command once; the fixed value(s) should no longer appear as a
   miss. Report the before/after recall, then stop.

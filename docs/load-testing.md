@@ -169,7 +169,7 @@ rate at 80% of measured max throughput, duration: 30 minutes.
 Monitor via admin `/metrics` endpoint:
 - RSS memory (from `process_resident_memory_bytes` if exposed, or external `ps`)
 - Open file descriptors
-- `pii_proxy_errors_total` — should stay at 0
+- `voidwall_errors_total` — should stay at 0
 - Latency p99 — should stay stable, not drift upward
 
 ---

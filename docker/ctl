@@ -89,7 +89,7 @@ cmd_soak() {
         -e "DURATION=${DURATION:-30m}" \
         -e "PEAK_VUS=${PEAK_VUS:-100}" \
         -e "CYCLES=${CYCLES:-1}" \
-        "$PROJECT_DIR/crates/proxy/benches/k6/soak.js"
+        "$PROJECT_DIR/crates/voidwall/benches/k6/soak.js"
 }
 
 # The six AI4Privacy train files are already JSONL on HuggingFace (no parquet /

@@ -1307,59 +1307,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "pii"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "fst",
- "log",
- "percent-encoding",
- "regex",
- "serde",
- "test-case",
- "unicode-normalization",
- "unicode-segmentation",
- "vectorscan-rs",
-]
-
-[[package]]
-name = "pii-proxy"
-version = "0.1.0"
-dependencies = [
- "axum",
- "bytes",
- "clap",
- "crossbeam-channel",
- "csv",
- "http-body-util",
- "hyper",
- "hyper-util",
- "lazy_static",
- "percent-encoding",
- "pii",
- "procfs",
- "prometheus",
- "rcgen",
- "regex",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "test-case",
- "tikv-jemallocator",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "utoipa",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2435,6 +2382,59 @@ dependencies = [
  "cmake",
  "flate2",
  "tar",
+]
+
+[[package]]
+name = "voidwall"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "clap",
+ "crossbeam-channel",
+ "csv",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "lazy_static",
+ "percent-encoding",
+ "procfs",
+ "prometheus",
+ "rcgen",
+ "regex",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-case",
+ "tikv-jemallocator",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "voidwall-pii",
+]
+
+[[package]]
+name = "voidwall-pii"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "fst",
+ "log",
+ "percent-encoding",
+ "regex",
+ "serde",
+ "test-case",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "vectorscan-rs",
 ]
 
 [[package]]

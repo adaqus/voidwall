@@ -16,8 +16,8 @@ cargo build --release --bins
 docker compose -f docker/docker-compose.yml up --build
 ```
 
-The build step is required because `docker/Dockerfile.proxy` copies the
-`target/release/pii-proxy` and `target/release/echo-server` binaries into the
+The build step is required because `docker/Dockerfile.voidwall` copies the
+`target/release/voidwall` and `target/release/echo-server` binaries into the
 image.
 
 Services exposed on the host:
@@ -43,7 +43,7 @@ mapping, so the browser does not need to resolve the compose-internal
 
 ## Configuration
 
-`docker/proxy.toml` enables both reverse proxy and HTTP API modes. The HTTP
+`docker/voidwall.toml` enables both reverse proxy and HTTP API modes. The HTTP
 API listens on `0.0.0.0:8083` so the docker port mapping `8083:8083` reaches
 it.
 

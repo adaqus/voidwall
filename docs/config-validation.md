@@ -1,6 +1,6 @@
 # Pre-flight Config Validation
 
-The `pii-proxy` binary exposes a `--validate` flag that loads, schema-checks,
+The `voidwall` binary exposes a `--validate` flag that loads, schema-checks,
 semantic-checks, and compiles the PII scanner for a given TOML config — all
 without binding any sockets or spawning scanner threads. Use it in CI/CD to
 catch bad configs before they reach production.
@@ -8,7 +8,7 @@ catch bad configs before they reach production.
 See `openspec/specs/configuration/spec.md` for the full specification.
 
 ```
-pii-proxy --validate /etc/pii-proxy/config.toml
+voidwall --validate /etc/voidwall/config.toml
 ```
 
 `--validate` and `--config` are mutually exclusive; exactly one must be
@@ -44,11 +44,11 @@ Catches issues locally before the operator pushes. Install via
 repos:
   - repo: local
     hooks:
-      - id: pii-proxy-validate
-        name: pii-proxy --validate
-        entry: pii-proxy --validate
+      - id: voidwall-validate
+        name: voidwall --validate
+        entry: voidwall --validate
         language: system
-        files: ^config/pii-proxy\.toml$
+        files: ^config/voidwall\.toml$
         pass_filenames: true
 ```
 
@@ -60,8 +60,8 @@ set -euo pipefail
 
 for f in $(git diff --cached --name-only --diff-filter=ACM); do
     case "$f" in
-        config/pii-proxy.toml)
-            pii-proxy --validate "$f"
+        config/voidwall.toml)
+            voidwall --validate "$f"
             ;;
     esac
 done

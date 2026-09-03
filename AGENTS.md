@@ -1,7 +1,9 @@
 # Project Instructions
 
-Voidwall is an HTTP proxy and REST API for detecting personally identifiable information
-(PII). It can redact or block HTTP requests and report detected PII kinds.
+Voidwall is an AI guardrails engine: an HTTP proxy and REST API that inspects traffic
+and acts on what it finds. Today it detects personally identifiable information (PII) —
+it can redact or block a request and report the kinds it found. Later tiers add other
+kinds of finding, so do not treat PII as the only thing the engine looks for.
 
 ## Communication
 
@@ -38,9 +40,9 @@ Start coding agents from the workspace root. Commands below assume that location
 
 The Cargo workspace has two members:
 
-- `crates/proxy/`: binary package `pii-proxy`. Integration tests, k6 load tests, and
-  benchmark scripts live under `crates/proxy/tests/` and `crates/proxy/benches/`.
-- `crates/pii/`: detection library. Read `crates/pii/AGENTS.md` before editing anything
+- `crates/voidwall/`: binary package `voidwall`. Integration tests, k6 load tests, and
+  benchmark scripts live under `crates/voidwall/tests/` and `crates/voidwall/benches/`.
+- `crates/voidwall-pii/`: detection library. Read `crates/voidwall-pii/AGENTS.md` before editing anything
   under this crate.
 
 Proxy documentation lives under `docs/`.
@@ -56,8 +58,8 @@ Run commands from the workspace root:
 ```bash
 cargo check --workspace
 cargo test --workspace
-cargo test -p pii-proxy <name>
-cargo test -p pii <name>
+cargo test -p voidwall <name>
+cargo test -p voidwall-pii <name>
 cargo clippy --workspace --all-targets
 ```
 
@@ -72,39 +74,40 @@ One binary provides four independently enabled modes that share one `ScannerPool
 - REST API on `:8083`
 - Admin server on `:9090`
 
-Configuration is TOML loaded with `--config` or `PII_PROXY_CONFIG`.
+Configuration is TOML loaded with `--config` or `VOIDWALL_CONFIG`.
 
 Main modules: `config`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`,
 `admin`, `metrics`, `tls`, and `error`.
 
-## PII Safety
+## Detection Safety
 
-These rules are mandatory:
+These rules are mandatory. Every finding today is a PII match; the rules apply to any
+detected value a later tier adds.
 
-- Never log PII values. Log kind names and match counts only.
-- Never expose PII values in metrics. Labels use kind names only.
-- Never include PII values in error responses. A 403 lists kinds, not matched text.
+- Never log a detected value. Log kind names and match counts only.
+- Never expose a detected value in metrics. Labels use kind names only.
+- Never include a detected value in an error response. A 403 lists kinds, not matched text.
 - Drop request and response body buffers promptly after scanning.
 
 ## Match Resolution
 
 `execute_scan` passes every `Scanner::mark_piis(_structured)` result through
-`pii::resolve_overlaps` before counting, redacting, or reporting matches. The proxy uses
+`voidwall_pii::resolve_overlaps` before counting, redacting, or reporting matches. The proxy uses
 only the resolved, non-overlapping set:
 
 - `/v1/scan` and `/v1/redact` `matches_count` equals `resolve_overlaps(raw).len()`.
 - API and 403 `kinds` lists derive from the resolved set.
-- `pii_detections_total{kind=...}` increments once per resolved match.
+- `voidwall_pii_detections_total{pii_kind=...}` increments once per resolved match.
 - The same value at different byte offsets remains separate PII instances.
 
-The policy lives in `crates/pii/src/overlap.rs` and `crates/pii/AGENTS.md`. Do not
+The policy lives in `crates/voidwall-pii/src/overlap.rs` and `crates/voidwall-pii/AGENTS.md`. Do not
 reimplement it in the proxy.
 
 ## Threading
 
 The PII scanner is CPU-bound and must not run on the Tokio async runtime. `ScannerPool`
-spawns dedicated OS threads, each owning one `pii::Scanner`. A bounded channel carries
-requests and `tokio::sync::oneshot` carries responses. Never call `pii::Scanner` directly
+spawns dedicated OS threads, each owning one `voidwall_pii::Scanner`. A bounded channel carries
+requests and `tokio::sync::oneshot` carries responses. Never call `voidwall_pii::Scanner` directly
 from an async context.
 
 ## Errors
@@ -112,7 +115,7 @@ from an async context.
 - Use the unified `Error` enum from `error.rs` for fallible proxy operations.
 - Scanner failures and limit violations follow the configured `on_error` policy:
   `fail_open` or `fail_close`.
-- Always increment `pii_proxy_errors_total` with the outcome.
+- Always increment `voidwall_errors_total` with the outcome.
 - Propagate proxy and I/O errors with context instead of turning all failures into generic
   500 responses.
 
@@ -126,9 +129,9 @@ from an async context.
 
 - Put unit tests in the same file under `#[cfg(test)] mod tests`.
 - Prefer `#[test_case]` where it removes duplicated test code.
-- Integration tests under `crates/proxy/tests/` start real servers and make real HTTP
+- Integration tests under `crates/voidwall/tests/` start real servers and make real HTTP
   requests.
-- Load tests live in `crates/proxy/benches/`; see `docs/load-testing.md`.
+- Load tests live in `crates/voidwall/benches/`; see `docs/load-testing.md`.
 
 ## Action Precedence
 
@@ -147,7 +150,8 @@ Use OpenSpec when any of these apply:
 - The change alters observable behavior such as an endpoint, config field, action, metric,
   error code, or detector output.
 - The change touches more than one crate.
-- The change is a pivot phase from Phase 21 through Phase 31.
+- The change is a pivot phase that ships code. Phases 21.5a and 21.5b produce research
+  answers only, and the sequence does not end at Phase 31 — see the phase table.
 - The change implements a feature listed in `docs/backlog.md`.
 - A decision must be recorded for later work.
 - The change cannot be reviewed in one diff.

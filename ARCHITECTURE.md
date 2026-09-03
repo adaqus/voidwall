@@ -143,7 +143,7 @@ twice, and reported twice.
 before anything counts, redacts, or reports. Every number the proxy publishes — the
 match count, the kind list, the Prometheus counter — derives from that resolved set.
 
-The policy itself lives in the library, in `crates/pii/src/overlap.rs`. The proxy does
+The policy itself lives in the library, in `crates/voidwall-pii/src/overlap.rs`. The proxy does
 not reimplement it, and must not.
 
 The same value at two distinct byte offsets stays two matches. Those are two separate
@@ -253,19 +253,23 @@ Today:
 
 | Crate | Holds |
 |---|---|
-| `crates/pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/proxy` | HTTP, config, actions, specializations, metrics, the binary |
+| `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
+| `crates/voidwall` | HTTP, config, actions, specializations, metrics, the binary |
 
-Read `crates/pii/AGENTS.md` before editing the library. Vectorscan, the detector
+Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.
 
 Planned:
 
 | Crate | Holds |
 |---|---|
-| `voidwall-core` | the renamed `pii`, plus the verdict types and the L1 gate |
+| `voidwall-pii` | today's detector chain, plus the verdict types and the L1 gate |
 | `voidwall-ml` | the model runtimes, behind one cargo feature each |
 | `voidwall` | the proxy |
+
+The library keeps the name `voidwall-pii` rather than becoming a `voidwall-core`. It is
+one detection tier beside `voidwall-ml`, not a foundation under it, so a `core` name
+would be wrong the moment the third crate lands.
 
 The reason for a third crate is structural. A model cannot follow the detector
 lifecycle: a `Detector` is built per `Scanner`, and a `Scanner` is built per OS
@@ -297,7 +301,7 @@ them runs. `docs/backlog.md` holds the work.
 | Checksum validation toggle | Not started. `PiiConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |
 | Matomo `/piwik.php` alias | The `matomo` specialization is path-agnostic, so an operator can already route both paths. Only the documentation is missing. | Documentation task, not code. |
 
-Container hardening is guidance, not enforcement. `docker/Dockerfile.proxy` runs as
+Container hardening is guidance, not enforcement. `docker/Dockerfile.voidwall` runs as
 root and sets no security context. The Kubernetes settings below are what a deployment
 should apply:
 

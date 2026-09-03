@@ -101,14 +101,14 @@ the delete side needs confidence — **delete when one of these clearly holds**
   Garbage GT.
 - **Invalid value** — the value is not valid for the category. *Validate it
   yourself* against the real-world spec and the crate's rules in
-  `crates/pii/src/validators.rs` (Luhn for cards, date validity, country ID
+  `crates/voidwall-pii/src/validators.rs` (Luhn for cards, date validity, country ID
   checksums, passport shape, etc.). A value the spec rejects is garbage GT.
 - **Redaction not possible** — the category is keyword-gated (it lives in
-  `crates/pii/src/keyword_context_detector.rs`, not the structural
-  `crates/pii/src/hyperscan_detector.rs`) and **no triggering keyword** appears
+  `crates/voidwall-pii/src/keyword_context_detector.rs`, not the structural
+  `crates/voidwall-pii/src/hyperscan_detector.rs`) and **no triggering keyword** appears
   in `source_text[start-40:start]` before the span. With no safe signal,
   detecting it would require an unsafe bare-format match. (See
-  `crates/pii/AGENTS.md` for the detector chain if unsure which applies.)
+  `crates/voidwall-pii/AGENTS.md` for the detector chain if unsure which applies.)
 
 **Otherwise the row is valid** — move it to the valid-rows file. This covers the
 clear detector-fix candidates (valid value AND a usable signal: a nearby keyword,

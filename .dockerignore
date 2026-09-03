@@ -1,4 +1,4 @@
 *
-!target/release/pii-proxy
+!target/release/voidwall
 !target/release/echo-server
 !docker/
