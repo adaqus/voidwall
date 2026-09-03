@@ -182,7 +182,7 @@ or a 204.
 
 The proxy SHALL emit at most one log line per specialization per minute. The line SHALL
 name the specialization and the failure category, and SHALL never carry payload
-content. The proxy SHALL increment `pii_proxy_specialization_errors_total` on every
+content. The proxy SHALL increment `voidwall_specialization_errors_total` on every
 failure, with no rate limit.
 
 #### Scenario: Many failures in one minute
@@ -194,3 +194,4 @@ failure, with no rate limit.
 
 - **WHEN** the proxy logs a specialization failure
 - **THEN** the line names the specialization and the reason, and carries no payload text
+

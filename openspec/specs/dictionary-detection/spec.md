@@ -110,8 +110,8 @@ path as context, because a name needs no keyword.
 
 The detector SHALL be registered after the keyword-context detector. Chain order SHALL
 NOT change the `mark_piis` output, because the proxy resolves the union through
-`pii::resolve_overlaps`. Running last SHALL let `has_piis` short-circuit on a cheaper
-detector first.
+`voidwall_pii::resolve_overlaps`. Running last SHALL let `has_piis` short-circuit on a
+cheaper detector first.
 
 #### Scenario: A cheaper detector already matched
 
@@ -137,7 +137,7 @@ gazetteer SHALL NOT be loaded. There SHALL be no dedicated config key.
 ### Requirement: The proxy surface is unchanged
 
 A match SHALL flow through the existing pipeline as `PersonName`. It SHALL appear in
-`pii_proxy_detections_total` with the `PERSON_NAME` kind, in `X-PII-Detected`, and as
+`voidwall_pii_detections_total` with the `PERSON_NAME` kind, in `X-PII-Detected`, and as
 the `[PERSON_NAME]` redaction replacement. The detector SHALL add no config key, no
 metric, and no response field.
 
@@ -145,3 +145,4 @@ metric, and no response field.
 
 - **WHEN** the detector matches and `redact_strategy` is `type_label`
 - **THEN** the replacement is `[PERSON_NAME]`
+

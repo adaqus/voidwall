@@ -9,17 +9,20 @@ errors, and process health. The admin listener serves them.
 
 The proxy SHALL register these metric families:
 
-- `pii_proxy_detections_total`, a counter labelled `pii_kind`, `mode`, `route`,
+- `voidwall_pii_detections_total`, a counter labelled `pii_kind`, `mode`, `route`,
   `direction`, and `specialization`.
-- `pii_proxy_blocked_total`, a counter labelled `mode`, `route`, and `direction`.
-- `pii_proxy_redacted_total`, a counter labelled `pii_kind`, `mode`, `route`,
+- `voidwall_pii_blocked_total`, a counter labelled `mode`, `route`, and `direction`.
+- `voidwall_pii_redacted_total`, a counter labelled `pii_kind`, `mode`, `route`,
   `direction`, and `specialization`.
-- `pii_proxy_requests_total`, a counter labelled `mode`, `route`, `method`, and
+- `voidwall_requests_total`, a counter labelled `mode`, `route`, `method`, and
   `status`.
-- `pii_proxy_request_duration_seconds`, a histogram labelled `mode` and `route`.
-- `pii_proxy_errors_total`, a counter labelled `outcome` and `reason`.
-- `pii_proxy_specialization_errors_total`, a counter labelled `specialization` and
+- `voidwall_request_duration_seconds`, a histogram labelled `mode` and `route`.
+- `voidwall_errors_total`, a counter labelled `outcome` and `reason`.
+- `voidwall_specialization_errors_total`, a counter labelled `specialization` and
   `reason`.
+
+A family that names a detection tier SHALL carry that tier in its name. A family that
+describes the engine as a whole SHALL NOT name a tier.
 
 #### Scenario: Prometheus scrapes a running proxy
 
@@ -56,7 +59,7 @@ or a reason. No label SHALL ever carry matched text.
 
 ### Requirement: Detections increment once per resolved match
 
-The proxy SHALL increment `pii_proxy_detections_total` once per kind in the resolved
+The proxy SHALL increment `voidwall_pii_detections_total` once per kind in the resolved
 match set. It SHALL do so whatever action list is configured, including an empty one.
 
 #### Scenario: PII detected with no action configured
@@ -66,7 +69,7 @@ match set. It SHALL do so whatever action list is configured, including an empty
 
 ### Requirement: Errors record the fail-open or fail-close outcome
 
-Every scanner failure and limit violation SHALL increment `pii_proxy_errors_total`. The
+Every scanner failure and limit violation SHALL increment `voidwall_errors_total`. The
 `outcome` label SHALL name the path taken: `passed` under `fail_open`, `blocked` under
 `fail_close`. The `reason` label SHALL name the cause.
 
@@ -79,7 +82,7 @@ Every scanner failure and limit violation SHALL increment `pii_proxy_errors_tota
 ### Requirement: A specialization decoder failure is counted separately
 
 A specialization decode failure that falls back to a raw scan SHALL increment
-`pii_proxy_specialization_errors_total`, labelled by specialization and reason. It SHALL
+`voidwall_specialization_errors_total`, labelled by specialization and reason. It SHALL
 not be counted as a scanner error.
 
 #### Scenario: A specialization cannot decode a field
