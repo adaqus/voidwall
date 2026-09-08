@@ -67,7 +67,7 @@ Treat Clippy warnings as errors. The workspace uses Rust edition 2024.
 
 ## Architecture
 
-One binary provides four independently enabled modes that share one `ScannerPool`:
+One binary provides four independently enabled modes that share one detection engine:
 
 - Reverse proxy on `:8082`
 - Forward proxy on `:8084`
@@ -76,8 +76,29 @@ One binary provides four independently enabled modes that share one `ScannerPool
 
 Configuration is TOML loaded with `--config` or `VOIDWALL_CONFIG`.
 
-Main modules: `config`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`,
-`admin`, `metrics`, `tls`, and `error`.
+Main modules: `config`, `engine`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`,
+`http_api`, `admin`, `metrics`, `tls`, and `error`.
+
+## Detection Engine
+
+`engine` holds the detection contract. A handler decodes a message into `Unit`s — one per
+body, URL path, query string, and scanned header value — and calls `Engine::guard`.
+
+A `Guard` is one detection concern: `name`, `interest`, `detect`. It returns `Finding`s and
+does nothing else. It never blocks, redacts, adds a header, or writes a metric. A guard
+owns whatever it needs to detect; the regex PII guard owns the `ScannerPool`, which is
+reachable from nowhere else.
+
+- Add a detector by adding a guard, never by branching inside a handler.
+- `name()` returns a fixed string per guard type. It reaches metric labels, so an
+  operator-supplied name would make label cardinality unbounded.
+- A guard declares its interest; the `Engine` applies it. A guard no selected unit
+  interests is not called.
+- Findings come back in canonical order — unit, span start, span end, guard, kind, with
+  span-less findings last — so arrival order is invisible and a kind list is stable.
+- The engine short-circuits for a block and nothing else. A guard still running is
+  abandoned; a redact or header outcome waits for every guard.
+- Shutdown is `Drop`-only. `Engine::shutdown` releases the guards and then logs.
 
 ## Detection Safety
 
@@ -91,24 +112,35 @@ detected value a later tier adds.
 
 ## Match Resolution
 
-`execute_scan` passes every `Scanner::mark_piis(_structured)` result through
-`voidwall_pii::resolve_overlaps` before counting, redacting, or reporting matches. The proxy uses
+The regex PII guard passes every `Scanner::mark_piis(_structured)` result through
+`voidwall_pii::resolve_overlaps`, once per unit, before it returns a finding. The proxy uses
 only the resolved, non-overlapping set:
 
 - `/v1/scan` and `/v1/redact` `matches_count` equals `resolve_overlaps(raw).len()`.
 - API and 403 `kinds` lists derive from the resolved set.
-- `voidwall_pii_detections_total{pii_kind=...}` increments once per resolved match.
+- `voidwall_pii_detections_total{pii_kind=...}` increments once per kind in the resolved
+  match set.
 - The same value at different byte offsets remains separate PII instances.
 
 The policy lives in `crates/voidwall-pii/src/overlap.rs` and `crates/voidwall-pii/AGENTS.md`. Do not
 reimplement it in the proxy.
 
+Resolution is scoped to a kind vocabulary, and it runs once. `resolve_overlaps` is a
+greedy pairwise pass, so resolving each guard's findings and then resolving the union is
+not the same as resolving the union. While one guard is the only producer of a
+vocabulary, that guard resolves and the engine adds nothing. When a second producer of
+the same vocabulary appears, move resolution to the engine over the union and delete the
+per-guard pass. Never run both.
+
 ## Threading
 
-The PII scanner is CPU-bound and must not run on the Tokio async runtime. `ScannerPool`
-spawns dedicated OS threads, each owning one `voidwall_pii::Scanner`. A bounded channel carries
-requests and `tokio::sync::oneshot` carries responses. Never call `voidwall_pii::Scanner` directly
-from an async context.
+The PII scanner is CPU-bound and must not run on the Tokio async runtime. `ScannerPool`,
+inside the regex PII guard, spawns dedicated OS threads, each owning one
+`voidwall_pii::Scanner`. A bounded channel carries requests and `tokio::sync::oneshot` carries
+responses. Never call `voidwall_pii::Scanner` directly from an async context.
+
+A guard's `detect` is `async` but does almost no work of its own: it hands the units to
+its own workers and awaits the reply. Keep it that way.
 
 ## Errors
 
@@ -135,7 +167,9 @@ from an async context.
 
 ## Action Precedence
 
-Actions run in this order: block, redact, header. Block short-circuits forwarding. There
+Actions run in this order: block, redact, header. Block short-circuits forwarding.
+Redaction is an action: the action engine turns finding spans into replacement bytes and
+reads the scanned content without mutating it. There
 is no `warn` action. Detection, blocked, and redacted metrics increment whenever the
 corresponding event occurs. Request and response actions are configured separately.
 

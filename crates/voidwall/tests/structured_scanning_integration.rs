@@ -21,7 +21,7 @@ use voidwall::config::{
     Route, ScanConfig,
 };
 use voidwall::reverse_proxy;
-use voidwall::scanner::ScannerPool;
+use voidwall::engine::Engine;
 
 // ---------------------------------------------------------------------------
 // Echo upstream
@@ -72,8 +72,8 @@ fn pii_config() -> PiiConfig {
     }
 }
 
-static SHARED_SCANNER: LazyLock<Arc<ScannerPool>> =
-    LazyLock::new(|| Arc::new(ScannerPool::new(&pii_config()).unwrap()));
+static SHARED_ENGINE: LazyLock<Arc<Engine>> =
+    LazyLock::new(|| Arc::new(Engine::new(&pii_config()).unwrap()));
 
 fn redact_request() -> DirectionConfig {
     DirectionConfig {
@@ -100,7 +100,7 @@ fn empty_direction() -> DirectionConfig {
 struct TestProxy {
     addr: SocketAddr,
     cancel: CancellationToken,
-    _scanner: Arc<ScannerPool>,
+    _engine: Arc<Engine>,
 }
 
 impl TestProxy {
@@ -132,11 +132,11 @@ impl TestProxy {
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
-        let scanner = SHARED_SCANNER.clone();
-        let scanner_clone = scanner.clone();
+        let engine = SHARED_ENGINE.clone();
+        let engine_clone = engine.clone();
 
         tokio::spawn(async move {
-            reverse_proxy::serve(&config, scanner_clone, cancel_clone)
+            reverse_proxy::serve(&config, engine_clone, cancel_clone)
                 .await
                 .unwrap();
         });
@@ -145,7 +145,7 @@ impl TestProxy {
         TestProxy {
             addr: proxy_addr,
             cancel,
-            _scanner: scanner,
+            _engine: engine,
         }
     }
 

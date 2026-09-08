@@ -14,7 +14,7 @@ use voidwall::config::{
     Route, ScanConfig,
 };
 use voidwall::reverse_proxy;
-use voidwall::scanner::ScannerPool;
+use voidwall::engine::Engine;
 
 // ---------------------------------------------------------------------------
 // Echo upstream server
@@ -158,15 +158,15 @@ fn direction_empty() -> DirectionConfig {
 struct TestProxy {
     addr: SocketAddr,
     cancel: CancellationToken,
-    _scanner: Arc<ScannerPool>,
+    _engine: Arc<Engine>,
 }
 
-/// Single ScannerPool shared by every `start` test in this binary. Tests
+/// Single detection engine shared by every `start` test in this binary. Tests
 /// that need a custom `PiiConfig` (custom regex, country filter, …) call
-/// `start_with_pii` and build their own scanner; everything else reuses
+/// `start_with_pii` and build their own engine; everything else reuses
 /// this one to avoid paying ~9 s of regex/hyperscan compilation per test.
-static SHARED_DEFAULT_SCANNER: LazyLock<Arc<ScannerPool>> =
-    LazyLock::new(|| Arc::new(ScannerPool::new(&default_pii_config()).unwrap()));
+static SHARED_DEFAULT_ENGINE: LazyLock<Arc<Engine>> =
+    LazyLock::new(|| Arc::new(Engine::new(&default_pii_config()).unwrap()));
 
 impl TestProxy {
     async fn start(
@@ -183,7 +183,7 @@ impl TestProxy {
             response_dir,
             scan,
             default_pii_config(),
-            SHARED_DEFAULT_SCANNER.clone(),
+            SHARED_DEFAULT_ENGINE.clone(),
         )
         .await
     }
@@ -196,7 +196,7 @@ impl TestProxy {
         scan: ScanConfig,
         pii_config: PiiConfig,
     ) -> Self {
-        let scanner = Arc::new(ScannerPool::new(&pii_config).unwrap());
+        let engine = Arc::new(Engine::new(&pii_config).unwrap());
         Self::start_inner(
             upstream_addr,
             routes,
@@ -204,7 +204,7 @@ impl TestProxy {
             response_dir,
             scan,
             pii_config,
-            scanner,
+            engine,
         )
         .await
     }
@@ -216,7 +216,7 @@ impl TestProxy {
         response_dir: DirectionConfig,
         scan: ScanConfig,
         pii_config: PiiConfig,
-        scanner: Arc<ScannerPool>,
+        engine: Arc<Engine>,
     ) -> Self {
         let proxy_routes: Vec<Route> = routes
             .into_iter()
@@ -248,10 +248,10 @@ impl TestProxy {
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
-        let scanner_clone = scanner.clone();
+        let engine_clone = engine.clone();
 
         tokio::spawn(async move {
-            reverse_proxy::serve(&config, scanner_clone, cancel_clone)
+            reverse_proxy::serve(&config, engine_clone, cancel_clone)
                 .await
                 .unwrap();
         });
@@ -261,7 +261,7 @@ impl TestProxy {
         TestProxy {
             addr: proxy_addr,
             cancel,
-            _scanner: scanner,
+            _engine: engine,
         }
     }
 
@@ -858,7 +858,7 @@ async fn multiple_routes_different_upstreams() {
 async fn per_route_scan_override() {
     let upstream = start_echo_upstream().await;
     let pii_config = default_pii_config();
-    let scanner = Arc::new(ScannerPool::new(&pii_config).unwrap());
+    let engine = Arc::new(Engine::new(&pii_config).unwrap());
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_addr = listener.local_addr().unwrap();
@@ -890,10 +890,10 @@ async fn per_route_scan_override() {
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
-    let scanner_clone = scanner.clone();
+    let engine_clone = engine.clone();
 
     tokio::spawn(async move {
-        reverse_proxy::serve(&config, scanner_clone, cancel_clone)
+        reverse_proxy::serve(&config, engine_clone, cancel_clone)
             .await
             .unwrap();
     });

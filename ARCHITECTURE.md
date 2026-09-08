@@ -42,11 +42,11 @@ The detection library is a separate crate and can be used on its own.
   │         └────────┬────────┴──────────────────┘          │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
-  │          │  Scanner Pool  │  dedicated OS threads       │
+  │          │Detection Engine│  interest → fan out → sort  │
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
-  │          │ resolve_overlaps│                            │
+  │          │ Regex PII Guard│  pool + resolve_overlaps    │
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
@@ -68,7 +68,7 @@ The detection library is a separate crate and can be used on its own.
   └─────────────────────────────────────────────────────────┘
 ```
 
-One binary. Four modes, each enabled on its own. They share one scanner pool.
+One binary. Four modes, each enabled on its own. They share one detection engine.
 
 ### Why the ports are separate
 
@@ -83,8 +83,12 @@ a NetworkPolicy.
 
 ### Modules
 
-`config`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`, `admin`,
-`metrics`, `structured`, `tls`, `validate`, `error`.
+`config`, `engine`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`,
+`admin`, `metrics`, `structured`, `tls`, `validate`, `error`.
+
+`engine` holds the detection contract: the units a message decodes into, the findings a
+guard returns, the `Guard` trait, and the `Engine` that runs the guards. Each guard owns
+whatever it needs to detect — the regex PII guard owns the scanner pool.
 
 `forward_proxy` and `tls` are empty files. See § 7.
 
@@ -96,10 +100,14 @@ a NetworkPolicy.
 2. The handler buffers the body, up to the configured limit.
 3. The body is classified by content type. JSON, CSV, and TSV are parsed into
    context-value fragments. Everything else stays flat text.
-4. The scan request goes to the scanner pool over a bounded channel.
-5. A scanner thread runs the detector chain and returns the raw matches.
-6. `pii::resolve_overlaps` reduces them to one non-overlapping set.
-7. The action engine applies block, then redact, then header.
+4. The handler builds the units — one for the body, one for the URL path, one for the
+   query string, one per scanned header — and hands them to the detection engine.
+5. The engine calls every guard whose declared interest matches a selected unit, awaits
+   them, and merges what they return into one canonically ordered finding set.
+6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
+   raw matches with `pii::resolve_overlaps` before returning them as findings.
+7. The action engine applies block, then redact, then header. Redaction produces the
+   replacement bytes from the findings; nothing before this point rewrites a message.
 8. The proxy forwards to the upstream, or returns the block response.
 9. The response travels the same path in the other direction, under its own action
    list.
@@ -122,7 +130,9 @@ scanning while sockets sat unread.
 
 So `ScannerPool` spawns its own OS threads with `std::thread::spawn`. Each thread owns
 one `pii::Scanner`. A bounded channel carries requests in, and a
-`tokio::sync::oneshot` carries each reply back.
+`tokio::sync::oneshot` carries each reply back. The pool lives inside the regex PII
+guard and is reachable from nowhere else, so a guard's threading is the guard's own
+business.
 
 The channel is bounded on purpose. A full channel blocks the caller on the tokio
 blocking pool for a short timeout, then fails. That pushes backpressure up to the HTTP
@@ -132,23 +142,69 @@ Each thread owns its own scanner because the Vectorscan scratch space is not
 shareable. That is also why the scanner is per-thread while the name gazetteer is not:
 the gazetteer is immutable, so one memory-mapped copy serves every thread.
 
+The pool has no explicit shutdown. It sits behind a boxed guard, so no caller can
+reclaim it to shut it down; `Drop` closes the channel and joins every thread, and
+`Engine::shutdown` logs only after the guards are released.
+
 ### 4.2 One resolved match set, everywhere
 
 Detectors overlap. A national identity number can sit inside a longer digit run that
 another pattern also matches. Left alone, one value would be counted twice, redacted
 twice, and reported twice.
 
-`execute_scan` therefore passes every detector result through `pii::resolve_overlaps`
-before anything counts, redacts, or reports. Every number the proxy publishes — the
-match count, the kind list, the Prometheus counter — derives from that resolved set.
+The regex PII guard therefore passes every detector result through
+`pii::resolve_overlaps`, once per unit, before it returns a finding. Every number the
+proxy publishes — the match count, the kind list, the Prometheus counter — derives from
+that resolved set.
 
 The policy itself lives in the library, in `crates/voidwall-pii/src/overlap.rs`. The proxy does
 not reimplement it, and must not.
 
+Resolution is scoped to a kind vocabulary, not to a message, and it runs once.
+`resolve_overlaps` is a greedy pairwise pass, so resolving each guard's findings and
+then resolving the union is not the same as resolving the union. While one guard is the
+only producer of a vocabulary — which is the case today — that guard resolves and the
+engine adds nothing. When a second producer of the same vocabulary appears, resolution
+moves to the engine over the union and the per-guard pass goes away. Never both.
+
 The same value at two distinct byte offsets stays two matches. Those are two separate
 instances of PII, not a duplicate.
 
-### 4.3 Structured bodies are parsed before they are scanned
+### 4.3 One engine, and a guard is one detection concern
+
+Detection used to be a single hard-coded path: one function scanned, resolved,
+redacted, and reported. A second detector had nowhere to go.
+
+The seam is a **guard**: `name`, `interest`, `detect`. A guard returns findings and
+does nothing else — it does not block, redact, add a header, or write a metric. One
+`Engine` owns the guards and the stage order: select the units, drop the guards no unit
+interests, fan out, merge, sort. A handler calls `Engine::guard` and acts on what comes
+back.
+
+The trait is defined in `voidwall`, not in a detection crate, because `voidwall-pii` cannot
+depend on the binary crate and the tiers after it will not share one input shape. Each
+guard adapts one detection crate to the contract.
+
+Three consequences worth stating:
+
+- **Output order is canonical, not arrival order.** Findings sort by unit, span start,
+  span end, guard, then kind, with span-less findings last, and the kind list is a
+  sorted set. Which guard finished first is invisible.
+- **The fan-out polls, it does not spawn.** A guard future mostly awaits its own
+  worker's reply, so spawning would buy no parallelism and cost a `'static` bound on
+  everything the future borrows. `FuturesUnordered` lets a guard borrow the shared
+  units instead of cloning them.
+- **The engine short-circuits for a block and nothing else.** A blocked message is not
+  going anywhere, so the remaining findings cannot change the outcome; a guard still
+  running is abandoned and its findings do not appear. A redact or header outcome needs
+  the full set, so it waits.
+
+Redaction is an action, not a scan step. The guards report where the PII is; the action
+engine turns those spans into replacement bytes. It reads the scanned content rather
+than mutating it — an abandoned guard's worker may still hold a clone of the shared
+units, so exclusive access is not guaranteed.
+
+### 4.4 Structured bodies are parsed before they are scanned
 
 Much PII is only recognizable next to a keyword: a bare seven-digit number is nothing,
 but `phone: 555-1234` is a phone number.
@@ -168,7 +224,7 @@ different segment next to the separator. The common case resolves on the first.
 Fragment offsets are document-absolute, so redaction can rewrite the original bytes
 and keep the document valid.
 
-### 4.4 Names need a dictionary, not a pattern
+### 4.5 Names need a dictionary, not a pattern
 
 Keyword-gated regex has poor recall on values drawn from a finite vocabulary. Person
 names are the case: recall sat between 12% and 38%. There is no format to match,
@@ -195,7 +251,7 @@ proxy resolves the union anyway. It matters for `has_piis`, which short-circuits
 cheap single-pass detectors should get first look, and the tokenisation-heavy one
 should be skipped when something cheaper already matched.
 
-### 4.5 An invalid config stops the start
+### 4.6 An invalid config stops the start
 
 There is no "skip the bad entries and carry on" mode.
 
@@ -213,7 +269,7 @@ define fails the start and names itself. A misspelled key that is silently ignor
 gives the operator a setting they believe is active and is not, which is the same
 failure as a dropped PII definition.
 
-### 4.6 No authentication
+### 4.7 No authentication
 
 The HTTP API authenticates nobody. Access control belongs to the deployment: an
 authenticating gateway in front, and network-level isolation around it.

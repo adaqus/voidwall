@@ -35,6 +35,7 @@ procfs = "0.17"
 # Utilities
 bytes = "1"
 crossbeam-channel = "0.5"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tower-http = { version = "0.6", features = ["cors"] }
 

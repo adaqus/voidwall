@@ -2,8 +2,9 @@ use axum::http::HeaderMap;
 use bytes::Bytes;
 
 use crate::config::{Action, DirectionConfig};
+use crate::engine::{Finding, ScanResult, Unit, UnitId, UnitKind};
 use crate::metrics;
-use crate::scanner::ScanResult;
+use crate::scanner::RedactWith;
 
 // ---------------------------------------------------------------------------
 // ActionSet — parsed, validated set of actions for a direction
@@ -70,9 +71,13 @@ pub enum ActionOutcome {
     },
     /// PII detected, request/response should be forwarded (possibly mutated).
     Forward {
+        /// The redacted body, when the body unit was rewritten.
         body: Option<Bytes>,
         extra_headers: HeaderMap,
-        scan_result: ScanResult,
+        /// Replacement bytes per unit, produced by the redact action. Empty
+        /// when redact is not configured or nothing carried a byte span. The
+        /// caller maps each entry back to the field its unit came from.
+        redacted: Vec<(UnitId, Bytes)>,
     },
     /// No PII detected, forward unchanged.
     Pass,
@@ -87,16 +92,23 @@ pub enum ActionOutcome {
 /// Metrics are always incremented when PII is detected, regardless of actions.
 /// Precedence: block → redact → header.
 pub fn execute(
-    scan_result: ScanResult,
+    scan_result: &ScanResult,
+    units: &[Unit],
+    redact_strategy: Option<&RedactWith>,
     action_set: &ActionSet,
     ctx: &ActionContext<'_>,
 ) -> ActionOutcome {
-    if !scan_result.detected {
+    if !scan_result.detected() {
         return ActionOutcome::Pass;
     }
 
+    // The kind list is sorted and holds each kind once, so every list built
+    // below — the detection counter, the block body, the header — is ordered
+    // and counts a kind once however many findings, or guards, reported it.
+    let kinds = scan_result.kinds();
+
     // Always increment detection metrics unconditionally when PII is detected.
-    for kind in &scan_result.kinds {
+    for kind in &kinds {
         metrics::inc_detection(kind, ctx.mode, ctx.route, ctx.direction);
     }
 
@@ -104,7 +116,7 @@ pub fn execute(
     if action_set.block {
         metrics::inc_blocked(ctx.mode, ctx.route, ctx.direction);
 
-        let body = build_block_body(&action_set.block_body, &scan_result.kinds);
+        let body = build_block_body(&action_set.block_body, &kinds);
         let headers = build_block_headers(&action_set.block_headers);
 
         return ActionOutcome::Block {
@@ -114,20 +126,30 @@ pub fn execute(
         };
     }
 
-    // 2. Redact — collect mutated body
-    let forward_body = if action_set.redact {
-        for kind in &scan_result.kinds {
+    // 2. Redact — produce the replacement bytes from the findings
+    let mut redacted = Vec::new();
+    if action_set.redact {
+        for kind in &kinds {
             metrics::inc_redacted(kind, ctx.mode, ctx.route, ctx.direction);
         }
-        scan_result.redacted_body.clone()
-    } else {
-        None
-    };
+        if let Some(strategy) = redact_strategy {
+            redacted = redact_units(units, scan_result.findings(), strategy);
+        }
+    }
+
+    let forward_body = redacted
+        .iter()
+        .find(|(id, _)| {
+            units
+                .get(id.index())
+                .is_some_and(|u| u.kind == UnitKind::Body)
+        })
+        .map(|(_, bytes)| bytes.clone());
 
     // 3. Header — add X-PII-Detected
     let mut extra_headers = HeaderMap::new();
     if action_set.header {
-        let kinds_value = scan_result.kinds.join(",");
+        let kinds_value = kinds.join(",");
         if let Ok(value) = kinds_value.parse() {
             extra_headers.insert("x-pii-detected", value);
         }
@@ -136,8 +158,71 @@ pub fn execute(
     ActionOutcome::Forward {
         body: forward_body,
         extra_headers,
-        scan_result,
+        redacted,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Redaction
+// ---------------------------------------------------------------------------
+
+/// Replace every spanned finding in the units it points at, and return the
+/// replacement bytes per unit.
+///
+/// This reads the units and does not mutate them: an abandoned guard's worker
+/// may still hold a clone of the shared units, so exclusive access is not
+/// guaranteed. A unit with no spanned finding produces no entry.
+///
+/// Replacement length is fixed per kind (equal to the kind label length) so it
+/// leaks nothing about the original value's length. `Char` repeats the mask
+/// char `label.len()` times (EMAIL → `*****`); `TypeLabel` writes `[LABEL]`.
+/// Replacements run back-to-front so byte offsets stay valid.
+///
+/// Both callers of this are here: `execute`, for the proxy modes, and the
+/// `/v1/redact` handler, which builds no action set. One implementation, so
+/// the two cannot drift.
+pub(crate) fn redact_units(
+    units: &[Unit],
+    findings: &[Finding],
+    strategy: &RedactWith,
+) -> Vec<(UnitId, Bytes)> {
+    let mut replaced = Vec::new();
+
+    for unit in units {
+        let mut spans: Vec<(usize, usize, &str)> = findings
+            .iter()
+            .filter(|f| f.unit == unit.id)
+            .filter_map(|f| f.span.map(|s| (s.start, s.end, f.kind.as_str())))
+            .collect();
+        if spans.is_empty() {
+            continue;
+        }
+        // The scanned content must be UTF-8 to rewrite it. JSON requires it,
+        // and a CSV body that flattened had every cell validated.
+        let Some(source) = unit.content.source_str() else {
+            continue;
+        };
+
+        // Sort by start descending so a replacement cannot invalidate the
+        // offsets of the ones still to come.
+        spans.sort_unstable_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+        let mut text = source.to_string();
+        let mut prev_start = usize::MAX;
+        for (start, end, label) in spans {
+            if end > prev_start {
+                continue;
+            }
+            let replacement = match strategy {
+                RedactWith::Char(c) => c.to_string().repeat(label.len()),
+                RedactWith::TypeLabel => format!("[{label}]"),
+            };
+            text.replace_range(start..end, &replacement);
+            prev_start = start;
+        }
+        replaced.push((unit.id, Bytes::from(text)));
+    }
+
+    replaced
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +265,15 @@ fn build_block_headers(headers: &[(String, String)]) -> HeaderMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::{Span, UnitContent, Units};
+    use std::sync::Arc;
     use test_case::test_case;
+
+    const GUARD: &str = "test_guard";
+
+    // "email: user@example.com, ssn: 123-45-6789"
+    //         ^7            ^23        ^30    ^41
+    const SAMPLE: &str = "email: user@example.com, ssn: 123-45-6789";
 
     fn ctx() -> ActionContext<'static> {
         ActionContext {
@@ -190,40 +283,27 @@ mod tests {
         }
     }
 
+    fn body_units(text: &str) -> Arc<[Unit]> {
+        let mut units = Units::new();
+        units.push_body(UnitContent::text(text.to_string()));
+        units.into_shared()
+    }
+
     fn no_pii() -> ScanResult {
-        ScanResult {
-            detected: false,
-            kinds: vec![],
-            matches_count: 0,
-            redacted_body: None,
-            redacted_path: None,
-            redacted_query: None,
-            redacted_headers: None,
-        }
+        ScanResult::default()
     }
 
-    fn pii_with_redaction() -> ScanResult {
-        ScanResult {
-            detected: true,
-            kinds: vec!["EMAIL".into(), "US_SSN".into()],
-            matches_count: 2,
-            redacted_body: Some(Bytes::from("email: [EMAIL], ssn: [US_SSN]")),
-            redacted_path: None,
-            redacted_query: None,
-            redacted_headers: None,
-        }
+    /// Two spanned findings over `SAMPLE`, so redaction has something to do.
+    fn pii_with_spans() -> ScanResult {
+        ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "EMAIL", GUARD, Span::new(7, 23)),
+            Finding::spanned(UnitId(0), "US_SSN", GUARD, Span::new(30, 41)),
+        ])
     }
 
-    fn pii_no_redaction() -> ScanResult {
-        ScanResult {
-            detected: true,
-            kinds: vec!["EMAIL".into()],
-            matches_count: 1,
-            redacted_body: None,
-            redacted_path: None,
-            redacted_query: None,
-            redacted_headers: None,
-        }
+    /// A finding with no byte span — nothing for redaction to replace.
+    fn pii_without_spans() -> ScanResult {
+        ScanResult::new(vec![Finding::whole_unit(UnitId(0), "EMAIL", GUARD, 0.9)])
     }
 
     fn action_set(block: bool, redact: bool, header: bool) -> ActionSet {
@@ -237,6 +317,21 @@ mod tests {
         }
     }
 
+    fn run(
+        scan_result: &ScanResult,
+        units: &[Unit],
+        set: &ActionSet,
+        ctx: &ActionContext<'_>,
+    ) -> ActionOutcome {
+        execute(
+            scan_result,
+            units,
+            Some(&RedactWith::TypeLabel),
+            set,
+            ctx,
+        )
+    }
+
     // --- Pass: no PII always yields Pass regardless of actions ---
 
     #[test_case(false, false, false ; "empty actions")]
@@ -245,7 +340,8 @@ mod tests {
     #[test_case(false, false, true  ; "header configured")]
     #[test_case(true, true, true    ; "all configured")]
     fn no_pii_returns_pass(block: bool, redact: bool, header: bool) {
-        let outcome = execute(no_pii(), &action_set(block, redact, header), &ctx());
+        let units = body_units(SAMPLE);
+        let outcome = run(&no_pii(), &units, &action_set(block, redact, header), &ctx());
         assert!(matches!(outcome, ActionOutcome::Pass));
     }
 
@@ -256,8 +352,10 @@ mod tests {
     #[test_case(true, false, true  ; "block + header")]
     #[test_case(true, true, true   ; "block + redact + header")]
     fn block_takes_precedence(block: bool, redact: bool, header: bool) {
-        let outcome = execute(
-            pii_with_redaction(),
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
             &action_set(block, redact, header),
             &ctx(),
         );
@@ -266,8 +364,10 @@ mod tests {
 
     #[test]
     fn block_default_body_contains_kinds() {
-        let outcome = execute(
-            pii_with_redaction(),
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
             &action_set(true, false, false),
             &ctx(),
         );
@@ -293,7 +393,8 @@ mod tests {
             block_body: Some(r#"{"error": "policy"}"#.into()),
             block_headers: vec![("X-Blocked-By".into(), "voidwall".into())],
         };
-        let outcome = execute(pii_with_redaction(), &set, &ctx());
+        let units = body_units(SAMPLE);
+        let outcome = run(&pii_with_spans(), &units, &set, &ctx());
         if let ActionOutcome::Block {
             status,
             body,
@@ -312,22 +413,25 @@ mod tests {
 
     #[test]
     fn redact_forwards_redacted_body() {
-        let outcome = execute(
-            pii_with_redaction(),
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
             &action_set(false, true, false),
             &ctx(),
         );
         if let ActionOutcome::Forward {
             body,
             extra_headers,
-            ..
+            redacted,
         } = outcome
         {
             let body = body.unwrap();
             let text = std::str::from_utf8(&body).unwrap();
-            assert!(text.contains("[EMAIL]"));
-            assert!(text.contains("[US_SSN]"));
+            assert_eq!(text, "email: [EMAIL], ssn: [US_SSN]");
             assert!(extra_headers.is_empty());
+            assert_eq!(redacted.len(), 1);
+            assert_eq!(redacted[0].0, UnitId(0));
         } else {
             panic!("expected Forward");
         }
@@ -335,20 +439,101 @@ mod tests {
 
     #[test]
     fn redact_no_redacted_body_forwards_none() {
-        let outcome = execute(pii_no_redaction(), &action_set(false, true, false), &ctx());
-        if let ActionOutcome::Forward { body, .. } = outcome {
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_without_spans(),
+            &units,
+            &action_set(false, true, false),
+            &ctx(),
+        );
+        if let ActionOutcome::Forward { body, redacted, .. } = outcome {
             assert!(body.is_none());
+            assert!(redacted.is_empty());
         } else {
             panic!("expected Forward");
         }
+    }
+
+    #[test]
+    fn redact_reads_the_scanned_content_without_mutating_it() {
+        let units = body_units(SAMPLE);
+        let findings = pii_with_spans();
+        let replaced = redact_units(&units, findings.findings(), &RedactWith::TypeLabel);
+
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(&replaced[0].1[..], b"email: [EMAIL], ssn: [US_SSN]");
+        // The unit still holds what was scanned.
+        assert_eq!(units[0].content.source_str(), Some(SAMPLE));
+    }
+
+    #[test]
+    fn redact_char_mask_uses_the_kind_label_length() {
+        let units = body_units(SAMPLE);
+        let findings = pii_with_spans();
+        let replaced = redact_units(&units, findings.findings(), &RedactWith::Char('*'));
+        let text = std::str::from_utf8(&replaced[0].1).unwrap();
+        // EMAIL is 5 characters, US_SSN is 6.
+        assert_eq!(text, "email: *****, ssn: ******");
+    }
+
+    #[test]
+    fn redact_rewrites_each_unit_it_has_a_span_for() {
+        let mut units = Units::new();
+        units.push_body(UnitContent::text("body user@example.com".into()));
+        units.push_path("/users/other@example.com".into());
+        units.push_query("clean=1".into());
+        let units = units.into_shared();
+
+        let findings = vec![
+            Finding::spanned(UnitId(0), "EMAIL", GUARD, Span::new(5, 21)),
+            Finding::spanned(UnitId(1), "EMAIL", GUARD, Span::new(7, 24)),
+        ];
+        let replaced = redact_units(&units, &findings, &RedactWith::TypeLabel);
+
+        assert_eq!(replaced.len(), 2, "the clean query produces no entry");
+        assert_eq!(&replaced[0].1[..], b"body [EMAIL]");
+        assert_eq!(&replaced[1].1[..], b"/users/[EMAIL]");
+    }
+
+    #[test]
+    fn redact_leaves_a_structured_document_valid() {
+        let raw = Bytes::from_static(br#"{"phone":"555-123-4567"}"#);
+        let mut units = Units::new();
+        units.push_body(UnitContent::Structured {
+            fragments: Vec::new(),
+            raw,
+        });
+        let units = units.into_shared();
+
+        // Document-absolute span over the value, inside the quotes.
+        let findings = vec![Finding::spanned(
+            UnitId(0),
+            "US_PHONE_NUMBER",
+            GUARD,
+            Span::new(10, 22),
+        )];
+        let replaced = redact_units(&units, &findings, &RedactWith::TypeLabel);
+        let value: serde_json::Value = serde_json::from_slice(&replaced[0].1).unwrap();
+        assert_eq!(value["phone"], "[US_PHONE_NUMBER]");
+    }
+
+    #[test]
+    fn redact_skips_content_that_is_not_utf8() {
+        let mut units = Units::new();
+        units.push_body(UnitContent::PlainText(Bytes::from_static(&[0xff, 0xfe])));
+        let units = units.into_shared();
+        let findings = vec![Finding::spanned(UnitId(0), "EMAIL", GUARD, Span::new(0, 1))];
+        assert!(redact_units(&units, &findings, &RedactWith::TypeLabel).is_empty());
     }
 
     // --- Header ---
 
     #[test]
     fn header_adds_x_pii_detected() {
-        let outcome = execute(
-            pii_with_redaction(),
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
             &action_set(false, false, true),
             &ctx(),
         );
@@ -364,8 +549,7 @@ mod tests {
                 .unwrap()
                 .to_str()
                 .unwrap();
-            assert!(val.contains("EMAIL"));
-            assert!(val.contains("US_SSN"));
+            assert_eq!(val, "EMAIL,US_SSN");
         } else {
             panic!("expected Forward");
         }
@@ -375,7 +559,13 @@ mod tests {
 
     #[test]
     fn redact_and_header_combined() {
-        let outcome = execute(pii_with_redaction(), &action_set(false, true, true), &ctx());
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
+            &action_set(false, true, true),
+            &ctx(),
+        );
         if let ActionOutcome::Forward {
             body,
             extra_headers,
@@ -393,22 +583,109 @@ mod tests {
 
     #[test]
     fn pii_with_empty_actions_returns_forward() {
-        let outcome = execute(
-            pii_with_redaction(),
+        let units = body_units(SAMPLE);
+        let outcome = run(
+            &pii_with_spans(),
+            &units,
             &action_set(false, false, false),
             &ctx(),
         );
         if let ActionOutcome::Forward {
             body,
             extra_headers,
-            ..
+            redacted,
         } = outcome
         {
             assert!(body.is_none());
             assert!(extra_headers.is_empty());
+            assert!(redacted.is_empty());
         } else {
             panic!("expected Forward (metrics-only)");
         }
+    }
+
+    // --- Deterministic kind order ---
+
+    /// Findings arriving in a jumbled kind order, as two guards over one unit
+    /// would produce before the engine sorts them.
+    fn three_kinds() -> ScanResult {
+        ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "US_SSN", "guard_b", Span::new(0, 1)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_a", Span::new(2, 3)),
+            Finding::spanned(UnitId(0), "IBAN_CODE", "guard_b", Span::new(4, 5)),
+        ])
+    }
+
+    #[test]
+    fn block_body_names_the_kinds_in_sorted_order() {
+        let units = body_units(SAMPLE);
+        let outcome = run(&three_kinds(), &units, &action_set(true, false, false), &ctx());
+        let ActionOutcome::Block { body, .. } = outcome else {
+            panic!("expected Block");
+        };
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["kinds"],
+            serde_json::json!(["EMAIL", "IBAN_CODE", "US_SSN"])
+        );
+    }
+
+    #[test]
+    fn the_header_names_the_kinds_in_sorted_order() {
+        let units = body_units(SAMPLE);
+        let outcome = run(&three_kinds(), &units, &action_set(false, false, true), &ctx());
+        let ActionOutcome::Forward { extra_headers, .. } = outcome else {
+            panic!("expected Forward");
+        };
+        assert_eq!(
+            extra_headers.get("x-pii-detected").unwrap(),
+            "EMAIL,IBAN_CODE,US_SSN"
+        );
+    }
+
+    #[test]
+    fn the_same_content_scanned_twice_lists_the_kinds_the_same_way() {
+        let units = body_units(SAMPLE);
+        let body_of = || {
+            let outcome = run(&three_kinds(), &units, &action_set(true, false, false), &ctx());
+            match outcome {
+                ActionOutcome::Block { body, .. } => body,
+                _ => panic!("expected Block"),
+            }
+        };
+        assert_eq!(body_of(), body_of());
+    }
+
+    // --- Detection counter ---
+
+    #[test]
+    fn the_detection_counter_increments_once_per_kind() {
+        // A route label of its own, so a parallel test cannot move the counter
+        // under this one.
+        let ctx = ActionContext {
+            mode: "reverse_proxy",
+            route: "detections-once-per-kind",
+            direction: "request",
+        };
+        let counter = metrics::DETECTIONS_TOTAL.with_label_values(&[
+            "EMAIL",
+            ctx.mode,
+            ctx.route,
+            ctx.direction,
+        ]);
+        let before = counter.get();
+
+        // Four findings of one kind, from two different guards.
+        let result = ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "EMAIL", "guard_a", Span::new(0, 1)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_a", Span::new(2, 3)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_b", Span::new(4, 5)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_b", Span::new(6, 7)),
+        ]);
+        let units = body_units(SAMPLE);
+        run(&result, &units, &action_set(false, false, false), &ctx);
+
+        assert_eq!(counter.get(), before + 1);
     }
 
     // --- Direction contexts ---
@@ -423,7 +700,8 @@ mod tests {
             route,
             direction,
         };
-        let outcome = execute(pii_with_redaction(), &action_set(false, false, true), &ctx);
+        let units = body_units(SAMPLE);
+        let outcome = run(&pii_with_spans(), &units, &action_set(false, false, true), &ctx);
         assert!(matches!(outcome, ActionOutcome::Forward { .. }));
     }
 

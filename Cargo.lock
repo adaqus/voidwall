@@ -2393,6 +2393,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "csv",
+ "futures-util",
  "http-body-util",
  "hyper",
  "hyper-util",

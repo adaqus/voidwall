@@ -6,10 +6,10 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{AppConfig, HttpApiConfig, OnError, PiiConfig, RedactStrategy, ScanConfig};
 use voidwall::http_api;
-use voidwall::scanner::ScannerPool;
+use voidwall::engine::Engine;
 
 // ---------------------------------------------------------------------------
-// Shared scanner & helpers
+// Shared engine & helpers
 // ---------------------------------------------------------------------------
 
 fn default_pii_config() -> PiiConfig {
@@ -23,8 +23,8 @@ fn default_pii_config() -> PiiConfig {
     }
 }
 
-static SHARED_SCANNER: LazyLock<Arc<ScannerPool>> =
-    LazyLock::new(|| Arc::new(ScannerPool::new(&default_pii_config()).unwrap()));
+static SHARED_ENGINE: LazyLock<Arc<Engine>> =
+    LazyLock::new(|| Arc::new(Engine::new(&default_pii_config()).unwrap()));
 
 async fn wait_for_port(addr: SocketAddr) {
     for _ in 0..100 {
@@ -72,10 +72,10 @@ impl TestApi {
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
-        let scanner = SHARED_SCANNER.clone();
+        let engine = SHARED_ENGINE.clone();
 
         tokio::spawn(async move {
-            http_api::serve(&config, scanner, cancel_clone)
+            http_api::serve(&config, engine, cancel_clone)
                 .await
                 .unwrap();
         });
@@ -168,6 +168,73 @@ async fn scan_application_json_nested_keys_and_arrays() {
         .collect();
     assert!(kinds.contains(&"EMAIL".to_string()));
     assert!(kinds.contains(&"US_PHONE_NUMBER".to_string()));
+}
+
+/// The body holding two kinds, reused by the ordering tests below.
+const TWO_KIND_BODY: &str = r#"{"user":{"phone_number":"555-123-4567"},"email":"a@b.com"}"#;
+
+async fn post_json(api: &TestApi, path: &str) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(api.url(path))
+        .header("content-type", "application/json")
+        .body(TWO_KIND_BODY)
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn scan_kinds_are_sorted_and_stable_across_two_posts() {
+    let api = TestApi::start().await;
+
+    let read_kinds = async |api: &TestApi| -> Vec<String> {
+        let resp = post_json(api, "/v1/scan").await;
+        assert_eq!(resp.status(), 200);
+        let json: serde_json::Value = resp.json().await.unwrap();
+        json["kinds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    };
+
+    let first = read_kinds(&api).await;
+    let second = read_kinds(&api).await;
+
+    assert!(first.len() > 1, "expected several kinds, got {first:?}");
+    let mut sorted = first.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(first, sorted, "kinds must be sorted and hold each kind once");
+    assert_eq!(first, second, "two scans of one body must agree on the order");
+}
+
+#[tokio::test]
+async fn redact_detected_header_is_sorted_and_stable_across_two_posts() {
+    let api = TestApi::start().await;
+
+    let read_header = async |api: &TestApi| -> String {
+        let resp = post_json(api, "/v1/redact").await;
+        assert_eq!(resp.status(), 200);
+        resp.headers()
+            .get("x-pii-detected")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+
+    let first = read_header(&api).await;
+    let second = read_header(&api).await;
+
+    let kinds: Vec<&str> = first.split(',').collect();
+    assert!(kinds.len() > 1, "expected several kinds, got {first:?}");
+    let mut sorted = kinds.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(kinds, sorted, "kind names must be sorted and appear once each");
+    assert_eq!(first, second, "two redactions of one body must agree");
 }
 
 #[tokio::test]

@@ -10,8 +10,8 @@ use clap::Parser;
 use tokio_util::sync::CancellationToken;
 use voidwall::admin::{self, AdminState};
 use voidwall::config::{AppConfig, Cli};
+use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
-use voidwall::scanner::ScannerPool;
 use voidwall::validate;
 
 fn main() {
@@ -68,18 +68,18 @@ async fn run_server(config_path: std::path::PathBuf) {
 
     tracing::info!(config_path = %config_path.display(), "configuration loaded");
 
-    // Create ScannerPool
-    let scanner = match ScannerPool::new(&config.pii) {
-        Ok(s) => Arc::new(s),
+    // Build the detection engine and its guards
+    let engine = match Engine::new(&config.pii) {
+        Ok(e) => Arc::new(e),
         Err(e) => {
-            tracing::error!(error = %e, "failed to initialize scanner pool");
+            tracing::error!(error = %e, "failed to initialize detection engine");
             std::process::exit(1);
         }
     };
 
     tracing::info!(
         threads = config.pii.effective_scanner_threads(),
-        "scanner pool initialized"
+        "detection engine initialized"
     );
 
     // Set up cancellation token and readiness signal
@@ -108,10 +108,10 @@ async fn run_server(config_path: std::path::PathBuf) {
     // Reverse proxy (if enabled)
     if config.reverse_proxy.enabled {
         let config = config.clone();
-        let scanner = Arc::clone(&scanner);
+        let engine = Arc::clone(&engine);
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = reverse_proxy::serve(&config, scanner, cancel).await {
+            if let Err(e) = reverse_proxy::serve(&config, engine, cancel).await {
                 tracing::error!(error = %e, "reverse proxy failed");
             }
         }));
@@ -126,10 +126,10 @@ async fn run_server(config_path: std::path::PathBuf) {
     // HTTP API (if enabled)
     if config.http_api.enabled {
         let config = config.clone();
-        let scanner = Arc::clone(&scanner);
+        let engine = Arc::clone(&engine);
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = voidwall::http_api::serve(&config, scanner, cancel).await {
+            if let Err(e) = voidwall::http_api::serve(&config, engine, cancel).await {
                 tracing::error!(error = %e, "HTTP API failed");
             }
         }));
@@ -174,12 +174,12 @@ async fn run_server(config_path: std::path::PathBuf) {
         );
     }
 
-    // Shutdown scanner pool — drain channel, join threads
-    match Arc::try_unwrap(scanner) {
-        Ok(mut pool) => pool.shutdown(),
-        Err(_) => {
-            tracing::warn!("scanner pool still referenced, dropping without explicit shutdown")
-        }
+    // Release the detection engine. Every listener task has finished, so this
+    // is the last reference: dropping the engine drops each guard, and a
+    // guard's scanner pool joins every thread on its way out.
+    match Arc::into_inner(engine) {
+        Some(engine) => engine.shutdown(),
+        None => tracing::info!("detection engine released to its remaining holders"),
     }
 
     tracing::info!("shutdown complete");

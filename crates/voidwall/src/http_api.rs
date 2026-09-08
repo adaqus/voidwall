@@ -14,12 +14,13 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::warn;
 use utoipa::{OpenApi, ToSchema};
 
+use crate::action;
 use crate::config::{AppConfig, HttpApiConfig, OnError, ScanConfig};
+use crate::engine::{BlockPolicy, Engine, ScanResult, Units};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::{
-    RedactWith, SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, ScanRequest, ScannerPool,
-    classify_body, to_redact_with,
+    RedactWith, SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, classify_body, to_redact_with,
 };
 
 const MODE: &str = "http_api";
@@ -31,7 +32,7 @@ const ROUTE: &str = "global";
 
 #[derive(Clone)]
 pub struct ApiState {
-    scanner: Arc<ScannerPool>,
+    engine: Arc<Engine>,
     scan: ScanConfig,
     redact_strategy: Option<RedactWith>,
     max_body_size: usize,
@@ -42,7 +43,7 @@ pub struct ApiState {
 // Router & server
 // ---------------------------------------------------------------------------
 
-pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ApiState {
+pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ApiState {
     let api: &HttpApiConfig = &config.http_api;
     let redact_strategy = api
         .redact_strategy
@@ -51,7 +52,7 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ApiState {
     let openapi_spec = build_openapi_spec();
 
     ApiState {
-        scanner,
+        engine,
         scan: config.scan.clone(),
         redact_strategy,
         max_body_size: config.scan.max_body_size,
@@ -84,10 +85,10 @@ pub fn router(state: ApiState) -> Router {
 
 pub async fn serve(
     config: &AppConfig,
-    scanner: Arc<ScannerPool>,
+    engine: Arc<Engine>,
     cancel: CancellationToken,
 ) -> Result<(), Error> {
-    let state = build_state(config, scanner);
+    let state = build_state(config, engine);
     let app = router(state);
     let listener = TcpListener::bind(&config.http_api.listen).await?;
     tracing::info!(listen = %config.http_api.listen, "HTTP API started");
@@ -430,16 +431,18 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes, mode: Mode) -
     };
 
     let want_redact = matches!(mode, Mode::Redact) && state.redact_strategy.is_some();
-    let scan_req = ScanRequest {
-        body: Some(body_format),
-        path: None,
-        query: None,
-        headers: None,
-        redact: want_redact,
-        redact_strategy: state.redact_strategy.clone(),
-    };
 
-    let scan_result = match state.scanner.process(scan_req, state.scan.on_error).await {
+    // The API scans the body and nothing else, so the message is one unit.
+    // Neither route blocks, so the engine never short-circuits here.
+    let mut units = Units::new();
+    let body_unit = units.push_body(body_format);
+    let units = units.into_shared();
+
+    let scan_result = match state
+        .engine
+        .guard(Arc::clone(&units), BlockPolicy::Never, state.scan.on_error)
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
@@ -449,23 +452,35 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes, mode: Mode) -
         }
     };
 
+    let kinds = scan_result.kinds();
+
     // Always increment detection metrics when PII is detected.
-    if scan_result.detected {
-        for kind in &scan_result.kinds {
-            metrics::inc_detection(kind, MODE, ROUTE, "request");
-        }
+    for kind in &kinds {
+        metrics::inc_detection(kind, MODE, ROUTE, "request");
     }
 
     let resp = match mode {
-        Mode::Scan => build_scan_response(&scan_result),
+        Mode::Scan => build_scan_response(&scan_result, &kinds),
         Mode::Redact => {
+            // Redaction is an action: the findings say what to replace, and
+            // `action::redact_units` does the replacing for this route exactly
+            // as it does for a proxy mode.
+            let redacted_body = match state.redact_strategy.as_ref() {
+                Some(strategy) if want_redact => {
+                    action::redact_units(&units, scan_result.findings(), strategy)
+                        .into_iter()
+                        .find(|(id, _)| *id == body_unit)
+                        .map(|(_, bytes)| bytes)
+                }
+                _ => None,
+            };
             // Increment redaction metrics for kinds we replaced.
-            if want_redact && scan_result.redacted_body.is_some() {
-                for kind in &scan_result.kinds {
+            if redacted_body.is_some() {
+                for kind in &kinds {
                     metrics::inc_redacted(kind, MODE, ROUTE, "request");
                 }
             }
-            build_redact_response(&scan_result, &content_type, body)
+            build_redact_response(&scan_result, &kinds, redacted_body, &content_type, body)
         }
     };
 
@@ -473,27 +488,29 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes, mode: Mode) -
     resp
 }
 
-fn build_scan_response(scan_result: &crate::scanner::ScanResult) -> Response {
+fn build_scan_response(scan_result: &ScanResult, kinds: &[String]) -> Response {
     let payload = ScanResponse {
-        detected: scan_result.detected,
-        matches_count: scan_result.matches_count,
-        kinds: scan_result.kinds.clone(),
+        detected: scan_result.detected(),
+        matches_count: scan_result.matches_count(),
+        kinds: kinds.to_vec(),
     };
     let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
     (StatusCode::OK, [("content-type", "application/json")], body).into_response()
 }
 
 fn build_redact_response(
-    scan_result: &crate::scanner::ScanResult,
+    scan_result: &ScanResult,
+    kinds: &[String],
+    redacted_body: Option<Bytes>,
     content_type: &str,
     original_body: Bytes,
 ) -> Response {
-    let body = scan_result.redacted_body.clone().unwrap_or(original_body);
-    let count = if scan_result.redacted_body.is_some() {
-        scan_result.matches_count
+    let count = if redacted_body.is_some() {
+        scan_result.matches_count()
     } else {
         0
     };
+    let body = redacted_body.unwrap_or(original_body);
 
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = StatusCode::OK;
@@ -502,8 +519,8 @@ fn build_redact_response(
     if let Ok(v) = HeaderValue::from_str(content_type) {
         response_headers.insert(axum::http::header::CONTENT_TYPE, v);
     }
-    if !scan_result.kinds.is_empty()
-        && let Ok(v) = HeaderValue::from_str(&scan_result.kinds.join(","))
+    if !kinds.is_empty()
+        && let Ok(v) = HeaderValue::from_str(&kinds.join(","))
     {
         response_headers.insert(HeaderName::from_static("x-pii-detected"), v);
     }

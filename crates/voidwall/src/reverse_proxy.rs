@@ -18,8 +18,9 @@ use crate::action::{self, ActionContext, ActionOutcome, ActionSet};
 use crate::config::{AppConfig, OnError, ScanConfig};
 use crate::error::Error;
 use crate::metrics;
+use crate::engine::{BlockPolicy, Engine, Unit, UnitContent, UnitKind, Units};
 use crate::scanner::SCANNER_ERROR_LIMITER;
-use crate::scanner::{BodyFormat, ScanRequest, ScannerPool, classify_body};
+use crate::scanner::classify_body;
 
 // ---------------------------------------------------------------------------
 // Hop-by-hop headers to strip when proxying
@@ -58,7 +59,7 @@ struct ResolvedRoute {
 pub struct ReverseProxyState {
     routes: Arc<Vec<ResolvedRoute>>,
     clients: Arc<HashMap<String, Client<hyper_util::client::legacy::connect::HttpConnector, Body>>>,
-    scanner: Arc<ScannerPool>,
+    engine: Arc<Engine>,
     request_actions: ActionSet,
     response_actions: ActionSet,
     request_redact_strategy: Option<crate::scanner::RedactWith>,
@@ -70,7 +71,7 @@ pub struct ReverseProxyState {
 // ---------------------------------------------------------------------------
 
 /// Build the reverse proxy state from configuration.
-pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProxyState {
+pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState {
     let rp = &config.reverse_proxy;
 
     let request_actions = ActionSet::from_direction_config(&rp.request);
@@ -116,7 +117,7 @@ pub fn build_state(config: &AppConfig, scanner: Arc<ScannerPool>) -> ReverseProx
     ReverseProxyState {
         routes: Arc::new(routes),
         clients: Arc::new(clients),
-        scanner,
+        engine,
         request_actions,
         response_actions,
         request_redact_strategy,
@@ -132,10 +133,10 @@ pub fn router(state: ReverseProxyState) -> Router {
 /// Start the reverse proxy server.
 pub async fn serve(
     config: &AppConfig,
-    scanner: Arc<ScannerPool>,
+    engine: Arc<Engine>,
     cancel: CancellationToken,
 ) -> Result<(), Error> {
-    let state = build_state(config, scanner);
+    let state = build_state(config, engine);
     let app = router(state);
     let listener = TcpListener::bind(&config.reverse_proxy.listen).await?;
     tracing::info!(listen = %config.reverse_proxy.listen, "reverse proxy started");
@@ -228,7 +229,7 @@ async fn handle_proxied_request(
             && is_content_type_allowed(&headers, &scan_config.content_types);
 
         match scan_and_act(
-            &state.scanner,
+            &state.engine,
             scan_config,
             &state.request_actions,
             state.request_redact_strategy.clone(),
@@ -338,7 +339,7 @@ async fn handle_proxied_request(
             && is_content_type_allowed(&resp_headers, &scan_config.content_types);
 
         match scan_and_act_response(
-            &state.scanner,
+            &state.engine,
             scan_config,
             &state.response_actions,
             state.response_redact_strategy.clone(),
@@ -411,7 +412,7 @@ enum PipelineResult {
 /// Scan request direction and execute actions.
 #[allow(clippy::too_many_arguments)]
 async fn scan_and_act(
-    scanner: &ScannerPool,
+    engine: &Engine,
     scan_config: &ScanConfig,
     action_set: &ActionSet,
     redact_strategy: Option<crate::scanner::RedactWith>,
@@ -425,56 +426,46 @@ async fn scan_and_act(
         Err(resp) => return *resp,
     };
 
-    // URL path and query are scanned separately (not merged into one string)
+    let mut units = Units::new();
+    if let Some(content) = scan_body {
+        units.push_body(content);
+    }
+
+    // URL path and query become separate units (not one merged string)
     // because: (1) each can be independently enabled via config, (2) redaction
     // rewrites offsets within each string — a combined string would require
     // tracking the `?` boundary to split back into path and query for URI
-    // reconstruction, and (3) these strings are tiny so the extra scan call
-    // has negligible cost compared to body scanning.
-    let scan_path = if scan_config.url_path {
-        Some(uri.path().to_string())
-    } else {
-        None
-    };
-
-    let scan_query = if scan_config.query_params {
-        uri.query().map(|q| q.to_string())
-    } else {
-        None
-    };
-
-    let scan_headers = collect_scan_headers(scan_config, headers);
-
-    if scan_body.is_none() && scan_path.is_none() && scan_query.is_none() && scan_headers.is_none()
+    // reconstruction, and (3) these strings are tiny so the extra work has
+    // negligible cost compared to body scanning.
+    if scan_config.url_path {
+        units.push_path(uri.path().to_string());
+    }
+    if scan_config.query_params
+        && let Some(query) = uri.query()
     {
+        units.push_query(query.to_string());
+    }
+    push_scan_headers(&mut units, scan_config, headers);
+
+    if units.is_empty() {
         return PipelineResult::Pass;
     }
 
-    let scan_req = ScanRequest {
-        body: scan_body,
-        path: scan_path,
-        query: scan_query,
-        headers: scan_headers,
-        redact: action_set.redact,
+    run_engine(
+        engine,
+        units,
+        scan_config,
+        action_set,
         redact_strategy,
-    };
-
-    let scan_result = match scanner.process(scan_req, scan_config.on_error).await {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
-                warn!(dropped, error = %e, "scanner error");
-            }
-            return handle_scan_error(e, scan_config.on_error);
-        }
-    };
-
-    pipeline_result_from_outcome(action::execute(scan_result, action_set, ctx))
+        ctx,
+        "scanner error",
+    )
+    .await
 }
 
 /// Scan response direction and execute actions.
 async fn scan_and_act_response(
-    scanner: &ScannerPool,
+    engine: &Engine,
     scan_config: &ScanConfig,
     action_set: &ActionSet,
     redact_strategy: Option<crate::scanner::RedactWith>,
@@ -486,32 +477,72 @@ async fn scan_and_act_response(
         Ok(b) => b,
         Err(resp) => return *resp,
     };
-    let scan_headers = collect_scan_headers(scan_config, headers);
 
-    if scan_body.is_none() && scan_headers.is_none() {
+    let mut units = Units::new();
+    if let Some(content) = scan_body {
+        units.push_body(content);
+    }
+    push_scan_headers(&mut units, scan_config, headers);
+
+    if units.is_empty() {
         return PipelineResult::Pass;
     }
 
-    let scan_req = ScanRequest {
-        body: scan_body,
-        path: None,
-        query: None,
-        headers: scan_headers,
-        redact: action_set.redact,
+    run_engine(
+        engine,
+        units,
+        scan_config,
+        action_set,
         redact_strategy,
+        ctx,
+        "scanner error on response",
+    )
+    .await
+}
+
+/// Hand the units to the engine and run the action pipeline over what it
+/// found. Shared by both directions — they differ only in which units they
+/// build and how a scanner failure is logged.
+async fn run_engine(
+    engine: &Engine,
+    units: Units,
+    scan_config: &ScanConfig,
+    action_set: &ActionSet,
+    redact_strategy: Option<crate::scanner::RedactWith>,
+    ctx: &ActionContext<'_>,
+    error_message: &'static str,
+) -> PipelineResult {
+    let units = units.into_shared();
+
+    // A configured block action means any finding ends the message, so the
+    // engine may stop as soon as one arrives.
+    let policy = if action_set.block {
+        BlockPolicy::AnyFinding
+    } else {
+        BlockPolicy::Never
     };
 
-    let scan_result = match scanner.process(scan_req, scan_config.on_error).await {
+    let scan_result = match engine
+        .guard(Arc::clone(&units), policy, scan_config.on_error)
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
-                warn!(dropped, error = %e, "scanner error on response");
+                warn!(dropped, error = %e, "{error_message}");
             }
             return handle_scan_error(e, scan_config.on_error);
         }
     };
 
-    pipeline_result_from_outcome(action::execute(scan_result, action_set, ctx))
+    let outcome = action::execute(
+        &scan_result,
+        &units,
+        redact_strategy.as_ref(),
+        action_set,
+        ctx,
+    );
+    pipeline_result_from_outcome(outcome, &units)
 }
 
 /// Classify the body bytes into a `BodyFormat` based on Content-Type, applying
@@ -526,7 +557,7 @@ fn classify_scan_body(
     body: Option<&Bytes>,
     headers: &HeaderMap,
     on_error: OnError,
-) -> Result<Option<BodyFormat>, Box<PipelineResult>> {
+) -> Result<Option<UnitContent>, Box<PipelineResult>> {
     let Some(bytes) = body else {
         return Ok(None);
     };
@@ -539,7 +570,7 @@ fn classify_scan_body(
         Err(_) => match on_error {
             OnError::FailOpen => {
                 metrics::inc_error("passed", "body_parse_failed");
-                Ok(Some(BodyFormat::PlainText(bytes.clone())))
+                Ok(Some(UnitContent::PlainText(bytes.clone())))
             }
             OnError::FailClose => {
                 metrics::inc_error("blocked", "body_parse_failed");
@@ -551,26 +582,29 @@ fn classify_scan_body(
     }
 }
 
-fn collect_scan_headers(
-    scan_config: &ScanConfig,
-    headers: &HeaderMap,
-) -> Option<Vec<(String, String)>> {
-    if scan_config.headers.is_empty() {
-        return None;
-    }
-    let mut h = Vec::new();
+/// Append one unit per configured header that is present and readable.
+fn push_scan_headers(units: &mut Units, scan_config: &ScanConfig, headers: &HeaderMap) {
     for header_name in &scan_config.headers {
         if let Ok(name) = header_name.parse::<HeaderName>()
             && let Some(value) = headers.get(&name)
             && let Ok(v) = value.to_str()
         {
-            h.push((header_name.clone(), v.to_string()));
+            units.push_header(header_name.clone(), v.to_string());
         }
     }
-    if h.is_empty() { None } else { Some(h) }
 }
 
-fn pipeline_result_from_outcome(outcome: ActionOutcome) -> PipelineResult {
+/// Unpack the action outcome into the shape the handler forwards.
+///
+/// The redact action returns replacement bytes keyed by unit; the handler
+/// rebuilds the URI from a path and a query and inserts headers by name, so
+/// the map is unpacked back into those three fields here. `PipelineResult`
+/// therefore keeps its shape and the handler is unchanged.
+///
+/// Only the headers that were rewritten appear in the map, where the scanner
+/// used to return every scanned header. `apply_redacted_headers` inserts one
+/// entry at a time, so the forwarded message is identical either way.
+fn pipeline_result_from_outcome(outcome: ActionOutcome, units: &[Unit]) -> PipelineResult {
     match outcome {
         ActionOutcome::Block {
             status,
@@ -586,16 +620,47 @@ fn pipeline_result_from_outcome(outcome: ActionOutcome) -> PipelineResult {
         ActionOutcome::Forward {
             body,
             extra_headers,
-            scan_result,
-        } => PipelineResult::Forward {
-            body,
-            extra_headers,
-            redacted_path: scan_result.redacted_path,
-            redacted_query: scan_result.redacted_query,
-            redacted_headers: scan_result.redacted_headers,
-        },
+            redacted,
+        } => {
+            let mut redacted_path = None;
+            let mut redacted_query = None;
+            let mut redacted_headers: Option<Vec<(String, String)>> = None;
+
+            for (id, bytes) in redacted {
+                let Some(unit) = units.get(id.index()) else {
+                    continue;
+                };
+                match unit.kind {
+                    // The body travels as `body`, already extracted.
+                    UnitKind::Body => {}
+                    UnitKind::UrlPath => redacted_path = string_of(&bytes),
+                    UnitKind::QueryString => redacted_query = string_of(&bytes),
+                    UnitKind::HeaderValue => {
+                        if let (Some(name), Some(value)) = (unit.label.clone(), string_of(&bytes)) {
+                            redacted_headers
+                                .get_or_insert_with(Vec::new)
+                                .push((name, value));
+                        }
+                    }
+                }
+            }
+
+            PipelineResult::Forward {
+                body,
+                extra_headers,
+                redacted_path,
+                redacted_query,
+                redacted_headers,
+            }
+        }
         ActionOutcome::Pass => PipelineResult::Pass,
     }
+}
+
+/// Replacement bytes as text. A redaction only ever rewrites UTF-8 content, so
+/// this holds; a failure drops that one replacement rather than the message.
+fn string_of(bytes: &Bytes) -> Option<String> {
+    std::str::from_utf8(bytes).ok().map(str::to_owned)
 }
 
 fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
@@ -828,37 +893,93 @@ mod tests {
 
     #[test]
     fn pipeline_pass() {
-        let result = pipeline_result_from_outcome(ActionOutcome::Pass);
+        let result = pipeline_result_from_outcome(ActionOutcome::Pass, &[]);
         assert!(matches!(result, PipelineResult::Pass));
     }
 
     #[test]
     fn pipeline_block() {
-        let result = pipeline_result_from_outcome(ActionOutcome::Block {
-            status: 403,
-            body: Bytes::from("blocked"),
-            headers: HeaderMap::new(),
-        });
+        let result = pipeline_result_from_outcome(
+            ActionOutcome::Block {
+                status: 403,
+                body: Bytes::from("blocked"),
+                headers: HeaderMap::new(),
+            },
+            &[],
+        );
         assert!(matches!(result, PipelineResult::Block(_)));
     }
 
+    /// The one unit set the unpacking test needs: a body, a path, a query, and
+    /// one header, in the order `scan_and_act` builds them.
+    fn pipeline_units() -> std::sync::Arc<[Unit]> {
+        let mut units = Units::new();
+        units.push_body(UnitContent::text("body".into()));
+        units.push_path("/users/x".into());
+        units.push_query("q=x".into());
+        units.push_header("Authorization".into(), "Bearer x".into());
+        units.into_shared()
+    }
+
     #[test]
-    fn pipeline_forward() {
-        use crate::scanner::ScanResult;
-        let result = pipeline_result_from_outcome(ActionOutcome::Forward {
-            body: Some(Bytes::from("redacted")),
-            extra_headers: HeaderMap::new(),
-            scan_result: ScanResult {
-                detected: true,
-                kinds: vec!["EMAIL".into()],
-                matches_count: 1,
-                redacted_body: Some(Bytes::from("redacted")),
-                redacted_path: None,
-                redacted_query: None,
-                redacted_headers: None,
+    fn pipeline_forward_unpacks_the_replacement_map() {
+        let units = pipeline_units();
+        let result = pipeline_result_from_outcome(
+            ActionOutcome::Forward {
+                body: Some(Bytes::from("redacted")),
+                extra_headers: HeaderMap::new(),
+                redacted: vec![
+                    (units[0].id, Bytes::from("redacted")),
+                    (units[1].id, Bytes::from("/users/[EMAIL]")),
+                    (units[2].id, Bytes::from("q=[EMAIL]")),
+                    (units[3].id, Bytes::from("Bearer [EMAIL]")),
+                ],
             },
-        });
-        assert!(matches!(result, PipelineResult::Forward { .. }));
+            &units,
+        );
+
+        let PipelineResult::Forward {
+            body,
+            redacted_path,
+            redacted_query,
+            redacted_headers,
+            ..
+        } = result
+        else {
+            panic!("expected Forward");
+        };
+        assert_eq!(body, Some(Bytes::from("redacted")));
+        assert_eq!(redacted_path.as_deref(), Some("/users/[EMAIL]"));
+        assert_eq!(redacted_query.as_deref(), Some("q=[EMAIL]"));
+        assert_eq!(
+            redacted_headers,
+            Some(vec![("Authorization".into(), "Bearer [EMAIL]".into())])
+        );
+    }
+
+    #[test]
+    fn pipeline_forward_with_nothing_redacted() {
+        let units = pipeline_units();
+        let result = pipeline_result_from_outcome(
+            ActionOutcome::Forward {
+                body: None,
+                extra_headers: HeaderMap::new(),
+                redacted: Vec::new(),
+            },
+            &units,
+        );
+        let PipelineResult::Forward {
+            redacted_path,
+            redacted_query,
+            redacted_headers,
+            ..
+        } = result
+        else {
+            panic!("expected Forward");
+        };
+        assert!(redacted_path.is_none());
+        assert!(redacted_query.is_none());
+        assert!(redacted_headers.is_none());
     }
 
     // --- Header helpers ---
@@ -893,7 +1014,7 @@ mod tests {
     // --- Scan header collection ---
 
     #[test]
-    fn collect_scan_headers_picks_configured() {
+    fn push_scan_headers_picks_configured() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
         headers.insert("x-safe", "clean".parse().unwrap());
@@ -903,17 +1024,22 @@ mod tests {
             ..ScanConfig::default()
         };
 
-        let collected = collect_scan_headers(&scan_config, &headers);
-        let collected = collected.unwrap();
-        assert_eq!(collected.len(), 1);
-        assert_eq!(collected[0].0, "Authorization");
-        assert_eq!(collected[0].1, "Bearer token");
+        let mut units = Units::new();
+        push_scan_headers(&mut units, &scan_config, &headers);
+        let units = units.into_shared();
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].kind, UnitKind::HeaderValue);
+        assert_eq!(units[0].label.as_deref(), Some("Authorization"));
+        assert_eq!(units[0].content.source_str(), Some("Bearer token"));
     }
 
     #[test]
-    fn collect_scan_headers_empty_config() {
+    fn push_scan_headers_empty_config() {
         let headers = HeaderMap::new();
         let scan_config = ScanConfig::default();
-        assert!(collect_scan_headers(&scan_config, &headers).is_none());
+        let mut units = Units::new();
+        push_scan_headers(&mut units, &scan_config, &headers);
+        assert!(units.is_empty());
     }
 }

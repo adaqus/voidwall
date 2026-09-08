@@ -1,6 +1,7 @@
 pub mod action;
 pub mod admin;
 pub mod config;
+pub mod engine;
 pub mod error;
 pub mod forward_proxy;
 pub mod http_api;
