@@ -117,17 +117,6 @@ one SHALL use the mode defaults.
 - **WHEN** a route declares `scan`
 - **THEN** that route uses it alone, with no merge against the mode defaults
 
-### Requirement: A route may name a specialization
-
-A route MAY name a built-in specialization. It SHALL then own the query and body
-decoding for that route. Config validation rejects an unknown name, so lookup at
-startup always resolves.
-
-#### Scenario: Route names a specialization
-
-- **WHEN** a route names `ga4`
-- **THEN** that specialization decodes the query and the body for the route
-
 ### Requirement: Every request records metrics
 
 The proxy SHALL record a request metric carrying the mode, the route, the method, and

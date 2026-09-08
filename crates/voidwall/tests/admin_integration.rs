@@ -100,3 +100,38 @@ async fn metrics_endpoint_returns_prometheus_format() {
 
     cancel.cancel();
 }
+
+#[tokio::test]
+async fn metrics_endpoint_carries_no_specialization_surface() {
+    let (addr, _, cancel) = start_admin(true).await;
+
+    // Force a detection sample so the counter family is emitted.
+    voidwall::metrics::inc_detection("Email", "http_api", "global", "request");
+
+    let resp = reqwest::get(format!("http://{addr}/metrics"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+
+    assert!(
+        !body.contains("voidwall_specialization_errors_total"),
+        "the retired specialization error family must not be registered"
+    );
+    let detection_samples: Vec<&str> = body
+        .lines()
+        .filter(|l| l.starts_with("voidwall_pii_detections_total{"))
+        .collect();
+    assert!(
+        !detection_samples.is_empty(),
+        "expected at least one detection sample"
+    );
+    for sample in detection_samples {
+        assert!(
+            !sample.contains("specialization"),
+            "detection sample must carry no specialization label: {sample}"
+        );
+    }
+
+    cancel.cancel();
+}

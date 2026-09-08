@@ -7,7 +7,7 @@ not covered here. It lives in `ARCHITECTURE.md`, because the code does not enfor
 
 ## Requirements
 
-### Requirement: A PII value never reaches a log
+### Requirement: A log line never carries a PII value
 
 The proxy SHALL log the PII kind name and the match count only. No log line, at any
 level, SHALL carry matched text, a body fragment, or a redaction input.
@@ -17,16 +17,15 @@ level, SHALL carry matched text, a body fragment, or a redaction input.
 - **WHEN** the proxy logs a detection
 - **THEN** the line names the kind and the count and carries no matched text
 
-#### Scenario: A specialization fails to decode
+#### Scenario: A scan failure is logged
 
-- **WHEN** the proxy logs a specialization decode failure
-- **THEN** the line names the specialization and the reason and carries no payload
+- **WHEN** the proxy logs a scan failure
+- **THEN** the line names the reason and carries no payload
 
 ### Requirement: A PII value never reaches a metric
 
 Every metric label SHALL hold a kind name, a mode, a route, a direction, a method, a
-status, a specialization, an outcome, or a reason. No label SHALL ever hold a matched
-value.
+status, an outcome, or a reason. No label SHALL ever hold a matched value.
 
 #### Scenario: A detection increments a counter
 

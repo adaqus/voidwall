@@ -64,15 +64,6 @@ evaluation against fabricated ground truth. It inflates false positives.
 - Unit-test both directions: a Luhn-failing card matches when the flag is off, and the
   default stays `true` when `[pii]` is absent.
 
-### 1.4 Matomo legacy `/piwik.php` alias — history § 16.4
-
-`/piwik.php` needs the same handling as `/matomo.php`. Route config selects the
-specialization, so this is an operator concern. Record it in `docs/specializations.md`.
-
-### 1.5 Specialization wiring for the forward proxy — history § 16.8
-
-Blocked. It needs § 1.2 first.
-
 ---
 
 ## 2. Test gaps
@@ -121,9 +112,6 @@ Cleanup:
 
 ## 4. Documentation
 
-- `docs/specializations.md` — written during the OpenSpec migration. It carries the
-  GA4 and Matomo field reference. Still to do: cross-link it from the HTTP API
-  reference, and update the demo walkthrough. History § 16.11.
 - `docs/ai4privacy-eval.md` — dataset acquisition, scoring, and the caveats.
   History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,

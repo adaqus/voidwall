@@ -13,7 +13,7 @@ benches/run.sh baseline                                 # run only "baseline"
 benches/run.sh action_comparison body_size_scaling       # run two scenarios
 ```
 
-Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`, `structured_scanning`, `http_api`, `ga4_g_collect`, `ga4_mp_collect`, `matomo_specialization`.
+Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`, `structured_scanning`, `http_api`.
 
 This generates test payloads if missing, builds release binaries, starts the echo server and proxy for each scenario, runs k6, and prints a summary table. Results are saved to `benches/results/`.
 
@@ -71,9 +71,6 @@ k6 run -e DURATION=10s -e VUS=100 benches/k6/action_comparison.js
 | `scanner_thread_scaling.js`| `scanner_threads_{1,2,4,8}.toml`       | Effect of scanner thread count          |
 | `structured_scanning.js`   | `reverse_proxy_redact.toml`            | Throughput on nested JSON & 100-row CSV |
 | `http_api.js`              | `http_api.toml`                        | `/v1/scan` vs `/v1/redact` across text/json/csv & 3 sizes |
-| `ga4_g_collect.js`         | `reverse_proxy_ga4.toml`               | GA4 browser tracker: form-encoded POST to `/g/collect` covering the short-key allowlist |
-| `ga4_mp_collect.js`        | `reverse_proxy_ga4.toml`               | GA4 server-side Measurement Protocol: JSON body to `/mp/collect` covering the MP allowlist |
-| `matomo_specialization.js` | `reverse_proxy_matomo.toml`            | Matomo tracker hit: custom event + content tracking + email `uid` |
 
 For action comparison and scanner thread scaling, `run.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
 

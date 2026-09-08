@@ -130,23 +130,6 @@ number of redactions, and SHALL set it to `0` when there are none.
 - **WHEN** the API detects nothing
 - **THEN** `X-PII-Detected` is absent and `X-PII-Redacted-Count` is 0
 
-### Requirement: A specialization can be selected per request
-
-An optional `?specialization=<name>` query parameter SHALL select a built-in
-specialization. It SHALL then own the parsing, the field selection, and the
-re-encoding, and content-type routing SHALL be bypassed. An unknown name SHALL return
-400. Omitting the parameter SHALL keep content-type routing.
-
-#### Scenario: Known specialization is named
-
-- **WHEN** a client posts with `?specialization=` naming a built-in specialization
-- **THEN** that specialization parses the body instead of the content-type router
-
-#### Scenario: Unknown specialization is named
-
-- **WHEN** a client posts with `?specialization=` naming an unknown value
-- **THEN** the API returns 400
-
 ### Requirement: Custom PII labels surface in the results
 
 An operator-defined label from `[[pii.custom]]` SHALL appear in the `kinds` array of

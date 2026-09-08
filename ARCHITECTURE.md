@@ -84,7 +84,7 @@ a NetworkPolicy.
 ### Modules
 
 `config`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`, `admin`,
-`metrics`, `specialization`, `structured`, `tls`, `validate`, `error`.
+`metrics`, `structured`, `tls`, `validate`, `error`.
 
 `forward_proxy` and `tls` are empty files. See § 7.
 
@@ -105,8 +105,7 @@ a NetworkPolicy.
    list.
 
 Each stage has one job, and the boundary between stages is a plain data type. That is
-why a specialization can replace stages 3 through 6 for one route without touching the
-rest.
+why a stage can change without touching the rest.
 
 ---
 
@@ -169,34 +168,7 @@ different segment next to the separator. The common case resolves on the first.
 Fragment offsets are document-absolute, so redaction can rewrite the original bytes
 and keep the document valid.
 
-### 4.4 Specializations own their codec
-
-Two failures that flat scanning cannot fix drove this.
-
-First, encoding. Writing `[EMAIL]` into a form-encoded body should write `%5BEMAIL%5D`.
-Writing it into a URL that is itself a URL parameter needs encoding twice. Byte-level
-redaction cannot know how many layers it sits under.
-
-Second, relevance. An analytics call is mostly opaque identifiers. They look enough
-like PII to raise false positives, and they are not PII an operator can act on.
-
-A specialization therefore owns the full decode, scan, and encode loop for one wire
-format. It declares which fields can carry PII and scans only those. It never sees a
-raw byte offset, which removes a whole class of offset-remapping bugs.
-
-Selection is always explicit. There is no sniffing from the path, the User-Agent, or
-the payload shape. Guessing wrong in either direction is worse than making the
-operator declare intent.
-
-A specialization replaces query and body scanning only. The URL path and the request
-headers stay with the default scanner, because the analytics platform owns its own
-parameters but does not own the request envelope.
-
-A decode failure falls back to raw scanning and the request completes. It does not
-consult `on_error`, because nothing was lost — the scan still happened. `on_error`
-stays reserved for a real scanner failure or a limit violation.
-
-### 4.5 Names need a dictionary, not a pattern
+### 4.4 Names need a dictionary, not a pattern
 
 Keyword-gated regex has poor recall on values drawn from a finite vocabulary. Person
 names are the case: recall sat between 12% and 38%. There is no format to match,
@@ -223,7 +195,7 @@ proxy resolves the union anyway. It matters for `has_piis`, which short-circuits
 cheap single-pass detectors should get first look, and the tokenisation-heavy one
 should be skipped when something cheaper already matched.
 
-### 4.6 An invalid config stops the start
+### 4.5 An invalid config stops the start
 
 There is no "skip the bad entries and carry on" mode.
 
@@ -236,7 +208,12 @@ For the same reason a per-route `scan` override replaces the defaults completely
 rather than merging. A merge makes the effective configuration a function of two
 places, and the operator reading the route cannot see what they will get.
 
-### 4.7 No authentication
+Every configuration table carries `deny_unknown_fields`, so a key the schema does not
+define fails the start and names itself. A misspelled key that is silently ignored
+gives the operator a setting they believe is active and is not, which is the same
+failure as a dropped PII definition.
+
+### 4.6 No authentication
 
 The HTTP API authenticates nobody. Access control belongs to the deployment: an
 authenticating gateway in front, and network-level isolation around it.
@@ -254,7 +231,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall` | HTTP, config, actions, specializations, metrics, the binary |
+| `crates/voidwall` | HTTP, config, actions, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.
@@ -299,7 +276,6 @@ them runs. `docs/backlog.md` holds the work.
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
 | Checksum validation toggle | Not started. `PiiConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |
-| Matomo `/piwik.php` alias | The `matomo` specialization is path-agnostic, so an operator can already route both paths. Only the documentation is missing. | Documentation task, not code. |
 
 Container hardening is guidance, not enforcement. `docker/Dockerfile.voidwall` runs as
 root and sets no security context. The Kubernetes settings below are what a deployment

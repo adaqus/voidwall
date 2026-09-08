@@ -25,21 +25,6 @@ redact_strategy = "type_label"
 path_prefix = "/"
 upstream = "http://echo-server:8090"
 
-# Per-route specialization for analytics endpoints. When set, the named
-# specialization owns query+body decoding for the route (GA4: /g/collect,
-# /mp/collect; Matomo: /matomo.php, /piwik.php). URL path and request
-# headers continue on the default scan path. Built-in names: "ga4", "matomo".
-#
-# [[reverse_proxy.routes]]
-# path_prefix = "/g/collect"
-# upstream = "https://www.google-analytics.com"
-# specialization = "ga4"
-#
-# [[reverse_proxy.routes]]
-# path_prefix = "/matomo.php"
-# upstream = "https://matomo.example.com"
-# specialization = "matomo"
-
 [http_api]
 enabled = true
 listen = "0.0.0.0:8083"

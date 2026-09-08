@@ -2,17 +2,17 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::warn;
-use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{AppConfig, HttpApiConfig, OnError, ScanConfig};
 use crate::error::Error;
@@ -20,9 +20,6 @@ use crate::metrics;
 use crate::scanner::{
     RedactWith, SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, ScanRequest, ScannerPool,
     classify_body, to_redact_with,
-};
-use crate::specialization::{
-    self, ScanHandle, SpecDirection, Specialization, dispatch as dispatch_spec,
 };
 
 const MODE: &str = "http_api";
@@ -156,19 +153,6 @@ struct InfoResponse {
 // entry per `SUPPORTED_BODY_CONTENT_TYPES` element so the documented set
 // stays in sync with the parser dispatch in `scanner::classify_body`.
 
-/// Optional `?specialization=<name>` query parameter on `/v1/scan` and
-/// `/v1/redact`. Selects a built-in wire-format adapter (e.g. `ga4`,
-/// `matomo`) that owns parsing and re-encoding of the request body — see
-/// `openspec/specs/specializations/spec.md`.
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-struct SpecQuery {
-    /// Name of the built-in specialization to apply. Accepted values:
-    /// `ga4`, `matomo`. Unknown names yield `400`.
-    #[serde(default)]
-    specialization: Option<String>,
-}
-
 /// Scan a request body for PII
 ///
 /// Inspects the body for PII according to the configured detector set and
@@ -179,13 +163,9 @@ struct SpecQuery {
     path = "/v1/scan",
     tag = "pii",
     operation_id = "scanBody",
-    params(SpecQuery),
     request_body(
         description = "Raw body content to scan for PII. The `Content-Type` \
-            header determines how the body is parsed and scanned. When \
-            `?specialization=` is set, the body is parsed by the named \
-            adapter instead and the outer `Content-Type` allowlist still \
-            applies.",
+            header determines how the body is parsed and scanned.",
         content_type = "text/plain",
         content = String,
     ),
@@ -195,27 +175,15 @@ struct SpecQuery {
             description = "Scan completed",
             body = ScanResponse,
             content_type = "application/json",
-            headers(
-                ("X-PII-Specialization" = String, description = "Name of the specialization that processed the body. Omitted when no specialization was requested."),
-            ),
         ),
-        (status = 400, description = "Body could not be parsed for the declared `Content-Type`, or `?specialization=` named an unknown adapter", body = ErrorResponse, content_type = "application/json"),
+        (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
         (status = 413, description = "Body exceeds configured `max_body_size`", body = ErrorResponse, content_type = "application/json"),
         (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
         (status = 500, description = "Scanner failed and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
     ),
 )]
-async fn scan_handler(
-    State(state): State<ApiState>,
-    Query(spec_query): Query<SpecQuery>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let spec = match resolve_specialization(&spec_query) {
-        Ok(s) => s,
-        Err(resp) => return *resp,
-    };
-    process(state, headers, body, Mode::Scan, spec).await
+async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
+    process(state, headers, body, Mode::Scan).await
 }
 
 /// Redact PII in a request body
@@ -229,14 +197,11 @@ async fn scan_handler(
     path = "/v1/redact",
     tag = "pii",
     operation_id = "redactBody",
-    params(SpecQuery),
     request_body(
         description = "Raw body content to scan and redact. Content-Type \
             routing matches `/v1/scan`. The response `Content-Type` mirrors \
             the request so the redacted body remains valid JSON / CSV / TSV / \
-            plain text. When `?specialization=` is set, the body is parsed \
-            and re-encoded by the named adapter (e.g. GA4 form-encoded, \
-            Matomo bulk JSON).",
+            plain text.",
         content_type = "text/plain",
         content = String,
     ),
@@ -249,10 +214,9 @@ async fn scan_handler(
             headers(
                 ("X-PII-Detected" = String, description = "Comma-separated list of detected PII kinds. Omitted when none detected."),
                 ("X-PII-Redacted-Count" = u32, description = "Total redactions performed. `0` when none."),
-                ("X-PII-Specialization" = String, description = "Name of the specialization that processed the body. Omitted when no specialization was requested."),
             ),
         ),
-        (status = 400, description = "Body could not be parsed for the declared `Content-Type`, or `?specialization=` named an unknown adapter", body = ErrorResponse, content_type = "application/json"),
+        (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
         (status = 413, description = "Body exceeds configured `max_body_size`", body = ErrorResponse, content_type = "application/json"),
         (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
         (status = 500, description = "Scanner failed and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
@@ -260,53 +224,10 @@ async fn scan_handler(
 )]
 async fn redact_handler(
     State(state): State<ApiState>,
-    Query(spec_query): Query<SpecQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let spec = match resolve_specialization(&spec_query) {
-        Ok(s) => s,
-        Err(resp) => return *resp,
-    };
-    process(state, headers, body, Mode::Redact, spec).await
-}
-
-/// Resolve the optional `?specialization=` query parameter to a built-in
-/// adapter, or return a `400` response if the name is unknown. An absent
-/// or empty value yields `None` (no specialization). The `Err` variant is
-/// boxed because the success case (`Option<&dyn _>`) is a pointer, so
-/// returning `Response` by value here would balloon the result type.
-fn resolve_specialization(
-    q: &SpecQuery,
-) -> Result<Option<&'static dyn Specialization>, Box<Response>> {
-    let Some(name) = q.specialization.as_deref().filter(|s| !s.is_empty()) else {
-        return Ok(None);
-    };
-    match specialization::lookup(name) {
-        Some(s) => Ok(Some(s)),
-        None => {
-            let body = format!(
-                r#"{{"error":"unknown specialization '{}'"}}"#,
-                escape_json_string(name)
-            );
-            let resp = (
-                StatusCode::BAD_REQUEST,
-                [("content-type", "application/json")],
-                body,
-            )
-                .into_response();
-            record_request(resp.status());
-            Err(Box::new(resp))
-        }
-    }
-}
-
-/// Minimal JSON string escape for embedding the user-supplied spec name in
-/// an error payload. The full set of JSON-illegal characters is handled by
-/// `serde_json`, but we only need to neutralise quotes and backslashes here
-/// — the rest pass through as opaque text.
-fn escape_json_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    process(state, headers, body, Mode::Redact).await
 }
 
 /// List supported PII kinds and languages
@@ -471,22 +392,13 @@ enum Mode {
     Redact,
 }
 
-async fn process(
-    state: ApiState,
-    headers: HeaderMap,
-    body: Bytes,
-    mode: Mode,
-    spec: Option<&'static dyn Specialization>,
-) -> Response {
+async fn process(state: ApiState, headers: HeaderMap, body: Bytes, mode: Mode) -> Response {
     let content_type = headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
 
-    // Outer Content-Type allowlist applies even when a specialization is
-    // requested — operators control this surface independently of which
-    // adapter the caller selected (openspec/specs/http-api/spec.md).
     if !is_content_type_allowed(&content_type, &state.scan.content_types) {
         let resp = (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -496,68 +408,6 @@ async fn process(
             .into_response();
         record_request(resp.status());
         return resp;
-    }
-
-    // Specialization path: the adapter owns body parsing and re-encoding.
-    // The HTTP API has no query slot to scan separately — the API's own
-    // `?specialization=` is consumed by the handler, never forwarded to
-    // the spec — so we hand the full body in via `body=Some(..)` with
-    // `query=None`.
-    if let Some(spec) = spec {
-        let want_redact = matches!(mode, Mode::Redact) && state.redact_strategy.is_some();
-        let handle = ScanHandle::new(
-            &state.scanner,
-            want_redact,
-            state.redact_strategy.clone(),
-            state.scan.on_error,
-        );
-        let dispatch_result = dispatch_spec(
-            spec,
-            SpecDirection::Request,
-            None,
-            Some(body.as_ref()),
-            Some(&content_type),
-            &handle,
-        )
-        .await;
-
-        match dispatch_result {
-            Ok(processed) => {
-                let agg = processed.scan_result;
-                if !agg.kinds.is_empty() {
-                    for kind in &agg.kinds {
-                        metrics::inc_detection(kind, MODE, ROUTE, "request", spec.name());
-                    }
-                }
-                let resp = match mode {
-                    Mode::Scan => build_spec_scan_response(&agg, spec.name()),
-                    Mode::Redact => {
-                        let did_redact = want_redact && processed.body.is_some();
-                        if did_redact {
-                            for kind in &agg.kinds {
-                                metrics::inc_redacted(kind, MODE, ROUTE, "request", spec.name());
-                            }
-                        }
-                        build_spec_redact_response(
-                            &agg,
-                            processed.body.map(|p| (p.bytes, p.content_type)),
-                            &content_type,
-                            body.clone(),
-                            spec.name(),
-                            did_redact,
-                        )
-                    }
-                };
-                record_request(resp.status());
-                return resp;
-            }
-            Err(_) => {
-                // Fall through to default content-type-routed scanning.
-                // dispatch_spec() already incremented
-                // voidwall_specialization_errors_total and emitted a
-                // rate-limited warn when appropriate.
-            }
-        }
     }
 
     // Parse the body according to its declared content type. Malformed
@@ -602,7 +452,7 @@ async fn process(
     // Always increment detection metrics when PII is detected.
     if scan_result.detected {
         for kind in &scan_result.kinds {
-            metrics::inc_detection(kind, MODE, ROUTE, "request", "none");
+            metrics::inc_detection(kind, MODE, ROUTE, "request");
         }
     }
 
@@ -612,7 +462,7 @@ async fn process(
             // Increment redaction metrics for kinds we replaced.
             if want_redact && scan_result.redacted_body.is_some() {
                 for kind in &scan_result.kinds {
-                    metrics::inc_redacted(kind, MODE, ROUTE, "request", "none");
+                    metrics::inc_redacted(kind, MODE, ROUTE, "request");
                 }
             }
             build_redact_response(&scan_result, &content_type, body)
@@ -631,78 +481,6 @@ fn build_scan_response(scan_result: &crate::scanner::ScanResult) -> Response {
     };
     let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
     (StatusCode::OK, [("content-type", "application/json")], body).into_response()
-}
-
-/// `/v1/scan` response for the specialization path. Mirrors
-/// [`build_scan_response`] but advertises which adapter handled the body
-/// via `X-PII-Specialization`.
-fn build_spec_scan_response(
-    agg: &crate::specialization::AggregatedScan,
-    spec_name: &str,
-) -> Response {
-    let payload = ScanResponse {
-        detected: !agg.kinds.is_empty(),
-        matches_count: agg.matches_count,
-        kinds: agg.kinds.clone(),
-    };
-    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::OK;
-    let h = response.headers_mut();
-    h.insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
-    if let Ok(v) = HeaderValue::from_str(spec_name) {
-        h.insert(HeaderName::from_static("x-pii-specialization"), v);
-    }
-    response
-}
-
-/// `/v1/redact` response for the specialization path. The body bytes come
-/// from the adapter's re-encoded output (or the original body when the
-/// adapter left the slot untouched). Mirrors [`build_redact_response`] for
-/// the `X-PII-Detected` / `X-PII-Redacted-Count` headers and adds the
-/// `X-PII-Specialization` indicator.
-fn build_spec_redact_response(
-    agg: &crate::specialization::AggregatedScan,
-    spec_body: Option<(Bytes, Option<String>)>,
-    request_content_type: &str,
-    original_body: Bytes,
-    spec_name: &str,
-    did_redact: bool,
-) -> Response {
-    let (bytes, spec_ct) = match spec_body {
-        Some(p) => (p.0, p.1),
-        None => (original_body, None),
-    };
-    let count = if did_redact { agg.matches_count } else { 0 };
-
-    let mut response = Response::new(Body::from(bytes));
-    *response.status_mut() = StatusCode::OK;
-
-    let response_headers = response.headers_mut();
-    // Prefer the adapter's declared Content-Type when it set one (e.g. GA4
-    // emits `application/x-www-form-urlencoded` for form-body payloads).
-    // Fall back to the request Content-Type so the caller still gets a
-    // sensible value when the adapter leaves the slot unannotated.
-    let ct_for_response = spec_ct.as_deref().unwrap_or(request_content_type);
-    if let Ok(v) = HeaderValue::from_str(ct_for_response) {
-        response_headers.insert(axum::http::header::CONTENT_TYPE, v);
-    }
-    if !agg.kinds.is_empty()
-        && let Ok(v) = HeaderValue::from_str(&agg.kinds.join(","))
-    {
-        response_headers.insert(HeaderName::from_static("x-pii-detected"), v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&count.to_string()) {
-        response_headers.insert(HeaderName::from_static("x-pii-redacted-count"), v);
-    }
-    if let Ok(v) = HeaderValue::from_str(spec_name) {
-        response_headers.insert(HeaderName::from_static("x-pii-specialization"), v);
-    }
-
-    response
 }
 
 fn build_redact_response(

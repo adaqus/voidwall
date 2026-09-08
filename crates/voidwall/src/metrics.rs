@@ -5,11 +5,10 @@ use prometheus::{
 };
 
 lazy_static! {
-    /// PII detections by kind, mode, route, direction, and specialization.
-    /// `specialization` is `"none"` when no specialization is active.
+    /// PII detections by kind, mode, route, and direction.
     pub static ref DETECTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("voidwall_pii_detections_total", "Total PII detections"),
-        &["pii_kind", "mode", "route", "direction", "specialization"]
+        &["pii_kind", "mode", "route", "direction"]
     )
     .unwrap();
 
@@ -20,11 +19,10 @@ lazy_static! {
     )
     .unwrap();
 
-    /// PII instances redacted. `specialization` is `"none"` when no
-    /// specialization is active.
+    /// PII instances redacted.
     pub static ref REDACTED_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("voidwall_pii_redacted_total", "Total redacted PII instances"),
-        &["pii_kind", "mode", "route", "direction", "specialization"]
+        &["pii_kind", "mode", "route", "direction"]
     )
     .unwrap();
 
@@ -49,16 +47,6 @@ lazy_static! {
     pub static ref ERRORS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("voidwall_errors_total", "Total errors by outcome and reason"),
         &["outcome", "reason"]
-    )
-    .unwrap();
-
-    /// Specialization decoder failures (fallback to raw scan succeeded).
-    pub static ref SPECIALIZATION_ERRORS_TOTAL: IntCounterVec = register_int_counter_vec!(
-        opts!(
-            "voidwall_specialization_errors_total",
-            "Specialization decoder failures (fallback to raw scan succeeded)"
-        ),
-        &["specialization", "reason"]
     )
     .unwrap();
 
@@ -95,17 +83,10 @@ lazy_static! {
     .unwrap();
 }
 
-/// Record a PII detection. `specialization` is `"none"` when no
-/// specialization is active for this request.
-pub fn inc_detection(
-    pii_kind: &str,
-    mode: &str,
-    route: &str,
-    direction: &str,
-    specialization: &str,
-) {
+/// Record a PII detection.
+pub fn inc_detection(pii_kind: &str, mode: &str, route: &str, direction: &str) {
     DETECTIONS_TOTAL
-        .with_label_values(&[pii_kind, mode, route, direction, specialization])
+        .with_label_values(&[pii_kind, mode, route, direction])
         .inc();
 }
 
@@ -116,17 +97,10 @@ pub fn inc_blocked(mode: &str, route: &str, direction: &str) {
         .inc();
 }
 
-/// Record a redacted PII instance. `specialization` is `"none"` when no
-/// specialization is active for this request.
-pub fn inc_redacted(
-    pii_kind: &str,
-    mode: &str,
-    route: &str,
-    direction: &str,
-    specialization: &str,
-) {
+/// Record a redacted PII instance.
+pub fn inc_redacted(pii_kind: &str, mode: &str, route: &str, direction: &str) {
     REDACTED_TOTAL
-        .with_label_values(&[pii_kind, mode, route, direction, specialization])
+        .with_label_values(&[pii_kind, mode, route, direction])
         .inc();
 }
 
@@ -147,15 +121,6 @@ pub fn observe_duration(mode: &str, route: &str, duration_secs: f64) {
 /// Record an error with its outcome (passed/blocked) and reason.
 pub fn inc_error(outcome: &str, reason: &str) {
     ERRORS_TOTAL.with_label_values(&[outcome, reason]).inc();
-}
-
-/// Record a specialization decoder failure. The proxy falls back to default
-/// scanning whenever a specialization returns an error; this counter tracks
-/// how often that happens so operators can spot pathological payloads.
-pub fn inc_specialization_error(specialization: &str, reason: &str) {
-    SPECIALIZATION_ERRORS_TOTAL
-        .with_label_values(&[specialization, reason])
-        .inc();
 }
 
 /// Update process metrics from /proc/self. Called on each /metrics scrape.
@@ -183,24 +148,16 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[test_case("Email", "reverse_proxy", "/api", "request", "none" ; "email on reverse proxy request")]
-    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response", "none" ; "phone on forward proxy response")]
-    #[test_case("IpAddress", "http_api", "global", "request", "none" ; "ip on http api request")]
-    #[test_case("Email", "reverse_proxy", "/collect", "request", "ga4" ; "email under ga4 specialization")]
-    #[test_case("UsPhoneNumber", "http_api", "global", "request", "matomo" ; "phone under matomo specialization")]
-    fn inc_detection_increments(
-        pii_kind: &str,
-        mode: &str,
-        route: &str,
-        direction: &str,
-        specialization: &str,
-    ) {
+    #[test_case("Email", "reverse_proxy", "/api", "request" ; "email on reverse proxy request")]
+    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]
+    #[test_case("IpAddress", "http_api", "global", "request" ; "ip on http api request")]
+    fn inc_detection_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = DETECTIONS_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction, specialization])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
-        inc_detection(pii_kind, mode, route, direction, specialization);
+        inc_detection(pii_kind, mode, route, direction);
         let after = DETECTIONS_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction, specialization])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
         assert_eq!(after, before + 1);
     }
@@ -218,23 +175,15 @@ mod tests {
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("Email", "reverse_proxy", "/api", "request", "none" ; "email redacted request")]
-    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response", "none" ; "phone redacted response")]
-    #[test_case("Email", "reverse_proxy", "/collect", "request", "ga4" ; "email redacted under ga4")]
-    #[test_case("UsPhoneNumber", "http_api", "global", "request", "matomo" ; "phone redacted under matomo")]
-    fn inc_redacted_increments(
-        pii_kind: &str,
-        mode: &str,
-        route: &str,
-        direction: &str,
-        specialization: &str,
-    ) {
+    #[test_case("Email", "reverse_proxy", "/api", "request" ; "email redacted request")]
+    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone redacted response")]
+    fn inc_redacted_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
         let before = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction, specialization])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
-        inc_redacted(pii_kind, mode, route, direction, specialization);
+        inc_redacted(pii_kind, mode, route, direction);
         let after = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction, specialization])
+            .with_label_values(&[pii_kind, mode, route, direction])
             .get();
         assert_eq!(after, before + 1);
     }
@@ -274,29 +223,10 @@ mod tests {
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("ga4", "decode" ; "ga4 decode failure")]
-    #[test_case("matomo", "recursion_limit" ; "matomo recursion limit")]
-    fn inc_specialization_error_increments(specialization: &str, reason: &str) {
-        let before = SPECIALIZATION_ERRORS_TOTAL
-            .with_label_values(&[specialization, reason])
-            .get();
-        inc_specialization_error(specialization, reason);
-        let after = SPECIALIZATION_ERRORS_TOTAL
-            .with_label_values(&[specialization, reason])
-            .get();
-        assert_eq!(after, before + 1);
-    }
-
     #[test]
     fn different_labels_are_independent() {
         let email_before = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-independent",
-                "request",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_before = DETECTIONS_TOTAL
             .with_label_values(&[
@@ -304,26 +234,13 @@ mod tests {
                 "reverse_proxy",
                 "/test-independent",
                 "request",
-                "none",
             ])
             .get();
 
-        inc_detection(
-            "Email",
-            "reverse_proxy",
-            "/test-independent",
-            "request",
-            "none",
-        );
+        inc_detection("Email", "reverse_proxy", "/test-independent", "request");
 
         let email_after = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-independent",
-                "request",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-independent", "request"])
             .get();
         let phone_after = DETECTIONS_TOTAL
             .with_label_values(&[
@@ -331,7 +248,6 @@ mod tests {
                 "reverse_proxy",
                 "/test-independent",
                 "request",
-                "none",
             ])
             .get();
 
@@ -342,126 +258,22 @@ mod tests {
     #[test]
     fn direction_labels_are_independent() {
         let req_before = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-direction",
-                "request",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "request"])
             .get();
         let resp_before = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-direction",
-                "response",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "response"])
             .get();
 
-        inc_detection(
-            "Email",
-            "reverse_proxy",
-            "/test-direction",
-            "request",
-            "none",
-        );
+        inc_detection("Email", "reverse_proxy", "/test-direction", "request");
 
         let req_after = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-direction",
-                "request",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "request"])
             .get();
         let resp_after = DETECTIONS_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-direction",
-                "response",
-                "none",
-            ])
+            .with_label_values(&["Email", "reverse_proxy", "/test-direction", "response"])
             .get();
 
         assert_eq!(req_after, req_before + 1);
         assert_eq!(resp_after, resp_before);
-    }
-
-    #[test]
-    fn specialization_labels_are_independent() {
-        let none_before = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-spec", "request", "none"])
-            .get();
-        let ga4_before = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-spec", "request", "ga4"])
-            .get();
-
-        inc_detection("Email", "reverse_proxy", "/test-spec", "request", "ga4");
-
-        let none_after = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-spec", "request", "none"])
-            .get();
-        let ga4_after = DETECTIONS_TOTAL
-            .with_label_values(&["Email", "reverse_proxy", "/test-spec", "request", "ga4"])
-            .get();
-
-        assert_eq!(none_after, none_before);
-        assert_eq!(ga4_after, ga4_before + 1);
-    }
-
-    #[test]
-    fn redacted_specialization_labels_are_independent() {
-        let none_before = REDACTED_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-redacted-spec",
-                "request",
-                "none",
-            ])
-            .get();
-        let matomo_before = REDACTED_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-redacted-spec",
-                "request",
-                "matomo",
-            ])
-            .get();
-
-        inc_redacted(
-            "Email",
-            "reverse_proxy",
-            "/test-redacted-spec",
-            "request",
-            "matomo",
-        );
-
-        let none_after = REDACTED_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-redacted-spec",
-                "request",
-                "none",
-            ])
-            .get();
-        let matomo_after = REDACTED_TOTAL
-            .with_label_values(&[
-                "Email",
-                "reverse_proxy",
-                "/test-redacted-spec",
-                "request",
-                "matomo",
-            ])
-            .get();
-
-        assert_eq!(none_after, none_before);
-        assert_eq!(matomo_after, matomo_before + 1);
     }
 }

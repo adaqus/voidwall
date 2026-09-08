@@ -54,9 +54,6 @@ pub struct ActionContext<'a> {
     pub mode: &'a str,
     pub route: &'a str,
     pub direction: &'a str,
-    /// Active specialization name, or `"none"` when default scanning handled
-    /// the request.
-    pub specialization: &'a str,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +97,7 @@ pub fn execute(
 
     // Always increment detection metrics unconditionally when PII is detected.
     for kind in &scan_result.kinds {
-        metrics::inc_detection(kind, ctx.mode, ctx.route, ctx.direction, ctx.specialization);
+        metrics::inc_detection(kind, ctx.mode, ctx.route, ctx.direction);
     }
 
     // 1. Block — short-circuit
@@ -120,7 +117,7 @@ pub fn execute(
     // 2. Redact — collect mutated body
     let forward_body = if action_set.redact {
         for kind in &scan_result.kinds {
-            metrics::inc_redacted(kind, ctx.mode, ctx.route, ctx.direction, ctx.specialization);
+            metrics::inc_redacted(kind, ctx.mode, ctx.route, ctx.direction);
         }
         scan_result.redacted_body.clone()
     } else {
@@ -190,7 +187,6 @@ mod tests {
             mode: "reverse_proxy",
             route: "/api",
             direction: "request",
-            specialization: "none",
         }
     }
 
@@ -426,7 +422,6 @@ mod tests {
             mode,
             route,
             direction,
-            specialization: "none",
         };
         let outcome = execute(pii_with_redaction(), &action_set(false, false, true), &ctx);
         assert!(matches!(outcome, ActionOutcome::Forward { .. }));
