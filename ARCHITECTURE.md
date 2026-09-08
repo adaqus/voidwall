@@ -14,10 +14,13 @@ state behaviour.
 
 ## 1. What this is
 
-An HTTP proxy and REST API that inspects traffic for personally identifiable
-information. It can block a message, redact the PII in place, or add a header naming
-what it found. It always records the detection as a metric, whatever action is
-configured.
+An HTTP proxy and REST API that inspects traffic and acts on what it finds. A guard
+reports findings, the engine merges them, and the action engine blocks the message,
+redacts a finding in place, or adds a header naming what was found. It always records
+the detection as a metric, whatever action is configured.
+
+Personally identifiable information is the class of finding it detects today. Each
+further class arrives as another guard behind the same contract.
 
 It is not an ingress controller. It sits in front of one, or beside one, or replaces
 one in a small deployment.
@@ -172,8 +175,9 @@ instances of PII, not a duplicate.
 
 ### 4.3 One engine, and a guard is one detection concern
 
-Detection used to be a single hard-coded path: one function scanned, resolved,
-redacted, and reported. A second detector had nowhere to go.
+Detection classes differ in everything except their output. A regex chain, a dictionary
+lookup, and a model share no input shape, no cost class, and no threading model. What
+each one does share is that it reports where something was found, and nothing more.
 
 The seam is a **guard**: `name`, `interest`, `detect`. A guard returns findings and
 does nothing else — it does not block, redact, add a header, or write a metric. One
@@ -300,9 +304,9 @@ Planned:
 | `voidwall-ml` | the model runtimes, behind one cargo feature each |
 | `voidwall` | the proxy |
 
-The library keeps the name `voidwall-pii` rather than becoming a `voidwall-core`. It is
-one detection tier beside `voidwall-ml`, not a foundation under it, so a `core` name
-would be wrong the moment the third crate lands.
+`voidwall-pii` is one detection tier beside `voidwall-ml`, not a foundation under it.
+It carries a tier name for that reason: nothing in it is a base layer for the model
+crate, and a name suggesting otherwise would misdescribe the dependency.
 
 The reason for a third crate is structural. A model cannot follow the detector
 lifecycle: a `Detector` is built per `Scanner`, and a `Scanner` is built per OS
@@ -322,12 +326,12 @@ Rust edition 2024. Vectorscan is a native dependency.
 
 ## 7. Not built
 
-These appear in the config schema, in the module list, or in older documents. None of
-them runs. `docs/backlog.md` holds the work.
+These appear in the config schema or the module list. None of them runs.
+`docs/backlog.md` holds the work.
 
 | Item | State | Why it waits |
 |---|---|---|
-| Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses and validates. The proxy logs one warning when the mode is enabled. | The reverse proxy and the API cover the current deployments. The egress case is the pivot's wedge, so it is being redesigned rather than built as specified. |
+| Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses and validates. The proxy logs one warning when the mode is enabled. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
 | TLS termination | `tls.rs` is empty. `TlsConfig` parses and validates. | Deployments terminate TLS at the ingress or the load balancer. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
@@ -349,13 +353,16 @@ securityContext:
 
 ---
 
-## 8. Known limits
+## 8. Known limits of the PII tier
+
+These bound what the regex PII guard and its detector chain can find. They are not
+limits of the engine or of the guard contract.
 
 - **Name recall is capped by the gazetteer.** An out-of-vocabulary, foreign, or novel
   name is missed. Growing the dictionary raises recall and does nothing for precision.
 - **Name precision is capped by homographs.** English female names and verb-names leak
   when the cheap gates fail. This axis does not improve with a larger dictionary. It
-  needs a contextual model, which is a pivot phase.
+  needs a contextual model, and no lookup substitutes for one.
 - **The capitalisation gate weakens per language.** German capitalises every noun.
 - **The keyword automaton is near a size threshold.** Adding another country's keyword
   list can regress clean throughput. Check before adding one.

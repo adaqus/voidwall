@@ -1,9 +1,10 @@
 # Project Instructions
 
 Voidwall is an AI guardrails engine: an HTTP proxy and REST API that inspects traffic
-and acts on what it finds. Today it detects personally identifiable information (PII) —
-it can redact or block a request and report the kinds it found. Later tiers add other
-kinds of finding, so do not treat PII as the only thing the engine looks for.
+and acts on what it finds. A guard reports findings; the engine merges them and the
+action engine decides what happens to the message — redact, block, or report the kinds
+it found. Personally identifiable information (PII) is the class of finding it detects
+today, and each further class arrives as another guard.
 
 ## Communication
 
@@ -102,8 +103,8 @@ reachable from nowhere else.
 
 ## Detection Safety
 
-These rules are mandatory. Every finding today is a PII match; the rules apply to any
-detected value a later tier adds.
+These rules are mandatory. They cover every value a guard detects, whatever its class.
+PII is the class that exists today; nothing below is scoped to it.
 
 - Never log a detected value. Log kind names and match counts only.
 - Never expose a detected value in metrics. Labels use kind names only.
@@ -184,8 +185,7 @@ Use OpenSpec when any of these apply:
 - The change alters observable behavior such as an endpoint, config field, action, metric,
   error code, or detector output.
 - The change touches more than one crate.
-- The change is a pivot phase that ships code. Phases 21.5a and 21.5b produce research
-  answers only, and the sequence does not end at Phase 31 — see the phase table.
+- The change is one step of a planned engine tier and it ships code.
 - The change implements a feature listed in `docs/backlog.md`.
 - A decision must be recorded for later work.
 - The change cannot be reviewed in one diff.
