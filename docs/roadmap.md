@@ -1,0 +1,19 @@
+- [x] Landing Extraction
+- [x] Identity and Framing
+- [x] Analytics Retirement
+- [x] Engine and Guard Contract
+- [ ] Configurable Guard and Policy Design
+- [ ] LiteLLM Guardrail API Decoder
+- [ ] Policy, Errors, and Deadlines
+- [ ] Guard API
+- [ ] Model Evaluation Framework
+- [ ] ONNX Runtime and Model Profiles
+- [ ] Supported Safety Profiles
+- [ ] Open-Core Release
+- [ ] ML PII Guard
+- [ ] ONNX Hardware Acceleration
+- [ ] Documentation and Release Review
+- [ ] Detection Cache
+- [ ] Ecosystem Integrations
+- [ ] Custom Classifier Adapters
+- [ ] OpenAI and Anthropic API Decoders
