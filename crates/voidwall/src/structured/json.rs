@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn string_with_escapes_keeps_raw_bytes() {
         // Escape sequences are kept as literal bytes in the value so offsets
-        // continue to map directly to the raw JSON for downstream redaction.
+        // continue to map directly into the raw JSON.
         let raw = br#"{"s": "a\"b\\c"}"#;
         let frags = flatten_json(raw).unwrap();
         assert_eq!(frags.len(), 1);

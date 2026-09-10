@@ -4,7 +4,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use http_body_util::BodyExt;
@@ -14,11 +14,10 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::action::{self, ActionContext, ActionOutcome, ActionSet};
 use crate::config::{AppConfig, OnError, ScanConfig};
+use crate::engine::{BlockPolicy, Engine, UnitContent, Units};
 use crate::error::Error;
 use crate::metrics;
-use crate::engine::{BlockPolicy, Engine, Unit, UnitContent, UnitKind, Units};
 use crate::scanner::SCANNER_ERROR_LIMITER;
 use crate::scanner::classify_body;
 
@@ -54,16 +53,17 @@ struct ResolvedRoute {
     scan: ScanConfig,
 }
 
+/// The `mode` metric label for every counter this module writes.
+const MODE: &str = "reverse_proxy";
+
 /// Shared state for the reverse proxy handlers.
 #[derive(Clone)]
 pub struct ReverseProxyState {
     routes: Arc<Vec<ResolvedRoute>>,
     clients: Arc<HashMap<String, Client<hyper_util::client::legacy::connect::HttpConnector, Body>>>,
     engine: Arc<Engine>,
-    request_actions: ActionSet,
-    response_actions: ActionSet,
-    request_redact_strategy: Option<crate::scanner::RedactWith>,
-    response_redact_strategy: Option<crate::scanner::RedactWith>,
+    request_scan: bool,
+    response_scan: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -73,24 +73,6 @@ pub struct ReverseProxyState {
 /// Build the reverse proxy state from configuration.
 pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState {
     let rp = &config.reverse_proxy;
-
-    let request_actions = ActionSet::from_direction_config(&rp.request);
-    let response_actions = ActionSet::from_direction_config(&rp.response);
-
-    let request_redact_strategy = if request_actions.redact {
-        rp.request
-            .redact_strategy
-            .map(|s| crate::scanner::to_redact_with(s, rp.request.mask_char))
-    } else {
-        None
-    };
-    let response_redact_strategy = if response_actions.redact {
-        rp.response
-            .redact_strategy
-            .map(|s| crate::scanner::to_redact_with(s, rp.response.mask_char))
-    } else {
-        None
-    };
 
     // Build one pooling client per unique upstream.
     let mut clients = HashMap::new();
@@ -118,10 +100,8 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         routes: Arc::new(routes),
         clients: Arc::new(clients),
         engine,
-        request_actions,
-        response_actions,
-        request_redact_strategy,
-        response_redact_strategy,
+        request_scan: rp.request.scan,
+        response_scan: rp.response.scan,
     }
 }
 
@@ -211,14 +191,9 @@ async fn handle_proxied_request(
         Err(resp) => return resp,
     };
 
-    let mut forward_body = body_bytes.clone();
-    let mut forward_headers = headers.clone();
-    let mut forward_uri = uri.clone();
-
     // --- Request scanning ---
-    if !state.request_actions.is_empty() {
-        let ctx = ActionContext {
-            mode: "reverse_proxy",
+    if state.request_scan {
+        let ctx = MetricContext {
             route: &route.path_prefix,
             direction: "request",
         };
@@ -231,8 +206,6 @@ async fn handle_proxied_request(
         match scan_and_act(
             &state.engine,
             scan_config,
-            &state.request_actions,
-            state.request_redact_strategy.clone(),
             &ctx,
             &uri,
             &headers,
@@ -245,34 +218,13 @@ async fn handle_proxied_request(
         .await
         {
             PipelineResult::Block(resp) => return resp,
-            PipelineResult::Forward {
-                body,
-                extra_headers,
-                redacted_path,
-                redacted_query,
-                redacted_headers,
-            } => {
-                if let Some(b) = body {
-                    forward_body = b;
-                }
-                for (name, value) in extra_headers.iter() {
-                    forward_headers.insert(name.clone(), value.clone());
-                }
-                if let Some(rh) = redacted_headers {
-                    apply_redacted_headers(&mut forward_headers, &rh);
-                }
-                if redacted_path.is_some() || redacted_query.is_some() {
-                    forward_uri =
-                        rebuild_uri(&uri, redacted_path.as_deref(), redacted_query.as_deref());
-                }
-            }
             PipelineResult::Pass => {}
             PipelineResult::Error(resp) => return resp,
         }
     }
 
     // --- Build & send upstream request ---
-    let upstream_uri = build_upstream_uri(&route.upstream, &forward_uri);
+    let upstream_uri = build_upstream_uri(&route.upstream, &uri);
     let client = match state.clients.get(&route.upstream) {
         Some(c) => c,
         None => {
@@ -281,11 +233,10 @@ async fn handle_proxied_request(
         }
     };
 
-    // Strip hop-by-hop headers, host, and content-length. Content-length must
-    // be removed because body redaction may change the body size; hyper will
-    // recompute it from the actual body when sending the upstream request.
+    // Strip hop-by-hop headers, the host, and content-length. Hyper recomputes
+    // the length from the body it actually sends.
     let mut upstream_headers = HeaderMap::new();
-    for (name, value) in forward_headers.iter() {
+    for (name, value) in headers.iter() {
         if !is_hop_by_hop(name) && name != "host" && name != "content-length" {
             upstream_headers.insert(name.clone(), value.clone());
         }
@@ -294,7 +245,7 @@ async fn handle_proxied_request(
     let upstream_req = match hyper::Request::builder()
         .method(method)
         .uri(&upstream_uri)
-        .body(Body::from(forward_body))
+        .body(Body::from(body_bytes))
     {
         Ok(mut r) => {
             *r.headers_mut() = upstream_headers;
@@ -318,7 +269,7 @@ async fn handle_proxied_request(
     let resp_headers = upstream_resp.headers().clone();
 
     // --- Response scanning ---
-    if !state.response_actions.is_empty() {
+    if state.response_scan {
         let resp_body = match upstream_resp.into_body().collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(e) => {
@@ -328,8 +279,7 @@ async fn handle_proxied_request(
             }
         };
 
-        let ctx = ActionContext {
-            mode: "reverse_proxy",
+        let ctx = MetricContext {
             route: &route.path_prefix,
             direction: "response",
         };
@@ -341,8 +291,6 @@ async fn handle_proxied_request(
         match scan_and_act_response(
             &state.engine,
             scan_config,
-            &state.response_actions,
-            state.response_redact_strategy.clone(),
             &ctx,
             &resp_headers,
             if should_scan_body {
@@ -354,25 +302,6 @@ async fn handle_proxied_request(
         .await
         {
             PipelineResult::Block(resp) => return resp,
-            PipelineResult::Forward {
-                body,
-                extra_headers,
-                redacted_headers,
-                ..
-            } => {
-                let final_body = body.unwrap_or(resp_body);
-                let mut final_headers = strip_hop_by_hop(&resp_headers);
-                // Remove stale content-length; body redaction may have changed
-                // the size, and hyper will set the correct value from the body.
-                final_headers.remove("content-length");
-                if let Some(rh) = redacted_headers {
-                    apply_redacted_headers(&mut final_headers, &rh);
-                }
-                for (name, value) in extra_headers.iter() {
-                    final_headers.insert(name.clone(), value.clone());
-                }
-                return build_response(resp_status, final_headers, final_body);
-            }
             PipelineResult::Pass => {
                 let final_headers = strip_hop_by_hop(&resp_headers);
                 return build_response(resp_status, final_headers, resp_body);
@@ -394,29 +323,26 @@ async fn handle_proxied_request(
 
 enum PipelineResult {
     Block(Response),
-    Forward {
-        body: Option<Bytes>,
-        extra_headers: HeaderMap,
-        redacted_path: Option<String>,
-        redacted_query: Option<String>,
-        redacted_headers: Option<Vec<(String, String)>>,
-    },
     Pass,
     Error(Response),
+}
+
+/// The metric labels for one scanned direction. The mode is fixed, so only the
+/// route and the direction vary.
+struct MetricContext<'a> {
+    route: &'a str,
+    direction: &'a str,
 }
 
 // ---------------------------------------------------------------------------
 // Scan + action helpers
 // ---------------------------------------------------------------------------
 
-/// Scan request direction and execute actions.
-#[allow(clippy::too_many_arguments)]
+/// Scan the request direction and decide what happens to it.
 async fn scan_and_act(
     engine: &Engine,
     scan_config: &ScanConfig,
-    action_set: &ActionSet,
-    redact_strategy: Option<crate::scanner::RedactWith>,
-    ctx: &ActionContext<'_>,
+    ctx: &MetricContext<'_>,
     uri: &Uri,
     headers: &HeaderMap,
     body: Option<&Bytes>,
@@ -431,12 +357,10 @@ async fn scan_and_act(
         units.push_body(content);
     }
 
-    // URL path and query become separate units (not one merged string)
-    // because: (1) each can be independently enabled via config, (2) redaction
-    // rewrites offsets within each string — a combined string would require
-    // tracking the `?` boundary to split back into path and query for URI
-    // reconstruction, and (3) these strings are tiny so the extra work has
-    // negligible cost compared to body scanning.
+    // URL path and query become separate units rather than one merged string:
+    // each can be independently enabled via config, and a finding's span then
+    // names which of the two it sits in. They are tiny, so the extra unit costs
+    // nothing next to body scanning.
     if scan_config.url_path {
         units.push_path(uri.path().to_string());
     }
@@ -451,25 +375,14 @@ async fn scan_and_act(
         return PipelineResult::Pass;
     }
 
-    run_engine(
-        engine,
-        units,
-        scan_config,
-        action_set,
-        redact_strategy,
-        ctx,
-        "scanner error",
-    )
-    .await
+    run_engine(engine, units, scan_config, ctx, "scanner error").await
 }
 
-/// Scan response direction and execute actions.
+/// Scan the response direction and decide what happens to it.
 async fn scan_and_act_response(
     engine: &Engine,
     scan_config: &ScanConfig,
-    action_set: &ActionSet,
-    redact_strategy: Option<crate::scanner::RedactWith>,
-    ctx: &ActionContext<'_>,
+    ctx: &MetricContext<'_>,
     headers: &HeaderMap,
     body: Option<&Bytes>,
 ) -> PipelineResult {
@@ -488,42 +401,30 @@ async fn scan_and_act_response(
         return PipelineResult::Pass;
     }
 
-    run_engine(
-        engine,
-        units,
-        scan_config,
-        action_set,
-        redact_strategy,
-        ctx,
-        "scanner error on response",
-    )
-    .await
+    run_engine(engine, units, scan_config, ctx, "scanner error on response").await
 }
 
-/// Hand the units to the engine and run the action pipeline over what it
-/// found. Shared by both directions — they differ only in which units they
-/// build and how a scanner failure is logged.
+/// Hand the units to the engine and decide what happens to the message.
+/// Shared by both directions — they differ only in which units they build and
+/// how a scanner failure is logged.
+///
+/// A detection blocks, so the engine may stop as soon as one finding arrives:
+/// the message is not going anywhere and the rest cannot change that.
 async fn run_engine(
     engine: &Engine,
     units: Units,
     scan_config: &ScanConfig,
-    action_set: &ActionSet,
-    redact_strategy: Option<crate::scanner::RedactWith>,
-    ctx: &ActionContext<'_>,
+    ctx: &MetricContext<'_>,
     error_message: &'static str,
 ) -> PipelineResult {
     let units = units.into_shared();
 
-    // A configured block action means any finding ends the message, so the
-    // engine may stop as soon as one arrives.
-    let policy = if action_set.block {
-        BlockPolicy::AnyFinding
-    } else {
-        BlockPolicy::Never
-    };
-
     let scan_result = match engine
-        .guard(Arc::clone(&units), policy, scan_config.on_error)
+        .guard(
+            Arc::clone(&units),
+            BlockPolicy::AnyFinding,
+            scan_config.on_error,
+        )
         .await
     {
         Ok(r) => r,
@@ -535,14 +436,33 @@ async fn run_engine(
         }
     };
 
-    let outcome = action::execute(
-        &scan_result,
-        &units,
-        redact_strategy.as_ref(),
-        action_set,
-        ctx,
-    );
-    pipeline_result_from_outcome(outcome, &units)
+    if !scan_result.detected() {
+        return PipelineResult::Pass;
+    }
+
+    // The kind list is sorted and holds each kind once, so the counter moves
+    // once per kind and the block body lists them in a stable order.
+    let kinds = scan_result.kinds();
+    for kind in &kinds {
+        metrics::inc_detection(kind, MODE, ctx.route, ctx.direction);
+    }
+    metrics::inc_blocked(MODE, ctx.route, ctx.direction);
+
+    PipelineResult::Block(block_response(&kinds))
+}
+
+/// The fixed response a detection produces: 403, JSON, and the kind names that
+/// were found. It never carries matched text — see
+/// `openspec/specs/security/spec.md`.
+fn block_response(kinds: &[String]) -> Response {
+    let payload = serde_json::json!({ "error": "PII detected", "kinds": kinds });
+    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    (
+        StatusCode::FORBIDDEN,
+        [("content-type", "application/json")],
+        body,
+    )
+        .into_response()
 }
 
 /// Classify the body bytes into a `BodyFormat` based on Content-Type, applying
@@ -589,78 +509,9 @@ fn push_scan_headers(units: &mut Units, scan_config: &ScanConfig, headers: &Head
             && let Some(value) = headers.get(&name)
             && let Ok(v) = value.to_str()
         {
-            units.push_header(header_name.clone(), v.to_string());
+            units.push_header(v.to_string());
         }
     }
-}
-
-/// Unpack the action outcome into the shape the handler forwards.
-///
-/// The redact action returns replacement bytes keyed by unit; the handler
-/// rebuilds the URI from a path and a query and inserts headers by name, so
-/// the map is unpacked back into those three fields here. `PipelineResult`
-/// therefore keeps its shape and the handler is unchanged.
-///
-/// Only the headers that were rewritten appear in the map, where the scanner
-/// used to return every scanned header. `apply_redacted_headers` inserts one
-/// entry at a time, so the forwarded message is identical either way.
-fn pipeline_result_from_outcome(outcome: ActionOutcome, units: &[Unit]) -> PipelineResult {
-    match outcome {
-        ActionOutcome::Block {
-            status,
-            body,
-            headers,
-        } => {
-            let status = StatusCode::from_u16(status).unwrap_or(StatusCode::FORBIDDEN);
-            let mut resp = Response::new(Body::from(body));
-            *resp.status_mut() = status;
-            *resp.headers_mut() = headers;
-            PipelineResult::Block(resp)
-        }
-        ActionOutcome::Forward {
-            body,
-            extra_headers,
-            redacted,
-        } => {
-            let mut redacted_path = None;
-            let mut redacted_query = None;
-            let mut redacted_headers: Option<Vec<(String, String)>> = None;
-
-            for (id, bytes) in redacted {
-                let Some(unit) = units.get(id.index()) else {
-                    continue;
-                };
-                match unit.kind {
-                    // The body travels as `body`, already extracted.
-                    UnitKind::Body => {}
-                    UnitKind::UrlPath => redacted_path = string_of(&bytes),
-                    UnitKind::QueryString => redacted_query = string_of(&bytes),
-                    UnitKind::HeaderValue => {
-                        if let (Some(name), Some(value)) = (unit.label.clone(), string_of(&bytes)) {
-                            redacted_headers
-                                .get_or_insert_with(Vec::new)
-                                .push((name, value));
-                        }
-                    }
-                }
-            }
-
-            PipelineResult::Forward {
-                body,
-                extra_headers,
-                redacted_path,
-                redacted_query,
-                redacted_headers,
-            }
-        }
-        ActionOutcome::Pass => PipelineResult::Pass,
-    }
-}
-
-/// Replacement bytes as text. A redaction only ever rewrites UTF-8 content, so
-/// this holds; a failure drops that one replacement rather than the message.
-fn string_of(bytes: &Bytes) -> Option<String> {
-    std::str::from_utf8(bytes).ok().map(str::to_owned)
 }
 
 fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
@@ -730,28 +581,6 @@ fn strip_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     out
 }
 
-fn apply_redacted_headers(headers: &mut HeaderMap, redacted: &[(String, String)]) {
-    for (name, value) in redacted {
-        if let (Ok(n), Ok(v)) = (name.parse::<HeaderName>(), value.parse::<HeaderValue>()) {
-            headers.insert(n, v);
-        }
-    }
-}
-
-/// Rebuild a URI with optionally redacted path and/or query.
-fn rebuild_uri(original: &Uri, redacted_path: Option<&str>, redacted_query: Option<&str>) -> Uri {
-    let path = redacted_path.unwrap_or_else(|| original.path());
-    let query = redacted_query.or_else(|| original.query());
-    let pq = match query {
-        Some(q) => format!("{path}?{q}"),
-        None => path.to_string(),
-    };
-    Uri::builder()
-        .path_and_query(pq)
-        .build()
-        .unwrap_or_else(|_| original.clone())
-}
-
 fn build_upstream_uri(upstream: &str, original: &Uri) -> String {
     let upstream = upstream.trim_end_matches('/');
     let path = original.path();
@@ -776,6 +605,7 @@ fn build_response(status: StatusCode, headers: HeaderMap, body: Bytes) -> Respon
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::UnitKind;
     use test_case::test_case;
 
     // --- Route matching ---
@@ -889,100 +719,42 @@ mod tests {
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
     }
 
-    // --- Pipeline result from outcome ---
+    // --- Block response ---
 
     #[test]
-    fn pipeline_pass() {
-        let result = pipeline_result_from_outcome(ActionOutcome::Pass, &[]);
-        assert!(matches!(result, PipelineResult::Pass));
-    }
-
-    #[test]
-    fn pipeline_block() {
-        let result = pipeline_result_from_outcome(
-            ActionOutcome::Block {
-                status: 403,
-                body: Bytes::from("blocked"),
-                headers: HeaderMap::new(),
-            },
-            &[],
-        );
-        assert!(matches!(result, PipelineResult::Block(_)));
-    }
-
-    /// The one unit set the unpacking test needs: a body, a path, a query, and
-    /// one header, in the order `scan_and_act` builds them.
-    fn pipeline_units() -> std::sync::Arc<[Unit]> {
-        let mut units = Units::new();
-        units.push_body(UnitContent::text("body".into()));
-        units.push_path("/users/x".into());
-        units.push_query("q=x".into());
-        units.push_header("Authorization".into(), "Bearer x".into());
-        units.into_shared()
-    }
-
-    #[test]
-    fn pipeline_forward_unpacks_the_replacement_map() {
-        let units = pipeline_units();
-        let result = pipeline_result_from_outcome(
-            ActionOutcome::Forward {
-                body: Some(Bytes::from("redacted")),
-                extra_headers: HeaderMap::new(),
-                redacted: vec![
-                    (units[0].id, Bytes::from("redacted")),
-                    (units[1].id, Bytes::from("/users/[EMAIL]")),
-                    (units[2].id, Bytes::from("q=[EMAIL]")),
-                    (units[3].id, Bytes::from("Bearer [EMAIL]")),
-                ],
-            },
-            &units,
-        );
-
-        let PipelineResult::Forward {
-            body,
-            redacted_path,
-            redacted_query,
-            redacted_headers,
-            ..
-        } = result
-        else {
-            panic!("expected Forward");
-        };
-        assert_eq!(body, Some(Bytes::from("redacted")));
-        assert_eq!(redacted_path.as_deref(), Some("/users/[EMAIL]"));
-        assert_eq!(redacted_query.as_deref(), Some("q=[EMAIL]"));
+    fn block_response_is_a_fixed_403_naming_the_kinds() {
+        let resp = block_response(&["EMAIL".to_string(), "US_SSN".to_string()]);
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
         assert_eq!(
-            redacted_headers,
-            Some(vec![("Authorization".into(), "Bearer [EMAIL]".into())])
+            resp.headers().get("content-type").unwrap(),
+            "application/json"
         );
     }
 
-    #[test]
-    fn pipeline_forward_with_nothing_redacted() {
-        let units = pipeline_units();
-        let result = pipeline_result_from_outcome(
-            ActionOutcome::Forward {
-                body: None,
-                extra_headers: HeaderMap::new(),
-                redacted: Vec::new(),
-            },
-            &units,
-        );
-        let PipelineResult::Forward {
-            redacted_path,
-            redacted_query,
-            redacted_headers,
-            ..
-        } = result
-        else {
-            panic!("expected Forward");
-        };
-        assert!(redacted_path.is_none());
-        assert!(redacted_query.is_none());
-        assert!(redacted_headers.is_none());
+    #[tokio::test]
+    async fn block_body_lists_the_kinds_sorted_and_carries_no_value() {
+        // Deliberately unsorted input: the body must not echo arrival order,
+        // and must never carry matched text.
+        let kinds = ["US_SSN".to_string(), "EMAIL".to_string()];
+        let body = read_body(block_response(&kinds)).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+        assert_eq!(json["error"], "PII detected");
+        assert_eq!(json["kinds"], serde_json::json!(["US_SSN", "EMAIL"]));
+        assert!(!String::from_utf8_lossy(&body).contains("@"));
     }
 
-    // --- Header helpers ---
+    #[tokio::test]
+    async fn the_same_kinds_produce_a_byte_identical_body() {
+        let kinds = ["EMAIL".to_string(), "IBAN_CODE".to_string()];
+        let first = read_body(block_response(&kinds)).await;
+        let second = read_body(block_response(&kinds)).await;
+        assert_eq!(first, second);
+    }
+
+    async fn read_body(resp: Response) -> Bytes {
+        use http_body_util::BodyExt;
+        resp.into_body().collect().await.unwrap().to_bytes()
+    }
 
     #[test]
     fn strip_hop_by_hop_headers() {
@@ -999,17 +771,6 @@ mod tests {
         assert_eq!(stripped.get("x-custom").unwrap(), "value");
     }
 
-    #[test]
-    fn apply_redacted_headers_replaces() {
-        let mut headers = HeaderMap::new();
-        headers.insert("authorization", "Bearer secret".parse().unwrap());
-
-        apply_redacted_headers(
-            &mut headers,
-            &[("authorization".into(), "Bearer [REDACTED]".into())],
-        );
-        assert_eq!(headers.get("authorization").unwrap(), "Bearer [REDACTED]");
-    }
 
     // --- Scan header collection ---
 
@@ -1030,8 +791,6 @@ mod tests {
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].kind, UnitKind::HeaderValue);
-        assert_eq!(units[0].label.as_deref(), Some("Authorization"));
-        assert_eq!(units[0].content.source_str(), Some("Bearer token"));
     }
 
     #[test]

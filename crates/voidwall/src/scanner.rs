@@ -2,24 +2,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
 
-use crate::config::{PiiConfig, RedactStrategy};
+use crate::config::PiiConfig;
 use crate::engine::UnitContent;
 use crate::error::Error;
 use crate::structured::csv::flatten_csv;
 use crate::structured::json::flatten_json;
-
-// ---------------------------------------------------------------------------
-// Redaction strategy (previously in the pii crate)
-// ---------------------------------------------------------------------------
-
-/// How to replace detected PII text.
-#[derive(Debug, Clone)]
-pub enum RedactWith {
-    /// Replace with the given character repeated for the length of the kind label.
-    Char(char),
-    /// Replace with `[KIND_LABEL]`.
-    TypeLabel,
-}
 
 // ---------------------------------------------------------------------------
 // Body decoding
@@ -41,17 +28,17 @@ pub fn classify_body(raw: Bytes, content_type: &str) -> Result<UnitContent, Erro
         .to_ascii_lowercase();
     if is_json_media_type(&media_type) {
         let fragments = flatten_json(&raw)?;
-        return Ok(UnitContent::Structured { fragments, raw });
+        return Ok(UnitContent::Structured { fragments });
     }
     if is_csv_media_type(&media_type) {
         return Ok(match flatten_csv(&raw, b',')? {
-            Some(fragments) => UnitContent::Structured { fragments, raw },
+            Some(fragments) => UnitContent::Structured { fragments },
             None => UnitContent::PlainText(raw),
         });
     }
     if is_tsv_media_type(&media_type) {
         return Ok(match flatten_csv(&raw, b'\t')? {
-            Some(fragments) => UnitContent::Structured { fragments, raw },
+            Some(fragments) => UnitContent::Structured { fragments },
             None => UnitContent::PlainText(raw),
         });
     }
@@ -227,14 +214,6 @@ fn isolate_failing_custom_entry(
     })
 }
 
-/// Convert a `RedactStrategy` config value to a `RedactWith`.
-pub fn to_redact_with(strategy: RedactStrategy, mask_char: Option<char>) -> RedactWith {
-    match strategy {
-        RedactStrategy::Char => RedactWith::Char(mask_char.unwrap_or('*')),
-        RedactStrategy::TypeLabel => RedactWith::TypeLabel,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -303,23 +282,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn to_redact_with_char() {
-        let rw = to_redact_with(RedactStrategy::Char, Some('#'));
-        assert!(matches!(rw, RedactWith::Char('#')));
-    }
-
-    #[test]
-    fn to_redact_with_char_default() {
-        let rw = to_redact_with(RedactStrategy::Char, None);
-        assert!(matches!(rw, RedactWith::Char('*')));
-    }
-
-    #[test]
-    fn to_redact_with_type_label() {
-        let rw = to_redact_with(RedactStrategy::TypeLabel, None);
-        assert!(matches!(rw, RedactWith::TypeLabel));
-    }
 
     // --- classify_body / is_json_media_type ---
 

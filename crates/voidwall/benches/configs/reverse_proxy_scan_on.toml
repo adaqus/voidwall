@@ -1,4 +1,4 @@
-# Reverse proxy with no actions (pass-through, for baseline comparison)
+# Reverse proxy, request scanning on. A detection blocks with a 403.
 
 [pii]
 countries = []
@@ -13,10 +13,10 @@ enabled = true
 listen = "0.0.0.0:8082"
 
 [reverse_proxy.request]
-actions = []
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

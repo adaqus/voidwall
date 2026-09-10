@@ -1,7 +1,6 @@
 # HTTP API mode (only) — used by the http_api benchmark.
 #
 # All other modes are disabled so the listener under test is the API on :8083.
-# The redact strategy is type_label, matching the proxy_redact baseline.
 
 [pii]
 countries = []
@@ -14,7 +13,6 @@ on_error = "fail_open"
 [http_api]
 enabled = true
 listen = "0.0.0.0:8083"
-redact_strategy = "type_label"
 
 [admin]
 listen = "127.0.0.1:9090"

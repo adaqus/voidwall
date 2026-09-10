@@ -1,8 +1,8 @@
 # HTTP API — Interactive Documentation
 
 The `docker/docker-compose.yml` stack ships with a Swagger UI service that
-renders the proxy's OpenAPI spec and lets operators try the `/v1/scan` and
-`/v1/redact` endpoints from a browser.
+renders the proxy's OpenAPI spec and lets operators try the `/v1/scan`
+endpoint from a browser.
 
 This stack is for local development and operator use. Do not run Swagger UI
 alongside production deployments of the API itself.
@@ -25,7 +25,7 @@ Services exposed on the host:
 | Service     | URL                          | Notes |
 |-------------|------------------------------|-------|
 | Reverse proxy | `http://localhost:8082`    | Routes all paths to the bundled echo server. |
-| HTTP API    | `http://localhost:8083`      | `POST /v1/scan`, `POST /v1/redact`, `GET /openapi.json`. |
+| HTTP API    | `http://localhost:8083`      | `POST /v1/scan`, `GET /v1/info`, `GET /openapi.json`. |
 | Admin       | `http://localhost:9090`      | `/metrics`, `/healthz`, `/readyz`. |
 | Swagger UI  | `http://localhost:8088`      | Interactive docs for the HTTP API. |
 | Prometheus  | `http://localhost:9091`      | Scrapes the proxy admin port. |

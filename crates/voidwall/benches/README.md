@@ -10,10 +10,10 @@
 ```bash
 benches/run.sh                                          # run all scenarios
 benches/run.sh baseline                                 # run only "baseline"
-benches/run.sh action_comparison body_size_scaling       # run two scenarios
+benches/run.sh baseline body_size_scaling                # run two scenarios
 ```
 
-Available scenarios (matching `k6/` file names): `baseline`, `action_comparison`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`, `structured_scanning`, `http_api`.
+Available scenarios (matching `k6/` file names): `baseline`, `body_size_scaling`, `concurrency_scaling`, `scanner_thread_scaling`, `structured_scanning`, `http_api`.
 
 This generates test payloads if missing, builds release binaries, starts the echo server and proxy for each scenario, runs k6, and prints a summary table. Results are saved to `benches/results/`.
 
@@ -38,7 +38,7 @@ python3 benches/generate_payloads.py
 cargo run --release --bin echo-server
 
 # Terminal 2: proxy
-cargo run --release -- --config benches/configs/reverse_proxy_redact.toml
+cargo run --release -- --config benches/configs/reverse_proxy_scan_on.toml
 
 # Terminal 3: load test
 k6 run benches/k6/baseline.js
@@ -57,20 +57,18 @@ All k6 scripts accept env vars:
 Example:
 
 ```bash
-k6 run -e DURATION=10s -e VUS=100 benches/k6/action_comparison.js
 ```
 
 ## Scenarios
 
 | Script                     | Config(s)                              | What it measures                        |
 |----------------------------|----------------------------------------|-----------------------------------------|
-| `baseline.js`              | `reverse_proxy_no_actions.toml`        | Proxy overhead vs direct-to-upstream    |
-| `action_comparison.js`     | `reverse_proxy_{no_actions,block,redact,header}.toml` | Cost difference between actions |
-| `body_size_scaling.js`     | `reverse_proxy_redact.toml`            | Throughput vs body size                 |
-| `concurrency_scaling.js`   | `reverse_proxy_no_actions.toml`        | Saturation point and tail latency       |
+| `baseline.js`              | `reverse_proxy_scan_off.toml`        | Proxy overhead vs direct-to-upstream    |
+| `body_size_scaling.js`     | `reverse_proxy_scan_on.toml`            | Throughput vs body size                 |
+| `concurrency_scaling.js`   | `reverse_proxy_scan_off.toml`        | Saturation point and tail latency       |
 | `scanner_thread_scaling.js`| `scanner_threads_{1,2,4,8}.toml`       | Effect of scanner thread count          |
-| `structured_scanning.js`   | `reverse_proxy_redact.toml`            | Throughput on nested JSON & 100-row CSV |
-| `http_api.js`              | `http_api.toml`                        | `/v1/scan` vs `/v1/redact` across text/json/csv & 3 sizes |
+| `structured_scanning.js`   | `reverse_proxy_scan_on.toml`            | Throughput on nested JSON & 100-row CSV |
+| `http_api.js`              | `http_api.toml`                        | `/v1/scan` across text/json/csv & 3 sizes                 |
 
 For action comparison and scanner thread scaling, `run.sh` restarts the proxy with each config automatically. When running manually, restart the proxy with the appropriate config between runs.
 

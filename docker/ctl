@@ -8,37 +8,10 @@
 #   docker/ctl stop                # stop all containers
 #   docker/ctl start_echo_server   # start only the echo server container
 #   docker/ctl soak                # run soak test against running environment
-#   docker/ctl eval                # run AI4Privacy effectiveness eval
 #
 # Soak test env vars:
 #   DURATION   - total test duration  (default: 30m)
 #   PEAK_VUS   - peak concurrency     (default: 100)
-#
-# Eval env vars (see docs/ai4privacy-eval.md):
-#   SCHEMA      - dataset label vocabulary: openpii300k (default) | mini10k
-#                 mini10k auto-fetches openpii-masking-mini-10k (parquet→JSONL).
-#   DATASET     - manual JSONL file/dir to eval; overrides auto-download.
-#                 Unset      -> SCHEMA/LANG pick files, auto-fetched into .cache/ai4privacy.
-#                 A file     -> that file only (e.g. an extracted *.valid.jsonl).
-#                 A directory-> ALL its *.jsonl children (note: in .cache/ai4privacy-moved
-#                               this globs both *.valid and *.deleted — point at a file).
-#   API_URL     - proxy HTTP API base  (default: http://localhost:8083)
-#   LANG        - language filter (en|nl|fr|de|it|es… or full name; unset = all)
-#   MAX_ROWS    - cap rows processed   (default: all)
-#   CONCURRENCY - in-flight requests   (default: 32)
-#   ENFORCE     - 1 = assert committed per-category floors (default: report-only)
-#   SUPPORTED_ONLY - 1 = hide unsupported categories (SEX, CITY…) and drop them
-#                    from precision/recall/F1 (default: 0)
-#   DUMP_MISSES - GT label (e.g. IDCARD) = list that category's missed values
-#   DUMP_CONTEXT- chars of surrounding text per missed value (default: 48)
-#   DUMP_CONTEXT_LIMIT - cap distinct missed values dumped per category (default: 80)
-#
-# Eval examples:
-#   LANG=fr docker/ctl eval                       # auto-download + eval French
-#   SCHEMA=mini10k LANG=en docker/ctl eval        # eval English rows of mini-10k
-#   SCHEMA=mini10k SUPPORTED_ONLY=1 docker/ctl eval  # mini-10k, supported cats only
-#   DATASET=.cache/ai4privacy-moved/1english_openpii_30k.STREET.valid.jsonl \
-#       LANG=en docker/ctl eval                   # eval a previously-extracted valid file
 #
 set -euo pipefail
 
@@ -92,133 +65,12 @@ cmd_soak() {
         "$PROJECT_DIR/crates/voidwall/benches/k6/soak.js"
 }
 
-# The six AI4Privacy train files are already JSONL on HuggingFace (no parquet /
-# Python step). They are public and ungated, fetchable over plain HTTPS.
-AI4PRIVACY_BASE="https://huggingface.co/datasets/ai4privacy/pii-masking-300k/resolve/main/data/train"
-
-# The openpii-masking-mini-10k micro-benchmark ships as parquet (all 23 languages
-# in one shard per split), so it needs a parquet→JSONL conversion step.
-MINI10K_BASE="https://huggingface.co/datasets/ai4privacy/openpii-masking-mini-10k/resolve/main/data"
-MINI10K_FILES="train-00000-of-00001 validation-00000-of-00001"
-
-# Local venv holding pyarrow for the parquet→JSONL conversion (PEP 668 blocks a
-# system-wide pip install). Created on demand, reused thereafter.
-ensure_converter() {
-    local venv="$1"
-    if [ ! -x "$venv/bin/python" ]; then
-        echo "Creating converter venv: $venv"
-        python3 -m venv "$venv"
-        "$venv/bin/pip" install --quiet --upgrade pip
-    fi
-    if ! "$venv/bin/python" -c "import pyarrow" 2>/dev/null; then
-        echo "Installing pyarrow into converter venv..."
-        "$venv/bin/pip" install --quiet pyarrow
-    fi
-}
-
-# Download the mini-10k parquet shards into $dir and convert each to JSONL.
-fetch_mini10k() {
-    local dir="$1" venv="$2" f pq jl
-    mkdir -p "$dir"
-    ensure_converter "$venv"
-    for f in $MINI10K_FILES; do
-        pq="$dir/$f.parquet"; jl="$dir/$f.jsonl"
-        if [ -s "$jl" ]; then
-            echo "Dataset cached: $f.jsonl"
-            continue
-        fi
-        if [ ! -s "$pq" ]; then
-            echo "Fetching dataset: $f.parquet"
-            curl -fL --retry 3 -o "$pq" "$MINI10K_BASE/$f.parquet"
-        fi
-        echo "Converting $f.parquet -> $f.jsonl"
-        "$venv/bin/python" - "$pq" "$jl" <<'PY'
-import sys, json, pyarrow.parquet as pq
-rows = pq.read_table(sys.argv[1]).to_pylist()
-with open(sys.argv[2], "w") as out:
-    for r in rows:
-        out.write(json.dumps(r, default=str, ensure_ascii=False) + "\n")
-PY
-    done
-}
-
-# Map a LANG knob to the exact train filename(s). `LANG` doubles as the POSIX
-# locale variable (e.g. en_US.UTF-8); a value carrying `_` or `.` is a locale,
-# not our filter, so it means "all languages".
-ai4privacy_files() {
-    local want="${LANG:-}"
-    case "$want" in *.*|*_*) want="" ;; esac
-    want="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
-    case "$want" in
-        en|english) echo "1english_openpii_30k.jsonl" ;;
-        nl|dutch)   echo "dutch_openpii_28k.jsonl" ;;
-        fr|french)  echo "french_openpii_31k.jsonl" ;;
-        de|german)  echo "german_openpii_30k.jsonl" ;;
-        it|italian) echo "italian_openpii_29k.jsonl" ;;
-        es|spanish) echo "spanish_openpii_29k.jsonl" ;;
-        "")         echo "1english_openpii_30k.jsonl dutch_openpii_28k.jsonl french_openpii_31k.jsonl german_openpii_30k.jsonl italian_openpii_29k.jsonl spanish_openpii_29k.jsonl" ;;
-        *)          echo "__unknown__" ;;
-    esac
-}
-
-cmd_eval() {
-    local cache_dir="$PROJECT_DIR/.cache/ai4privacy"
-    local dataset="${DATASET:-}"
-    local schema="${SCHEMA:-openpii300k}"
-
-    # Auto-fetch into the cache only when DATASET is unset. An explicit DATASET
-    # override is honored verbatim.
-    if [ -z "$dataset" ]; then
-        case "$schema" in
-            mini10k)
-                # Single multilingual file per split — LANG filters rows in-process.
-                dataset="$cache_dir/mini10k"
-                fetch_mini10k "$dataset" "$cache_dir/.venv"
-                ;;
-            openpii300k)
-                local files
-                files="$(ai4privacy_files)"
-                if [ "$files" = "__unknown__" ]; then
-                    echo "Unknown LANG='${LANG:-}' — use one of en|nl|fr|de|it|es (or a full name), or set DATASET." >&2
-                    exit 2
-                fi
-                mkdir -p "$cache_dir"
-                for f in $files; do
-                    if [ -s "$cache_dir/$f" ]; then
-                        echo "Dataset cached: $f"
-                    else
-                        echo "Fetching dataset: $f"
-                        curl -fL --retry 3 -o "$cache_dir/$f" "$AI4PRIVACY_BASE/$f"
-                    fi
-                done
-                dataset="$cache_dir"
-                ;;
-            *)
-                echo "Unknown SCHEMA='$schema' — use openpii300k or mini10k." >&2
-                exit 2
-                ;;
-        esac
-    fi
-
-    echo "Running AI4Privacy eval (SCHEMA=$schema, DATASET=$dataset, API_URL=${API_URL:-http://localhost:8083}, LANG=${LANG:-all}, MAX_ROWS=${MAX_ROWS:-all}, CONCURRENCY=${CONCURRENCY:-32}, ENFORCE=${ENFORCE:-0}, SUPPORTED_ONLY=${SUPPORTED_ONLY:-0})..."
-    DATASET="$dataset" \
-    SCHEMA="$schema" \
-    API_URL="${API_URL:-http://localhost:8083}" \
-    LANG="${LANG:-}" \
-    MAX_ROWS="${MAX_ROWS:-}" \
-    CONCURRENCY="${CONCURRENCY:-32}" \
-    ENFORCE="${ENFORCE:-}" \
-    SUPPORTED_ONLY="${SUPPORTED_ONLY:-}" \
-    cargo run --release --features eval --bin ai4privacy-eval \
-        --manifest-path "$PROJECT_DIR/Cargo.toml"
-}
-
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
 usage() {
-    echo "Usage: $0 {compile|start|stop|start_echo_server|soak|eval}"
+    echo "Usage: $0 {compile|start|stop|start_echo_server|soak}"
     exit 1
 }
 
@@ -228,6 +80,5 @@ case "${1:-}" in
     stop)             cmd_stop ;;
     start_echo_server) cmd_start_echo_server ;;
     soak)             cmd_soak ;;
-    eval)             cmd_eval ;;
     *)                usage ;;
 esac

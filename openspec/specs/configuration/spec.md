@@ -103,45 +103,28 @@ label, and SHALL NOT repeat inside the file.
 - **WHEN** two custom entries carry the same label
 - **THEN** validation fails naming the duplicate
 
-### Requirement: Block and header cannot share a direction
+### Requirement: A direction is scanned when its scan flag is set
 
-Validation SHALL fail when one direction's action list holds both `block` and `header`.
-A blocked message is not forwarded, so a header serves no purpose.
+A `request` or `response` table SHALL carry one key, `scan`. It SHALL default to true.
+`scan = false` SHALL disable inspection for that direction and SHALL leave the other
+direction untouched. There SHALL be no action list, no redaction setting, and no block
+response setting in the table.
 
-#### Scenario: Both actions in one direction
+#### Scenario: A direction table is omitted
 
-- **WHEN** a direction lists `block` and `header`
-- **THEN** validation fails naming that direction
+- **WHEN** a mode declares no `request` table
+- **THEN** that direction is scanned, because `scan` defaults to true
 
-### Requirement: The header action is restricted by direction
+#### Scenario: A direction is turned off
 
-`header` SHALL be valid only in `reverse_proxy.request` and `forward_proxy.response`.
+- **WHEN** `reverse_proxy.response` sets `scan = false`
+- **THEN** the upstream response is not inspected and the request is still inspected
 
-#### Scenario: Header in a reverse proxy response
+#### Scenario: A retired key is present
 
-- **WHEN** `reverse_proxy.response` lists `header`
-- **THEN** validation fails naming that direction
-
-#### Scenario: Header in a forward proxy request
-
-- **WHEN** `forward_proxy.request` lists `header`
-- **THEN** validation fails naming that direction
-
-### Requirement: Redact requires a strategy, and char requires a mask character
-
-Validation SHALL fail when a direction lists `redact` without `redact_strategy`. It
-SHALL fail when `redact_strategy` is `char` without `mask_char`. The same rule SHALL
-apply to the HTTP API settings.
-
-#### Scenario: Redact without a strategy
-
-- **WHEN** a direction lists `redact` and sets no `redact_strategy`
-- **THEN** validation fails naming that direction
-
-#### Scenario: Char strategy without a mask character
-
-- **WHEN** `redact_strategy` is `char` and `mask_char` is absent
-- **THEN** validation fails
+- **WHEN** a direction table carries `actions`, `redact_strategy`, `mask_char`,
+  `block_status`, `block_body`, or `block_headers`
+- **THEN** validation fails, naming the unknown key
 
 ### Requirement: An unknown configuration key is rejected
 
@@ -189,22 +172,22 @@ NOT merge the two.
 - **WHEN** a route's `scan` table sets one field only
 - **THEN** every other field takes its own default, not the mode-level value
 
-### Requirement: Actions are set at the mode level only
+### Requirement: Scanning is set at the mode level only
 
-A reverse proxy route SHALL NOT carry `request` or `response` action overrides. Actions
-belong to the mode. Deploy separate instances for separate action policies.
+A reverse proxy route SHALL NOT carry `request` or `response` overrides. Whether a
+direction is scanned belongs to the mode. Deploy separate instances for separate
+policies.
 
-#### Scenario: Route declares an action override
+#### Scenario: Route declares a direction override
 
 - **WHEN** a route declares a `request` or `response` table
 - **THEN** the schema rejects the file
 
-### Requirement: Forward proxy and TLS settings parse but do not run
+### Requirement: Forward proxy and TLS settings parse but the mode does not run
 
 The config schema SHALL accept a `forward_proxy` table and a `tls` table, and SHALL
-validate their action rules. The forward proxy runtime is not built. The proxy SHALL log
-one warning at startup when `forward_proxy.enabled` is true, and SHALL continue with the
-other modes.
+validate them. The forward proxy runtime is not built. The proxy SHALL log one warning at
+startup when `forward_proxy.enabled` is true, and SHALL continue with the other modes.
 
 #### Scenario: Forward proxy is enabled
 
@@ -212,9 +195,9 @@ other modes.
 - **THEN** the proxy logs a warning that the mode is not yet implemented
 - **AND** the proxy continues to start every other enabled mode
 
-#### Scenario: Forward proxy direction rules still apply
+#### Scenario: Forward proxy schema rules still apply
 
-- **WHEN** `forward_proxy.request` lists `header`
+- **WHEN** `forward_proxy.request` carries a key the schema does not define
 - **THEN** validation fails, even though the mode does not run
 
 ### Requirement: Pre-flight validation runs offline

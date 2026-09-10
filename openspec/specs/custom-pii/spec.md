@@ -74,26 +74,26 @@ reject it, naming the field.
 - **WHEN** `detect` or `ignore` lists `Custom`
 - **THEN** validation fails naming the field and the reserved value
 
-### Requirement: The operator label surfaces everywhere a kind name does
+### Requirement: The operator label surfaces wherever a kind name appears
 
 A custom match SHALL report the operator's label in the Prometheus `pii_kind` label, in
-the `kinds` list of a block response, in the `X-PII-Detected` header, in the `kinds`
-array of `/v1/scan`, and as the `type_label` redaction replacement.
+the `kinds` list of a block response, and in the `kinds` array of `/v1/scan`.
 
 #### Scenario: A custom definition matches in the reverse proxy
 
-- **WHEN** a custom definition matches a forwarded request and the header action applies
-- **THEN** `X-PII-Detected` carries the operator's label
-
-#### Scenario: A custom definition matches under type_label redaction
-
-- **WHEN** a custom definition matches and `redact_strategy` is `type_label`
-- **THEN** the replacement is the operator's label in square brackets
+- **WHEN** a custom definition matches a forwarded request
+- **THEN** the proxy blocks it and the `kinds` array of the 403 body carries the
+  operator's label
 
 #### Scenario: A custom definition matches on the HTTP API
 
 - **WHEN** a custom definition matches a body posted to `/v1/scan`
 - **THEN** the `kinds` array lists the operator's label
+
+#### Scenario: A custom match is counted
+
+- **WHEN** a custom definition matches
+- **THEN** `voidwall_pii_detections_total` carries the operator's label as `pii_kind`
 
 ### Requirement: Label cardinality stays bounded
 

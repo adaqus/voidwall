@@ -23,9 +23,10 @@ output. Refer to PII by kind, span, count, or a safe placeholder.
 - PII values never enter logs, metrics, error responses, tracing fields, or cache keys.
 - Async code sends scanner work through `ScannerPool`; it never calls `pii::Scanner`
   directly on a Tokio runtime thread.
-- Proxy consumers call `pii::resolve_overlaps` before counting, redacting, reporting,
+- Proxy consumers call `pii::resolve_overlaps` before counting or reporting,
   or incrementing detection metrics.
-- Action precedence remains block, redact, header, with block short-circuiting forwarding.
+- A detection blocks with a fixed 403 and short-circuits forwarding. There is no
+  redact action, no header action, and nothing that rewrites a message.
 - Scanner and limit failures follow `on_error`, and error metrics record the outcome.
 - Per-route overrides replace defaults rather than merging with them.
 - New configuration fields have startup validation and valid and invalid tests.

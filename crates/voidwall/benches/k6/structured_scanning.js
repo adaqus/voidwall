@@ -63,5 +63,9 @@ export const options = {
 export default function () {
   const res = http.post(`${PROXY_URL}/echo`, selected.body, params);
   latency.add(res.timings.duration);
-  check(res, { "status 200": (r) => r.status === 200 }) || errors.add(1);
+  // A detection blocks with 403 after the body has been parsed and scanned,
+  // which is what this scenario measures. Numbers are not comparable with runs
+  // taken before block became the only outcome.
+  check(res, { "parsed and answered": (r) => r.status === 200 || r.status === 403 }) ||
+    errors.add(1);
 }

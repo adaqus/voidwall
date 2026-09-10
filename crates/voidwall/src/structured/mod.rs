@@ -2,10 +2,11 @@
 //!
 //! Each parser produces a `Vec<OwnedContextFragment>` — context/value/offset
 //! triples that the scanner can pair with `voidwall_pii::ContextFragment` for
-//! `Scanner::mark_piis_structured`. The byte offsets are document-absolute,
-//! so matches can be redacted in-place against the original raw body while
-//! preserving the source format's structure (valid JSON, intact CSV
-//! delimiters, etc.).
+//! `Scanner::mark_piis_structured`. The byte offsets are document-absolute, so
+//! a span from one fragment is directly comparable with a span from another.
+//! Overlap resolution and the resolved match count are defined over those
+//! spans, so fragment-local offsets would make two unrelated values look like
+//! they overlap.
 //!
 //! Submodules:
 //! - [`json`] — `application/json` flattener

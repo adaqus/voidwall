@@ -105,7 +105,7 @@
 <body>
 <header>
   <h1>Voidwall Live Demo</h1>
-  <p>Send sample payloads to the HTTP API at <code id="api-url-display"></code> and see PII detection / redaction in action.</p>
+  <p>Send sample payloads to the HTTP API at <code id="api-url-display"></code> and see PII detection in action.</p>
 </header>
 <main>
   <section>
@@ -120,7 +120,6 @@
           <label for="endpoint">Endpoint</label>
           <select id="endpoint">
             <option value="/v1/scan">POST /v1/scan</option>
-            <option value="/v1/redact">POST /v1/redact</option>
           </select>
         </div>
         <div>
@@ -254,7 +253,6 @@
       const elapsed = (performance.now() - start).toFixed(0);
       const text = await res.text();
       const respCt = res.headers.get("content-type") || "";
-      const redacted = res.headers.get("x-pii-redacted-count");
       let pretty = text;
       if (respCt.includes("application/json")) {
         try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
@@ -265,7 +263,6 @@
         `${elapsed} ms`
       ];
       if (respCt) parts.push(`Content-Type: ${respCt}`);
-      if (redacted !== null) parts.push(`X-PII-Redacted-Count: ${redacted}`);
       $("resp-meta").innerHTML = parts.join("  •  ");
       $("resp-body").textContent = pretty;
     } catch (e) {

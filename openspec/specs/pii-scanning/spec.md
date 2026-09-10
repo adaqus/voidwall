@@ -9,7 +9,7 @@ matches into one non-overlapping set.
 ### Requirement: A guard returns findings only
 
 A guard SHALL be one detection concern. It SHALL return a list of findings and SHALL do
-nothing else: it SHALL NOT block, redact, add a header, or write a metric. Each finding
+nothing else: it SHALL NOT block the message, change it, or write a metric. Each finding
 SHALL name the unit it came from, the kind it found, and the guard that reported it, and
 SHALL carry a byte span, a confidence, or both when the guard has them.
 
@@ -28,7 +28,7 @@ guard, SHALL apply that declaration.
 - **WHEN** a guard classifies a whole unit rather than a substring of it
 - **THEN** it returns a finding that carries a confidence and no span
 
-### Requirement: The engine aggregates the guards
+### Requirement: The engine aggregates the guards and owns the stage order
 
 One engine SHALL own every guard and SHALL be the only entry point for detection. For
 each message it SHALL select the units, call every guard whose declared interest matches
@@ -40,9 +40,10 @@ The merged findings SHALL be returned in a stable order that does not depend on 
 order in which the guards finished: by unit, then by span start, then by span end, then
 by guard name, then by kind, with span-less findings last.
 
-The engine SHALL stop waiting only when a finding triggers a block. Guards still running
-at that point SHALL be abandoned, and their findings SHALL NOT appear in the result. A
-redact or header outcome SHALL NOT stop the engine.
+The engine SHALL stop waiting only when the caller's policy says a finding ends the scan.
+Guards still running at that point SHALL be abandoned, and their findings SHALL NOT appear
+in the result. A caller that reports a detection without stopping the message SHALL NOT
+stop the engine early.
 
 #### Scenario: No guard is interested
 
@@ -61,15 +62,14 @@ redact or header outcome SHALL NOT stop the engine.
 
 #### Scenario: A blocking finding arrives first
 
-- **WHEN** one guard reports a finding that triggers a block while another guard is
-  still running
-- **THEN** the engine returns the block outcome and the result carries no finding from
-  the abandoned guard
+- **WHEN** one guard reports a finding while another guard is still running, and the
+  caller's policy says a finding ends the scan
+- **THEN** the engine returns and the result carries no finding from the abandoned guard
 
-#### Scenario: A redacting finding arrives first
+#### Scenario: A reporting caller waits for every guard
 
-- **WHEN** one guard reports a finding that triggers only a redaction while another
-  guard is still running
+- **WHEN** one guard reports a finding while another guard is still running, and the
+  caller reports rather than blocks
 - **THEN** the engine waits for the second guard and the result holds both findings
 
 ### Requirement: The kind list is ordered and holds each kind once
@@ -289,28 +289,22 @@ union and the per-guard resolution SHALL be removed.
 - **WHEN** the engine merges the findings of the guards
 - **THEN** it applies no further overlap resolution to spans a guard already resolved
 
-### Requirement: Redaction preserves the document structure
+### Requirement: Fragment offsets are document-absolute
 
-Redaction SHALL be applied by the action engine over the findings of a scan. It SHALL
-operate on the original raw bytes, using document-absolute offsets. A replacement inside
-a JSON string SHALL stay between the existing quotes. A replacement inside a CSV or TSV
-cell SHALL stay inside the cell boundary. Redaction SHALL read the scanned content
-without mutating it.
+A structured-body parser SHALL report each fragment's offset as a byte offset into the
+original document, not into the fragment. A finding's span SHALL therefore be comparable
+across every fragment of one unit, which is what overlap resolution and the resolved match
+count require.
 
-#### Scenario: Redacting a JSON string value
+#### Scenario: A parser reports a fragment
 
-- **WHEN** the redact action replaces a value inside a JSON body
-- **THEN** the result is still valid JSON
+- **WHEN** the JSON or CSV parser reports a fragment
+- **THEN** the offset points at that fragment's value bytes inside the raw document
 
-#### Scenario: Redacting a CSV cell
+#### Scenario: Two values in one document each match
 
-- **WHEN** the redact action replaces a value inside a CSV body
-- **THEN** the delimiter structure is unchanged
-
-#### Scenario: The scanned content is not mutated
-
-- **WHEN** the redact action produces a redacted body
-- **THEN** it returns replacement bytes and the scanned content is unchanged
+- **WHEN** two values in one JSON body each hold one match
+- **THEN** the two spans do not overlap and the resolved match count is two
 
 ### Requirement: The scanner runs on dedicated OS threads
 
@@ -368,3 +362,22 @@ buffer once the scan ends.
 
 - **WHEN** the scanner detects PII and logs the outcome
 - **THEN** the log line names the kind and the count, and carries no matched text
+
+### Requirement: Scanner failures follow the on_error policy
+
+When the scanner fails, or the message exceeds a configured limit, the proxy SHALL follow
+the `on_error` policy. `fail_open` SHALL forward the message. `fail_close` SHALL block it.
+`fail_open` SHALL be the default. The proxy SHALL increment `voidwall_errors_total` with
+the outcome that was taken.
+
+#### Scenario: Scanner fails under fail_open
+
+- **WHEN** the scanner returns an error and `on_error` is `fail_open`
+- **THEN** the proxy forwards the message
+- **AND** `voidwall_errors_total{outcome="passed"}` increments
+
+#### Scenario: Scanner fails under fail_close
+
+- **WHEN** the scanner returns an error and `on_error` is `fail_close`
+- **THEN** the proxy blocks the message
+- **AND** `voidwall_errors_total{outcome="blocked"}` increments

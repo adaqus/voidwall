@@ -4,8 +4,8 @@
 //! the URL path, one for the query string, one per scanned header value — and
 //! hands the whole set to the [`Engine`](super::Engine). A unit is identified
 //! by its index in that set, so a [`Finding`](super::Finding) names its origin
-//! with a [`UnitId`] and redaction can map replacement bytes back to the field
-//! they came from.
+//! with a [`UnitId`] and a span means an offset inside one known unit rather
+//! than somewhere in the message.
 
 use std::fmt;
 use std::sync::Arc;
@@ -59,20 +59,21 @@ impl UnitKind {
 /// The content of a unit.
 ///
 /// `PlainText` is the flat path: the bytes are scanned as a single UTF-8
-/// string. `Structured` carries pre-parsed context/value/offset fragments
-/// (JSON key paths and string values, CSV column headers and cells) alongside
-/// the original document bytes, so detection can use keyword context and
-/// redaction can rewrite the original document at document-absolute offsets.
+/// string. `Structured` carries pre-parsed context/value/offset fragments —
+/// JSON key paths and string values, CSV column headers and cells — so
+/// detection can use keyword context. The offsets are document-absolute, which
+/// is what lets overlap resolution compare spans from two fragments; the
+/// document itself is not kept, so the body buffer is released when parsing
+/// ends.
 ///
 /// `Debug` is written by hand, not derived: see the impl below.
 #[derive(Clone)]
 pub enum UnitContent {
     /// Flat text, scanned as one UTF-8 string.
     PlainText(Bytes),
-    /// Pre-parsed fragments plus the original document bytes.
+    /// Pre-parsed fragments carrying document-absolute offsets.
     Structured {
         fragments: Vec<OwnedContextFragment>,
-        raw: Bytes,
     },
 }
 
@@ -91,10 +92,9 @@ impl fmt::Debug for UnitContent {
                 .debug_struct("PlainText")
                 .field("bytes", &bytes.len())
                 .finish(),
-            UnitContent::Structured { fragments, raw } => f
+            UnitContent::Structured { fragments } => f
                 .debug_struct("Structured")
                 .field("fragments", &fragments.len())
-                .field("bytes", &raw.len())
                 .finish(),
         }
     }
@@ -105,20 +105,6 @@ impl UnitContent {
     pub fn text(value: String) -> Self {
         UnitContent::PlainText(Bytes::from(value))
     }
-
-    /// The bytes a redaction rewrites: the flat text, or the original document
-    /// behind a structured unit. Finding spans are offsets into these bytes.
-    pub fn source(&self) -> &Bytes {
-        match self {
-            UnitContent::PlainText(bytes) => bytes,
-            UnitContent::Structured { raw, .. } => raw,
-        }
-    }
-
-    /// The source bytes as UTF-8, or `None` when they are not valid UTF-8.
-    pub fn source_str(&self) -> Option<&str> {
-        std::str::from_utf8(self.source()).ok()
-    }
 }
 
 /// One piece of a message that guards can look at.
@@ -128,9 +114,6 @@ pub struct Unit {
     pub id: UnitId,
     /// What part of the message this unit holds.
     pub kind: UnitKind,
-    /// The header name for [`UnitKind::HeaderValue`]; `None` for every other
-    /// kind, whose position in the message is fully described by the kind.
-    pub label: Option<String>,
     /// The content to scan.
     pub content: UnitContent,
 }
@@ -151,39 +134,30 @@ impl Units {
     }
 
     /// Append a unit and return the id it was given.
-    pub fn push(&mut self, kind: UnitKind, label: Option<String>, content: UnitContent) -> UnitId {
+    pub fn push(&mut self, kind: UnitKind, content: UnitContent) -> UnitId {
         let id = UnitId(self.units.len());
-        self.units.push(Unit {
-            id,
-            kind,
-            label,
-            content,
-        });
+        self.units.push(Unit { id, kind, content });
         id
     }
 
     /// Append a body unit.
     pub fn push_body(&mut self, content: UnitContent) -> UnitId {
-        self.push(UnitKind::Body, None, content)
+        self.push(UnitKind::Body, content)
     }
 
     /// Append a URL path unit.
     pub fn push_path(&mut self, path: String) -> UnitId {
-        self.push(UnitKind::UrlPath, None, UnitContent::text(path))
+        self.push(UnitKind::UrlPath, UnitContent::text(path))
     }
 
     /// Append a query string unit.
     pub fn push_query(&mut self, query: String) -> UnitId {
-        self.push(UnitKind::QueryString, None, UnitContent::text(query))
+        self.push(UnitKind::QueryString, UnitContent::text(query))
     }
 
-    /// Append one header value unit, named by its header.
-    pub fn push_header(&mut self, name: String, value: String) -> UnitId {
-        self.push(
-            UnitKind::HeaderValue,
-            Some(name),
-            UnitContent::text(value),
-        )
+    /// Append one header value unit.
+    pub fn push_header(&mut self, value: String) -> UnitId {
+        self.push(UnitKind::HeaderValue, UnitContent::text(value))
     }
 
     /// True when nothing was pushed.
@@ -207,40 +181,13 @@ mod tests {
         let mut units = Units::new();
         let body = units.push_body(UnitContent::PlainText(Bytes::from_static(b"body")));
         let path = units.push_path("/a".into());
-        let header = units.push_header("Authorization".into(), "Bearer x".into());
+        let header = units.push_header("Bearer x".into());
 
         assert_eq!((body, path, header), (UnitId(0), UnitId(1), UnitId(2)));
         let shared = units.into_shared();
+        assert_eq!(shared[0].kind, UnitKind::Body);
+        assert_eq!(shared[1].kind, UnitKind::UrlPath);
         assert_eq!(shared[2].kind, UnitKind::HeaderValue);
-        assert_eq!(shared[2].label.as_deref(), Some("Authorization"));
-        assert!(shared[1].label.is_none());
-    }
-
-    #[test]
-    fn plain_text_unit_carries_its_bytes() {
-        let unit = UnitContent::text("hello".into());
-        assert_eq!(unit.source_str(), Some("hello"));
-    }
-
-    #[test]
-    fn structured_unit_carries_the_raw_document() {
-        let raw = Bytes::from_static(br#"{"k":"v"}"#);
-        let content = UnitContent::Structured {
-            fragments: vec![OwnedContextFragment {
-                context: "k".into(),
-                value: "v".into(),
-                offset: 6,
-            }],
-            raw: raw.clone(),
-        };
-        assert_eq!(content.source(), &raw);
-        assert_eq!(content.source_str(), Some(r#"{"k":"v"}"#));
-    }
-
-    #[test]
-    fn non_utf8_source_has_no_text() {
-        let content = UnitContent::PlainText(Bytes::from_static(&[0xff, 0xfe]));
-        assert!(content.source_str().is_none());
     }
 
     #[test]
@@ -251,7 +198,10 @@ mod tests {
         let plain = UnitContent::text(CONTENT.into());
         let rendered = format!("{plain:?}");
         assert!(!rendered.contains("SCANNED-CONTENT"), "got: {rendered}");
-        assert_eq!(rendered, format!("PlainText {{ bytes: {} }}", CONTENT.len()));
+        assert_eq!(
+            rendered,
+            format!("PlainText {{ bytes: {} }}", CONTENT.len())
+        );
 
         let structured = UnitContent::Structured {
             fragments: vec![OwnedContextFragment {
@@ -259,7 +209,6 @@ mod tests {
                 value: CONTENT.into(),
                 offset: 6,
             }],
-            raw: Bytes::from(format!(r#"{{"k":"{CONTENT}"}}"#)),
         };
         assert!(
             !format!("{structured:?}").contains("SCANNED-CONTENT"),
@@ -269,13 +218,13 @@ mod tests {
         // A whole unit, and a unit set, are the shapes a log line would reach
         // for. Neither may carry the content out.
         let mut units = Units::new();
-        units.push_header("Authorization".into(), CONTENT.into());
+        units.push_header(CONTENT.into());
         units.push_body(plain);
         let units = units.into_shared();
         assert!(!format!("{:?}", units[0]).contains("SCANNED-CONTENT"));
         assert!(!format!("{units:?}").contains("SCANNED-CONTENT"));
-        // The header name is not a detected value, so it stays legible.
-        assert!(format!("{:?}", units[0]).contains("Authorization"));
+        // The kind stays legible: it names a position, not a value.
+        assert!(format!("{:?}", units[0]).contains("HeaderValue"));
     }
 
     #[test]

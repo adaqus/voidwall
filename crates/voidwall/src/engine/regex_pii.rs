@@ -193,9 +193,11 @@ fn execute_scan(scanner: &voidwall_pii::Scanner, job: &ScanJob) -> Vec<Finding> 
             }
         };
 
-        findings.extend(matches.into_iter().map(|m| {
-            Finding::spanned(*id, m.label(), GUARD_NAME, Span::new(m.start, m.end))
-        }));
+        findings.extend(
+            matches
+                .into_iter()
+                .map(|m| Finding::spanned(*id, m.label(), GUARD_NAME, Span::new(m.start, m.end))),
+        );
     }
 
     findings
@@ -322,7 +324,7 @@ mod tests {
         )));
         units.push_path("/users/other@example.com".into());
         units.push_query("q=third@example.com".into());
-        units.push_header("Authorization".into(), "Bearer fourth@example.com".into());
+        units.push_header("Bearer fourth@example.com".into());
 
         let findings = detect_all(&guard(), units).await;
         let mut hit: Vec<usize> = findings.iter().map(|f| f.unit.index()).collect();
@@ -339,7 +341,11 @@ mod tests {
         units.push_body(content);
 
         let findings = detect_all(&guard(), units).await;
-        assert!(findings.iter().any(|f| f.kind.as_str() == "US_PHONE_NUMBER"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.kind.as_str() == "US_PHONE_NUMBER")
+        );
         // Spans are document-absolute, so they point inside the JSON string.
         let span = findings[0].span.expect("expected a span");
         assert!(span.start > 0);
@@ -372,8 +378,8 @@ mod tests {
     ///
     /// The content half is asserted here. The rest is structural and cannot
     /// regress: `detect` returns `Vec<Finding>` and no message to mutate, and
-    /// `GuardInput` carries no `ActionContext`, so a guard has no mode, route,
-    /// or direction to label a metric with even if it reached for one.
+    /// `GuardInput` carries no metric labels, so a guard has no mode, route, or
+    /// direction to label a counter with even if it reached for one.
     #[tokio::test]
     async fn a_guard_leaves_the_units_it_scanned_untouched() {
         let scanned = b"contact me at user@example.com please";
@@ -392,7 +398,10 @@ mod tests {
             .expect("detect should succeed");
 
         assert!(!findings.is_empty(), "the guard did find something");
-        assert_eq!(units[0].content.source(), &Bytes::from_static(scanned));
+        let UnitContent::PlainText(bytes) = &units[0].content else {
+            panic!("expected plain text");
+        };
+        assert_eq!(bytes, &Bytes::from_static(scanned));
     }
 
     #[tokio::test]

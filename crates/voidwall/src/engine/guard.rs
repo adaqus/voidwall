@@ -1,8 +1,8 @@
 //! The guard contract.
 //!
 //! A guard is one detection concern. It looks at the units the engine selected
-//! for it and returns findings — it does not block, redact, add a header, or
-//! write a metric. The trait is defined here, in `voidwall`, because
+//! for it and returns findings — it does not block the message, change it,
+//! or write a metric. The trait is defined here, in `voidwall`, because
 //! `voidwall-pii` and the detection crates after it cannot depend on the
 //! binary crate; each guard adapts one such crate to this contract.
 //!

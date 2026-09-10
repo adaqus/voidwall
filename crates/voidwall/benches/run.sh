@@ -5,10 +5,10 @@
 # Usage:
 #   benches/run.sh                              # run all scenarios
 #   benches/run.sh baseline                      # run only "baseline"
-#   benches/run.sh action_comparison body_size_scaling  # run two scenarios
+#   benches/run.sh baseline body_size_scaling           # run two scenarios
 #
 # Available scenarios (matching k6/ file names):
-#   baseline, action_comparison, body_size_scaling,
+#   baseline, body_size_scaling,
 #   concurrency_scaling, scanner_thread_scaling, structured_scanning,
 #   http_api
 #
@@ -44,7 +44,7 @@ PROXY_PID=""
 
 PAYLOADS_DIR="$SCRIPT_DIR/payloads"
 
-ALL_SCENARIOS="baseline action_comparison body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning http_api"
+ALL_SCENARIOS="baseline body_size_scaling concurrency_scaling scanner_thread_scaling structured_scanning http_api"
 
 # --- Parse scenario filter ---
 
@@ -56,7 +56,7 @@ fi
 # Validate scenario names
 for s in "${SELECTED_SCENARIOS[@]}"; do
     case "$s" in
-        baseline|action_comparison|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning|http_api) ;;
+        baseline|body_size_scaling|concurrency_scaling|scanner_thread_scaling|structured_scanning|http_api) ;;
         *)
             echo "ERROR: unknown scenario '$s'" >&2
             echo "Available scenarios: $ALL_SCENARIOS" >&2
@@ -193,7 +193,7 @@ run_baseline() {
 
     echo ""
     echo "=== Scenario: $name ==="
-    start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
+    start_proxy "$CONFIGS_DIR/reverse_proxy_scan_off.toml"
 
     local output="$RESULTS_DIR/${name}_${TIMESTAMP}.csv"
     echo "  Running k6: baseline.js ($target, $payload, ${vus} VUs) -> $(basename "$output")"
@@ -222,24 +222,13 @@ if should_run baseline; then
     done
 fi
 
-# --- Scenario 2: Action Comparison ---
-
-if should_run action_comparison; then
-    for action in no_actions block redact header; do
-        run_scenario \
-            "$CONFIGS_DIR/reverse_proxy_${action}.toml" \
-            "$K6_DIR/action_comparison.js" \
-            "action_${action}"
-    done
-fi
-
 # --- Scenario 3: Body Size Scaling ---
 
 if should_run body_size_scaling; then
     for size in small medium large; do
         echo ""
         echo "=== Scenario: body_size_${size} ==="
-        start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
+        start_proxy "$CONFIGS_DIR/reverse_proxy_scan_on.toml"
 
         local_output="$RESULTS_DIR/body_size_${size}_${TIMESTAMP}.csv"
         k6 run \
@@ -260,7 +249,7 @@ if should_run concurrency_scaling; then
     for vus in 1 10 50 100 200 500; do
         echo ""
         echo "=== Scenario: concurrency_c${vus} ==="
-        start_proxy "$CONFIGS_DIR/reverse_proxy_no_actions.toml"
+        start_proxy "$CONFIGS_DIR/reverse_proxy_scan_off.toml"
 
         local_output="$RESULTS_DIR/concurrency_c${vus}_${TIMESTAMP}.csv"
         k6 run \
@@ -292,7 +281,7 @@ if should_run structured_scanning; then
     for payload in json csv; do
         echo ""
         echo "=== Scenario: structured_${payload} ==="
-        start_proxy "$CONFIGS_DIR/reverse_proxy_redact.toml"
+        start_proxy "$CONFIGS_DIR/reverse_proxy_scan_on.toml"
 
         local_output="$RESULTS_DIR/structured_${payload}_${TIMESTAMP}.csv"
         k6 run \
@@ -338,7 +327,7 @@ run_http_api() {
 }
 
 if should_run http_api; then
-    for endpoint in scan redact; do
+    for endpoint in scan; do
         for content_type in text json csv; do
             for payload in small medium large; do
                 run_http_api "$endpoint" "$content_type" "$payload"

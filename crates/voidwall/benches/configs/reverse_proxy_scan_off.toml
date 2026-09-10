@@ -1,4 +1,4 @@
-# Reverse proxy with header action only (measures header action overhead)
+# Reverse proxy, scanning off. Pure proxying cost, for baseline comparison.
 
 [pii]
 countries = []
@@ -13,10 +13,10 @@ enabled = true
 listen = "0.0.0.0:8082"
 
 [reverse_proxy.request]
-actions = ["header"]
+scan = false
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

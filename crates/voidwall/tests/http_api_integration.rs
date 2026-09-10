@@ -4,9 +4,9 @@ use std::sync::{Arc, LazyLock};
 use test_case::test_case;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use voidwall::config::{AppConfig, HttpApiConfig, OnError, PiiConfig, RedactStrategy, ScanConfig};
-use voidwall::http_api;
+use voidwall::config::{AppConfig, HttpApiConfig, OnError, PiiConfig, ScanConfig};
 use voidwall::engine::Engine;
+use voidwall::http_api;
 
 // ---------------------------------------------------------------------------
 // Shared engine & helpers
@@ -43,14 +43,10 @@ struct TestApi {
 
 impl TestApi {
     async fn start() -> Self {
-        Self::start_with(ScanConfig::default(), Some(RedactStrategy::TypeLabel), None).await
+        Self::start_with(ScanConfig::default()).await
     }
 
-    async fn start_with(
-        scan: ScanConfig,
-        redact_strategy: Option<RedactStrategy>,
-        mask_char: Option<char>,
-    ) -> Self {
+    async fn start_with(scan: ScanConfig) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
@@ -63,8 +59,6 @@ impl TestApi {
             http_api: HttpApiConfig {
                 enabled: true,
                 listen: addr.to_string(),
-                redact_strategy,
-                mask_char,
             },
             admin: Default::default(),
             shutdown_timeout_secs: 30,
@@ -206,35 +200,14 @@ async fn scan_kinds_are_sorted_and_stable_across_two_posts() {
     let mut sorted = first.clone();
     sorted.sort();
     sorted.dedup();
-    assert_eq!(first, sorted, "kinds must be sorted and hold each kind once");
-    assert_eq!(first, second, "two scans of one body must agree on the order");
-}
-
-#[tokio::test]
-async fn redact_detected_header_is_sorted_and_stable_across_two_posts() {
-    let api = TestApi::start().await;
-
-    let read_header = async |api: &TestApi| -> String {
-        let resp = post_json(api, "/v1/redact").await;
-        assert_eq!(resp.status(), 200);
-        resp.headers()
-            .get("x-pii-detected")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string()
-    };
-
-    let first = read_header(&api).await;
-    let second = read_header(&api).await;
-
-    let kinds: Vec<&str> = first.split(',').collect();
-    assert!(kinds.len() > 1, "expected several kinds, got {first:?}");
-    let mut sorted = kinds.clone();
-    sorted.sort_unstable();
-    sorted.dedup();
-    assert_eq!(kinds, sorted, "kind names must be sorted and appear once each");
-    assert_eq!(first, second, "two redactions of one body must agree");
+    assert_eq!(
+        first, sorted,
+        "kinds must be sorted and hold each kind once"
+    );
+    assert_eq!(
+        first, second,
+        "two scans of one body must agree on the order"
+    );
 }
 
 #[tokio::test]
@@ -288,152 +261,8 @@ async fn scan_text_tsv_with_headers() {
 }
 
 // ---------------------------------------------------------------------------
-// /v1/redact tests
+// Retired route
 // ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn redact_text_plain_replaces_pii() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "text/plain")
-        .body("contact user@example.com today")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    assert_eq!(resp.headers().get("content-type").unwrap(), "text/plain");
-    let detected = resp
-        .headers()
-        .get("x-pii-detected")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-    assert!(detected.contains("EMAIL"));
-    let count: u64 = resp
-        .headers()
-        .get("x-pii-redacted-count")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert!(count >= 1);
-
-    let body = resp.text().await.unwrap();
-    assert!(body.contains("[EMAIL]"));
-    assert!(!body.contains("user@example.com"));
-}
-
-#[tokio::test]
-async fn redact_application_json_preserves_valid_json() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let body = r#"{"user":{"phone_number":"555-123-4567"}}"#;
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "application/json")
-        .body(body)
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.headers().get("content-type").unwrap(),
-        "application/json"
-    );
-    assert!(
-        resp.headers()
-            .get("x-pii-detected")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("US_PHONE_NUMBER")
-    );
-
-    let body_bytes = resp.bytes().await.unwrap();
-    // Must still be valid JSON.
-    let parsed: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(parsed["user"]["phone_number"], "[US_PHONE_NUMBER]");
-}
-
-#[tokio::test]
-async fn redact_text_csv_preserves_delimiter_structure() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let body = "name,phone_number\nAda,555-123-4567";
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "text/csv")
-        .body(body)
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    assert_eq!(resp.headers().get("content-type").unwrap(), "text/csv");
-
-    let text = resp.text().await.unwrap();
-    // Header row preserved verbatim, data row contains the redaction.
-    assert!(text.starts_with("name,phone_number\nAda,"));
-    assert!(text.contains("[US_PHONE_NUMBER]"));
-    assert!(!text.contains("555-123-4567"));
-}
-
-#[tokio::test]
-async fn redact_text_tsv_preserves_tabs() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let body = "name\tphone_number\nAda\t555-123-4567";
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "text/tab-separated-values")
-        .body(body)
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.headers().get("content-type").unwrap(),
-        "text/tab-separated-values"
-    );
-
-    let text = resp.text().await.unwrap();
-    assert!(text.starts_with("name\tphone_number\nAda\t"));
-    assert!(text.contains("[US_PHONE_NUMBER]"));
-    assert!(!text.contains("555-123-4567"));
-}
-
-#[tokio::test]
-async fn redact_no_pii_omits_x_pii_detected() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "text/plain")
-        .body("nothing sensitive here")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    assert!(resp.headers().get("x-pii-detected").is_none());
-    let count = resp
-        .headers()
-        .get("x-pii-redacted-count")
-        .unwrap()
-        .to_str()
-        .unwrap();
-    assert_eq!(count, "0");
-
-    let body = resp.text().await.unwrap();
-    assert_eq!(body, "nothing sensitive here");
-}
 
 // ---------------------------------------------------------------------------
 // Error / fallback paths
@@ -486,7 +315,7 @@ async fn oversized_body_returns_413() {
         max_body_size: 64,
         ..ScanConfig::default()
     };
-    let api = TestApi::start_with(scan, Some(RedactStrategy::TypeLabel), None).await;
+    let api = TestApi::start_with(scan).await;
 
     let big = "x".repeat(1024);
     let client = reqwest::Client::new();
@@ -517,21 +346,6 @@ async fn malformed_json_returns_400() {
 }
 
 #[tokio::test]
-async fn malformed_json_on_redact_returns_400() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(api.url("/v1/redact"))
-        .header("content-type", "application/json")
-        .body("{not valid json")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 400);
-}
-
-#[tokio::test]
 async fn malformed_json_with_fail_open_still_returns_400() {
     // The HTTP API rejects malformed structured bodies regardless of on_error
     // (the caller declared the type, so silently degrading would mask a bug).
@@ -539,7 +353,7 @@ async fn malformed_json_with_fail_open_still_returns_400() {
         on_error: OnError::FailOpen,
         ..ScanConfig::default()
     };
-    let api = TestApi::start_with(scan, Some(RedactStrategy::TypeLabel), None).await;
+    let api = TestApi::start_with(scan).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -614,6 +428,20 @@ async fn info_endpoint_returns_kinds_and_languages() {
     assert!(!kind_strs.contains(&"CUSTOM"));
 }
 
+/// The retired redaction route is gone from the router, not merely undocumented.
+#[tokio::test]
+async fn retired_redact_route_returns_404() {
+    let api = TestApi::start().await;
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/redact"))
+        .header("content-type", "text/plain")
+        .body("contact me at user@example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
 #[tokio::test]
 async fn openapi_json_returns_valid_spec() {
     let api = TestApi::start().await;
@@ -637,34 +465,18 @@ async fn openapi_json_returns_valid_spec() {
     assert_eq!(spec["info"]["title"], "Voidwall HTTP API");
     assert!(spec["info"]["version"].is_string());
 
-    // Both endpoints are present.
+    // The scan endpoint is present; the retired redaction route is not.
     let scan = &spec["paths"]["/v1/scan"]["post"];
-    let redact = &spec["paths"]["/v1/redact"]["post"];
     assert!(scan.is_object(), "/v1/scan POST must be present");
-    assert!(redact.is_object(), "/v1/redact POST must be present");
+    assert!(
+        spec["paths"].get("/v1/redact").is_none(),
+        "/v1/redact must not appear in the spec"
+    );
 
-    // Request bodies advertise all four supported content types — driven by
+    // The request body advertises all four supported content types — driven by
     // `scanner::SUPPORTED_BODY_CONTENT_TYPES` so the spec stays in sync with
     // the parser dispatch.
-    for path in ["/v1/scan", "/v1/redact"] {
-        let req_content = &spec["paths"][path]["post"]["requestBody"]["content"];
-        for ct in [
-            "text/plain",
-            "application/json",
-            "text/csv",
-            "text/tab-separated-values",
-        ] {
-            assert!(
-                req_content.get(ct).is_some(),
-                "{path}: requestBody.content missing {ct}"
-            );
-        }
-    }
-
-    // /v1/redact 200 mirrors the same content types and documents both
-    // X-PII-* response headers.
-    let redact_200 = &redact["responses"]["200"];
-    let redact_200_content = &redact_200["content"];
+    let req_content = &scan["requestBody"]["content"];
     for ct in [
         "text/plain",
         "application/json",
@@ -672,27 +484,18 @@ async fn openapi_json_returns_valid_spec() {
         "text/tab-separated-values",
     ] {
         assert!(
-            redact_200_content.get(ct).is_some(),
-            "/v1/redact: 200.content missing {ct}"
+            req_content.get(ct).is_some(),
+            "/v1/scan: requestBody.content missing {ct}"
         );
     }
-    let headers = &redact_200["headers"];
-    assert!(
-        headers.get("X-PII-Detected").is_some(),
-        "/v1/redact: 200 missing X-PII-Detected header"
-    );
-    assert!(
-        headers.get("X-PII-Redacted-Count").is_some(),
-        "/v1/redact: 200 missing X-PII-Redacted-Count header"
-    );
 
-    // Documented error status codes are present on both endpoints.
-    for path in ["/v1/scan", "/v1/redact"] {
-        let responses = &spec["paths"][path]["post"]["responses"];
+    // Documented error status codes are present.
+    {
+        let responses = &scan["responses"];
         for status in ["400", "413", "415", "500"] {
             assert!(
                 responses.get(status).is_some(),
-                "{path}: missing {status} response"
+                "/v1/scan: missing {status} response"
             );
         }
     }

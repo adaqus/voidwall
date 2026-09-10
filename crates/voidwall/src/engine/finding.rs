@@ -3,7 +3,7 @@
 //! A [`Finding`] is one detection: the unit it came from, the kind that was
 //! found, the guard that reported it, and — when the guard has them — a byte
 //! span and a confidence. A guard returns findings and nothing else: it does
-//! not block, redact, add a header, or write a metric.
+//! not block the message, change it, or write a metric.
 //!
 //! [`ScanResult`] wraps the merged findings. `detected`, `matches_count`, and
 //! `kinds` are derived from `findings` rather than stored beside them, so they
@@ -15,8 +15,9 @@ use super::unit::UnitId;
 
 /// A byte range inside a unit's source bytes.
 ///
-/// Offsets are document-absolute for a structured unit, so a span can be used
-/// directly against the original body.
+/// Offsets are document-absolute for a structured unit, so two spans from two
+/// different fragments are directly comparable — which is what overlap
+/// resolution and the resolved match count are defined over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
     pub start: usize,

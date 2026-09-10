@@ -29,7 +29,7 @@ Diagnostic categories:
 | `[file]` | Config file could not be read from disk. |
 | `[toml parse]` | File is not well-formed TOML. |
 | `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). |
-| `[semantic]` | `AppConfig::validate` rejected the config (e.g. `block` + `header` in the same direction, duplicate `path_prefix`, custom label collides with a built-in). |
+| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in). |
 | `[scanner build]` | Regex or vectorscan compilation failed. For `[[pii.custom]]` entries the message cites the offending `label`. |
 
 ## Pre-commit hook

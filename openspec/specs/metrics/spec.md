@@ -5,15 +5,13 @@ errors, and process health. The admin listener serves them.
 
 ## Requirements
 
-### Requirement: The proxy publishes six application metrics
+### Requirement: The proxy publishes five application metrics
 
 The proxy SHALL register these metric families:
 
 - `voidwall_pii_detections_total`, a counter labelled `pii_kind`, `mode`, `route`, and
   `direction`.
 - `voidwall_pii_blocked_total`, a counter labelled `mode`, `route`, and `direction`.
-- `voidwall_pii_redacted_total`, a counter labelled `pii_kind`, `mode`, `route`, and
-  `direction`.
 - `voidwall_requests_total`, a counter labelled `mode`, `route`, `method`, and
   `status`.
 - `voidwall_request_duration_seconds`, a histogram labelled `mode` and `route`.
@@ -25,12 +23,13 @@ describes the engine as a whole SHALL NOT name a tier.
 #### Scenario: Prometheus scrapes a running proxy
 
 - **WHEN** a client scrapes the admin metrics endpoint
-- **THEN** the response carries these six families with these label sets
+- **THEN** the response carries these five families with these label sets
 
-#### Scenario: The retired family is absent
+#### Scenario: A retired family is absent
 
 - **WHEN** a client scrapes the admin metrics endpoint
-- **THEN** no family named `voidwall_specialization_errors_total` appears
+- **THEN** no family named `voidwall_specialization_errors_total` or
+  `voidwall_pii_redacted_total` appears
 
 ### Requirement: Metric label values are drawn from fixed sets
 
@@ -59,17 +58,23 @@ or a reason. No label SHALL ever carry matched text.
 - **WHEN** the proxy increments the detection counter for a match
 - **THEN** the `pii_kind` label holds the kind name and no matched value
 
-### Requirement: Detections increment once per resolved kind
+### Requirement: Detections increment once per resolved kind, whatever happens to the message
 
 The proxy SHALL increment `voidwall_pii_detections_total` once per kind in the resolved
-finding set the detection engine returns. It SHALL increment once for a kind however
-many findings, and however many guards, reported that kind. It SHALL do so whatever
-action list is configured, including an empty one.
+finding set the detection engine returns. It SHALL increment once for a kind however many
+findings, and however many guards, reported that kind. It SHALL do so whether the message
+is blocked or reported on.
 
-#### Scenario: PII detected with no action configured
+#### Scenario: A blocked message increments the detection counter
 
-- **WHEN** the action list for a direction is empty and PII is detected
-- **THEN** the detection counter still increments
+- **WHEN** a detection blocks a request
+- **THEN** the detection counter increments for each detected kind, and the blocked
+  counter increments once
+
+#### Scenario: A reported detection increments the counter
+
+- **WHEN** `/v1/scan` detects PII and blocks nothing
+- **THEN** the detection counter still increments for each detected kind
 
 #### Scenario: One kind is found many times
 

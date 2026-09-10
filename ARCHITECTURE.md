@@ -15,9 +15,10 @@ state behaviour.
 ## 1. What this is
 
 An HTTP proxy and REST API that inspects traffic and acts on what it finds. A guard
-reports findings, the engine merges them, and the action engine blocks the message,
-redacts a finding in place, or adds a header naming what was found. It always records
-the detection as a metric, whatever action is configured.
+reports findings and the engine merges them. A detection blocks the message with a
+fixed 403 naming the kinds that were found; there is no action to choose. The
+detection is always recorded as a metric, whether the message is blocked or reported
+on.
 
 Personally identifiable information is the class of finding it detects today. Each
 further class arrives as another guard behind the same contract.
@@ -53,7 +54,7 @@ The detection library is a separate crate and can be used on its own.
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
-  │          │ Action Engine  │  block → redact → header    │
+  │          │ Block or pass  │  detected ⇒ fixed 403       │
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
@@ -86,7 +87,7 @@ a NetworkPolicy.
 
 ### Modules
 
-`config`, `engine`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`, `http_api`,
+`config`, `engine`, `scanner`, `reverse_proxy`, `forward_proxy`, `http_api`,
 `admin`, `metrics`, `structured`, `tls`, `validate`, `error`.
 
 `engine` holds the detection contract: the units a message decodes into, the findings a
@@ -109,11 +110,11 @@ whatever it needs to detect — the regex PII guard owns the scanner pool.
    them, and merges what they return into one canonically ordered finding set.
 6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
    raw matches with `pii::resolve_overlaps` before returning them as findings.
-7. The action engine applies block, then redact, then header. Redaction produces the
-   replacement bytes from the findings; nothing before this point rewrites a message.
-8. The proxy forwards to the upstream, or returns the block response.
-9. The response travels the same path in the other direction, under its own action
-   list.
+7. A detection counts its kinds, counts the block, and answers 403 with those kind
+   names. Nothing anywhere on this path rewrites a message.
+8. With no detection, the proxy forwards to the upstream unchanged.
+9. The response travels the same path in the other direction, when `response.scan` is
+   true.
 
 Each stage has one job, and the boundary between stages is a plain data type. That is
 why a stage can change without touching the rest.
@@ -152,7 +153,7 @@ reclaim it to shut it down; `Drop` closes the channel and joins every thread, an
 ### 4.2 One resolved match set, everywhere
 
 Detectors overlap. A national identity number can sit inside a longer digit run that
-another pattern also matches. Left alone, one value would be counted twice, redacted
+another pattern also matches. Left alone, one value would be counted twice, listed
 twice, and reported twice.
 
 The regex PII guard therefore passes every detector result through
@@ -180,7 +181,7 @@ lookup, and a model share no input shape, no cost class, and no threading model.
 each one does share is that it reports where something was found, and nothing more.
 
 The seam is a **guard**: `name`, `interest`, `detect`. A guard returns findings and
-does nothing else — it does not block, redact, add a header, or write a metric. One
+does nothing else — it does not block the message, change it, or write a metric. One
 `Engine` owns the guards and the stage order: select the units, drop the guards no unit
 interests, fan out, merge, sort. A handler calls `Engine::guard` and acts on what comes
 back.
@@ -200,13 +201,14 @@ Three consequences worth stating:
   units instead of cloning them.
 - **The engine short-circuits for a block and nothing else.** A blocked message is not
   going anywhere, so the remaining findings cannot change the outcome; a guard still
-  running is abandoned and its findings do not appear. A redact or header outcome needs
+  running is abandoned and its findings do not appear. A caller that reports rather
+  than blocks needs
   the full set, so it waits.
 
-Redaction is an action, not a scan step. The guards report where the PII is; the action
-engine turns those spans into replacement bytes. It reads the scanned content rather
-than mutating it — an abandoned guard's worker may still hold a clone of the shared
-units, so exclusive access is not guaranteed.
+Nothing rewrites a message. A guard reads the units it was handed and reports spans; no
+stage downstream turns those spans into replacement bytes. That is not only a policy
+choice — an abandoned guard's worker may still hold a clone of the shared units, so
+exclusive access to the content is never guaranteed anyway.
 
 ### 4.4 Structured bodies are parsed before they are scanned
 
@@ -225,8 +227,10 @@ accepts only a narrow character class. Any alphabetic segment sitting between th
 breaks the match, so `data.user.phone_number` needs several attempts, each exposing a
 different segment next to the separator. The common case resolves on the first.
 
-Fragment offsets are document-absolute, so redaction can rewrite the original bytes
-and keep the document valid.
+Fragment offsets are document-absolute, so a span from one fragment is directly
+comparable with a span from another. Overlap resolution and the resolved match count
+are defined over those spans, so fragment-local offsets would make two unrelated values
+look like they overlap.
 
 ### 4.5 Names need a dictionary, not a pattern
 
@@ -291,7 +295,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall` | HTTP, config, actions, metrics, the binary |
+| `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.

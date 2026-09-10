@@ -134,15 +134,18 @@ gazetteer SHALL NOT be loaded. There SHALL be no dedicated config key.
 - **WHEN** `ignore` names `PersonName`
 - **THEN** the gazetteer is never loaded and the hot path pays nothing
 
-### Requirement: The proxy surface is unchanged
+### Requirement: A person-name match uses the existing proxy surface
 
 A match SHALL flow through the existing pipeline as `PersonName`. It SHALL appear in
-`voidwall_pii_detections_total` with the `PERSON_NAME` kind, in `X-PII-Detected`, and as
-the `[PERSON_NAME]` redaction replacement. The detector SHALL add no config key, no
-metric, and no response field.
+`voidwall_pii_detections_total` with the `PERSON_NAME` kind, and in the `kinds` array of a
+block response. The detector SHALL add no config key, no metric, and no response field.
 
-#### Scenario: A name is redacted under type_label
+#### Scenario: A name is detected in a forwarded request
 
-- **WHEN** the detector matches and `redact_strategy` is `type_label`
-- **THEN** the replacement is `[PERSON_NAME]`
+- **WHEN** the detector matches a person name in a request body
+- **THEN** the proxy blocks the request and the `kinds` array names `PERSON_NAME`
 
+#### Scenario: A name is counted
+
+- **WHEN** the detector matches
+- **THEN** `voidwall_pii_detections_total` increments with `pii_kind="PERSON_NAME"`

@@ -8,7 +8,7 @@
 //!
 //! Quoted fields have their surrounding quotes stripped from the value. Inner
 //! escape sequences (`""`) are kept literal so `value.len()` continues to
-//! match the source byte span used for redaction.
+//! match the source byte span the offset points at.
 
 use csv::ReaderBuilder;
 

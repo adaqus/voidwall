@@ -2,6 +2,7 @@
 - [x] Identity and Framing
 - [x] Analytics Retirement
 - [x] Engine and Guard Contract
+- [x] Action Layer Removal
 - [ ] Configurable Guard and Policy Design
 - [ ] LiteLLM Guardrail API Decoder
 - [ ] Policy, Errors, and Deadlines

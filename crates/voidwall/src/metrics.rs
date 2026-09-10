@@ -19,13 +19,6 @@ lazy_static! {
     )
     .unwrap();
 
-    /// PII instances redacted.
-    pub static ref REDACTED_TOTAL: IntCounterVec = register_int_counter_vec!(
-        opts!("voidwall_pii_redacted_total", "Total redacted PII instances"),
-        &["pii_kind", "mode", "route", "direction"]
-    )
-    .unwrap();
-
     /// Total HTTP requests processed.
     pub static ref REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("voidwall_requests_total", "Total HTTP requests"),
@@ -94,13 +87,6 @@ pub fn inc_detection(pii_kind: &str, mode: &str, route: &str, direction: &str) {
 pub fn inc_blocked(mode: &str, route: &str, direction: &str) {
     BLOCKED_TOTAL
         .with_label_values(&[mode, route, direction])
-        .inc();
-}
-
-/// Record a redacted PII instance.
-pub fn inc_redacted(pii_kind: &str, mode: &str, route: &str, direction: &str) {
-    REDACTED_TOTAL
-        .with_label_values(&[pii_kind, mode, route, direction])
         .inc();
 }
 
@@ -175,18 +161,6 @@ mod tests {
         assert_eq!(after, before + 1);
     }
 
-    #[test_case("Email", "reverse_proxy", "/api", "request" ; "email redacted request")]
-    #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone redacted response")]
-    fn inc_redacted_increments(pii_kind: &str, mode: &str, route: &str, direction: &str) {
-        let before = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction])
-            .get();
-        inc_redacted(pii_kind, mode, route, direction);
-        let after = REDACTED_TOTAL
-            .with_label_values(&[pii_kind, mode, route, direction])
-            .get();
-        assert_eq!(after, before + 1);
-    }
 
     #[test_case("http_api", "global", "POST", "200" ; "http api post 200")]
     #[test_case("reverse_proxy", "/api", "GET", "403" ; "reverse proxy get 403")]

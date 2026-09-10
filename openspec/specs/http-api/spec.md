@@ -6,21 +6,26 @@ redacted body.
 
 ## Requirements
 
-### Requirement: The API serves four routes
+### Requirement: The API serves three routes
 
-The HTTP API listener SHALL serve `POST /v1/scan`, `POST /v1/redact`, `GET /v1/info`,
-and `GET /openapi.json`. It SHALL NOT serve a health probe, a readiness probe, or a
-config endpoint. Those live on the admin listener, or nowhere.
+The HTTP API listener SHALL serve `POST /v1/scan`, `GET /v1/info`, and
+`GET /openapi.json`. It SHALL NOT serve a health probe, a readiness probe, or a config
+endpoint. Those live on the admin listener, or nowhere.
 
 #### Scenario: Client calls a served route
 
-- **WHEN** a client sends a request to one of the four routes
+- **WHEN** a client sends a request to one of the three routes
 - **THEN** the listener answers it
 
 #### Scenario: Client asks for the scanner configuration
 
 - **WHEN** a client requests a config endpoint on the API listener
 - **THEN** no such route exists
+
+#### Scenario: Client calls the retired redaction route
+
+- **WHEN** a client posts to `/v1/redact`
+- **THEN** the listener returns 404, because no such route exists
 
 ### Requirement: The request body is the content to scan
 
@@ -72,8 +77,7 @@ bug.
 ### Requirement: A scanner error follows the on_error policy
 
 A scanner failure SHALL return 500 under `fail_close`. Under `fail_open` the API SHALL
-answer normally, and `/v1/redact` SHALL return the body unredacted with
-`X-PII-Redacted-Count: 0`.
+answer normally.
 
 #### Scenario: Scanner fails under fail_close
 
@@ -82,8 +86,8 @@ answer normally, and `/v1/redact` SHALL return the body unredacted with
 
 #### Scenario: Scanner fails under fail_open
 
-- **WHEN** the scanner errors on `/v1/redact` and `on_error` is `fail_open`
-- **THEN** the API returns the original body with `X-PII-Redacted-Count: 0`
+- **WHEN** the scanner errors on `/v1/scan` and `on_error` is `fail_open`
+- **THEN** the API answers 200 with a report that detects nothing
 
 ### Requirement: POST /v1/scan reports the detection
 
@@ -108,44 +112,10 @@ hold each kind once, so two scans of the same body return the same array.
 - **WHEN** a client posts the same body holding two kinds twice
 - **THEN** both responses carry the same `kinds` array in the same sorted order
 
-### Requirement: POST /v1/redact returns the redacted body
-
-`/v1/redact` SHALL return the body with the PII replaced in place. The response content
-type SHALL mirror the request. A JSON body SHALL stay valid JSON, and a CSV body SHALL
-stay valid CSV. The match metadata SHALL travel in response headers, so the body keeps
-its format.
-
-#### Scenario: JSON body is redacted
-
-- **WHEN** a client posts JSON holding PII to `/v1/redact`
-- **THEN** the response body is still valid JSON with the values replaced
-
-### Requirement: Redaction metadata travels in headers
-
-`/v1/redact` SHALL set `X-PII-Detected` to the comma-separated kind names, and SHALL
-omit that header when nothing is detected. The kind names SHALL be sorted and SHALL
-appear once each. It SHALL set `X-PII-Redacted-Count` to the number of redactions, and
-SHALL set it to `0` when there are none.
-
-#### Scenario: PII was redacted
-
-- **WHEN** the API redacts two matches
-- **THEN** `X-PII-Detected` names the kinds and `X-PII-Redacted-Count` is 2
-
-#### Scenario: Nothing was detected
-
-- **WHEN** the API detects nothing
-- **THEN** `X-PII-Detected` is absent and `X-PII-Redacted-Count` is 0
-
-#### Scenario: The same body is redacted twice
-
-- **WHEN** a client posts the same body holding two kinds twice
-- **THEN** both responses carry the same `X-PII-Detected` value
-
 ### Requirement: Custom PII labels surface in the results
 
 An operator-defined label from `[[pii.custom]]` SHALL appear in the `kinds` array of
-`/v1/scan`, and SHALL be used as the `type_label` replacement by `/v1/redact`.
+`/v1/scan`.
 
 #### Scenario: A custom definition matches
 

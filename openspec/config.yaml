@@ -1,8 +1,9 @@
 schema: spec-driven
 
 context: |
-  Voidwall — an HTTP proxy and REST API that detects PII in HTTP traffic. It can
-  redact a request, block it, or add a header, and it alerts on what it finds.
+  Voidwall — an HTTP proxy and REST API that detects PII in HTTP traffic. A
+  detection blocks the message with a fixed 403 naming the kinds found. There is
+  no action to choose and nothing rewrites a message.
 
   Language: Rust, edition 2024. Platform: Linux only. Never add code for another OS.
 
@@ -32,11 +33,13 @@ context: |
   A bounded channel carries the request. A `tokio::sync::oneshot` carries the reply.
 
   Match resolution. `execute_scan` runs every scanner result through
-  `voidwall_pii::resolve_overlaps` before it counts, redacts, or reports. The proxy works on
+  `voidwall_pii::resolve_overlaps` before it counts or reports. The proxy works on
   the resolved set only. The policy lives in `crates/voidwall-pii/src/overlap.rs`.
 
-  Action precedence: block, then redact, then header. Block short-circuits. There is
-  no `warn` action.
+  Outcome: a detection blocks with a fixed 403 and short-circuits forwarding. The
+  status, body, and headers are not configurable. There is no redact, header, or
+  `warn` action. `reverse_proxy.request.scan` and `.response.scan` turn inspection
+  on or off per direction.
 
   Errors. Use the `Error` enum in `error.rs`. Scanner failures and limit violations
   follow the `on_error` policy, `fail_open` or `fail_close`. Always increment

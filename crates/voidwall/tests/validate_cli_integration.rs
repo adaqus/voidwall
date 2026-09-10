@@ -25,12 +25,10 @@ enabled = true
 listen = "{listen}"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -92,8 +90,11 @@ fn invalid_toml_exits_non_zero_with_parse_tag() {
     assert!(stderr.contains("[toml parse]"), "stderr: {stderr}");
 }
 
+/// An operator's pre-change file names an action. The schema no longer defines
+/// the key, so `--validate` refuses it and names it. This is the migration
+/// guarantee: an old config stops the proxy rather than being reinterpreted.
 #[test]
-fn invalid_schema_unknown_action_exits_non_zero() {
+fn invalid_schema_retired_actions_key_exits_non_zero() {
     let bad = r#"
 [pii]
 countries = ["Us"]
@@ -104,10 +105,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["nope"]
+actions = ["redact"]
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -118,6 +119,7 @@ upstream = "http://localhost:9000"
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("[schema]"), "stderr: {stderr}");
+    assert!(stderr.contains("actions"), "stderr should name the key: {stderr}");
 }
 
 #[test]
@@ -134,11 +136,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -168,11 +169,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -202,11 +202,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -241,11 +240,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -273,11 +271,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -307,11 +304,10 @@ enabled = true
 listen = "127.0.0.1:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

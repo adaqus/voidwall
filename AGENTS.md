@@ -1,10 +1,10 @@
 # Project Instructions
 
 Voidwall is an AI guardrails engine: an HTTP proxy and REST API that inspects traffic
-and acts on what it finds. A guard reports findings; the engine merges them and the
-action engine decides what happens to the message — redact, block, or report the kinds
-it found. Personally identifiable information (PII) is the class of finding it detects
-today, and each further class arrives as another guard.
+and acts on what it finds. A guard reports findings; the engine merges them. A detection
+blocks the message with a fixed 403 naming the kinds that were found — there is no
+action to choose. Personally identifiable information (PII) is the class of finding it
+detects today, and each further class arrives as another guard.
 
 ## Communication
 
@@ -77,7 +77,7 @@ One binary provides four independently enabled modes that share one detection en
 
 Configuration is TOML loaded with `--config` or `VOIDWALL_CONFIG`.
 
-Main modules: `config`, `engine`, `scanner`, `action`, `reverse_proxy`, `forward_proxy`,
+Main modules: `config`, `engine`, `scanner`, `reverse_proxy`, `forward_proxy`,
 `http_api`, `admin`, `metrics`, `tls`, and `error`.
 
 ## Detection Engine
@@ -86,7 +86,7 @@ Main modules: `config`, `engine`, `scanner`, `action`, `reverse_proxy`, `forward
 body, URL path, query string, and scanned header value — and calls `Engine::guard`.
 
 A `Guard` is one detection concern: `name`, `interest`, `detect`. It returns `Finding`s and
-does nothing else. It never blocks, redacts, adds a header, or writes a metric. A guard
+does nothing else. It never blocks the message, changes it, or writes a metric. A guard
 owns whatever it needs to detect; the regex PII guard owns the `ScannerPool`, which is
 reachable from nowhere else.
 
@@ -98,7 +98,7 @@ reachable from nowhere else.
 - Findings come back in canonical order — unit, span start, span end, guard, kind, with
   span-less findings last — so arrival order is invisible and a kind list is stable.
 - The engine short-circuits for a block and nothing else. A guard still running is
-  abandoned; a redact or header outcome waits for every guard.
+  abandoned. A caller that reports rather than blocks waits for every guard.
 - Shutdown is `Drop`-only. `Engine::shutdown` releases the guards and then logs.
 
 ## Detection Safety
@@ -117,7 +117,7 @@ The regex PII guard passes every `Scanner::mark_piis(_structured)` result throug
 `voidwall_pii::resolve_overlaps`, once per unit, before it returns a finding. The proxy uses
 only the resolved, non-overlapping set:
 
-- `/v1/scan` and `/v1/redact` `matches_count` equals `resolve_overlaps(raw).len()`.
+- `/v1/scan` `matches_count` equals `resolve_overlaps(raw).len()`.
 - API and 403 `kinds` lists derive from the resolved set.
 - `voidwall_pii_detections_total{pii_kind=...}` increments once per kind in the resolved
   match set.
@@ -155,7 +155,7 @@ its own workers and awaits the reply. Keep it that way.
 ## Configuration
 
 - Validation runs at startup and invalid configuration prevents startup.
-- Per-route scan and action overrides fully replace defaults. They do not merge.
+- A per-route scan override fully replaces the defaults. It does not merge.
 - New fields require validation and unit tests for valid and invalid values.
 
 ## Testing
@@ -166,13 +166,20 @@ its own workers and awaits the reply. Keep it that way.
   requests.
 - Load tests live in `crates/voidwall/benches/`; see `docs/load-testing.md`.
 
-## Action Precedence
+## Outcomes
 
-Actions run in this order: block, redact, header. Block short-circuits forwarding.
-Redaction is an action: the action engine turns finding spans into replacement bytes and
-reads the scanned content without mutating it. There
-is no `warn` action. Detection, blocked, and redacted metrics increment whenever the
-corresponding event occurs. Request and response actions are configured separately.
+A detection blocks. The proxy answers a fixed 403 carrying an `error` field and a sorted
+`kinds` array, and short-circuits forwarding. The status, the body, and the response
+headers are not configurable. There is no redact action, no header action, and no `warn`
+action, and nothing anywhere rewrites a message.
+
+`reverse_proxy.request.scan` and `reverse_proxy.response.scan` turn inspection on or off
+for one direction; both default to true. Detection and blocked metrics increment whenever
+the corresponding event occurs.
+
+Actions return in the roadmap's *Policy, Errors, and Deadlines* phase, defined against
+guards and finding kinds rather than directions. Do not reintroduce a per-direction
+action list.
 
 ## OpenSpec
 

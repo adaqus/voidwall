@@ -1,7 +1,7 @@
 //! Integration tests for Phase 7.6 structured-body scanning.
 //!
 //! Spins up an echo upstream and a real reverse-proxy listener configured
-//! with redact-on-request actions, then exercises the structured-scanning
+//! with request scanning on, then exercises the structured-scanning
 //! paths for JSON, CSV, and TSV bodies. Also covers the `on_error` policy
 //! when the body fails to parse, and the CSV-without-headers fallback.
 
@@ -17,11 +17,11 @@ use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
-    Action, AppConfig, DirectionConfig, OnError, PiiConfig, RedactStrategy, ReverseProxyConfig,
+    AppConfig, DirectionConfig, OnError, PiiConfig, ReverseProxyConfig,
     Route, ScanConfig,
 };
-use voidwall::reverse_proxy;
 use voidwall::engine::Engine;
+use voidwall::reverse_proxy;
 
 // ---------------------------------------------------------------------------
 // Echo upstream
@@ -75,26 +75,12 @@ fn pii_config() -> PiiConfig {
 static SHARED_ENGINE: LazyLock<Arc<Engine>> =
     LazyLock::new(|| Arc::new(Engine::new(&pii_config()).unwrap()));
 
-fn redact_request() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![Action::Redact],
-        redact_strategy: Some(RedactStrategy::TypeLabel),
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
+fn scan_on() -> DirectionConfig {
+    DirectionConfig { scan: true }
 }
 
-fn empty_direction() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![],
-        redact_strategy: None,
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
+fn scan_off() -> DirectionConfig {
+    DirectionConfig { scan: false }
 }
 
 struct TestProxy {
@@ -116,7 +102,7 @@ impl TestProxy {
                 enabled: true,
                 listen: proxy_addr.to_string(),
                 request,
-                response: empty_direction(),
+                response: scan_off(),
                 routes: vec![Route {
                     path_prefix: "/".into(),
                     upstream: format!("http://{upstream}"),
@@ -160,17 +146,36 @@ impl Drop for TestProxy {
     }
 }
 
+/// A blocked response: 403, the expected kinds named in the body, and none of
+/// the matched values echoed back.
+fn assert_blocked(body: &str, expect_kinds: &[&str], never: &[&str]) {
+    let json: serde_json::Value =
+        serde_json::from_str(body).unwrap_or_else(|e| panic!("block body is JSON: {e}, got {body}"));
+    let kinds: Vec<&str> = json["kinds"]
+        .as_array()
+        .expect("kinds array")
+        .iter()
+        .map(|k| k.as_str().unwrap())
+        .collect();
+    for kind in expect_kinds {
+        assert!(kinds.contains(kind), "expected {kind} in kinds, got {kinds:?}");
+    }
+    for value in never {
+        assert!(!body.contains(value), "matched value leaked: {body}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JSON
 // ---------------------------------------------------------------------------
 
 /// Nested JSON: PII in a deeply-nested string value is detected via the
-/// flattened key path and redacted in-place. The redacted body must remain
-/// valid JSON so downstream consumers can still parse it.
+/// flattened key path. This is the only coverage that a nested JSON key path
+/// reaches the scanner as context, so the input matters more than the outcome.
 #[tokio::test]
-async fn nested_json_body_pii_detected_and_redacted() {
+async fn nested_json_body_pii_detected_and_blocked() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload =
         r#"{"user":{"contact":{"phone_number":"555-123-4567","email":"jane@example.com"}}}"#;
@@ -181,18 +186,16 @@ async fn nested_json_body_pii_detected_and_redacted() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("555-123-4567"), "phone leaked: {body}");
-    assert!(!body.contains("jane@example.com"), "email leaked: {body}");
-    assert!(body.contains("[US_PHONE_NUMBER]"));
-    assert!(body.contains("[EMAIL]"));
-
-    // Surviving JSON structure: must still parse.
-    let v: serde_json::Value = serde_json::from_str(&body).expect("redacted body is valid JSON");
-    assert_eq!(v["user"]["contact"]["phone_number"], "[US_PHONE_NUMBER]");
-    assert_eq!(v["user"]["contact"]["email"], "[EMAIL]");
+    // Both values sit in deeply-nested string fields and are found only
+    // because the flattened key path reaches the scanner as context.
+    assert_blocked(
+        &body,
+        &["US_PHONE_NUMBER", "EMAIL"],
+        &["555-123-4567", "jane@example.com"],
+    );
 }
 
 /// JSON path where the PII keyword sits at the **head** of the path
@@ -202,7 +205,7 @@ async fn nested_json_body_pii_detected_and_redacted() {
 #[tokio::test]
 async fn json_keyword_at_head_of_path() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload = r#"{"phone_number":{"primary":"555-123-4567","secondary":"555-987-6543"}}"#;
     let resp = reqwest::Client::new()
@@ -212,20 +215,14 @@ async fn json_keyword_at_head_of_path() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(
-        !body.contains("555-123-4567"),
-        "primary phone leaked: {body}"
+    assert_blocked(
+        &body,
+        &["US_PHONE_NUMBER"],
+        &["555-123-4567", "555-987-6543"],
     );
-    assert!(
-        !body.contains("555-987-6543"),
-        "secondary phone leaked: {body}"
-    );
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["phone_number"]["primary"], "[US_PHONE_NUMBER]");
-    assert_eq!(v["phone_number"]["secondary"], "[US_PHONE_NUMBER]");
 }
 
 /// JSON path where the keyword sits in the **middle**
@@ -234,7 +231,7 @@ async fn json_keyword_at_head_of_path() {
 #[tokio::test]
 async fn json_keyword_in_middle_of_path() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload = r#"{"user":{"phone_number":{"value":"555-123-4567","verified":true}}}"#;
     let resp = reqwest::Client::new()
@@ -244,14 +241,10 @@ async fn json_keyword_in_middle_of_path() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("555-123-4567"), "phone leaked: {body}");
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["user"]["phone_number"]["value"], "[US_PHONE_NUMBER]");
-    // `verified` is non-PII boolean — must pass through unchanged.
-    assert_eq!(v["user"]["phone_number"]["verified"], true);
+    assert_blocked(&body, &["US_PHONE_NUMBER"], &["555-123-4567"]);
 }
 
 /// JSON keyword at the head **inside an array element**: array indices in
@@ -260,7 +253,7 @@ async fn json_keyword_in_middle_of_path() {
 #[tokio::test]
 async fn json_keyword_at_head_inside_array() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload = r#"{"phone_number":[{"primary":"555-123-4567"},{"primary":"555-987-6543"}]}"#;
     let resp = reqwest::Client::new()
@@ -270,14 +263,14 @@ async fn json_keyword_at_head_inside_array() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("555-123-4567"), "phone leaked: {body}");
-    assert!(!body.contains("555-987-6543"), "phone leaked: {body}");
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["phone_number"][0]["primary"], "[US_PHONE_NUMBER]");
-    assert_eq!(v["phone_number"][1]["primary"], "[US_PHONE_NUMBER]");
+    assert_blocked(
+        &body,
+        &["US_PHONE_NUMBER"],
+        &["555-123-4567", "555-987-6543"],
+    );
 }
 
 /// Malformed JSON with `on_error = fail_open`: the proxy degrades to plain-
@@ -290,10 +283,10 @@ async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
         on_error: OnError::FailOpen,
         ..ScanConfig::default()
     };
-    let proxy = TestProxy::start(upstream, scan, redact_request()).await;
+    let proxy = TestProxy::start(upstream, scan, scan_on()).await;
 
     // Trailing garbage makes this not parse as JSON, but the email is still
-    // present as plain text and should be redacted by the fallback path.
+    // present as plain text and should be found by the fallback path.
     let payload = r#"{"email":"jane@example.com" not closed properly"#;
     let resp = reqwest::Client::new()
         .post(proxy.url("/echo"))
@@ -302,11 +295,12 @@ async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("jane@example.com"), "email leaked: {body}");
-    assert!(body.contains("[EMAIL]"));
+    // The body did not parse as JSON, so it was scanned as flat text. The
+    // email is still found, which is what fail_open promises.
+    assert_blocked(&body, &["EMAIL"], &["jane@example.com"]);
 }
 
 /// Same malformed body but `on_error = fail_close`: the proxy refuses to
@@ -318,7 +312,7 @@ async fn json_parse_failure_fail_close_blocks_request() {
         on_error: OnError::FailClose,
         ..ScanConfig::default()
     };
-    let proxy = TestProxy::start(upstream, scan, redact_request()).await;
+    let proxy = TestProxy::start(upstream, scan, scan_on()).await;
 
     let payload = r#"{not json"#;
     let resp = reqwest::Client::new()
@@ -341,12 +335,12 @@ async fn json_parse_failure_fail_close_blocks_request() {
 // ---------------------------------------------------------------------------
 
 /// CSV with a header row: the column name supplies keyword context for cell
-/// values, so a phone in the `phone_number` column is detected and redacted.
+/// values, so a phone in the `phone_number` column is detected on it alone.
 /// The header row and delimiter structure must survive intact.
 #[tokio::test]
-async fn csv_body_with_headers_redacts_via_column_context() {
+async fn csv_body_with_headers_detected_via_column_context() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload = "name,phone_number\nAda,555-123-4567\nBob,555-987-6543";
     let resp = reqwest::Client::new()
@@ -356,23 +350,23 @@ async fn csv_body_with_headers_redacts_via_column_context() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("555-123-4567"), "phone leaked: {body}");
-    assert!(!body.contains("555-987-6543"), "phone leaked: {body}");
-    assert!(body.contains("[US_PHONE_NUMBER]"));
-    // Header row preserved verbatim, delimiter structure intact, names unchanged.
-    assert!(body.starts_with("name,phone_number\n"));
-    assert!(body.contains("\nAda,"));
-    assert!(body.contains("\nBob,"));
+    // Neither cell carries a keyword; the `phone_number` column header is the
+    // only context that makes them detectable.
+    assert_blocked(
+        &body,
+        &["US_PHONE_NUMBER"],
+        &["555-123-4567", "555-987-6543"],
+    );
 }
 
 /// TSV with a header row: tab delimiter, otherwise identical to CSV behavior.
 #[tokio::test]
-async fn tsv_body_with_headers_redacts_via_column_context() {
+async fn tsv_body_with_headers_detected_via_column_context() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     let payload = "name\tphone_number\nAda\t555-123-4567";
     let resp = reqwest::Client::new()
@@ -382,13 +376,10 @@ async fn tsv_body_with_headers_redacts_via_column_context() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("555-123-4567"), "phone leaked: {body}");
-    assert!(body.contains("[US_PHONE_NUMBER]"));
-    assert!(body.starts_with("name\tphone_number\n"));
-    assert!(body.contains("\nAda\t"));
+    assert_blocked(&body, &["US_PHONE_NUMBER"], &["555-123-4567"]);
 }
 
 /// CSV whose first row is all numeric: header detection fails, body falls
@@ -397,7 +388,7 @@ async fn tsv_body_with_headers_redacts_via_column_context() {
 #[tokio::test]
 async fn csv_without_headers_falls_back_to_plain_text() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), redact_request()).await;
+    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
 
     // First row is purely numeric → no headers, plain-text fallback.
     // The body contains an SSN-shaped value detected via pattern alone.
@@ -409,9 +400,10 @@ async fn csv_without_headers_falls_back_to_plain_text() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
 
-    assert!(!body.contains("123-45-6789"), "SSN leaked: {body}");
-    assert!(body.contains("[US_SSN]"));
+    // No header row, so the body is scanned as flat text and the SSN is found
+    // on its own shape rather than on column context.
+    assert_blocked(&body, &["US_SSN"], &["123-45-6789"]);
 }

@@ -57,26 +57,9 @@ percent-encoding = "2"
 # OpenAPI spec generation
 utoipa = "5"
 
-# HTTP client for the AI4Privacy eval binary (see benches/ai4privacy_eval.rs).
-# Optional and only pulled in under the `eval` feature so default builds and the
-# deployed proxy image carry no extra client stack. Also a dev-dependency below,
-# used unconditionally by the integration tests.
-reqwest = { version = "0.12", features = ["json"], optional = true }
-
-[features]
-default = []
-# Builds the AI4Privacy effectiveness-eval binary. Off by default — it is a
-# benchmarking tool, not part of the proxy. Run via `docker/ctl eval`.
-eval = ["dep:reqwest"]
-
 [[bin]]
 name = "echo-server"
 path = "benches/echo_server.rs"
-
-[[bin]]
-name = "ai4privacy-eval"
-path = "benches/ai4privacy_eval.rs"
-required-features = ["eval"]
 
 [dev-dependencies]
 test-case = "3.3.1"

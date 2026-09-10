@@ -10,11 +10,10 @@ use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
-    Action, AppConfig, DirectionConfig, OnError, PiiConfig, RedactStrategy, ReverseProxyConfig,
-    Route, ScanConfig,
+    AppConfig, DirectionConfig, OnError, PiiConfig, ReverseProxyConfig, Route, ScanConfig,
 };
-use voidwall::reverse_proxy;
 use voidwall::engine::Engine;
+use voidwall::reverse_proxy;
 
 // ---------------------------------------------------------------------------
 // Echo upstream server
@@ -111,48 +110,12 @@ fn default_pii_config() -> PiiConfig {
     }
 }
 
-fn direction_redact() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![Action::Redact],
-        redact_strategy: Some(RedactStrategy::TypeLabel),
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
+fn scan_on() -> DirectionConfig {
+    DirectionConfig { scan: true }
 }
 
-fn direction_block() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![Action::Block],
-        redact_strategy: None,
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
-}
-
-fn direction_header() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![Action::Header],
-        redact_strategy: None,
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
-}
-
-fn direction_empty() -> DirectionConfig {
-    DirectionConfig {
-        actions: vec![],
-        redact_strategy: None,
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    }
+fn scan_off() -> DirectionConfig {
+    DirectionConfig { scan: false }
 }
 
 struct TestProxy {
@@ -299,8 +262,8 @@ async fn plain_http_proxy_end_to_end() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_empty(),
-        direction_empty(),
+        scan_off(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -327,8 +290,8 @@ async fn route_matching_longest_prefix_and_404() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/echo", ""), ("/echo/sub", "")],
-        direction_empty(),
-        direction_empty(),
+        scan_off(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -344,13 +307,13 @@ async fn route_matching_longest_prefix_and_404() {
 
 /// Request block action: request with PII returns error response, not forwarded
 #[tokio::test]
-async fn request_block_action_returns_error() {
+async fn request_pii_returns_fixed_403() {
     let upstream = start_echo_upstream().await;
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_block(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -372,13 +335,13 @@ async fn request_block_action_returns_error() {
 
 /// Response block action: response with PII returns error response
 #[tokio::test]
-async fn response_block_action_returns_error() {
+async fn response_pii_returns_fixed_403() {
     let upstream = start_echo_upstream().await;
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_empty(),
-        direction_block(),
+        scan_off(),
+        scan_on(),
         ScanConfig::default(),
     )
     .await;
@@ -391,96 +354,15 @@ async fn response_block_action_returns_error() {
     assert!(!body.contains("123-45-6789"));
 }
 
-/// Request redact action: PII replaced in forwarded request body
+/// `scan = false` disables inspection for that direction
 #[tokio::test]
-async fn request_redact_action_replaces_pii_in_body() {
+async fn scan_false_disables_scanning() {
     let upstream = start_echo_upstream().await;
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
-        ScanConfig::default(),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo"))
-        .header("content-type", "text/plain")
-        .body("Contact john.doe@example.com for info")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-    // Original PII should be redacted
-    assert!(!body.contains("john.doe@example.com"));
-    // Body should still contain the non-PII text
-    assert!(body.contains("Contact"));
-}
-
-/// Response redact action: PII replaced in response body before sending to client
-#[tokio::test]
-async fn response_redact_action_replaces_pii_in_response() {
-    let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        direction_empty(),
-        direction_redact(),
-        ScanConfig::default(),
-    )
-    .await;
-
-    let resp = reqwest::get(proxy.url("/pii-response")).await.unwrap();
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-    // PII should be redacted
-    assert!(!body.contains("john.doe@example.com"));
-    assert!(!body.contains("123-45-6789"));
-    // Non-PII text should remain
-    assert!(body.contains("User email is"));
-}
-
-/// Header action: X-PII-Detected header added to forwarded request
-#[tokio::test]
-async fn header_action_adds_x_pii_detected() {
-    let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        direction_header(),
-        direction_empty(),
-        ScanConfig::default(),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo"))
-        .header("content-type", "text/plain")
-        .body("My email is john.doe@example.com")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-    // The echo server reflects headers — X-PII-Detected should be present
-    assert!(body.to_lowercase().contains("x-pii-detected"));
-}
-
-/// Empty action list disables scanning for that direction
-#[tokio::test]
-async fn empty_actions_disables_scanning() {
-    let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        direction_empty(),
-        direction_empty(),
+        scan_off(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -508,8 +390,8 @@ async fn metrics_incremented_on_pii_detection() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -548,8 +430,8 @@ async fn on_error_fail_close_blocks_oversized_body() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         scan,
     )
     .await;
@@ -580,8 +462,8 @@ async fn on_error_fail_open_passes_oversized_body() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         scan,
     )
     .await;
@@ -601,14 +483,66 @@ async fn on_error_fail_open_passes_oversized_body() {
 }
 
 /// Clean request passes through without modification
+/// The 403 body is stable: two identical requests produce byte-identical
+/// bodies, with the kinds sorted and each named once. This is the guarantee
+/// that left with the action engine.
 #[tokio::test]
-async fn clean_request_passes_through() {
+async fn block_body_kinds_are_sorted_and_stable_across_two_requests() {
     let upstream = start_echo_upstream().await;
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_redact(),
+        scan_on(),
+        scan_off(),
+        ScanConfig::default(),
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    // Two kinds, given in an order the response must not echo.
+    let payload = "ssn 123-45-6789 and mail john.doe@example.com";
+    let mut bodies = Vec::new();
+    for _ in 0..2 {
+        let resp = client
+            .post(proxy.url("/echo"))
+            .header("content-type", "text/plain")
+            .body(payload)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+        bodies.push(resp.text().await.unwrap());
+    }
+
+    assert_eq!(bodies[0], bodies[1], "block body must be stable");
+    let json: serde_json::Value = serde_json::from_str(&bodies[0]).unwrap();
+    let kinds: Vec<&str> = json["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k.as_str().unwrap())
+        .collect();
+    let mut sorted = kinds.clone();
+    sorted.sort_unstable();
+    assert_eq!(kinds, sorted, "kinds must be sorted, got {kinds:?}");
+    let mut deduped = sorted.clone();
+    deduped.dedup();
+    assert_eq!(deduped, kinds, "each kind must appear once");
+    // Never the matched values.
+    assert!(!bodies[0].contains("123-45-6789"));
+    assert!(!bodies[0].contains("john.doe@example.com"));
+}
+
+#[tokio::test]
+async fn clean_request_passes_through() {
+    let upstream = start_echo_upstream().await;
+    // Request direction only: the echo upstream reflects the client's Host
+    // header, which is an IP address and would block the response on its own.
+    let proxy = TestProxy::start(
+        upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -627,15 +561,15 @@ async fn clean_request_passes_through() {
     assert!(body.contains("just a normal message"));
 }
 
-/// Request with PII in query string gets redacted
+/// PII in the query string is detected and blocks the request
 #[tokio::test]
-async fn request_pii_in_query_string_redacted() {
+async fn request_pii_in_query_string_blocks() {
     let upstream = start_echo_upstream().await;
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig {
             query_params: true,
             ..ScanConfig::default()
@@ -646,9 +580,10 @@ async fn request_pii_in_query_string_redacted() {
     let resp = reqwest::get(proxy.url("/echo?email=john.doe@example.com"))
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
-    // The echoed URI should not contain the raw email
+    // The 403 names the kind and never the matched value.
+    assert!(body.contains("EMAIL"), "got: {body}");
     assert!(!body.contains("john.doe@example.com"));
 }
 
@@ -659,8 +594,8 @@ async fn hop_by_hop_headers_stripped() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_empty(),
-        direction_empty(),
+        scan_off(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -687,8 +622,8 @@ async fn unsupported_content_type_body_not_scanned() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_block(), // would block if scanned
-        direction_empty(),
+        scan_on(), // would block if scanned
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -710,45 +645,9 @@ async fn unsupported_content_type_body_not_scanned() {
 }
 
 /// Block action with custom status code
+/// A scanned request header carrying PII blocks the request
 #[tokio::test]
-async fn block_action_custom_status() {
-    let upstream = start_echo_upstream().await;
-
-    let request_dir = DirectionConfig {
-        actions: vec![Action::Block],
-        redact_strategy: None,
-        mask_char: None,
-        block_status: 451,
-        block_body: Some("legally blocked".to_string()),
-        block_headers: vec![],
-    };
-
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        request_dir,
-        direction_empty(),
-        ScanConfig::default(),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo"))
-        .header("content-type", "text/plain")
-        .body("My email is john.doe@example.com")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 451);
-    let body = resp.text().await.unwrap();
-    assert!(body.contains("legally blocked"));
-}
-
-/// Request header scanning with redaction
-#[tokio::test]
-async fn request_header_scanning_with_redaction() {
+async fn request_header_scanning_blocks() {
     let upstream = start_echo_upstream().await;
 
     let scan = ScanConfig {
@@ -759,8 +658,8 @@ async fn request_header_scanning_with_redaction() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         scan,
     )
     .await;
@@ -773,49 +672,11 @@ async fn request_header_scanning_with_redaction() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
-    // The forwarded authorization header should have PII redacted
+    // The 403 names the kind and never the matched value.
+    assert!(body.contains("EMAIL"), "got: {body}");
     assert!(!body.contains("john.doe@example.com"));
-}
-
-/// Char redaction strategy with mask character
-#[tokio::test]
-async fn char_redaction_strategy() {
-    let upstream = start_echo_upstream().await;
-
-    let request_dir = DirectionConfig {
-        actions: vec![Action::Redact],
-        redact_strategy: Some(RedactStrategy::Char),
-        mask_char: Some('*'),
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    };
-
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        request_dir,
-        direction_empty(),
-        ScanConfig::default(),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo"))
-        .header("content-type", "text/plain")
-        .body("Email: john.doe@example.com")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-    assert!(!body.contains("john.doe@example.com"));
-    // Char strategy replaces with mask character
-    assert!(body.contains("*"));
 }
 
 /// Multiple routes with different upstreams
@@ -826,8 +687,8 @@ async fn multiple_routes_different_upstreams() {
     let proxy = TestProxy::start(
         upstream,
         vec![("/echo", ""), ("/pii-response", "")],
-        direction_empty(),
-        direction_empty(),
+        scan_off(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -870,8 +731,8 @@ async fn per_route_scan_override() {
         reverse_proxy: ReverseProxyConfig {
             enabled: true,
             listen: proxy_addr.to_string(),
-            request: direction_block(),
-            response: direction_empty(),
+            request: scan_on(),
+            response: scan_off(),
             routes: vec![Route {
                 path_prefix: "/".to_string(),
                 upstream: format!("http://{upstream}"),
@@ -916,77 +777,6 @@ async fn per_route_scan_override() {
     cancel.cancel();
 }
 
-/// Both request and response redaction: different strategies prove which direction acted
-#[tokio::test]
-async fn both_request_and_response_redaction() {
-    let upstream = start_echo_upstream().await;
-
-    let request_dir = DirectionConfig {
-        actions: vec![Action::Redact],
-        redact_strategy: Some(RedactStrategy::TypeLabel),
-        mask_char: None,
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    };
-
-    let response_dir = DirectionConfig {
-        actions: vec![Action::Redact],
-        redact_strategy: Some(RedactStrategy::Char),
-        mask_char: Some('*'),
-        block_status: 403,
-        block_body: None,
-        block_headers: vec![],
-    };
-
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        request_dir,
-        response_dir,
-        ScanConfig::default(),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo-with-pii"))
-        .header("content-type", "text/plain")
-        .body("Contact john.doe@example.com for info")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-
-    // Original PII values must not survive
-    assert!(
-        !body.contains("john.doe@example.com"),
-        "request email should be redacted"
-    );
-    assert!(
-        !body.contains("123-45-6789"),
-        "response SSN should be redacted"
-    );
-
-    // TypeLabel in the echoed request part proves request-side redaction
-    assert!(
-        body.contains("[EMAIL]"),
-        "request redaction should use TypeLabel strategy"
-    );
-
-    // Char mask in the response part proves response-side redaction
-    assert!(
-        body.contains("*"),
-        "response redaction should use Char strategy"
-    );
-
-    // Non-PII text preserved from both sides
-    assert!(body.contains("Contact"));
-    assert!(body.contains("RESPONSE_PII"));
-}
-
 // ---------------------------------------------------------------------------
 // User-defined PII integration tests
 // ---------------------------------------------------------------------------
@@ -1017,8 +807,8 @@ async fn custom_pii_block_lists_user_label() {
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_block(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config_with_custom(vec![employee_id_def()]),
     )
@@ -1049,64 +839,52 @@ async fn custom_pii_block_lists_user_label() {
     assert!(!body.contains("EMP-123456"), "PII value must not leak");
 }
 
+/// The operator's label reaches the `pii_kind` metric axis, not just the 403
+/// body. A custom definition is the only way an operator-chosen string gets
+/// onto a metric label, so this is the case worth pinning.
 #[tokio::test]
-async fn custom_pii_redact_type_label_replaces_with_user_label() {
+async fn custom_pii_label_reaches_the_detection_metric() {
     let upstream = start_echo_upstream().await;
+    let def = voidwall_pii::UserPiiDefinition {
+        label: "BADGE_SERIAL".into(),
+        pattern: r"BDG-\d{6}".into(),
+        keywords: vec![],
+        country: voidwall_pii::Country::International,
+    };
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
-        pii_config_with_custom(vec![employee_id_def()]),
+        pii_config_with_custom(vec![def]),
     )
     .await;
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = reqwest::Client::new()
         .post(proxy.url("/echo"))
         .header("content-type", "text/plain")
-        .body("staff EMP-123456 here")
+        .body("badge BDG-482915 issued")
         .send()
         .await
         .unwrap();
+    assert_eq!(resp.status(), 403);
 
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
+    let labelled = prometheus::default_registry()
+        .gather()
+        .iter()
+        .find(|m| m.get_name() == "voidwall_pii_detections_total")
+        .is_some_and(|mf| {
+            mf.get_metric().iter().any(|metric| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|l| l.get_name() == "pii_kind" && l.get_value() == "BADGE_SERIAL")
+            })
+        });
     assert!(
-        body.contains("[EMPLOYEE_ID]"),
-        "forwarded body should contain [EMPLOYEE_ID], got: {body}"
-    );
-    assert!(!body.contains("EMP-123456"));
-}
-
-#[tokio::test]
-async fn custom_pii_header_action_includes_user_label() {
-    let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start_with_pii(
-        upstream,
-        vec![("/", "")],
-        direction_header(),
-        direction_empty(),
-        ScanConfig::default(),
-        pii_config_with_custom(vec![employee_id_def()]),
-    )
-    .await;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(proxy.url("/echo"))
-        .header("content-type", "text/plain")
-        .body("staff EMP-123456 here")
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await.unwrap();
-    assert!(
-        body.contains("x-pii-detected: EMPLOYEE_ID"),
-        "forwarded request should carry X-PII-Detected: EMPLOYEE_ID, got: {body}"
+        labelled,
+        "expected voidwall_pii_detections_total with pii_kind=\"BADGE_SERIAL\""
     );
 }
 
@@ -1129,8 +907,8 @@ async fn custom_pii_country_filter_drops_out_of_scope_entry() {
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_block(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config,
     )
@@ -1151,7 +929,7 @@ async fn custom_pii_country_filter_drops_out_of_scope_entry() {
 }
 
 #[tokio::test]
-async fn custom_pii_keyword_mode_requires_keyword_and_spans_value() {
+async fn custom_pii_keyword_mode_requires_keyword() {
     let upstream = start_echo_upstream().await;
     let def = voidwall_pii::UserPiiDefinition {
         label: "PROJECT_CODE".into(),
@@ -1164,8 +942,8 @@ async fn custom_pii_keyword_mode_requires_keyword_and_spans_value() {
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config_with_custom(vec![def.clone()]),
     )
@@ -1184,12 +962,12 @@ async fn custom_pii_keyword_mode_requires_keyword_and_spans_value() {
     assert!(!body.contains("[PROJECT_CODE]"));
     drop(proxy);
 
-    // With keyword → value is redacted; the keyword portion stays intact
+    // With keyword → the definition matches and the request is blocked
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config_with_custom(vec![def]),
     )
@@ -1201,11 +979,11 @@ async fn custom_pii_keyword_mode_requires_keyword_and_spans_value() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
     assert!(
-        body.contains("project code [PROJECT_CODE] assigned"),
-        "expected keyword preserved and only value redacted, got: {body}"
+        body.contains("PROJECT_CODE"),
+        "expected the operator label in kinds, got: {body}"
     );
     assert!(!body.contains("ABC-123"));
 }
@@ -1216,8 +994,8 @@ async fn custom_pii_coexists_with_builtin_detection() {
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_block(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config_with_custom(vec![employee_id_def()]),
     )
@@ -1253,23 +1031,16 @@ async fn custom_pii_coexists_with_builtin_detection() {
 
 /// PersonName (DictionaryDetector) flows end-to-end through the existing
 /// pipeline with no PersonName-specific config: a name in the request body is
-/// detected, redacted as `[PERSON_NAME]`, flagged via `X-PII-Detected`, and
-/// counted under the `pii_kind="PERSON_NAME"` detection-metric label.
+/// detected, the request is blocked, `PERSON_NAME` appears in the 403 `kinds`
+/// array, and the detection metric carries the `pii_kind="PERSON_NAME"` label.
 #[tokio::test]
-async fn person_name_detected_redacted_and_metric_labelled() {
+async fn person_name_detected_and_metric_labelled() {
     let upstream = start_echo_upstream().await;
-    // Redact + header together: the echo upstream reflects request headers into
-    // its body, so one round-trip exercises both the [PERSON_NAME] redaction and
-    // the X-PII-Detected header.
-    let request_dir = DirectionConfig {
-        actions: vec![Action::Redact, Action::Header],
-        ..direction_redact()
-    };
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],
-        request_dir,
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
     )
     .await;
@@ -1283,20 +1054,21 @@ async fn person_name_detected_redacted_and_metric_labelled() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     let body = resp.text().await.unwrap();
-    // Name redacted with the type label; the raw name does not survive.
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let kinds: Vec<&str> = json["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k.as_str().unwrap())
+        .collect();
     assert!(
-        body.contains("[PERSON_NAME]"),
-        "expected [PERSON_NAME] marker, got: {body}"
+        kinds.contains(&"PERSON_NAME"),
+        "expected PERSON_NAME in kinds, got {kinds:?}"
     );
+    // The matched name never appears in the response.
     assert!(!body.contains("John Smith"));
-    // X-PII-Detected lists the PERSON_NAME kind (echo reflects request headers).
-    let lower = body.to_lowercase();
-    assert!(
-        lower.contains("x-pii-detected") && body.contains("PERSON_NAME"),
-        "expected X-PII-Detected: …PERSON_NAME…, got: {body}"
-    );
 
     // Detection metric carries the PERSON_NAME kind label.
     let metrics = prometheus::default_registry().gather();
@@ -1318,7 +1090,7 @@ async fn person_name_detected_redacted_and_metric_labelled() {
 }
 
 /// Disabling PersonName via `[pii].ignore` is the only knob needed to turn the
-/// detector off: the same name now passes through unredacted.
+/// detector off: the same name now passes through undetected.
 #[tokio::test]
 async fn person_name_disabled_via_ignore_not_detected() {
     let upstream = start_echo_upstream().await;
@@ -1327,8 +1099,8 @@ async fn person_name_disabled_via_ignore_not_detected() {
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
-        direction_redact(),
-        direction_empty(),
+        scan_on(),
+        scan_off(),
         ScanConfig::default(),
         pii_config,
     )
@@ -1345,10 +1117,10 @@ async fn person_name_disabled_via_ignore_not_detected() {
 
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
-    // Name flows through unredacted; no PersonName marker emitted.
+    // Name flows through; nothing is detected, so the request is forwarded.
     assert!(
         body.contains("John Smith"),
-        "name should pass through unredacted, got: {body}"
+        "name should pass through undetected, got: {body}"
     );
     assert!(!body.contains("[PERSON_NAME]"));
 }

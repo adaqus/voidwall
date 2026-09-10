@@ -43,22 +43,21 @@ scans. An oversize body SHALL follow the `on_error` policy.
 - **WHEN** the request body is within `max_body_size`
 - **THEN** the proxy buffers it and scans it
 
-### Requirement: Request and response are scanned independently
+### Requirement: Request and response are inspected independently
 
-The proxy SHALL apply the request action list to the incoming request, and the response
-action list to the upstream response. An empty action list for a direction SHALL
-disable both the scan and the actions for that direction, and SHALL leave the other
-direction untouched.
+The proxy SHALL inspect the incoming request when `request.scan` is true, and the
+upstream response when `response.scan` is true. `scan = false` for a direction SHALL
+disable inspection for that direction and SHALL leave the other direction untouched.
 
-#### Scenario: Request actions only
+#### Scenario: Request only
 
-- **WHEN** the request action list is non-empty and the response action list is empty
-- **THEN** the proxy scans the request and forwards the upstream response untouched
+- **WHEN** `request.scan` is true and `response.scan` is false
+- **THEN** the proxy inspects the request and forwards the upstream response untouched
 
-#### Scenario: Response actions only
+#### Scenario: Response only
 
-- **WHEN** the request action list is empty and the response action list is non-empty
-- **THEN** the proxy forwards the request untouched and scans the upstream response
+- **WHEN** `request.scan` is false and `response.scan` is true
+- **THEN** the proxy forwards the request untouched and inspects the upstream response
 
 ### Requirement: Body scanning respects the content type and the target flags
 
@@ -83,18 +82,46 @@ The proxy SHALL scan the URL path when `scan.url_path` is true, the query string
 #### Scenario: PII sits in the query string
 
 - **WHEN** `scan.query_params` is true and the query holds an email address
-- **THEN** the proxy detects it and applies the request actions
+- **THEN** the proxy detects it and blocks the request
 
-### Requirement: Redaction rewrites the forwarded request
+### Requirement: A detection blocks with a fixed 403
 
-When the redact action applies, the proxy SHALL forward the redacted body, and SHALL
-rebuild the request URI from the redacted path and the redacted query. It SHALL replace
-each redacted header value.
+When a scan detects PII, the proxy SHALL stop the message and SHALL answer 403. The body
+SHALL be a JSON object holding an `error` field and a `kinds` array. The array SHALL list
+the detected kind names sorted, holding each kind once, and SHALL carry no matched text.
+The status, the body, and the response headers SHALL NOT be configurable. The proxy SHALL
+increment `voidwall_pii_blocked_total` once, and the detection counter once per kind.
 
-#### Scenario: PII sits in the path and the body
+#### Scenario: PII is found in a request
 
-- **WHEN** the scan redacts both the path and the body
-- **THEN** the forwarded request carries the rebuilt URI and the redacted body
+- **WHEN** a scan of the incoming request detects PII
+- **THEN** the proxy answers 403 and does not reach the upstream
+
+#### Scenario: PII is found in a response
+
+- **WHEN** a scan of the upstream response detects PII
+- **THEN** the proxy answers 403 and the upstream body does not reach the client
+
+#### Scenario: Three kinds are found
+
+- **WHEN** a scan detects three kinds
+- **THEN** the `kinds` array names them sorted, each once, with no matched value
+
+### Requirement: A clean message is forwarded unchanged
+
+When a scan detects nothing, the proxy SHALL forward the message unchanged and SHALL
+increment no detection metric. The proxy SHALL NOT rewrite a body, a URL path, a query
+string, or a header value at any point.
+
+#### Scenario: A clean request
+
+- **WHEN** a scan of the request detects nothing
+- **THEN** the request reaches the upstream as it arrived, minus the hop-by-hop headers
+
+#### Scenario: A clean response
+
+- **WHEN** a scan of the upstream response detects nothing
+- **THEN** the client receives the upstream body unchanged
 
 ### Requirement: Hop-by-hop headers are stripped
 

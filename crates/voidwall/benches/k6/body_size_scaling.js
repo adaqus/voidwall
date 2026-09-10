@@ -1,7 +1,8 @@
 // Scenario 3: Body Size Scaling
 //
 // Measures how throughput degrades with body size using PII payloads.
-// Proxy should be running with redact action config.
+// Proxy should be running with request scanning on. Payloads are clean so
+// the message reaches the upstream and the full round trip is measured.
 //
 // Usage:
 //   k6 run benches/k6/body_size_scaling.js
@@ -23,9 +24,12 @@ const VUS = parseInt(__ENV.VUS || "50");
 const PAYLOAD = __ENV.PAYLOAD || "medium";  // small | medium | large
 
 const payloads = {
-  small: open("../payloads/pii_small.json"),
-  medium: open("../payloads/pii_medium.json"),
-  large: open("../payloads/pii_large.json"),
+  // Clean payloads: a detection now blocks at the proxy, so a PII payload
+  // would never reach the upstream and the forward path would go unmeasured.
+  // The scan still runs in full — it just finds nothing.
+  small: open("../payloads/clean_small.json"),
+  medium: open("../payloads/clean_medium.json"),
+  large: open("../payloads/clean_large.json"),
 };
 
 const latency = new Trend("latency", true);

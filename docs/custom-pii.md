@@ -2,8 +2,8 @@
 
 Operator-supplied regex definitions under `[[pii.custom]]` run alongside the
 built-in detectors. Matches surface with the operator's chosen `label` in
-metrics (`pii_kind` counter), block responses (`kinds` list), the
-`X-PII-Detected` header, and `[LABEL]`-style redaction output.
+metrics (`pii_kind` counter), the `kinds` list of a 403 block response, and the
+`kinds` array of `/v1/scan`.
 
 See `openspec/specs/custom-pii/spec.md` for the full specification.
 
@@ -75,6 +75,6 @@ rejects configs that list `"Custom"` in either field.
 
 When `keywords` is non-empty, a match requires one of the keywords to appear
 just before the pattern (with a permissive separator). The reported span
-covers only the value, not the keyword — redaction preserves the keyword
-text. This is useful when the pattern alone would be too broad (e.g. a
+covers only the value, not the keyword, so overlap resolution sees the value's
+own extent. This is useful when the pattern alone would be too broad (e.g. a
 three-letter prefix is too common to treat every occurrence as PII).

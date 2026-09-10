@@ -1,4 +1,4 @@
-# Reverse proxy with redact, 2 scanner threads
+# Reverse proxy with 2 scanner thread(s), request scanning on.
 
 [pii]
 countries = []
@@ -13,12 +13,10 @@ enabled = true
 listen = "0.0.0.0:8082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

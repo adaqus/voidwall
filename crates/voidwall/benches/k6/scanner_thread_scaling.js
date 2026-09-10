@@ -1,7 +1,8 @@
 // Scenario 5: Scanner Thread Scaling
 //
 // Measures effect of scanner_threads config on throughput.
-// Uses 10 KB PII payload with redact action at high concurrency.
+// Uses a 10 KB clean payload with request scanning on at high concurrency:
+// the scanner does full work and the message still reaches the upstream.
 // Run once per scanner_threads config (1, 2, 4, 8), restarting
 // the proxy with the appropriate config between runs.
 //
@@ -21,7 +22,7 @@ const PROXY_URL = __ENV.PROXY_URL || "http://127.0.0.1:8082";
 const DURATION = __ENV.DURATION || "30s";
 const VUS = parseInt(__ENV.VUS || "200");
 
-const payload = open("../payloads/pii_medium.json");
+const payload = open("../payloads/clean_medium.json");
 
 const errorCount = new Counter("error_count");
 

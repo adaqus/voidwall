@@ -127,12 +127,10 @@ enabled = true
 listen = "0.0.0.0:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
@@ -164,7 +162,8 @@ upstream = "http://localhost:9000"
 
     #[test]
     fn schema_error_categorised_as_schema() {
-        // Well-formed TOML, but `actions` contains an unknown variant.
+        // Well-formed TOML, but `actions` is a retired key that the schema
+        // no longer defines. This doubles as the migration guarantee.
         let bad = r#"
 [pii]
 countries = ["Us"]
@@ -175,25 +174,25 @@ enabled = true
 listen = "0.0.0.0:18082"
 
 [reverse_proxy.request]
-actions = ["nope"]
+actions = ["redact"]
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"
 upstream = "http://localhost:9000"
 "#;
         let f = write_tmp(bad);
-        let err = validate_config_file(f.path()).expect_err("unknown action must fail");
+        let err = validate_config_file(f.path()).expect_err("retired actions key must fail");
         assert_eq!(err.category, Category::Schema);
         assert!(err.to_string().starts_with("[schema]"), "got: {err}");
     }
 
     #[test]
     fn semantic_error_categorised_as_semantic() {
-        // Well-formed and well-typed, but `block` and `header` are mutually
-        // exclusive in the same direction.
+        // Well-formed and well-typed, but two routes claim the same prefix.
+        // This is the surviving semantic rule on the reverse proxy.
         let bad = r#"
 [pii]
 countries = ["Us"]
@@ -203,22 +202,20 @@ languages = ["En"]
 enabled = true
 listen = "0.0.0.0:18082"
 
-[reverse_proxy.request]
-actions = ["block", "header"]
-
-[reverse_proxy.response]
-actions = []
-
 [[reverse_proxy.routes]]
 path_prefix = "/"
 upstream = "http://localhost:9000"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9001"
 "#;
         let f = write_tmp(bad);
-        let err = validate_config_file(f.path()).expect_err("block+header must fail");
+        let err = validate_config_file(f.path()).expect_err("duplicate prefix must fail");
         assert_eq!(err.category, Category::Semantic);
         assert!(err.to_string().starts_with("[semantic]"), "got: {err}");
         assert!(
-            err.message.contains("mutually exclusive"),
+            err.message.contains("duplicate path_prefix"),
             "message should cite the semantic rule, got: {}",
             err.message,
         );
@@ -242,11 +239,10 @@ enabled = true
 listen = "0.0.0.0:18082"
 
 [reverse_proxy.request]
-actions = ["redact"]
-redact_strategy = "type_label"
+scan = true
 
 [reverse_proxy.response]
-actions = []
+scan = false
 
 [[reverse_proxy.routes]]
 path_prefix = "/"

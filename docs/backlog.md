@@ -72,8 +72,8 @@ No proposal needed.
 
 ### 2.1 Cross-mode end-to-end tests — history § 12.1
 
-- Start the binary with a test config. Drive every mode. Assert scan, block, redact, and
-  header behaviour.
+- Start the binary with a test config. Drive every mode. Assert scan and block
+  behaviour.
 - Assert that config validation rejects every invalid case at startup.
 
 ### 2.2 Full load-test suite — history § 10.1
@@ -112,7 +112,8 @@ Cleanup:
 
 ## 4. Documentation
 
-- `docs/ai4privacy-eval.md` — dataset acquisition, scoring, and the caveats.
+- Evaluation documentation, once the roadmap's Model Evaluation Framework phase
+  ships a replacement for the retired AI4Privacy harness.
   History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
   normalization, and frequency handling. History § 20.12.
@@ -128,6 +129,8 @@ History § 13.4 carried two unchecked rows:
 - `HTTP API /v1/scan: returns user label in kinds`
 - `HTTP API /v1/redact: replaces matched value with [USER_LABEL]`
 
-Both say *deferred — Phase 8 HTTP API mode not yet implemented*. Phase 8 shipped.
+Both said *deferred — Phase 8 HTTP API mode not yet implemented*. Phase 8 shipped. The
+second row is now permanently unbuildable: `/v1/redact` was removed with the action
+layer, and nothing rewrites a message.
 `http_api.rs:140` states that custom labels surface with their configured `label`. The
 `custom-pii` and `http-api` specs cover this behaviour.

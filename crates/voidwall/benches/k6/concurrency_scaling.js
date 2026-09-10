@@ -1,7 +1,7 @@
 // Scenario 4: Concurrency Scaling
 //
 // Measures throughput and tail latency under increasing load.
-// Uses clean medium payload with no-actions config (pure proxying cost).
+// Uses clean medium payload with scanning off (pure proxying cost).
 //
 // Usage:
 //   k6 run benches/k6/concurrency_scaling.js

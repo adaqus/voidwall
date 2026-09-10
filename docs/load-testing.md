@@ -3,7 +3,7 @@
 ## Goal
 
 Measure the proxy's overhead on the HTTP hot path: added latency and maximum
-throughput across modes, body sizes, actions, and concurrency levels. Results
+throughput across modes, body sizes, and concurrency levels. Results
 should be reproducible and comparable across commits.
 
 ---
@@ -64,7 +64,7 @@ rate (req/s), latency percentiles (p50, p95, p99, max), error rate.
 
 **What it measures**: raw cost of proxying without PII scanning.
 
-Setup: reverse proxy mode, single route, actions = `["warn"]`, clean payloads
+Setup: reverse proxy mode, single route, `scan = true`, clean payloads
 (no PII detected, scanner runs but finds nothing).
 
 | Variable | Values |
@@ -74,25 +74,12 @@ Setup: reverse proxy mode, single route, actions = `["warn"]`, clean payloads
 
 Compare against direct-to-echo-server (no proxy) to isolate added latency.
 
-### 2. Action Comparison
-
-**What it measures**: cost difference between action types.
-
-Setup: reverse proxy mode, single route, PII payloads (~10 KB).
-
-| Variable | Values |
-|----------|--------|
-| Actions | `["warn"]`, `["block"]`, `["warn", "redact"]`, `["warn", "header", "redact"]` |
-| Concurrency | 50 |
-
-`block` should be fastest (short-circuits after detection, no forwarding).
-`redact` adds mutation cost. `warn`-only is the baseline.
-
-### 3. Body Size Scaling
+### 2. Body Size Scaling
 
 **What it measures**: how throughput degrades with body size.
 
-Setup: reverse proxy mode, `["warn", "redact"]`, PII payloads.
+Setup: reverse proxy mode, `scan = true`, clean payloads. A detection blocks at
+the proxy, so a PII payload would leave the forward path unmeasured.
 
 | Variable | Values |
 |----------|--------|
@@ -102,11 +89,11 @@ Setup: reverse proxy mode, `["warn", "redact"]`, PII payloads.
 Expect roughly linear degradation. Identifies if there's an unexpected cliff
 (e.g., buffer copy overhead at large sizes).
 
-### 4. Concurrency Scaling
+### 3. Concurrency Scaling
 
 **What it measures**: throughput and tail latency under increasing load.
 
-Setup: reverse proxy mode, `["warn"]`, 10 KB clean payload.
+Setup: reverse proxy mode, `scan = false`, 10 KB clean payload.
 
 | Variable | Values |
 |----------|--------|
@@ -115,11 +102,11 @@ Setup: reverse proxy mode, `["warn"]`, 10 KB clean payload.
 Identifies saturation point and tail latency behavior. Look for p99 spikes
 that indicate queueing.
 
-### 5. Scanner Thread Scaling
+### 4. Scanner Thread Scaling
 
 **What it measures**: effect of `scanner_threads` config on throughput.
 
-Setup: reverse proxy mode, `["warn", "redact"]`, 10 KB PII payload,
+Setup: reverse proxy mode, `scan = true`, 10 KB clean payload,
 concurrency 200.
 
 | Variable | Values |
@@ -128,27 +115,29 @@ concurrency 200.
 
 Identifies the diminishing-returns point for scanner parallelism.
 
-### 6. Mode Comparison
+### 5. Mode Comparison
 
 **What it measures**: overhead differences between proxy modes.
 
-Setup: same 10 KB PII payload, `["warn", "redact"]`, concurrency 50.
+Setup: same 10 KB clean payload, `scan = true`, concurrency 50.
 
 | Mode | Notes |
 |------|-------|
 | Reverse proxy | Route to echo server |
 | Forward proxy | Forward to echo server |
-| REST API | `POST /v1/redact` (no upstream forwarding) |
+| REST API | `POST /v1/scan` (no upstream forwarding) |
 
 REST API should be fastest (no upstream hop). Forward proxy may be slightly
 slower due to URI parsing and TLS origination (if HTTPS destination).
 
-### 7. Structured Scanning
+### 6. Structured Scanning
 
 **What it measures**: cost of body parsing + path/column-context detection
 on bodies whose detection depends on structure rather than nearby plain text.
 
-Setup: reverse proxy mode, `reverse_proxy_redact.toml`, concurrency 50.
+Setup: reverse proxy mode, `reverse_proxy_scan_on.toml`, concurrency 50. PII
+payloads answer 403 after parsing, which is the parse cost this measures; numbers
+are not comparable with runs taken before block became the only outcome.
 
 | Variable | Values |
 |----------|--------|
@@ -159,11 +148,11 @@ The JSON exercises mid-path keyword cases (e.g. `request.user.phone.primary`,
 beyond the leaf segment. The CSV exercises header-as-context detection over
 many rows.
 
-### 8. Sustained Load (Soak)
+### 7. Sustained Load (Soak)
 
 **What it measures**: memory leaks, GC pauses, file descriptor exhaustion.
 
-Setup: reverse proxy mode, `["warn", "redact"]`, 10 KB PII payload, constant
+Setup: reverse proxy mode, `scan = true`, 10 KB clean payload, constant
 rate at 80% of measured max throughput, duration: 30 minutes.
 
 Monitor via admin `/metrics` endpoint:
@@ -183,7 +172,7 @@ Monitor via admin `/metrics` endpoint:
 cargo run --release --bin echo-server
 
 # Terminal 2: proxy under test
-cargo run --release -- --config benches/configs/reverse_proxy_warn.toml
+cargo run --release --bin voidwall -- --config benches/configs/reverse_proxy_scan_off.toml
 
 # Terminal 3: load test
 k6 run benches/k6/baseline.js
@@ -208,14 +197,13 @@ A script (`benches/run.sh`) that:
 TOML files in `benches/configs/`, one per scenario variant:
 
 ```
-benches/configs/reverse_proxy_warn.toml
-benches/configs/reverse_proxy_block.toml
-benches/configs/reverse_proxy_redact.toml
-benches/configs/forward_proxy_redact.toml
-benches/configs/rest_api_redact.toml
+benches/configs/reverse_proxy_scan_on.toml
+benches/configs/reverse_proxy_scan_off.toml
+benches/configs/http_api.toml
 benches/configs/scanner_threads_1.toml
 benches/configs/scanner_threads_2.toml
-...
+benches/configs/scanner_threads_4.toml
+benches/configs/scanner_threads_8.toml
 ```
 
 ---
@@ -227,8 +215,8 @@ Not fixed numbers — these depend on hardware. Instead, define relative targets
 | Metric | Target |
 |--------|--------|
 | Proxy overhead (no PII) | < 1 ms added p99 latency at 10 KB body |
-| Block action | Fastest action (no upstream hop) |
-| Redact vs warn-only | < 20% throughput reduction |
+| Blocked request | Faster than a forwarded one (no upstream hop) |
+| Scanning on vs off | < 20% throughput reduction |
 | Soak test memory | No upward trend over 30 min |
 | Soak test p99 | No upward trend over 30 min |
 

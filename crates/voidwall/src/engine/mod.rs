@@ -40,14 +40,15 @@ pub use unit::{Unit, UnitContent, UnitId, UnitKind, Units};
 ///
 /// The engine short-circuits for a block and nothing else: a blocked message is
 /// not going anywhere, so the remaining findings cannot change the outcome. A
-/// redact or header outcome needs the full set, so it never short-circuits.
+/// caller that reports rather than blocks needs the full set, so it never
+/// short-circuits.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BlockPolicy {
     /// No finding blocks. Every interested guard runs to completion.
     #[default]
     Never,
-    /// Any finding blocks. This is what a configured `block` action means
-    /// today: detection alone decides.
+    /// Any finding blocks. This is what the proxy passes: detection alone
+    /// decides, and the message is stopped.
     AnyFinding,
 }
 
@@ -362,7 +363,10 @@ mod tests {
                 (1, "guard_b"),
             ]
         );
-        assert_eq!(first.kinds(), vec!["EMAIL".to_string(), "US_SSN".to_string()]);
+        assert_eq!(
+            first.kinds(),
+            vec!["EMAIL".to_string(), "US_SSN".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -382,7 +386,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_redacting_finding_does_not_abandon_a_guard_still_running() {
+    async fn a_non_blocking_policy_does_not_abandon_a_guard_still_running() {
         let fast = TestGuard::new("fast", "EMAIL");
         let slow = TestGuard::new("slow", "US_SSN").with_delay(SLOW);
         let (fast_probe, slow_probe) = (fast.probe(), slow.probe());
@@ -392,7 +396,10 @@ mod tests {
 
         assert_eq!((fast_probe.completions(), slow_probe.completions()), (1, 1));
         assert_eq!(result.matches_count(), 2);
-        assert_eq!(result.kinds(), vec!["EMAIL".to_string(), "US_SSN".to_string()]);
+        assert_eq!(
+            result.kinds(),
+            vec!["EMAIL".to_string(), "US_SSN".to_string()]
+        );
     }
 
     #[tokio::test]
