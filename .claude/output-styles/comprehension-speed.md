@@ -38,4 +38,4 @@ Default to terse, structured, skimmable output. Optimize every response for "how
 
 ## Language
 
-Adhere to ASD-STE100 standard for wording and sentence construction (simplified English).
+Adhere to ASD-STE100 standard for wording and sentence construction (simplified English). Use 2-3 sentences at most to express given aspect in your response.
