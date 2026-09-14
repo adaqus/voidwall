@@ -24,7 +24,7 @@ pub(crate) fn luhn_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 pub(crate) fn ssn_check(s: &str) -> bool {
@@ -147,7 +147,7 @@ pub(crate) fn sin_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 pub(crate) fn ppsn_check(s: &str) -> bool {
@@ -268,7 +268,7 @@ pub(crate) fn tfn_check(s: &str) -> bool {
         .zip(weights.iter())
         .map(|(&d, &w)| d * w)
         .sum();
-    sum % 11 == 0
+    sum.is_multiple_of(11)
 }
 
 pub(crate) fn ird_check(s: &str) -> bool {
@@ -526,7 +526,7 @@ pub(crate) fn imei_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 pub(crate) fn utr_check(s: &str) -> bool {
@@ -560,7 +560,7 @@ pub(crate) fn aba_check(s: &str) -> bool {
     let sum = 3 * (digits[0] + digits[3] + digits[6])
         + 7 * (digits[1] + digits[4] + digits[7])
         + (digits[2] + digits[5] + digits[8]);
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 pub(crate) fn geolocation_check(s: &str) -> bool {
@@ -631,7 +631,7 @@ pub(crate) fn za_luhn13_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 pub(crate) fn za_postal_check(s: &str) -> bool {
@@ -981,7 +981,7 @@ pub(crate) fn siren_luhn_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 /// France SIRET Luhn check: exactly 14 digits, Luhn mod-10.
@@ -1007,7 +1007,7 @@ pub(crate) fn siret_luhn_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 /// France NIR (Sécurité Sociale) check: 13-digit body + 2-digit key.
@@ -1272,7 +1272,7 @@ pub(crate) fn ohip_check(s: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 /// German/Austrian street address check: validates the captured span from a keyword-context match.
@@ -1511,7 +1511,7 @@ pub(crate) fn au_abn_check(s: &str) -> bool {
             d * WEIGHTS[i]
         })
         .sum();
-    sum % 89 == 0
+    sum.is_multiple_of(89)
 }
 
 pub(crate) fn person_name_check(s: &str) -> bool {
@@ -1701,7 +1701,7 @@ pub(crate) fn it_partita_iva_check(s: &str) -> bool {
             }
         })
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Italian CAP (postal code) check: exactly 5 digits within the assigned
@@ -1954,7 +1954,7 @@ pub(crate) fn pl_id_card_check(s: &str) -> bool {
         .zip(WEIGHTS)
         .map(|(&c, w)| pl_mrz_char_value(c) * w)
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Polish passport number check: 2 letters + 7 digits, where the first digit
@@ -1975,7 +1975,7 @@ pub(crate) fn pl_passport_check(s: &str) -> bool {
         .zip(WEIGHTS)
         .map(|(&c, w)| pl_mrz_char_value(c) * w)
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Polish postal code check: `dd-ddd` (e.g. `00-950` Warsaw). Structural
