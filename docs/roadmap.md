@@ -6,7 +6,7 @@
 - [ ] Configurable Guard and Policy Design
 - [ ] LiteLLM Guardrail API Decoder
 - [ ] Policy, Errors, and Deadlines
-- [ ] Guard API
+- [x] Guard API
 - [ ] Model Evaluation Framework
 - [ ] ONNX Runtime and Model Profiles
 - [ ] Supported Safety Profiles
