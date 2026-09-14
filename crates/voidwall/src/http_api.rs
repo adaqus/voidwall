@@ -1,24 +1,22 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::post;
 use bytes::Bytes;
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::{Any, CorsLayer};
 use tracing::warn;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::ToSchema;
 
 use crate::config::{AppConfig, OnError, ScanConfig};
 use crate::engine::{BlockPolicy, Engine, ScanResult, Units};
 use crate::error::Error;
 use crate::metrics;
-use crate::scanner::{SCANNER_ERROR_LIMITER, SUPPORTED_BODY_CONTENT_TYPES, classify_body};
+use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body};
 
 const MODE: &str = "http_api";
 const ROUTE: &str = "global";
@@ -32,7 +30,6 @@ pub struct ApiState {
     engine: Arc<Engine>,
     scan: ScanConfig,
     max_body_size: usize,
-    openapi_spec: Arc<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -40,36 +37,19 @@ pub struct ApiState {
 // ---------------------------------------------------------------------------
 
 pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ApiState {
-    let openapi_spec = build_openapi_spec();
-
     ApiState {
         engine,
         scan: config.scan.clone(),
         max_body_size: config.scan.max_body_size,
-        openapi_spec: Arc::new(openapi_spec),
     }
 }
 
 pub fn router(state: ApiState) -> Router {
     let max_body = state.max_body_size;
-    // Permissive CORS so the bundled Swagger UI (served from a different
-    // origin in docker/docker-compose.yml) can fetch /openapi.json and
-    // exercise /v1/scan via "Try it out". The HTTP API has no
-    // built-in auth — it is expected to sit behind a gateway or NetworkPolicy
-    // (openspec/specs/http-api/spec.md, no authentication), so allowing any origin here
-    // does not weaken the deployed posture.
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers(Any);
-    let router = Router::new()
+    Router::new()
         .route("/v1/scan", post(scan_handler))
-        .route("/v1/info", get(info_handler))
-        .route("/openapi.json", get(openapi_handler))
-        .layer(DefaultBodyLimit::max(max_body));
-
-    router.layer(cors).with_state(state)
+        .layer(DefaultBodyLimit::max(max_body))
+        .with_state(state)
 }
 
 pub async fn serve(
@@ -120,22 +100,6 @@ struct ErrorResponse {
     error: String,
 }
 
-#[derive(Serialize, ToSchema)]
-#[schema(example = json!({
-    "version": "0.1.0",
-    "languages": ["en", "fr", "de"],
-    "kinds": ["EMAIL", "US_SSN", "CREDIT_CARD"],
-}))]
-struct InfoResponse {
-    /// Voidwall build version.
-    version: &'static str,
-    /// Languages supported by keyword-context detectors.
-    languages: Vec<&'static str>,
-    /// All built-in PII kind labels recognised by the detector. Operator-defined
-    /// custom labels are not included here — they are surfaced per-deployment.
-    kinds: Vec<&'static str>,
-}
-
 // utoipa is a procedural macro and its arguments must be string literals
 // (it cannot expand `const` references), so the macros below use a single
 // `text/plain` placeholder for the body Content-Type. At spec-generation
@@ -176,76 +140,25 @@ async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: B
     process(state, headers, body).await
 }
 
-/// List supported PII kinds and languages
-///
-/// Returns the full set of built-in PII kind labels and supported keyword
-/// languages. Useful for clients that want to surface the deployment's
-/// detection capabilities (e.g. the bundled demo page).
-#[utoipa::path(
-    get,
-    path = "/v1/info",
-    tag = "pii",
-    operation_id = "getInfo",
-    responses(
-        (status = 200, description = "Supported kinds and languages", body = InfoResponse, content_type = "application/json"),
-    ),
-)]
-async fn info_handler() -> Response {
-    let payload = InfoResponse {
-        version: env!("CARGO_PKG_VERSION"),
-        languages: language_labels(),
-        kinds: kind_labels(),
-    };
-    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
-    let resp = (StatusCode::OK, [("content-type", "application/json")], body).into_response();
-    record_request(resp.status());
-    resp
-}
+// The OpenAPI document is a checked-in repository artefact
+// (`docs/openapi.json`), not a served route, so the generator below is reached
+// only from the freshness test that keeps the file in step with the handler.
+#[cfg(test)]
+use utoipa::OpenApi;
 
-fn kind_labels() -> Vec<&'static str> {
-    voidwall_pii::PiiKind::all()
-        .iter()
-        .filter(|k| !matches!(k, voidwall_pii::PiiKind::Custom))
-        .map(|k| k.label())
-        .collect()
-}
-
-fn language_labels() -> Vec<&'static str> {
-    voidwall_pii::Language::all()
-        .iter()
-        .map(|l| match l {
-            voidwall_pii::Language::En => "en",
-            voidwall_pii::Language::Fr => "fr",
-            voidwall_pii::Language::De => "de",
-            voidwall_pii::Language::Nl => "nl",
-            voidwall_pii::Language::It => "it",
-            voidwall_pii::Language::Es => "es",
-            voidwall_pii::Language::Pl => "pl",
-        })
-        .collect()
-}
-
-async fn openapi_handler(State(state): State<ApiState>) -> Response {
-    record_request(StatusCode::OK);
-    let mut response = Response::new(Body::from(state.openapi_spec.as_bytes().to_vec()));
-    response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
-    response
-}
-
+#[cfg(test)]
 #[derive(OpenApi)]
 #[openapi(
     info(
         title = "Voidwall HTTP API",
         description = "Detect PII in arbitrary text, JSON, CSV, and TSV \
-            bodies. The body itself is the content to scan — there is no \
-            JSON envelope. The `Content-Type` header drives parsing.",
+            bodies with `POST /v1/scan`, the one route this listener serves. \
+            The body itself is the content to scan — there is no JSON \
+            envelope. The `Content-Type` header drives parsing.",
         version = env!("CARGO_PKG_VERSION"),
     ),
-    paths(scan_handler, info_handler),
-    components(schemas(ScanResponse, ErrorResponse, InfoResponse)),
+    paths(scan_handler),
+    components(schemas(ScanResponse, ErrorResponse)),
     tags(
         (name = "pii", description = "PII detection endpoints"),
     ),
@@ -257,6 +170,7 @@ struct ApiDoc;
 /// entry per `SUPPORTED_BODY_CONTENT_TYPES` element. This keeps the documented
 /// content types in sync with the parser dispatch in `scanner::classify_body`
 /// without duplicating the list at every annotation site.
+#[cfg(test)]
 fn build_openapi_spec() -> String {
     let mut value = serde_json::to_value(ApiDoc::openapi())
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
@@ -271,6 +185,7 @@ fn build_openapi_spec() -> String {
 /// crate without duplicating the list at the annotation site. The `Custom`
 /// marker is filtered out because its user-facing label comes from operator
 /// config, not the enum.
+#[cfg(test)]
 fn inject_known_pii_kinds(spec: &mut serde_json::Value) {
     let labels_md = voidwall_pii::PiiKind::all()
         .iter()
@@ -292,6 +207,7 @@ fn inject_known_pii_kinds(spec: &mut serde_json::Value) {
 /// placeholder body Content-Type with one entry per
 /// `SUPPORTED_BODY_CONTENT_TYPES` element. The replacement clones the schema
 /// from the placeholder, so all entries share the same shape.
+#[cfg(test)]
 fn expand_supported_content_types(spec: &mut serde_json::Value) {
     let pointer = format!("/paths/{}/post", encode_pointer_segment("/v1/scan"));
     let Some(post) = spec.pointer_mut(&pointer) else {
@@ -306,18 +222,20 @@ fn expand_supported_content_types(spec: &mut serde_json::Value) {
     }
 }
 
+#[cfg(test)]
 fn expand_content_map(content: &mut serde_json::Map<String, serde_json::Value>) {
     let Some(template) = content.values().next().cloned() else {
         return;
     };
     content.clear();
-    for ct in SUPPORTED_BODY_CONTENT_TYPES {
+    for ct in crate::scanner::SUPPORTED_BODY_CONTENT_TYPES {
         content.insert((*ct).to_string(), template.clone());
     }
 }
 
 /// JSON Pointer (RFC 6901) escape: `~` → `~0`, `/` → `~1`. We need this
 /// because path templates contain `/` which is the segment separator.
+#[cfg(test)]
 fn encode_pointer_segment(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
 }
@@ -471,6 +389,43 @@ mod tests {
     #[test_case("APPLICATION/JSON", &["application/json".to_string()], true ; "case insensitive")]
     fn content_type_allowlist(ct: &str, allowed: &[String], expected: bool) {
         assert_eq!(is_content_type_allowed(ct, allowed), expected);
+    }
+
+    /// The checked-in `docs/openapi.json` is the published contract. It is
+    /// generated, so it cannot drift from the handler — provided somebody
+    /// regenerates it. This test is that gate: there is no CI pipeline, so the
+    /// failure has to carry the command that fixes it.
+    #[test]
+    fn openapi_document_file_is_fresh() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/openapi.json");
+        let generated = build_openapi_spec();
+
+        if std::env::var_os("UPDATE_OPENAPI").is_some() {
+            std::fs::write(&path, format!("{generated}\n"))
+                .unwrap_or_else(|e| panic!("writing {}: {e}", path.display()));
+            return;
+        }
+
+        const REGEN: &str = "UPDATE_OPENAPI=1 cargo test -p voidwall --lib openapi";
+        let checked_in = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "reading {}: {e}\n\nregenerate it with: {REGEN}",
+                path.display()
+            )
+        });
+
+        // Parsed values, not strings: whitespace, trailing newline, and key
+        // order must not fail the test.
+        let generated: serde_json::Value = serde_json::from_str(&generated).unwrap();
+        let checked_in: serde_json::Value = serde_json::from_str(&checked_in)
+            .unwrap_or_else(|e| panic!("{} is not valid JSON: {e}", path.display()));
+
+        assert_eq!(
+            checked_in,
+            generated,
+            "docs/openapi.json is stale — regenerate it with: {REGEN}"
+        );
     }
 
     #[test]

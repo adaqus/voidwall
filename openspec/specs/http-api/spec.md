@@ -6,15 +6,15 @@ redacted body.
 
 ## Requirements
 
-### Requirement: The API serves three routes
+### Requirement: The API serves one route
 
-The HTTP API listener SHALL serve `POST /v1/scan`, `GET /v1/info`, and
-`GET /openapi.json`. It SHALL NOT serve a health probe, a readiness probe, or a config
-endpoint. Those live on the admin listener, or nowhere.
+The HTTP API listener SHALL serve `POST /v1/scan` and nothing else. It SHALL NOT serve a
+health probe, a readiness probe, a config endpoint, a detection-surface endpoint, or a
+specification endpoint. Those live on the admin listener, in the repository, or nowhere.
 
-#### Scenario: Client calls a served route
+#### Scenario: Client calls the served route
 
-- **WHEN** a client sends a request to one of the three routes
+- **WHEN** a client sends `POST /v1/scan`
 - **THEN** the listener answers it
 
 #### Scenario: Client asks for the scanner configuration
@@ -25,6 +25,16 @@ endpoint. Those live on the admin listener, or nowhere.
 #### Scenario: Client calls the retired redaction route
 
 - **WHEN** a client posts to `/v1/redact`
+- **THEN** the listener returns 404, because no such route exists
+
+#### Scenario: Client calls the retired detection-surface route
+
+- **WHEN** a client sends `GET /v1/info`
+- **THEN** the listener returns 404, because no such route exists
+
+#### Scenario: Client calls the retired specification route
+
+- **WHEN** a client sends `GET /openapi.json`
 - **THEN** the listener returns 404, because no such route exists
 
 ### Requirement: The request body is the content to scan
@@ -122,29 +132,24 @@ An operator-defined label from `[[pii.custom]]` SHALL appear in the `kinds` arra
 - **WHEN** a custom definition matches the posted body
 - **THEN** `/v1/scan` lists the configured label in `kinds`
 
-### Requirement: GET /v1/info lists the detection surface
+### Requirement: The OpenAPI document is published as a repository file
 
-`/v1/info` SHALL return JSON holding the build version, the supported keyword
-languages, and every built-in PII kind label. It SHALL exclude the `Custom` kind, whose
-labels are per-deployment.
+The repository SHALL hold an OpenAPI 3.x document at `docs/openapi.json` describing
+`POST /v1/scan`. It SHALL be generated from the route handler and the request and
+response types, so it cannot drift from the implementation. A test SHALL fail when the
+generated document and the checked-in file differ.
 
-#### Scenario: Client asks what the deployment detects
+#### Scenario: A consumer reads the contract
 
-- **WHEN** a client sends `GET /v1/info`
-- **THEN** the response holds the version, the language codes, and the built-in kind
-  labels
-- **AND** the generic `Custom` label is absent
+- **WHEN** a consumer opens `docs/openapi.json`
+- **THEN** the document describes `POST /v1/scan`, its accepted content types, its
+  response shape, and its status codes
 
-### Requirement: GET /openapi.json serves a generated specification
+#### Scenario: The handler changes without regenerating the document
 
-The API SHALL serve an OpenAPI 3.x document at `/openapi.json`. It SHALL be generated
-from the route handlers and the request and response types, so it cannot drift from the
-implementation.
-
-#### Scenario: Client fetches the specification
-
-- **WHEN** a client sends `GET /openapi.json`
-- **THEN** the API returns the OpenAPI document describing the four routes
+- **WHEN** a change alters the route, the request type, or a response type and leaves
+  `docs/openapi.json` untouched
+- **THEN** the freshness test fails
 
 ### Requirement: The API provides no authentication
 

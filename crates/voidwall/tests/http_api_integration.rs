@@ -399,35 +399,6 @@ async fn csv_without_headers_falls_back_to_plain_text() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// /openapi.json tests
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn info_endpoint_returns_kinds_and_languages() {
-    let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let resp = client.get(api.url("/v1/info")).send().await.unwrap();
-
-    assert_eq!(resp.status(), 200);
-    let info: serde_json::Value = resp.json().await.unwrap();
-
-    assert!(!info["version"].as_str().unwrap().is_empty());
-
-    let langs = info["languages"].as_array().unwrap();
-    let lang_strs: Vec<&str> = langs.iter().map(|v| v.as_str().unwrap()).collect();
-    assert!(lang_strs.contains(&"en"));
-    assert!(lang_strs.contains(&"fr"));
-    assert!(lang_strs.contains(&"de"));
-
-    let kinds = info["kinds"].as_array().unwrap();
-    let kind_strs: Vec<&str> = kinds.iter().map(|v| v.as_str().unwrap()).collect();
-    assert!(kind_strs.contains(&"EMAIL"));
-    assert!(kind_strs.contains(&"US_SSN"));
-    // The Custom marker is filtered — its label comes from operator config.
-    assert!(!kind_strs.contains(&"CUSTOM"));
-}
-
 /// The retired redaction route is gone from the router, not merely undocumented.
 #[tokio::test]
 async fn retired_redact_route_returns_404() {
@@ -442,63 +413,79 @@ async fn retired_redact_route_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
+/// The retired detection-surface route is gone from the router. The built-in
+/// kind labels live in the `kinds` property description of `docs/openapi.json`.
 #[tokio::test]
-async fn openapi_json_returns_valid_spec() {
+async fn retired_info_route_returns_404() {
     let api = TestApi::start().await;
-    let client = reqwest::Client::new();
-    let resp = client.get(api.url("/openapi.json")).send().await.unwrap();
+    let resp = reqwest::Client::new()
+        .get(api.url("/v1/info"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+/// The specification is a checked-in repository file, not a served route.
+#[tokio::test]
+async fn retired_openapi_route_returns_404() {
+    let api = TestApi::start().await;
+    let resp = reqwest::Client::new()
+        .get(api.url("/openapi.json"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+/// The listener sends no CORS header. A wildcard `Access-Control-Allow-Origin`
+/// on an unauthenticated listener let any page on the internet post bodies to
+/// it; cross-origin access belongs to the gateway that supplies the
+/// authentication (openspec/specs/security/spec.md).
+#[tokio::test]
+async fn scan_response_carries_no_cors_header() {
+    let api = TestApi::start().await;
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", "text/plain")
+        .header("origin", "https://elsewhere.example")
+        .body("contact me at user@example.com")
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.headers()
-            .get("content-type")
-            .unwrap()
-            .to_str()
-            .unwrap(),
-        "application/json"
-    );
-
-    let spec: serde_json::Value = resp.json().await.unwrap();
-
-    // Top-level OpenAPI shape.
-    assert!(spec["openapi"].as_str().unwrap().starts_with("3."));
-    assert_eq!(spec["info"]["title"], "Voidwall HTTP API");
-    assert!(spec["info"]["version"].is_string());
-
-    // The scan endpoint is present; the retired redaction route is not.
-    let scan = &spec["paths"]["/v1/scan"]["post"];
-    assert!(scan.is_object(), "/v1/scan POST must be present");
     assert!(
-        spec["paths"].get("/v1/redact").is_none(),
-        "/v1/redact must not appear in the spec"
+        resp.headers().get("access-control-allow-origin").is_none(),
+        "the API listener must send no CORS header"
     );
+}
 
-    // The request body advertises all four supported content types — driven by
-    // `scanner::SUPPORTED_BODY_CONTENT_TYPES` so the spec stays in sync with
-    // the parser dispatch.
-    let req_content = &scan["requestBody"]["content"];
-    for ct in [
-        "text/plain",
-        "application/json",
-        "text/csv",
-        "text/tab-separated-values",
-    ] {
-        assert!(
-            req_content.get(ct).is_some(),
-            "/v1/scan: requestBody.content missing {ct}"
-        );
-    }
+/// A browser preflight gets no CORS permission either. The route takes POST
+/// only, so `OPTIONS` falls to axum's 405 and carries no `access-control-*`
+/// header (openspec/specs/security/spec.md).
+#[tokio::test]
+async fn preflight_gets_no_cors_permission() {
+    let api = TestApi::start().await;
+    let resp = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, api.url("/v1/scan"))
+        .header("origin", "https://elsewhere.example")
+        .header("access-control-request-method", "POST")
+        .send()
+        .await
+        .unwrap();
 
-    // Documented error status codes are present.
-    {
-        let responses = &scan["responses"];
-        for status in ["400", "413", "415", "500"] {
-            assert!(
-                responses.get(status).is_some(),
-                "/v1/scan: missing {status} response"
-            );
-        }
-    }
+    assert_eq!(resp.status(), 405);
+    let cors: Vec<&str> = resp
+        .headers()
+        .keys()
+        .map(|k| k.as_str())
+        .filter(|k| k.starts_with("access-control-"))
+        .collect();
+    assert!(
+        cors.is_empty(),
+        "the API listener must answer a preflight with no CORS header, got {cors:?}"
+    );
 }
 
 #[tokio::test]

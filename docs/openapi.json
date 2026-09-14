@@ -1,0 +1,160 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Voidwall HTTP API",
+    "description": "Detect PII in arbitrary text, JSON, CSV, and TSV bodies with `POST /v1/scan`, the one route this listener serves. The body itself is the content to scan — there is no JSON envelope. The `Content-Type` header drives parsing.",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/scan": {
+      "post": {
+        "tags": [
+          "pii"
+        ],
+        "summary": "Scan a request body for PII",
+        "description": "Inspects the body for PII according to the configured detector set and\nreturns the kinds detected along with per-kind match counts. The body\nitself is never echoed back.",
+        "operationId": "scanBody",
+        "requestBody": {
+          "description": "Raw body content to scan for PII. The `Content-Type` header determines how the body is parsed and scanned.",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "text/tab-separated-values": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scan completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body could not be parsed for the declared `Content-Type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured `max_body_size`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`Content-Type` is not in the configured allowlist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Scanner failed and `on_error = fail_close`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error description. Never contains matched PII values."
+          }
+        },
+        "example": {
+          "error": "malformed body for declared content type"
+        }
+      },
+      "ScanResponse": {
+        "type": "object",
+        "required": [
+          "detected",
+          "matches_count",
+          "kinds"
+        ],
+        "properties": {
+          "detected": {
+            "type": "boolean",
+            "description": "Whether any PII was detected in the body."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct PII kinds detected (e.g. `EMAIL`, `US_SSN`). Operator-defined\ncustom labels surface here using their configured `label`. The full\nlist of built-in labels is appended to this description at\nspec-generation time.\n\nBuilt-in labels: EMAIL, US_PHONE_NUMBER, CREDIT_CARD, US_SSN, GB_NINO, IBAN, PASSPORT_NUMBER, IP_ADDRESS, US_ITIN, CA_SIN, IE_PPSN, ZA_ID, MAC_ADDRESS, GB_DRIVING_LICENCE, VIN, AU_TFN, NZ_IRD_NUMBER, GB_NHS_NUMBER, AU_MEDICARE, US_PASSPORT_NEW, SWIFT_BIC, US_EIN, IMEI, GB_UTR, US_ABA_ROUTING, GB_SORT_CODE, PRECISE_GEOLOCATION, US_DRIVERS_LICENSE, US_ALIEN_NUMBER, US_USCIS_RECEIPT_NUMBER, NZ_NHI_NUMBER, NZ_DRIVER_LICENCE, IE_DRIVER_NUMBER, CA_DRIVERS_LICENSE, ZA_TAX_REFERENCE, CA_OHIP, GB_PHONE_NUMBER, AU_PHONE_NUMBER, NZ_PHONE_NUMBER, IE_PHONE_NUMBER, ZA_PHONE_NUMBER, AWS_ACCESS_KEY, GITHUB_TOKEN, AWS_SECRET_KEY, GB_ZA_PASSPORT_NUMBER, AU_PASSPORT_NUMBER, CA_PASSPORT_NUMBER, NZ_PASSPORT_NUMBER, IE_PASSPORT_NUMBER, DATE_OF_BIRTH, GB_POSTCODE, CA_POSTAL_CODE, BITCOIN_ADDRESS, ETHEREUM_ADDRESS, AU_BANK_ACCOUNT, CA_BANK_ACCOUNT, FR_NIR, FR_SIRET, FR_SIREN, FR_PASSPORT_NUMBER, FR_CNI, FR_DRIVERS_LICENSE, FR_PHONE_NUMBER, FR_POSTAL_CODE, FR_NIF, FR_CH_ADDRESS, FR_CH_BOITE_CASE_POSTALE, DE_STEUER_ID, DE_PERSONALAUSWEIS, DE_PASSPORT_NUMBER, DE_PHONE_NUMBER, DE_POSTAL_CODE, AT_SVNR, AT_PHONE_NUMBER, AT_POSTAL_CODE, CH_AHV, CH_PHONE_NUMBER, CH_POSTAL_CODE, PERSON_NAME, DE_AT_CH_ADDRESS, DE_AT_CH_POSTFACH, DE_PACKSTATION, ZA_DRIVERS_LICENSE, US_ZA_POSTAL_CODE, AU_DRIVERS_LICENSE, AU_ABN, IE_EIRCODE, NL_BSN, NL_BTW, NL_POSTAL_CODE, NL_PHONE_NUMBER, NL_PASSPORT_NUMBER, NL_DRIVERS_LICENSE, IT_CODICE_FISCALE, IT_PARTITA_IVA, IT_POSTAL_CODE, IT_PHONE_NUMBER, IT_PASSPORT_NUMBER, IT_DRIVERS_LICENSE, ES_DNI, ES_NIE, ES_CIF, ES_NUSS, ES_PASSPORT_NUMBER, ES_POSTAL_CODE, ES_PHONE_NUMBER, PL_PESEL, PL_NIP, PL_REGON, PL_ID_CARD, PL_PASSPORT_NUMBER, PL_PHONE_NUMBER, PL_POSTAL_CODE, PL_DRIVERS_LICENSE, GB_ADDRESS, PHONE_NUMBER, SECONDARY_ADDRESS, US_GB_CA_AU_NZ_IE_ZA_STREET."
+          },
+          "matches_count": {
+            "type": "integer",
+            "description": "Total number of PII matches.",
+            "minimum": 0
+          }
+        },
+        "example": {
+          "detected": true,
+          "matches_count": 2,
+          "kinds": [
+            "EMAIL",
+            "US_SSN"
+          ]
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "pii",
+      "description": "PII detection endpoints"
+    }
+  ]
+}

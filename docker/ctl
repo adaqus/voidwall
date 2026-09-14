@@ -37,7 +37,6 @@ cmd_start() {
     echo "Services:"
     echo "  Proxy:      http://localhost:8082"
     echo "  HTTP API:   http://localhost:8083"
-    echo "  Demo:       http://localhost:8088"
     echo "  Admin:      http://localhost:9090/metrics"
     echo "  Prometheus: http://localhost:9091"
     echo "  Grafana:    http://localhost:3000"

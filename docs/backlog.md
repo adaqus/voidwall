@@ -82,10 +82,6 @@ No proposal needed.
 - Soak test: 30 minutes at 80% of the maximum rate. Watch memory, file descriptors, and
   p99 drift.
 
-### 2.3 Demo page smoke test — history § 16.10
-
-Load the page in a browser. Click each example. Check the result.
-
 ---
 
 ## 3. `pii` crate follow-ups — history § 17.1, § 17.2
@@ -134,3 +130,7 @@ second row is now permanently unbuildable: `/v1/redact` was removed with the act
 layer, and nothing rewrites a message.
 `http_api.rs:140` states that custom labels surface with their configured `label`. The
 `custom-pii` and `http-api` specs cover this behaviour.
+
+History § 16.10 carried a *Demo page smoke test* gap. The demo page is gone: it existed
+to render `GET /openapi.json` and call `GET /v1/info`, and both routes were removed with
+it.

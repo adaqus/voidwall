@@ -286,6 +286,11 @@ Building a second credential system inside a data-plane component adds a key
 distribution problem and a new attack surface, to duplicate what every deployment
 already has.
 
+For the same reason the HTTP API listener sends no CORS header: a wildcard
+`Access-Control-Allow-Origin` on a listener that authenticates nobody would let any
+page on the internet post bodies to it, so cross-origin permission belongs to the
+gateway that supplies the authentication.
+
 ---
 
 ## 5. Crates

@@ -13,19 +13,6 @@ services:
     depends_on:
       - echo-server
 
-  demo:
-    image: nginx:alpine
-    environment:
-      PII_API_URL: http://localhost:8083
-    volumes:
-      - ./demo/index.html:/usr/share/nginx/html/index.html:ro
-      - ./demo/config.js.template:/usr/share/nginx/html/config.js.template:ro
-      - ./demo/30-render-config.sh:/docker-entrypoint.d/30-render-config.sh:ro
-    ports:
-      - "8088:80"
-    depends_on:
-      - voidwall
-
   echo-server:
     build:
       context: ..
