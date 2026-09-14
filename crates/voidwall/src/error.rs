@@ -20,6 +20,9 @@ pub enum Error {
     /// Request body exceeds configured `max_body_size`.
     BodyTooLarge,
 
+    /// Request body does not parse as the content type it declares.
+    BodyParse,
+
     /// Request content type is not in the scannable allow-list.
     UnsupportedContentType,
 }
@@ -32,6 +35,7 @@ impl std::fmt::Display for Error {
             Error::Proxy(msg) => write!(f, "proxy error: {msg}"),
             Error::Io(e) => write!(f, "I/O error: {e}"),
             Error::BodyTooLarge => write!(f, "request body too large"),
+            Error::BodyParse => write!(f, "body parse failed"),
             Error::UnsupportedContentType => write!(f, "unsupported content type"),
         }
     }
@@ -84,13 +88,14 @@ impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             Error::Config(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            Error::Scanner(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            Error::Scanner(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             Error::Proxy(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
             Error::Io(e) => (StatusCode::BAD_GATEWAY, e.to_string()),
             Error::BodyTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body too large".to_string(),
             ),
+            Error::BodyParse => (StatusCode::BAD_REQUEST, "body parse failed".to_string()),
             Error::UnsupportedContentType => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "unsupported content type".to_string(),
@@ -112,6 +117,7 @@ mod tests {
     #[test_case(Error::Scanner("pool dead".into()), "scanner error", "pool dead")]
     #[test_case(Error::Proxy("upstream refused".into()), "proxy error", "upstream refused")]
     #[test_case(Error::BodyTooLarge, "request body too large", "")]
+    #[test_case(Error::BodyParse, "body parse failed", "")]
     #[test_case(Error::UnsupportedContentType, "unsupported content type", "")]
     fn display(err: Error, expected_prefix: &str, expected_detail: &str) {
         let msg = err.to_string();
@@ -156,7 +162,7 @@ mod tests {
     }
 
     #[test_case(Error::Config("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "msg")]
-    #[test_case(Error::Scanner("msg".into()), StatusCode::BAD_GATEWAY, "msg")]
+    #[test_case(Error::Scanner("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "msg")]
     #[test_case(Error::Proxy("msg".into()), StatusCode::BAD_GATEWAY, "msg")]
     #[test_case(
         Error::BodyTooLarge,
@@ -168,6 +174,7 @@ mod tests {
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         "unsupported content type"
     )]
+    #[test_case(Error::BodyParse, StatusCode::BAD_REQUEST, "body parse failed")]
     #[tokio::test]
     async fn into_response(err: Error, expected_status: StatusCode, expected_body: &str) {
         let response = err.into_response();

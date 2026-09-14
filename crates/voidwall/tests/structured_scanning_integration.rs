@@ -304,7 +304,8 @@ async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
 }
 
 /// Same malformed body but `on_error = fail_close`: the proxy refuses to
-/// forward the request and returns a 502 (scanner-error mapping).
+/// forward the request and answers 400. The client declared the content type
+/// and sent bytes that do not match it, so the fault is the client's.
 #[tokio::test]
 async fn json_parse_failure_fail_close_blocks_request() {
     let upstream = start_echo_upstream().await;
@@ -322,12 +323,12 @@ async fn json_parse_failure_fail_close_blocks_request() {
         .send()
         .await
         .unwrap();
-    assert!(
-        resp.status().is_server_error() || resp.status().is_client_error(),
-        "expected error status on parse failure with fail_close, got {}",
+    assert_eq!(
+        resp.status(),
+        400,
+        "expected 400 on parse failure with fail_close, got {}",
         resp.status()
     );
-    assert_ne!(resp.status(), 200);
 }
 
 // ---------------------------------------------------------------------------

@@ -482,6 +482,293 @@ async fn on_error_fail_open_passes_oversized_body() {
     assert!(body.contains("This body is way longer than 10 bytes"));
 }
 
+/// A scanner failure under `fail_close` answers 500. The scanner belongs to the
+/// proxy, so a failure inside it is not the upstream's fault and must not be
+/// reported as 502.
+///
+/// The failure is induced with a pool that owns no scanner threads: the work
+/// channel has no receiver, so every submit sees it disconnected. That is the
+/// same error the pool raises in production once its threads have died.
+#[tokio::test]
+async fn scanner_failure_fail_close_answers_500() {
+    let upstream = start_echo_upstream().await;
+
+    let scan = ScanConfig {
+        on_error: OnError::FailClose,
+        ..ScanConfig::default()
+    };
+
+    let pii_config = PiiConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
+        scan,
+        pii_config,
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 500);
+}
+
+/// Every blocking error body names the error and nothing else. A message that
+/// held a detected value must not leak a fragment of that value into the 400,
+/// the 413, or the 500.
+#[tokio::test]
+async fn error_bodies_carry_no_scanned_text() {
+    const PLACEHOLDER: &str = "jane@example.com";
+
+    let upstream = start_echo_upstream().await;
+    let client = reqwest::Client::new();
+
+    // 413: the body passes max_body_size and is refused before any scan.
+    let scan = ScanConfig {
+        max_body_size: 4,
+        on_error: OnError::FailClose,
+        ..ScanConfig::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body(PLACEHOLDER)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 413);
+    assert!(!resp.text().await.unwrap().contains(PLACEHOLDER));
+
+    // 400: the body declares JSON and does not parse as JSON.
+    let scan = ScanConfig {
+        on_error: OnError::FailClose,
+        ..ScanConfig::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "application/json")
+        .body(format!(r#"{{"email": "{PLACEHOLDER}""#))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(!resp.text().await.unwrap().contains(PLACEHOLDER));
+
+    // 500: the scanner pool owns no threads, so the scan itself fails.
+    let scan = ScanConfig {
+        on_error: OnError::FailClose,
+        ..ScanConfig::default()
+    };
+    let pii_config = PiiConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
+        scan,
+        pii_config,
+    )
+    .await;
+    let resp = client
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body(PLACEHOLDER)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 500);
+    assert!(!resp.text().await.unwrap().contains(PLACEHOLDER));
+}
+
+/// Reads the current `voidwall_errors_total` count for one outcome/reason pair.
+/// The registry is process-wide and shared by every test in this binary, so a
+/// test must compare a delta rather than an absolute value.
+fn errors_total(outcome: &str, reason: &str) -> u64 {
+    prometheus::default_registry()
+        .gather()
+        .iter()
+        .find(|m| m.get_name() == "voidwall_errors_total")
+        .map(|family| {
+            family
+                .get_metric()
+                .iter()
+                .filter(|m| {
+                    let labels = m.get_label();
+                    labels
+                        .iter()
+                        .any(|l| l.get_name() == "outcome" && l.get_value() == outcome)
+                        && labels
+                            .iter()
+                            .any(|l| l.get_name() == "reason" && l.get_value() == reason)
+                })
+                .map(|m| m.get_counter().get_value() as u64)
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+/// A configuration that never names `on_error` blocks on scanner failure. This
+/// is the default flip: the safe posture is what an operator gets by writing
+/// nothing at all.
+#[tokio::test]
+async fn default_config_blocks_on_scanner_failure() {
+    let upstream = start_echo_upstream().await;
+
+    let before = errors_total("blocked", "scanner_failure");
+
+    // No `on_error` here on purpose — this is what the default gives you.
+    let scan = ScanConfig::default();
+    assert_eq!(scan.on_error, OnError::FailClose, "default must be fail_close");
+
+    let pii_config = PiiConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
+        scan,
+        pii_config,
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 500);
+    assert!(
+        errors_total("blocked", "scanner_failure") > before,
+        "voidwall_errors_total{{outcome=\"blocked\",reason=\"scanner_failure\"}} must increment"
+    );
+}
+
+/// A body whose content type sits outside `scan.content_types` is skipped in
+/// silence. That is not an error, so `fail_close` must not block it: the
+/// request reaches the upstream untouched.
+#[tokio::test]
+async fn unlisted_content_type_is_forwarded_under_fail_close() {
+    let upstream = start_echo_upstream().await;
+
+    let scan = ScanConfig {
+        on_error: OnError::FailClose,
+        ..ScanConfig::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+
+    // image/png is outside the default allowlist, so the body is never scanned.
+    let resp = reqwest::Client::new()
+        .post(proxy.url("/echo"))
+        .header("content-type", "image/png")
+        .body("binary-ish payload")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        200,
+        "an unscannable content type is not an error and must not be blocked"
+    );
+    assert!(
+        resp.text().await.unwrap().contains("binary-ish payload"),
+        "the upstream must have received the body unchanged"
+    );
+}
+
+/// A scanner failure under `fail_open` forwards the message. This is the
+/// branch an operator opts back into, so it has to keep working after the
+/// default moved off it.
+#[tokio::test]
+async fn scanner_failure_fail_open_forwards_the_message() {
+    let upstream = start_echo_upstream().await;
+
+    let scan = ScanConfig {
+        on_error: OnError::FailOpen,
+        ..ScanConfig::default()
+    };
+    let pii_config = PiiConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
+        scan,
+        pii_config,
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("forwarded unscanned")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert!(resp.text().await.unwrap().contains("forwarded unscanned"));
+}
+
+/// 502 still means the upstream failed. The change moved scanner failures off
+/// this status, so something has to pin what is left on it.
+#[tokio::test]
+async fn upstream_unreachable_answers_502() {
+    // Bind and drop: nothing listens here, so the proxy's connection is refused.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead_upstream = listener.local_addr().unwrap();
+    drop(listener);
+
+    let proxy = TestProxy::start(
+        dead_upstream,
+        vec![("/", "")],
+        scan_on(),
+        scan_off(),
+        ScanConfig::default(),
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .post(proxy.url("/echo"))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        502,
+        "a failure of the upstream itself is the only thing that earns 502"
+    );
+}
+
 /// Clean request passes through without modification
 /// The 403 body is stable: two identical requests produce byte-identical
 /// bodies, with the kinds sorted and each named once. This is the guarantee

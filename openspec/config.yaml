@@ -42,7 +42,9 @@ context: |
   on or off per direction.
 
   Errors. Use the `Error` enum in `error.rs`. Scanner failures and limit violations
-  follow the `on_error` policy, `fail_open` or `fail_close`. Always increment
+  follow the `on_error` policy, `fail_open` or `fail_close`. `fail_close` is the default.
+  A blocking error answers the status that names the party at fault: 413 oversize, 400
+  unparseable body, 500 scanner failure. 502 is for the upstream only. Always increment
   `voidwall_errors_total`.
 
   Config. Validation runs at startup and the proxy refuses to start on bad config.

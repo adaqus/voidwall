@@ -47,12 +47,23 @@ impl TestApi {
     }
 
     async fn start_with(scan: ScanConfig) -> Self {
+        Self::start_inner(scan, default_pii_config(), SHARED_ENGINE.clone()).await
+    }
+
+    /// Builds a dedicated engine from `pii_config` instead of reusing the
+    /// shared one. A test that needs a failing scanner pool must own it.
+    async fn start_with_pii(scan: ScanConfig, pii_config: PiiConfig) -> Self {
+        let engine = Arc::new(Engine::new(&pii_config).unwrap());
+        Self::start_inner(scan, pii_config, engine).await
+    }
+
+    async fn start_inner(scan: ScanConfig, pii_config: PiiConfig, engine: Arc<Engine>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
         let config = AppConfig {
-            pii: default_pii_config(),
+            pii: pii_config,
             scan,
             reverse_proxy: Default::default(),
             forward_proxy: Default::default(),
@@ -66,7 +77,6 @@ impl TestApi {
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
-        let engine = SHARED_ENGINE.clone();
 
         tokio::spawn(async move {
             http_api::serve(&config, engine, cancel_clone)
@@ -365,6 +375,66 @@ async fn malformed_json_with_fail_open_still_returns_400() {
         .unwrap();
 
     assert_eq!(resp.status(), 400);
+}
+
+/// A pool that owns no scanner threads: the work channel has no receiver, so
+/// every submit sees it disconnected. That is the same error the pool raises
+/// once its threads have died.
+fn broken_pool_pii_config() -> PiiConfig {
+    PiiConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    }
+}
+
+/// A scanner failure under `fail_close` answers 500. `fail_close` is the
+/// default, so this is what `/v1/scan` does for an operator who wrote no
+/// `on_error` at all.
+#[tokio::test]
+async fn scanner_failure_fail_close_returns_500() {
+    let scan = ScanConfig::default();
+    assert_eq!(
+        scan.on_error,
+        OnError::FailClose,
+        "this test is about the default, which must be fail_close"
+    );
+
+    let api = TestApi::start_with_pii(scan, broken_pool_pii_config()).await;
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 500);
+}
+
+/// The same failure under `fail_open` answers 200 and reports nothing found.
+/// The caller cannot tell this apart from a clean scan, which is the reason
+/// `fail_open` is no longer the default.
+#[tokio::test]
+async fn scanner_failure_fail_open_answers_200_detecting_nothing() {
+    let scan = ScanConfig {
+        on_error: OnError::FailOpen,
+        ..ScanConfig::default()
+    };
+
+    let api = TestApi::start_with_pii(scan, broken_pool_pii_config()).await;
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["detected"], false);
+    assert_eq!(json["matches_count"], 0);
+    assert!(json["kinds"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

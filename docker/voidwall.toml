@@ -6,9 +6,6 @@ countries = []
 languages = []
 scanner_threads = 6
 
-[scan]
-on_error = "fail_open"
-
 [reverse_proxy]
 enabled = true
 listen = "0.0.0.0:8082"

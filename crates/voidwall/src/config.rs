@@ -144,7 +144,7 @@ impl Default for ScanConfig {
             query_params: true,
             headers: Vec::new(),
             body: true,
-            on_error: OnError::FailOpen,
+            on_error: OnError::FailClose,
         }
     }
 }
@@ -183,7 +183,7 @@ pub enum OnError {
 }
 
 fn default_on_error() -> OnError {
-    OnError::FailOpen
+    OnError::FailClose
 }
 
 // ---------------------------------------------------------------------------
@@ -859,7 +859,7 @@ upstream = "://broken"
         assert!(scan.query_params);
         assert!(scan.body);
         assert_eq!(scan.content_types.len(), 9);
-        assert_eq!(scan.on_error, OnError::FailOpen);
+        assert_eq!(scan.on_error, OnError::FailClose);
     }
 
     #[test]
@@ -874,7 +874,7 @@ upstream = "://broken"
     #[test]
     fn defaults_on_error_in_scan() {
         let config = parse(&minimal_toml()).unwrap();
-        assert_eq!(config.scan.on_error, OnError::FailOpen);
+        assert_eq!(config.scan.on_error, OnError::FailClose);
     }
 
     #[test]
@@ -927,6 +927,31 @@ scan = false
 "#;
         let config = parse(toml).unwrap();
         assert_eq!(config.scan.on_error, OnError::FailClose);
+    }
+
+    /// `fail_close` is the default, so an operator who wants the old behaviour
+    /// has to write it down. This proves the written value still wins.
+    #[test]
+    fn on_error_fail_open_overrides_the_default() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[scan]
+on_error = "fail_open"
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+scan = false
+
+[forward_proxy.response]
+scan = false
+"#;
+        let config = parse(toml).unwrap();
+        assert_eq!(config.scan.on_error, OnError::FailOpen);
     }
 
     // --- Unknown keys ---
@@ -1034,6 +1059,48 @@ specialization = "ga4"
         let msg = err.to_string();
         assert!(msg.contains("unknown field"), "got: {msg}");
         assert!(msg.contains("specialization"), "got: {msg}");
+    }
+
+    /// A route override replaces the defaults whole, so a route table that
+    /// omits `on_error` takes the built-in default rather than the `[scan]`
+    /// value next to it. With `fail_close` as that default, an operator who
+    /// sets `fail_open` globally to keep the old behaviour still gets blocking
+    /// on every route that carries its own scan table. This pins that trap.
+    #[test]
+    fn route_scan_override_does_not_inherit_on_error_from_scan() {
+        let toml = r#"
+[pii]
+countries = ["Us"]
+
+[scan]
+on_error = "fail_open"
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+scan = false
+
+[reverse_proxy.response]
+scan = false
+
+[[reverse_proxy.routes]]
+path_prefix = "/api"
+upstream = "http://localhost:8080"
+
+[reverse_proxy.routes.scan]
+body = true
+"#;
+        let config = parse(toml).unwrap();
+        assert_eq!(config.scan.on_error, OnError::FailOpen);
+
+        let route_scan = config.reverse_proxy.routes[0].scan.as_ref().unwrap();
+        assert_eq!(
+            route_scan.on_error,
+            OnError::FailClose,
+            "a route override replaces the defaults; it never merges `[scan]` into them"
+        );
     }
 
     #[test]

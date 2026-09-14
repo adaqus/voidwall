@@ -495,7 +495,7 @@ fn classify_scan_body(
             OnError::FailClose => {
                 metrics::inc_error("blocked", "body_parse_failed");
                 Err(Box::new(PipelineResult::Error(
-                    Error::Scanner("body parse failed".into()).into_response(),
+                    Error::BodyParse.into_response(),
                 )))
             }
         },
