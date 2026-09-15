@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use utoipa::ToSchema;
 
-use crate::config::{AppConfig, OnError, ScanConfig};
-use crate::engine::{BlockPolicy, Engine, ScanResult, Units};
+use crate::config::{AppConfig, OnError};
+use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, Units};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body};
@@ -28,8 +28,12 @@ const ROUTE: &str = "global";
 #[derive(Clone)]
 pub struct ApiState {
     engine: Arc<Engine>,
-    scan: ScanConfig,
+    /// Every enabled guard. The API has no route to attach a selection to, so
+    /// it carries none of its own.
+    selection: Arc<GuardSelection>,
+    content_types: Arc<Vec<String>>,
     max_body_size: usize,
+    on_error: OnError,
 }
 
 // ---------------------------------------------------------------------------
@@ -37,10 +41,13 @@ pub struct ApiState {
 // ---------------------------------------------------------------------------
 
 pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ApiState {
+    let selection = Arc::new(engine.select(None));
     ApiState {
         engine,
-        scan: config.scan.clone(),
-        max_body_size: config.scan.max_body_size,
+        selection,
+        content_types: Arc::new(config.content_types.clone()),
+        max_body_size: config.max_body_size,
+        on_error: config.on_error,
     }
 }
 
@@ -247,7 +254,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
         .unwrap_or("")
         .to_string();
 
-    if !is_content_type_allowed(&content_type, &state.scan.content_types) {
+    if !is_content_type_allowed(&content_type, &state.content_types) {
         let resp = (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             [("content-type", "application/json")],
@@ -277,15 +284,23 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
         }
     };
 
-    // The API scans the body and nothing else, so the message is one unit.
-    // The route reports rather than blocks, so the engine never short-circuits.
+    // The API scans the body and nothing else, so the message is one unit —
+    // there is no URL path, query, or header to attach a surface to. Every
+    // enabled guard runs, and each sees the body only if its own surface
+    // admits one. The route reports rather than blocks, so the engine never
+    // short-circuits.
     let mut units = Units::new();
     units.push_body(body_format);
     let units = units.into_shared();
 
     let scan_result = match state
         .engine
-        .guard(Arc::clone(&units), BlockPolicy::Never, state.scan.on_error)
+        .guard(
+            Arc::clone(&units),
+            &state.selection,
+            BlockPolicy::Never,
+            state.on_error,
+        )
         .await
     {
         Ok(r) => r,
@@ -293,7 +308,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
             if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
                 warn!(dropped, error = %e, "scanner error in http api");
             }
-            return handle_scanner_failure(state.scan.on_error);
+            return handle_scanner_failure(state.on_error);
         }
     };
 

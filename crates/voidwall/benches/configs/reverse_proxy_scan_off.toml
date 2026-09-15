@@ -1,12 +1,13 @@
 # Reverse proxy, scanning off. Pure proxying cost, for baseline comparison.
 
-[pii]
+# Ingest keys come first: a bare key written after a [section] binds to
+# that section and is rejected.
+on_error = "fail_open"
+
+[builtin_guards.pii]
 countries = []
 languages = []
 scanner_threads = 4
-
-[scan]
-on_error = "fail_open"
 
 [reverse_proxy]
 enabled = true

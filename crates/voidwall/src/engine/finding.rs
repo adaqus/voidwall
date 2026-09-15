@@ -57,9 +57,10 @@ pub struct Finding {
     pub unit: UnitId,
     /// What was found.
     pub kind: FindingKind,
-    /// The guard that reported it. A fixed string per guard type, never an
-    /// operator-supplied one, because it can reach a metric label.
-    pub guard: &'static str,
+    /// The guard that reported it, by its configured name. The set of names
+    /// is fixed when configuration is loaded, so a name that reaches a metric
+    /// label is bounded by the deployment and never by request content.
+    pub guard: Arc<str>,
     /// The bytes matched, when the guard localises its finding. A guard that
     /// classifies a whole unit reports `None`.
     pub span: Option<Span>,
@@ -72,13 +73,13 @@ impl Finding {
     pub fn spanned(
         unit: UnitId,
         kind: impl Into<FindingKind>,
-        guard: &'static str,
+        guard: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         Self {
             unit,
             kind: kind.into(),
-            guard,
+            guard: guard.into(),
             span: Some(span),
             confidence: None,
         }
@@ -88,13 +89,13 @@ impl Finding {
     pub fn whole_unit(
         unit: UnitId,
         kind: impl Into<FindingKind>,
-        guard: &'static str,
+        guard: impl Into<Arc<str>>,
         confidence: f32,
     ) -> Self {
         Self {
             unit,
             kind: kind.into(),
-            guard,
+            guard: guard.into(),
             span: None,
             confidence: Some(confidence),
         }
@@ -165,7 +166,7 @@ mod tests {
         let finding = Finding::spanned(UnitId(2), "EMAIL", GUARD, Span::new(4, 9));
         assert_eq!(finding.unit, UnitId(2));
         assert_eq!(finding.kind.as_str(), "EMAIL");
-        assert_eq!(finding.guard, GUARD);
+        assert_eq!(&*finding.guard, GUARD);
         assert_eq!(finding.span, Some(Span::new(4, 9)));
         assert!(finding.confidence.is_none());
     }
@@ -206,6 +207,15 @@ mod tests {
         ];
         assert_eq!(result.kinds(), expected);
         assert_eq!(result.kinds(), expected);
+    }
+
+    /// The guard name comes from configuration, so it is owned rather than a
+    /// fixed string the build defines.
+    #[test]
+    fn a_finding_names_the_guard_that_configuration_named() {
+        let configured: Arc<str> = Arc::from("regex_pii");
+        let finding = Finding::spanned(UnitId(0), "EMAIL", Arc::clone(&configured), Span::new(0, 4));
+        assert_eq!(finding.guard, configured);
     }
 
     #[test]

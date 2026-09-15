@@ -1,20 +1,21 @@
 # User-Defined PII — Worked Example
 
-Operator-supplied regex definitions under `[[pii.custom]]` run alongside the
-built-in detectors. Matches surface with the operator's chosen `label` in
-metrics (`pii_kind` counter), the `kinds` list of a 403 block response, and the
-`kinds` array of `/v1/scan`.
+Operator-supplied regex definitions under `[[builtin_guards.pii.custom]]` run
+alongside the built-in detectors. A custom definition belongs to the guard that
+runs it, so disabling that guard disables every entry under it. Matches surface
+with the operator's chosen `label` in metrics (`pii_kind` counter), the `kinds`
+list of a 403 block response, and the `kinds` array of `/v1/scan`.
 
 See `openspec/specs/custom-pii/spec.md` for the full specification.
 
 ## Example
 
 Use `detect` to narrow built-in coverage to a known-good set, and
-`[[pii.custom]]` to add organization-specific identifiers. The two fields are
-independent — `detect`/`ignore` apply only to built-in kinds.
+`[[builtin_guards.pii.custom]]` to add organization-specific identifiers. The
+two fields are independent — `detect`/`ignore` apply only to built-in kinds.
 
 ```toml
-[pii]
+[builtin_guards.pii]
 countries = ["International", "Us"]
 languages = ["En"]
 
@@ -28,11 +29,11 @@ detect = [
 
 # User-defined entries. Labels must be unique, non-empty, and must not collide
 # with any built-in PiiKind label (e.g. "EMAIL", "US_SSN").
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label   = "EMPLOYEE_ID"
 pattern = 'EMP-\d{6}'
 
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label    = "PROJECT_CODE"
 pattern  = '[A-Z]{3}-\d{3}'
 keywords = ["project code", "proj id"]   # keyword-context mode
@@ -43,11 +44,11 @@ Alternative: use `ignore` to opt out of specific built-in kinds while still
 using custom entries:
 
 ```toml
-[pii]
+[builtin_guards.pii]
 countries = ["International", "Us"]
 ignore = ["IpAddress"]
 
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label   = "EMPLOYEE_ID"
 pattern = 'EMP-\d{6}'
 ```
@@ -61,8 +62,9 @@ rejects configs that list `"Custom"` in either field.
 
 ## Validation (at startup)
 
-- `label` non-empty, unique across `[[pii.custom]]`, and non-colliding with
-  any built-in `PiiKind` label (full namespace, independent of `detect`/`ignore`).
+- `label` non-empty, unique across `[[builtin_guards.pii.custom]]`, and
+  non-colliding with any built-in `PiiKind` label (full namespace, independent
+  of `detect`/`ignore`).
 - `pattern` non-empty; regex compilation is enforced by the `pii` crate.
   Invalid regex fails fast with the offending entry's label in the error.
 - Total entries capped at 64.

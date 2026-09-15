@@ -1,7 +1,12 @@
 # Default proxy config for the Docker dev environment.
 # The echo server runs as a sibling container on the "echo-server" hostname.
 
-[pii]
+# Ingest keys come first. TOML binds a bare key to the table above it, so one
+# written after a [section] parses as that section's field and is rejected.
+max_body_size = 1048576
+on_error = "fail_close"
+
+[builtin_guards.pii]
 countries = []
 languages = []
 scanner_threads = 6

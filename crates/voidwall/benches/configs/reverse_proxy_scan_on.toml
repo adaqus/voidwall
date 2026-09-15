@@ -1,12 +1,13 @@
 # Reverse proxy, request scanning on. A detection blocks with a 403.
 
-[pii]
+# Ingest keys come first: a bare key written after a [section] binds to
+# that section and is rejected.
+on_error = "fail_open"
+
+[builtin_guards.pii]
 countries = []
 languages = []
 scanner_threads = 4
-
-[scan]
-on_error = "fail_open"
 
 [reverse_proxy]
 enabled = true

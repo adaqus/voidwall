@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
 
-use crate::config::PiiConfig;
+use crate::config::PiiGuardConfig;
 use crate::engine::UnitContent;
 use crate::error::Error;
 use crate::structured::csv::flatten_csv;
@@ -138,12 +138,12 @@ pub static SCANNER_ERROR_LIMITER: LogRateLimiter = LogRateLimiter::new(1_000);
 /// Exercise scanner construction for the given PII configuration without
 /// spawning any threads. Used by `--validate` to surface regex and hyperscan
 /// compilation errors at startup.
-pub fn validate_build(config: &PiiConfig) -> Result<(), Error> {
+pub fn validate_build(config: &PiiGuardConfig) -> Result<(), Error> {
     build_scanner(config).map(|_| ())
 }
 
 /// Build a `voidwall_pii::Scanner` from the proxy's PII configuration.
-pub(crate) fn build_scanner(config: &PiiConfig) -> Result<voidwall_pii::Scanner, Error> {
+pub(crate) fn build_scanner(config: &PiiGuardConfig) -> Result<voidwall_pii::Scanner, Error> {
     precheck_custom_pii(&config.custom)?;
 
     let mut builder = voidwall_pii::Scanner::builder();
@@ -173,13 +173,14 @@ pub(crate) fn build_scanner(config: &PiiConfig) -> Result<voidwall_pii::Scanner,
             // at a time.
             if let Some(def) = isolate_failing_custom_entry(&config.custom) {
                 Error::Scanner(format!(
-                    "pii.custom entry '{}': scanner build failed ({e})",
+                    "builtin_guards.pii.custom entry '{}': scanner build failed ({e})",
                     def.label,
                 ))
             } else {
                 let labels: Vec<&str> = config.custom.iter().map(|d| d.label.as_str()).collect();
                 Error::Scanner(format!(
-                    "pii.custom: scanner build failed ({e}); labels configured: {labels:?}"
+                    "builtin_guards.pii.custom: scanner build failed ({e}); \
+                     labels configured: {labels:?}"
                 ))
             }
         }
@@ -192,7 +193,7 @@ fn precheck_custom_pii(defs: &[voidwall_pii::UserPiiDefinition]) -> Result<(), E
     for def in defs {
         if let Err(e) = regex::Regex::new(&def.pattern) {
             return Err(Error::Scanner(format!(
-                "pii.custom entry '{}': invalid regex: {e}",
+                "builtin_guards.pii.custom entry '{}': invalid regex: {e}",
                 def.label,
             )));
         }
@@ -223,20 +224,19 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    fn pii_config_with_custom(defs: Vec<voidwall_pii::UserPiiDefinition>) -> PiiConfig {
-        PiiConfig {
+    fn pii_config_with_custom(defs: Vec<voidwall_pii::UserPiiDefinition>) -> PiiGuardConfig {
+        PiiGuardConfig {
             countries: vec![voidwall_pii::Country::International],
             languages: vec![voidwall_pii::Language::En],
             scanner_threads: Some(1),
-            detect: None,
-            ignore: None,
             custom: defs,
+            ..PiiGuardConfig::default()
         }
     }
 
     #[test]
     fn build_scanner_with_kinds_filter() {
-        let config = PiiConfig {
+        let config = PiiGuardConfig {
             detect: Some(vec![voidwall_pii::PiiKind::Email]),
             ..pii_config_with_custom(Vec::new())
         };

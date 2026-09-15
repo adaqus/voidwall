@@ -91,8 +91,10 @@ owns whatever it needs to detect; the regex PII guard owns the `ScannerPool`, wh
 reachable from nowhere else.
 
 - Add a detector by adding a guard, never by branching inside a handler.
-- `name()` returns a fixed string per guard type. It reaches metric labels, so an
-  operator-supplied name would make label cardinality unbounded.
+- `name()` returns the name configuration gave the guard. It reaches finding
+  records and can reach a metric label, so the set of names is bounded by startup
+  configuration, never by request content. A name is never taken from a request,
+  a response, or a detected value.
 - A guard declares its interest; the `Engine` applies it. A guard no selected unit
   interests is not called.
 - Findings come back in canonical order — unit, span start, span end, guard, kind, with

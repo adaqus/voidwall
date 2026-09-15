@@ -29,7 +29,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use tracing::info;
 
-use crate::config::{OnError, PiiConfig};
+use crate::config::{BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError};
 use crate::error::Error;
 
 pub use finding::{Finding, FindingKind, ScanResult, Span};
@@ -62,6 +62,45 @@ impl BlockPolicy {
     }
 }
 
+/// The guards that run for one message, resolved once at startup.
+///
+/// A route names guards; the engine turns that into the guards it will run and
+/// the surface a handler has to decode for. Resolving once keeps the name
+/// lookup off the request path, and keeps the handler from deciding anything
+/// about which guard sees what.
+#[derive(Debug, Clone)]
+pub struct GuardSelection {
+    /// Indices into [`Engine::guards`].
+    indices: Vec<usize>,
+    /// The union of the selected guards' interests. Nothing outside this is
+    /// worth building: no selected guard would be handed it.
+    interest: Interest,
+}
+
+impl GuardSelection {
+    /// Whether any selected guard admits this unit kind.
+    pub fn wants(&self, kind: UnitKind) -> bool {
+        self.interest.wants(kind)
+    }
+
+    /// Whether this selection runs no guard at all. A route that selected none
+    /// is forwarded uninspected.
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    /// A selection carrying a given surface and no guard. Tests only — a real
+    /// selection comes from [`Engine::select`], which builds the surface from
+    /// the guards it selected.
+    #[cfg(test)]
+    pub(crate) fn for_test(interest: Interest) -> Self {
+        Self {
+            indices: Vec::new(),
+            interest,
+        }
+    }
+}
+
 /// Owns every guard and runs them over one message.
 pub struct Engine {
     guards: Vec<Box<dyn Guard>>,
@@ -70,31 +109,71 @@ pub struct Engine {
 impl Engine {
     /// Build the engine and its guards from configuration. Guards are
     /// constructed once, at startup, never per request.
-    pub fn new(pii_config: &PiiConfig) -> Result<Self, Error> {
-        Ok(Self {
-            guards: vec![Box::new(regex_pii::RegexPiiGuard::new(pii_config)?)],
-        })
+    ///
+    /// A guard whose section is absent or disabled is not built, so it loads
+    /// none of its resources — no scanner thread, no gazetteer.
+    pub fn new(builtin_guards: &BuiltinGuards) -> Result<Self, Error> {
+        let mut guards: Vec<Box<dyn Guard>> = Vec::new();
+        if let Some(pii) = builtin_guards.enabled_pii() {
+            guards.push(Box::new(regex_pii::RegexPiiGuard::new(
+                BUILTIN_PII_GUARD_NAME,
+                pii,
+            )?));
+        }
+        Ok(Self { guards })
     }
 
-    /// Run every interested guard over `units` and return the merged findings.
+    /// Resolve a guard selection by name.
     ///
-    /// A guard whose declared interest matches no unit is not called. The
-    /// findings come back in canonical order, whatever order the guards
-    /// finished in. `policy` decides whether a finding ends the scan early; a
-    /// guard still running when that happens is abandoned, and its findings do
-    /// not appear in the result.
+    /// `None` selects every guard the engine built, which is what a route that
+    /// names no guard and what the API — which has no route to attach a
+    /// selection to — both get. A name matching no built guard is skipped:
+    /// validation already rejected a route that names one.
+    pub fn select(&self, names: Option<&[&str]>) -> GuardSelection {
+        let indices: Vec<usize> = match names {
+            None => (0..self.guards.len()).collect(),
+            Some(names) => self
+                .guards
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| names.iter().any(|n| *n == g.name().as_ref()))
+                .map(|(i, _)| i)
+                .collect(),
+        };
+
+        let kinds: Vec<UnitKind> = indices
+            .iter()
+            .flat_map(|&i| self.guards[i].interest().kinds().iter().copied())
+            .collect();
+
+        GuardSelection {
+            indices,
+            interest: Interest::in_kinds(kinds),
+        }
+    }
+
+    /// Run the selected, interested guards over `units` and return the merged
+    /// findings.
+    ///
+    /// A guard whose declared interest matches no unit is not called, and nor
+    /// is one the selection left out. The findings come back in canonical
+    /// order, whatever order the guards finished in. `policy` decides whether a
+    /// finding ends the scan early; a guard still running when that happens is
+    /// abandoned, and its findings do not appear in the result.
     pub async fn guard(
         &self,
         units: Arc<[Unit]>,
+        selection: &GuardSelection,
         policy: BlockPolicy,
         on_error: OnError,
     ) -> Result<ScanResult, Error> {
-        // Apply each guard's declared interest. `plans` outlives the futures
-        // that borrow its selections.
-        let plans: Vec<(&dyn Guard, Vec<UnitId>)> = self
-            .guards
+        // Apply each selected guard's declared interest. `plans` outlives the
+        // futures that borrow its selections.
+        let plans: Vec<(&dyn Guard, Vec<UnitId>)> = selection
+            .indices
             .iter()
-            .filter_map(|g| {
+            .filter_map(|&i| {
+                let g = &self.guards[i];
                 let interest = g.interest();
                 let selected: Vec<UnitId> = units
                     .iter()
@@ -168,7 +247,7 @@ fn canonical_order(a: &Finding, b: &Finding) -> Ordering {
             (None, Some(_)) => Ordering::Greater,
             (None, None) => Ordering::Equal,
         })
-        .then_with(|| a.guard.cmp(b.guard))
+        .then_with(|| a.guard.cmp(&b.guard))
         .then_with(|| a.kind.cmp(&b.kind))
 }
 
@@ -195,6 +274,7 @@ pub(crate) mod test_guard {
     pub(crate) struct GuardProbe {
         calls: Arc<AtomicUsize>,
         completions: Arc<AtomicUsize>,
+        seen: Arc<std::sync::Mutex<Vec<UnitId>>>,
     }
 
     impl GuardProbe {
@@ -208,11 +288,16 @@ pub(crate) mod test_guard {
         pub(crate) fn completions(&self) -> usize {
             self.completions.load(AtomicOrdering::SeqCst)
         }
+
+        /// The units the engine handed this guard, in order.
+        pub(crate) fn seen(&self) -> Vec<UnitId> {
+            self.seen.lock().expect("probe lock").clone()
+        }
     }
 
     /// Reports one finding of a fixed kind per selected unit.
     pub(crate) struct TestGuard {
-        name: &'static str,
+        name: Arc<str>,
         kind: &'static str,
         interest: Interest,
         delay: Option<Duration>,
@@ -220,9 +305,9 @@ pub(crate) mod test_guard {
     }
 
     impl TestGuard {
-        pub(crate) fn new(name: &'static str, kind: &'static str) -> Self {
+        pub(crate) fn new(name: &str, kind: &'static str) -> Self {
             Self {
-                name,
+                name: Arc::from(name),
                 kind,
                 interest: Interest::all(),
                 delay: None,
@@ -247,8 +332,8 @@ pub(crate) mod test_guard {
     }
 
     impl Guard for TestGuard {
-        fn name(&self) -> &'static str {
-            self.name
+        fn name(&self) -> &Arc<str> {
+            &self.name
         }
 
         fn interest(&self) -> &Interest {
@@ -257,6 +342,11 @@ pub(crate) mod test_guard {
 
         fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a> {
             self.probe.calls.fetch_add(1, AtomicOrdering::SeqCst);
+            self.probe
+                .seen
+                .lock()
+                .expect("probe lock")
+                .extend_from_slice(input.selected);
             Box::pin(async move {
                 if let Some(delay) = self.delay {
                     tokio::time::sleep(delay).await;
@@ -264,7 +354,14 @@ pub(crate) mod test_guard {
                 let findings = input
                     .selected
                     .iter()
-                    .map(|id| Finding::spanned(*id, self.kind, self.name, Span::new(0, 1)))
+                    .map(|id| {
+                        Finding::spanned(
+                            *id,
+                            self.kind,
+                            Arc::clone(&self.name),
+                            Span::new(0, 1),
+                        )
+                    })
                     .collect();
                 self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
                 Ok(findings)
@@ -281,6 +378,7 @@ pub(crate) mod test_guard {
 mod tests {
     use super::test_guard::TestGuard;
     use super::*;
+    use crate::config::{BuiltinGuards, GuardSurface, PiiGuardConfig};
     use bytes::Bytes;
     use std::time::Duration;
 
@@ -300,10 +398,19 @@ mod tests {
     }
 
     async fn run(engine: &Engine, units: Arc<[Unit]>, policy: BlockPolicy) -> ScanResult {
+        let selection = engine.select(None);
         engine
-            .guard(units, policy, OnError::FailOpen)
+            .guard(units, &selection, policy, OnError::FailOpen)
             .await
             .expect("guard should succeed")
+    }
+
+    fn guard_names(result: &ScanResult) -> Vec<String> {
+        result
+            .findings()
+            .iter()
+            .map(|f| f.guard.to_string())
+            .collect()
     }
 
     #[tokio::test]
@@ -331,8 +438,7 @@ mod tests {
 
         assert_eq!((a.completions(), b.completions()), (1, 1));
         assert_eq!(result.matches_count(), 2);
-        let guards: Vec<&str> = result.findings().iter().map(|f| f.guard).collect();
-        assert_eq!(guards, vec!["guard_a", "guard_b"]);
+        assert_eq!(guard_names(&result), vec!["guard_a", "guard_b"]);
     }
 
     #[tokio::test]
@@ -345,10 +451,10 @@ mod tests {
         let first = run(&engine, body_and_path(), BlockPolicy::Never).await;
         let second = run(&engine, body_and_path(), BlockPolicy::Never).await;
 
-        let shape = |r: &ScanResult| -> Vec<(usize, &'static str)> {
+        let shape = |r: &ScanResult| -> Vec<(usize, String)> {
             r.findings()
                 .iter()
-                .map(|f| (f.unit.index(), f.guard))
+                .map(|f| (f.unit.index(), f.guard.to_string()))
                 .collect()
         };
         assert_eq!(shape(&first), shape(&second));
@@ -357,10 +463,10 @@ mod tests {
         assert_eq!(
             shape(&first),
             vec![
-                (0, "guard_a"),
-                (0, "guard_b"),
-                (1, "guard_a"),
-                (1, "guard_b"),
+                (0, "guard_a".to_string()),
+                (0, "guard_b".to_string()),
+                (1, "guard_a".to_string()),
+                (1, "guard_b".to_string()),
             ]
         );
         assert_eq!(
@@ -457,17 +563,193 @@ mod tests {
         assert!(!result.detected());
     }
 
+    // --- Interest comes from the configured surface (3.2) ---
+
+    #[tokio::test]
+    async fn a_guard_whose_surface_excludes_the_body_is_not_called_with_the_body_unit() {
+        let surface = GuardSurface {
+            body: false,
+            ..GuardSurface::default()
+        };
+        let guard =
+            TestGuard::new("path_only", "EMAIL").with_interest(Interest::from_surface(&surface));
+        let probe = guard.probe();
+        let engine = Engine::with_guards(vec![Box::new(guard)]);
+
+        // Unit 0 is the body, unit 1 the path.
+        let result = run(&engine, body_and_path(), BlockPolicy::Never).await;
+
+        assert_eq!(probe.seen(), vec![UnitId(1)]);
+        assert_eq!(result.matches_count(), 1);
+        assert!(result.findings().iter().all(|f| f.unit == UnitId(1)));
+    }
+
+    /// Two guards, two surfaces. Each is handed its own units and no more —
+    /// the surface is per guard, not a global setting the engine applies once.
+    #[tokio::test]
+    async fn two_guard_surfaces_are_applied_independently() {
+        let body_surface = GuardSurface {
+            url_path: false,
+            query_params: false,
+            ..GuardSurface::default()
+        };
+        let query_surface = GuardSurface {
+            url_path: false,
+            body: false,
+            ..GuardSurface::default()
+        };
+        let body_guard = TestGuard::new("body_guard", "EMAIL")
+            .with_interest(Interest::from_surface(&body_surface));
+        let query_guard = TestGuard::new("query_guard", "US_SSN")
+            .with_interest(Interest::from_surface(&query_surface));
+        let (body_probe, query_probe) = (body_guard.probe(), query_guard.probe());
+        let engine = Engine::with_guards(vec![Box::new(body_guard), Box::new(query_guard)]);
+
+        let mut units = Units::new();
+        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        units.push_query("q=1".into());
+        let units = units.into_shared();
+
+        run(&engine, units, BlockPolicy::Never).await;
+
+        assert_eq!(body_probe.seen(), vec![UnitId(0)], "the body and no query");
+        assert_eq!(query_probe.seen(), vec![UnitId(1)], "the query and no body");
+    }
+
+    // --- Guard selection (3.4) ---
+
+    #[tokio::test]
+    async fn an_empty_selection_calls_no_guard_and_finds_nothing() {
+        let guard = TestGuard::new("pii", "EMAIL");
+        let probe = guard.probe();
+        let engine = Engine::with_guards(vec![Box::new(guard)]);
+
+        let selection = engine.select(Some(&[]));
+        assert!(selection.is_empty());
+
+        let result = engine
+            .guard(
+                body_only(),
+                &selection,
+                BlockPolicy::AnyFinding,
+                OnError::FailOpen,
+            )
+            .await
+            .expect("guard should succeed");
+
+        assert_eq!(probe.calls(), 0);
+        assert!(!result.detected());
+    }
+
+    #[tokio::test]
+    async fn a_named_selection_runs_only_the_guards_it_names() {
+        let first = TestGuard::new("guard_a", "EMAIL");
+        let second = TestGuard::new("guard_b", "US_SSN");
+        let (a, b) = (first.probe(), second.probe());
+        let engine = Engine::with_guards(vec![Box::new(first), Box::new(second)]);
+
+        let selection = engine.select(Some(&["guard_b"]));
+        let result = engine
+            .guard(
+                body_only(),
+                &selection,
+                BlockPolicy::Never,
+                OnError::FailOpen,
+            )
+            .await
+            .expect("guard should succeed");
+
+        assert_eq!(a.calls(), 0);
+        assert_eq!(b.completions(), 1);
+        assert_eq!(guard_names(&result), vec!["guard_b"]);
+    }
+
+    /// The selection is what a handler decodes for, so it carries the union of
+    /// the selected guards' surfaces and nothing wider.
+    #[tokio::test]
+    async fn a_selection_carries_the_union_of_the_surfaces_it_selected() {
+        let body_only_surface = GuardSurface {
+            url_path: false,
+            query_params: false,
+            ..GuardSurface::default()
+        };
+        let query_only_surface = GuardSurface {
+            url_path: false,
+            body: false,
+            ..GuardSurface::default()
+        };
+        let engine = Engine::with_guards(vec![
+            Box::new(
+                TestGuard::new("body_guard", "EMAIL")
+                    .with_interest(Interest::from_surface(&body_only_surface)),
+            ),
+            Box::new(
+                TestGuard::new("query_guard", "US_SSN")
+                    .with_interest(Interest::from_surface(&query_only_surface)),
+            ),
+        ]);
+
+        let all = engine.select(None);
+        assert!(all.wants(UnitKind::Body));
+        assert!(all.wants(UnitKind::QueryString));
+
+        let body_only = engine.select(Some(&["body_guard"]));
+        assert!(body_only.wants(UnitKind::Body));
+        assert!(!body_only.wants(UnitKind::QueryString));
+        assert!(!body_only.wants(UnitKind::UrlPath));
+    }
+
+    // --- Guards are built from configuration (3.3) ---
+
+    fn builtin_pii(pii: PiiGuardConfig) -> BuiltinGuards {
+        BuiltinGuards::with_pii(pii)
+    }
+
+    #[test]
+    fn a_disabled_guard_is_not_built() {
+        let guards = builtin_pii(PiiGuardConfig {
+            enabled: false,
+            scanner_threads: Some(3),
+            ..PiiGuardConfig::default()
+        });
+        let engine = Engine::new(&guards).expect("engine should build");
+
+        // The scanner pool is owned by the regex PII guard and reachable from
+        // nowhere else, so building no guard is what "no scanner thread
+        // starts" means: there is no pool to start one.
+        assert!(engine.guards.is_empty());
+        assert!(engine.select(None).is_empty());
+    }
+
+    #[test]
+    fn an_absent_guard_section_builds_no_guard() {
+        let engine = Engine::new(&BuiltinGuards::default()).expect("engine should build");
+        assert!(engine.guards.is_empty());
+    }
+
+    #[test]
+    fn an_enabled_guard_is_built_under_its_section_name() {
+        let guards = builtin_pii(PiiGuardConfig {
+            countries: vec![voidwall_pii::Country::International],
+            languages: vec![voidwall_pii::Language::En],
+            scanner_threads: Some(1),
+            ..PiiGuardConfig::default()
+        });
+        let engine = Engine::new(&guards).expect("engine should build");
+        assert_eq!(engine.guards.len(), 1);
+        assert_eq!(engine.guards[0].name().as_ref(), "pii");
+        engine.shutdown();
+    }
+
     #[tokio::test]
     async fn shutdown_joins_every_scanner_thread_before_it_logs() {
-        let config = PiiConfig {
+        let guards = builtin_pii(PiiGuardConfig {
             countries: vec![voidwall_pii::Country::International],
             languages: vec![voidwall_pii::Language::En],
             scanner_threads: Some(3),
-            detect: None,
-            ignore: None,
-            custom: Vec::new(),
-        };
-        let engine = Engine::new(&config).expect("engine should build");
+            ..PiiGuardConfig::default()
+        });
+        let engine = Engine::new(&guards).expect("engine should build");
 
         // The engine holds the only reference to the pool, so this drops it.
         // `Drop for ScannerPool` joins each thread before `shutdown` returns;

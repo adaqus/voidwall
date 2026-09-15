@@ -1,12 +1,13 @@
 # Reverse proxy with 1 scanner thread(s), request scanning on.
 
-[pii]
+# Ingest keys come first: a bare key written after a [section] binds to
+# that section and is rejected.
+on_error = "fail_open"
+
+[builtin_guards.pii]
 countries = []
 languages = []
 scanner_threads = 1
-
-[scan]
-on_error = "fail_open"
 
 [reverse_proxy]
 enabled = true

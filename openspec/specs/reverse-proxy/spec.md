@@ -61,12 +61,13 @@ disable inspection for that direction and SHALL leave the other direction untouc
 
 ### Requirement: Body scanning respects the content type and the target flags
 
-The proxy SHALL scan a body only when `scan.body` is true, the body is non-empty, and
-the content type appears in `scan.content_types`.
+The proxy SHALL scan a body only when at least one guard selected for the route admits
+the body in its surface, the body is non-empty, and the content type appears in the
+top-level `content_types` list.
 
 #### Scenario: Content type is outside the allowlist
 
-- **WHEN** a request body carries a content type outside `scan.content_types`
+- **WHEN** a request body carries a content type outside `content_types`
 - **THEN** the proxy does not scan the body
 
 #### Scenario: Body is empty
@@ -74,15 +75,32 @@ the content type appears in `scan.content_types`.
 - **WHEN** a request carries no body bytes
 - **THEN** the proxy does not scan the body
 
+#### Scenario: No selected guard admits the body
+
+- **WHEN** every guard selected for the route sets `surface.body` to false
+- **THEN** the proxy does not scan the body
+
 ### Requirement: The URL path, the query, and listed headers are scannable
 
-The proxy SHALL scan the URL path when `scan.url_path` is true, the query string when
-`scan.query_params` is true, and each header named in `scan.headers`.
+The proxy SHALL scan the URL path and the query string for a guard whose surface admits
+them, and SHALL scan the value of every header the route names. A unit no selected guard
+admits SHALL NOT be built, and a header the route does not name SHALL NOT be built.
 
 #### Scenario: PII sits in the query string
 
-- **WHEN** `scan.query_params` is true and the query holds an email address
+- **WHEN** a selected guard sets `surface.query_params` to true and the query holds an
+  email address
 - **THEN** the proxy detects it and blocks the request
+
+#### Scenario: PII sits in a header the route names
+
+- **WHEN** a route names a header and a request carries an email address in it
+- **THEN** the proxy detects it and blocks the request
+
+#### Scenario: Two guards admit different surfaces
+
+- **WHEN** one selected guard admits the body only and another admits the query only
+- **THEN** each guard is called with its own units and neither sees the other's
 
 ### Requirement: A detection blocks with a fixed 403
 
@@ -133,16 +151,6 @@ The proxy SHALL remove the hop-by-hop headers before it forwards: `connection`,
 
 - **WHEN** a request carries `Transfer-Encoding`
 - **THEN** the forwarded request does not carry it
-
-### Requirement: A route may override the scan settings
-
-A route-level `scan` table SHALL replace the mode defaults completely. A route without
-one SHALL use the mode defaults.
-
-#### Scenario: Route sets its own scan table
-
-- **WHEN** a route declares `scan`
-- **THEN** that route uses it alone, with no merge against the mode defaults
 
 ### Requirement: Every request records metrics
 

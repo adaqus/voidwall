@@ -16,16 +16,13 @@ use std::time::Duration;
 use crossbeam_channel::{SendTimeoutError, Sender};
 use tracing::{debug, error, info};
 
-use crate::config::{OnError, PiiConfig};
+use crate::config::{OnError, PiiGuardConfig};
 use crate::error::Error;
 use crate::scanner::{LogRateLimiter, build_scanner};
 
 use super::finding::{Finding, Span};
 use super::guard::{DetectFuture, Guard, GuardInput, Interest};
 use super::unit::{Unit, UnitContent, UnitId};
-
-/// The fixed name this guard puts on every finding it reports.
-pub(super) const GUARD_NAME: &str = "regex_pii";
 
 /// How long a submit waits for a free channel slot before giving up.
 const SEND_TIMEOUT: Duration = Duration::from_secs(1);
@@ -37,6 +34,8 @@ static CHANNEL_FULL_LIMITER: LogRateLimiter = LogRateLimiter::new(1_000);
 struct ScanJob {
     units: Arc<[Unit]>,
     selected: Vec<UnitId>,
+    /// The guard's configured name, put on every finding the job produces.
+    guard: Arc<str>,
 }
 
 type WorkItem = (ScanJob, tokio::sync::oneshot::Sender<Vec<Finding>>);
@@ -59,7 +58,7 @@ impl ScannerPool {
     /// own `voidwall_pii::Scanner`. The bounded channel capacity is four times
     /// the thread count, to absorb short bursts while still applying
     /// backpressure.
-    pub(crate) fn new(pii_config: &PiiConfig) -> Result<Self, Error> {
+    pub(crate) fn new(pii_config: &PiiGuardConfig) -> Result<Self, Error> {
         let num_threads = pii_config.effective_scanner_threads();
         let channel_capacity = num_threads * 4;
         let (sender, receiver) = crossbeam_channel::bounded::<WorkItem>(channel_capacity);
@@ -193,11 +192,14 @@ fn execute_scan(scanner: &voidwall_pii::Scanner, job: &ScanJob) -> Vec<Finding> 
             }
         };
 
-        findings.extend(
-            matches
-                .into_iter()
-                .map(|m| Finding::spanned(*id, m.label(), GUARD_NAME, Span::new(m.start, m.end))),
-        );
+        findings.extend(matches.into_iter().map(|m| {
+            Finding::spanned(
+                *id,
+                m.label(),
+                Arc::clone(&job.guard),
+                Span::new(m.start, m.end),
+            )
+        }));
     }
 
     findings
@@ -205,23 +207,27 @@ fn execute_scan(scanner: &voidwall_pii::Scanner, job: &ScanJob) -> Vec<Finding> 
 
 /// The regex and keyword PII guard.
 pub(crate) struct RegexPiiGuard {
+    name: Arc<str>,
     pool: ScannerPool,
     interest: Interest,
 }
 
 impl RegexPiiGuard {
-    /// Build the guard, and with it the scanner pool, from PII configuration.
-    pub(crate) fn new(pii_config: &PiiConfig) -> Result<Self, Error> {
+    /// Build the guard, and with it the scanner pool, from the guard's
+    /// configuration. The name is the one configuration gave the guard — its
+    /// built-in section key — and the interest comes from its scan surface.
+    pub(crate) fn new(name: &str, pii_config: &PiiGuardConfig) -> Result<Self, Error> {
         Ok(Self {
+            name: Arc::from(name),
             pool: ScannerPool::new(pii_config)?,
-            interest: Interest::all(),
+            interest: Interest::from_surface(&pii_config.surface),
         })
     }
 }
 
 impl Guard for RegexPiiGuard {
-    fn name(&self) -> &'static str {
-        GUARD_NAME
+    fn name(&self) -> &Arc<str> {
+        &self.name
     }
 
     fn interest(&self) -> &Interest {
@@ -232,6 +238,7 @@ impl Guard for RegexPiiGuard {
         let job = ScanJob {
             units: Arc::clone(input.units),
             selected: input.selected.to_vec(),
+            guard: Arc::clone(&self.name),
         };
         let on_error = input.on_error;
         Box::pin(async move { self.pool.submit(job, on_error).await })
@@ -249,22 +256,20 @@ mod tests {
     use crate::scanner::classify_body;
     use bytes::Bytes;
 
-    fn test_pii_config() -> PiiConfig {
-        PiiConfig {
+    fn test_pii_config() -> PiiGuardConfig {
+        PiiGuardConfig {
             countries: vec![
                 voidwall_pii::Country::International,
                 voidwall_pii::Country::Us,
             ],
             languages: vec![voidwall_pii::Language::En],
             scanner_threads: Some(1),
-            detect: None,
-            ignore: None,
-            custom: Vec::new(),
+            ..PiiGuardConfig::default()
         }
     }
 
     fn guard() -> RegexPiiGuard {
-        RegexPiiGuard::new(&test_pii_config()).expect("guard should build")
+        RegexPiiGuard::new("pii", &test_pii_config()).expect("guard should build")
     }
 
     async fn detect_all(guard: &RegexPiiGuard, units: Units) -> Vec<Finding> {
@@ -286,11 +291,42 @@ mod tests {
         units
     }
 
+    /// The default surface takes the path, the query, and the body. Header
+    /// values come from whatever the route named, so the guard always admits
+    /// the kind.
     #[test]
-    fn the_guard_is_interested_in_every_unit_kind() {
+    fn the_guard_takes_its_interest_from_its_configured_surface() {
         let guard = guard();
-        assert!(UnitKind::ALL.iter().all(|k| guard.interest().wants(*k)));
-        assert_eq!(guard.name(), "regex_pii");
+        for kind in UnitKind::ALL {
+            assert!(
+                guard.interest().wants(*kind),
+                "expected interest in {kind:?}"
+            );
+        }
+        assert_eq!(guard.name().as_ref(), "pii");
+    }
+
+    #[test]
+    fn a_configured_surface_narrows_what_the_guard_is_called_with() {
+        let config = PiiGuardConfig {
+            surface: crate::config::GuardSurface {
+                body: false,
+                ..crate::config::GuardSurface::default()
+            },
+            ..test_pii_config()
+        };
+        let guard = RegexPiiGuard::new("pii", &config).expect("guard should build");
+        assert!(!guard.interest().wants(UnitKind::Body));
+        assert!(guard.interest().wants(UnitKind::UrlPath));
+    }
+
+    /// The name is configuration's, not the build's: a differently named
+    /// section produces a differently named guard.
+    #[test]
+    fn the_guard_carries_the_name_configuration_gave_it() {
+        let guard = RegexPiiGuard::new("secondary_pii", &test_pii_config())
+            .expect("guard should build");
+        assert_eq!(guard.name().as_ref(), "secondary_pii");
     }
 
     #[tokio::test]
@@ -311,7 +347,7 @@ mod tests {
             .find(|f| f.kind.as_str() == "EMAIL")
             .expect("expected an EMAIL finding");
         assert_eq!(email.unit, UnitId(0));
-        assert_eq!(email.guard, "regex_pii");
+        assert_eq!(email.guard.as_ref(), "pii");
         let span = email.span.expect("expected a span");
         assert!(span.start < span.end);
     }
@@ -412,7 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_custom_label_reaches_the_finding() {
-        let config = PiiConfig {
+        let config = PiiGuardConfig {
             custom: vec![voidwall_pii::UserPiiDefinition {
                 label: "EMPLOYEE_ID".into(),
                 pattern: r"EMP-\d{6}".into(),
@@ -421,18 +457,18 @@ mod tests {
             }],
             ..test_pii_config()
         };
-        let guard = RegexPiiGuard::new(&config).expect("guard should build");
+        let guard = RegexPiiGuard::new("pii", &config).expect("guard should build");
         let findings = detect_all(&guard, body_units(b"emp EMP-123456 tag")).await;
         assert!(findings.iter().any(|f| f.kind.as_str() == "EMPLOYEE_ID"));
     }
 
     #[tokio::test]
     async fn the_pool_serves_every_thread() {
-        let config = PiiConfig {
+        let config = PiiGuardConfig {
             scanner_threads: Some(3),
             ..test_pii_config()
         };
-        let guard = RegexPiiGuard::new(&config).expect("guard should build");
+        let guard = RegexPiiGuard::new("pii", &config).expect("guard should build");
         for _ in 0..6 {
             let findings = detect_all(&guard, body_units(b"email: user@example.com")).await;
             assert!(!findings.is_empty());
@@ -458,6 +494,7 @@ mod tests {
                 ScanJob {
                     units,
                     selected: vec![UnitId(0)],
+                    guard: Arc::from("pii"),
                 },
                 OnError::FailOpen,
             )

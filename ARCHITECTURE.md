@@ -268,14 +268,21 @@ The operator believes they are covered and they are not. A hard failure at start
 loud, and it is caught before deployment by the `--validate` flag, which runs the
 whole pipeline offline, including Vectorscan compilation.
 
-For the same reason a per-route `scan` override replaces the defaults completely
-rather than merging. A merge makes the effective configuration a function of two
-places, and the operator reading the route cannot see what they will get.
+For the same reason a route names the guards that run for it rather than overriding a
+table of settings. `guards` is a list of names: an absent list takes every enabled
+guard, and an empty list takes none. There is nothing to merge, so the effective
+configuration is not a function of two places and the operator reading the route sees
+what they will get.
 
-Every configuration table carries `deny_unknown_fields`, so a key the schema does not
-define fails the start and names itself. A misspelled key that is silently ignored
+Nearly every configuration table carries `deny_unknown_fields`, so a key the schema does
+not define fails the start and names itself. A misspelled key that is silently ignored
 gives the operator a setting they believe is active and is not, which is the same
 failure as a dropped PII definition.
+
+`[builtin_guards]` is the one deliberate exception. A key there names a guard rather
+than a setting, so an unknown one is captured and rejected in semantic validation, which
+can say "unknown built-in guard 'jailbreak'" and list the guards the build has. A schema
+error would only say the field is unknown.
 
 ### 4.7 No authentication
 
@@ -344,7 +351,7 @@ These appear in the config schema or the module list. None of them runs.
 | TLS termination | `tls.rs` is empty. `TlsConfig` parses and validates. | Deployments terminate TLS at the ingress or the load balancer. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
-| Checksum validation toggle | Not started. `PiiConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |
+| Checksum validation toggle | Not started. `PiiGuardConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |
 
 Container hardening is guidance, not enforcement. `docker/Dockerfile.voidwall` runs as
 root and sets no security context. The Kubernetes settings below are what a deployment

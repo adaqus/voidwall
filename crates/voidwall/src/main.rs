@@ -69,7 +69,7 @@ async fn run_server(config_path: std::path::PathBuf) {
     tracing::info!(config_path = %config_path.display(), "configuration loaded");
 
     // Build the detection engine and its guards
-    let engine = match Engine::new(&config.pii) {
+    let engine = match Engine::new(&config.builtin_guards) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             tracing::error!(error = %e, "failed to initialize detection engine");
@@ -78,7 +78,12 @@ async fn run_server(config_path: std::path::PathBuf) {
     };
 
     tracing::info!(
-        threads = config.pii.effective_scanner_threads(),
+        guards = ?config.builtin_guards.enabled_names(),
+        threads = config
+            .builtin_guards
+            .enabled_pii()
+            .map(|g| g.effective_scanner_threads())
+            .unwrap_or(0),
         "detection engine initialized"
     );
 

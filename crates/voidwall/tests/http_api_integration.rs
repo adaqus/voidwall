@@ -4,7 +4,7 @@ use std::sync::{Arc, LazyLock};
 use test_case::test_case;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use voidwall::config::{AppConfig, HttpApiConfig, OnError, PiiConfig, ScanConfig};
+use voidwall::config::{AppConfig, BuiltinGuards, HttpApiConfig, OnError, PiiGuardConfig};
 use voidwall::engine::Engine;
 use voidwall::http_api;
 
@@ -12,19 +12,34 @@ use voidwall::http_api;
 // Shared engine & helpers
 // ---------------------------------------------------------------------------
 
-fn default_pii_config() -> PiiConfig {
-    PiiConfig {
-        countries: vec![],
-        languages: vec![],
+fn default_pii_config() -> PiiGuardConfig {
+    PiiGuardConfig {
         scanner_threads: Some(1),
-        detect: None,
-        ignore: None,
-        custom: Vec::new(),
+        ..PiiGuardConfig::default()
     }
 }
 
-static SHARED_ENGINE: LazyLock<Arc<Engine>> =
-    LazyLock::new(|| Arc::new(Engine::new(&default_pii_config()).unwrap()));
+/// The ingest settings a test varies. Configuration splits what the old
+/// `[scan]` table held: these are deployment-wide, while the scan surface
+/// belongs to the guard.
+#[derive(Clone)]
+struct Ingest {
+    max_body_size: usize,
+    on_error: OnError,
+}
+
+impl Default for Ingest {
+    fn default() -> Self {
+        Self {
+            max_body_size: 1_048_576,
+            on_error: OnError::FailClose,
+        }
+    }
+}
+
+static SHARED_ENGINE: LazyLock<Arc<Engine>> = LazyLock::new(|| {
+    Arc::new(Engine::new(&BuiltinGuards::with_pii(default_pii_config())).unwrap())
+});
 
 async fn wait_for_port(addr: SocketAddr) {
     for _ in 0..100 {
@@ -43,36 +58,39 @@ struct TestApi {
 
 impl TestApi {
     async fn start() -> Self {
-        Self::start_with(ScanConfig::default()).await
+        Self::start_with(Ingest::default()).await
     }
 
-    async fn start_with(scan: ScanConfig) -> Self {
-        Self::start_inner(scan, default_pii_config(), SHARED_ENGINE.clone()).await
+    async fn start_with(ingest: Ingest) -> Self {
+        Self::start_inner(ingest, default_pii_config(), SHARED_ENGINE.clone()).await
     }
 
     /// Builds a dedicated engine from `pii_config` instead of reusing the
     /// shared one. A test that needs a failing scanner pool must own it.
-    async fn start_with_pii(scan: ScanConfig, pii_config: PiiConfig) -> Self {
-        let engine = Arc::new(Engine::new(&pii_config).unwrap());
-        Self::start_inner(scan, pii_config, engine).await
+    async fn start_with_pii(ingest: Ingest, pii_config: PiiGuardConfig) -> Self {
+        let engine =
+            Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
+        Self::start_inner(ingest, pii_config, engine).await
     }
 
-    async fn start_inner(scan: ScanConfig, pii_config: PiiConfig, engine: Arc<Engine>) -> Self {
+    async fn start_inner(
+        ingest: Ingest,
+        pii_config: PiiGuardConfig,
+        engine: Arc<Engine>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
         let config = AppConfig {
-            pii: pii_config,
-            scan,
-            reverse_proxy: Default::default(),
-            forward_proxy: Default::default(),
+            max_body_size: ingest.max_body_size,
+            on_error: ingest.on_error,
+            builtin_guards: BuiltinGuards::with_pii(pii_config),
             http_api: HttpApiConfig {
                 enabled: true,
                 listen: addr.to_string(),
             },
-            admin: Default::default(),
-            shutdown_timeout_secs: 30,
+            ..AppConfig::default()
         };
 
         let cancel = CancellationToken::new();
@@ -321,11 +339,11 @@ async fn unsupported_content_type_returns_415() {
 
 #[tokio::test]
 async fn oversized_body_returns_413() {
-    let scan = ScanConfig {
+    let ingest = Ingest {
         max_body_size: 64,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let api = TestApi::start_with(scan).await;
+    let api = TestApi::start_with(ingest).await;
 
     let big = "x".repeat(1024);
     let client = reqwest::Client::new();
@@ -359,11 +377,11 @@ async fn malformed_json_returns_400() {
 async fn malformed_json_with_fail_open_still_returns_400() {
     // The HTTP API rejects malformed structured bodies regardless of on_error
     // (the caller declared the type, so silently degrading would mask a bug).
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailOpen,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let api = TestApi::start_with(scan).await;
+    let api = TestApi::start_with(ingest).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -380,8 +398,8 @@ async fn malformed_json_with_fail_open_still_returns_400() {
 /// A pool that owns no scanner threads: the work channel has no receiver, so
 /// every submit sees it disconnected. That is the same error the pool raises
 /// once its threads have died.
-fn broken_pool_pii_config() -> PiiConfig {
-    PiiConfig {
+fn broken_pool_pii_config() -> PiiGuardConfig {
+    PiiGuardConfig {
         scanner_threads: Some(0),
         ..default_pii_config()
     }
@@ -392,14 +410,14 @@ fn broken_pool_pii_config() -> PiiConfig {
 /// `on_error` at all.
 #[tokio::test]
 async fn scanner_failure_fail_close_returns_500() {
-    let scan = ScanConfig::default();
+    let ingest = Ingest::default();
     assert_eq!(
-        scan.on_error,
+        AppConfig::default().on_error,
         OnError::FailClose,
         "this test is about the default, which must be fail_close"
     );
 
-    let api = TestApi::start_with_pii(scan, broken_pool_pii_config()).await;
+    let api = TestApi::start_with_pii(ingest, broken_pool_pii_config()).await;
     let resp = reqwest::Client::new()
         .post(api.url("/v1/scan"))
         .header("content-type", "text/plain")
@@ -416,12 +434,12 @@ async fn scanner_failure_fail_close_returns_500() {
 /// `fail_open` is no longer the default.
 #[tokio::test]
 async fn scanner_failure_fail_open_answers_200_detecting_nothing() {
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailOpen,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
 
-    let api = TestApi::start_with_pii(scan, broken_pool_pii_config()).await;
+    let api = TestApi::start_with_pii(ingest, broken_pool_pii_config()).await;
     let resp = reqwest::Client::new()
         .post(api.url("/v1/scan"))
         .header("content-type", "text/plain")

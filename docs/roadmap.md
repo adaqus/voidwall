@@ -3,11 +3,13 @@
 - [x] Analytics Retirement
 - [x] Engine and Guard Contract
 - [x] Action Layer Removal
-- [ ] Configurable Guard and Policy Design
+- [x] Configurable Guard Design
+- [ ] Policy Design
 - [ ] LiteLLM Guardrail API Decoder
 - [ ] Policy, Errors, and Deadlines
 - [x] Guard API
 - [ ] Model Evaluation Framework
+- [ ] Model Guard Configuration
 - [ ] ONNX Runtime and Model Profiles
 - [ ] Supported Safety Profiles
 - [ ] Open-Core Release

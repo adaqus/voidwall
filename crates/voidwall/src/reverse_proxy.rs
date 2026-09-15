@@ -14,8 +14,8 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::config::{AppConfig, OnError, ScanConfig};
-use crate::engine::{BlockPolicy, Engine, UnitContent, Units};
+use crate::config::{AppConfig, OnError};
+use crate::engine::{BlockPolicy, Engine, GuardSelection, UnitContent, UnitKind, Units};
 use crate::error::Error;
 use crate::metrics;
 use crate::scanner::SCANNER_ERROR_LIMITER;
@@ -50,7 +50,21 @@ fn is_hop_by_hop(name: &HeaderName) -> bool {
 struct ResolvedRoute {
     path_prefix: String,
     upstream: String,
-    scan: ScanConfig,
+    /// The guards that run for this route, resolved once at startup. It also
+    /// carries the union of their surfaces, which is what decides the units
+    /// this route's messages are decoded into.
+    selection: GuardSelection,
+    /// The header names this route exposes to detection, in both directions.
+    /// A header not named here is never decoded into a unit.
+    headers: Vec<String>,
+}
+
+/// How a message is admitted and decoded, before any guard sees it. Shared by
+/// every route and every direction.
+struct Ingest {
+    max_body_size: usize,
+    content_types: Vec<String>,
+    on_error: OnError,
 }
 
 /// The `mode` metric label for every counter this module writes.
@@ -62,6 +76,7 @@ pub struct ReverseProxyState {
     routes: Arc<Vec<ResolvedRoute>>,
     clients: Arc<HashMap<String, Client<hyper_util::client::legacy::connect::HttpConnector, Body>>>,
     engine: Arc<Engine>,
+    ingest: Arc<Ingest>,
     request_scan: bool,
     response_scan: bool,
 }
@@ -85,14 +100,20 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         }
     }
 
-    // Resolve per-route scan config (route override fully replaces defaults).
+    // Resolve each route's guard set once. A route that names no guard takes
+    // every enabled one; one that names an empty list takes none.
+    let enabled = config.builtin_guards.enabled_names();
     let routes: Vec<ResolvedRoute> = rp
         .routes
         .iter()
         .map(|r| ResolvedRoute {
             path_prefix: r.path_prefix.clone(),
             upstream: r.upstream.clone(),
-            scan: r.scan.clone().unwrap_or_else(|| config.scan.clone()),
+            selection: match &r.guards {
+                Some(_) => engine.select(Some(&r.selected_guards(&enabled))),
+                None => engine.select(None),
+            },
+            headers: r.headers.clone(),
         })
         .collect();
 
@@ -100,6 +121,11 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         routes: Arc::new(routes),
         clients: Arc::new(clients),
         engine,
+        ingest: Arc::new(Ingest {
+            max_body_size: config.max_body_size,
+            content_types: config.content_types.clone(),
+            on_error: config.on_error,
+        }),
         request_scan: rp.request.scan,
         response_scan: rp.response.scan,
     }
@@ -180,13 +206,20 @@ async fn handle_proxied_request(
     req: Request,
     route: &ResolvedRoute,
 ) -> Response {
-    let scan_config = &route.scan;
+    let ingest = &state.ingest;
+    let selection = &route.selection;
+    let plan = ScanPlan {
+        engine: &state.engine,
+        ingest,
+        selection,
+        headers: &route.headers,
+    };
     let method = req.method().clone();
     let uri = req.uri().clone();
     let headers = req.headers().clone();
 
     // Buffer the request body.
-    let body_bytes = match buffer_body(req, scan_config.max_body_size, scan_config.on_error).await {
+    let body_bytes = match buffer_body(req, ingest.max_body_size, ingest.on_error).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -198,14 +231,14 @@ async fn handle_proxied_request(
             direction: "request",
         };
 
-        // Check content-type for body scanning.
-        let should_scan_body = scan_config.body
+        // The body is decoded only when a guard selected for this route wants
+        // it, its content type is admitted, and there is something to read.
+        let should_scan_body = selection.wants(UnitKind::Body)
             && !body_bytes.is_empty()
-            && is_content_type_allowed(&headers, &scan_config.content_types);
+            && is_content_type_allowed(&headers, &ingest.content_types);
 
         match scan_and_act(
-            &state.engine,
-            scan_config,
+            &plan,
             &ctx,
             &uri,
             &headers,
@@ -284,13 +317,12 @@ async fn handle_proxied_request(
             direction: "response",
         };
 
-        let should_scan_body = scan_config.body
+        let should_scan_body = selection.wants(UnitKind::Body)
             && !resp_body.is_empty()
-            && is_content_type_allowed(&resp_headers, &scan_config.content_types);
+            && is_content_type_allowed(&resp_headers, &ingest.content_types);
 
         match scan_and_act_response(
-            &state.engine,
-            scan_config,
+            &plan,
             &ctx,
             &resp_headers,
             if should_scan_body {
@@ -334,20 +366,29 @@ struct MetricContext<'a> {
     direction: &'a str,
 }
 
+/// Everything detection needs for one message: the engine, the shared ingest
+/// settings, and the two things the matched route decides — which guards run,
+/// and which headers become units.
+struct ScanPlan<'a> {
+    engine: &'a Engine,
+    ingest: &'a Ingest,
+    selection: &'a GuardSelection,
+    headers: &'a [String],
+}
+
 // ---------------------------------------------------------------------------
 // Scan + action helpers
 // ---------------------------------------------------------------------------
 
 /// Scan the request direction and decide what happens to it.
 async fn scan_and_act(
-    engine: &Engine,
-    scan_config: &ScanConfig,
+    plan: &ScanPlan<'_>,
     ctx: &MetricContext<'_>,
     uri: &Uri,
     headers: &HeaderMap,
     body: Option<&Bytes>,
 ) -> PipelineResult {
-    let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
+    let scan_body = match classify_scan_body(body, headers, plan.ingest.on_error) {
         Ok(b) => b,
         Err(resp) => return *resp,
     };
@@ -358,35 +399,34 @@ async fn scan_and_act(
     }
 
     // URL path and query become separate units rather than one merged string:
-    // each can be independently enabled via config, and a finding's span then
-    // names which of the two it sits in. They are tiny, so the extra unit costs
-    // nothing next to body scanning.
-    if scan_config.url_path {
+    // each is admitted by a guard's surface on its own, and a finding's span
+    // then names which of the two it sits in. They are tiny, so the extra unit
+    // costs nothing next to body scanning.
+    if plan.selection.wants(UnitKind::UrlPath) {
         units.push_path(uri.path().to_string());
     }
-    if scan_config.query_params
+    if plan.selection.wants(UnitKind::QueryString)
         && let Some(query) = uri.query()
     {
         units.push_query(query.to_string());
     }
-    push_scan_headers(&mut units, scan_config, headers);
+    push_scan_headers(&mut units, plan.headers, headers);
 
     if units.is_empty() {
         return PipelineResult::Pass;
     }
 
-    run_engine(engine, units, scan_config, ctx, "scanner error").await
+    run_engine(plan, units, ctx, "scanner error").await
 }
 
 /// Scan the response direction and decide what happens to it.
 async fn scan_and_act_response(
-    engine: &Engine,
-    scan_config: &ScanConfig,
+    plan: &ScanPlan<'_>,
     ctx: &MetricContext<'_>,
     headers: &HeaderMap,
     body: Option<&Bytes>,
 ) -> PipelineResult {
-    let scan_body = match classify_scan_body(body, headers, scan_config.on_error) {
+    let scan_body = match classify_scan_body(body, headers, plan.ingest.on_error) {
         Ok(b) => b,
         Err(resp) => return *resp,
     };
@@ -395,13 +435,13 @@ async fn scan_and_act_response(
     if let Some(content) = scan_body {
         units.push_body(content);
     }
-    push_scan_headers(&mut units, scan_config, headers);
+    push_scan_headers(&mut units, plan.headers, headers);
 
     if units.is_empty() {
         return PipelineResult::Pass;
     }
 
-    run_engine(engine, units, scan_config, ctx, "scanner error on response").await
+    run_engine(plan, units, ctx, "scanner error on response").await
 }
 
 /// Hand the units to the engine and decide what happens to the message.
@@ -411,19 +451,20 @@ async fn scan_and_act_response(
 /// A detection blocks, so the engine may stop as soon as one finding arrives:
 /// the message is not going anywhere and the rest cannot change that.
 async fn run_engine(
-    engine: &Engine,
+    plan: &ScanPlan<'_>,
     units: Units,
-    scan_config: &ScanConfig,
     ctx: &MetricContext<'_>,
     error_message: &'static str,
 ) -> PipelineResult {
     let units = units.into_shared();
 
-    let scan_result = match engine
+    let scan_result = match plan
+        .engine
         .guard(
             Arc::clone(&units),
+            plan.selection,
             BlockPolicy::AnyFinding,
-            scan_config.on_error,
+            plan.ingest.on_error,
         )
         .await
     {
@@ -432,7 +473,7 @@ async fn run_engine(
             if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
                 warn!(dropped, error = %e, "{error_message}");
             }
-            return handle_scan_error(e, scan_config.on_error);
+            return handle_scan_error(e, plan.ingest.on_error);
         }
     };
 
@@ -502,9 +543,11 @@ fn classify_scan_body(
     }
 }
 
-/// Append one unit per configured header that is present and readable.
-fn push_scan_headers(units: &mut Units, scan_config: &ScanConfig, headers: &HeaderMap) {
-    for header_name in &scan_config.headers {
+/// Append one unit per header the route names, when it is present and
+/// readable. A header the route does not name is never decoded, so no guard
+/// can see it whatever its surface says.
+fn push_scan_headers(units: &mut Units, scanned_headers: &[String], headers: &HeaderMap) {
+    for header_name in scanned_headers {
         if let Ok(name) = header_name.parse::<HeaderName>()
             && let Some(value) = headers.get(&name)
             && let Ok(v) = value.to_str()
@@ -605,8 +648,15 @@ fn build_response(status: StatusCode, headers: HeaderMap, body: Bytes) -> Respon
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::UnitKind;
+    use crate::config::GuardSurface;
+    use crate::engine::Interest;
     use test_case::test_case;
+
+    /// A selection carrying the default surface: the path, the query, and the
+    /// body, and no header.
+    fn default_selection() -> GuardSelection {
+        GuardSelection::for_test(Interest::from_surface(&GuardSurface::default()))
+    }
 
     // --- Route matching ---
 
@@ -616,7 +666,8 @@ mod tests {
             .map(|p| ResolvedRoute {
                 path_prefix: p.to_string(),
                 upstream: format!("http://upstream{p}"),
-                scan: ScanConfig::default(),
+                selection: default_selection(),
+                headers: Vec::new(),
             })
             .collect()
     }
@@ -775,30 +826,44 @@ mod tests {
     // --- Scan header collection ---
 
     #[test]
-    fn push_scan_headers_picks_configured() {
+    fn push_scan_headers_picks_the_ones_the_route_named() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
         headers.insert("x-safe", "clean".parse().unwrap());
 
-        let scan_config = ScanConfig {
-            headers: vec!["Authorization".into()],
-            ..ScanConfig::default()
-        };
-
         let mut units = Units::new();
-        push_scan_headers(&mut units, &scan_config, &headers);
+        push_scan_headers(&mut units, &["Authorization".to_string()], &headers);
         let units = units.into_shared();
 
-        assert_eq!(units.len(), 1);
+        assert_eq!(units.len(), 1, "the named header, and not the other one");
         assert_eq!(units[0].kind, UnitKind::HeaderValue);
     }
 
+    /// The route names no header, so no header unit is built — whatever the
+    /// message carries, and whatever the guards would accept.
     #[test]
-    fn push_scan_headers_empty_config() {
-        let headers = HeaderMap::new();
-        let scan_config = ScanConfig::default();
+    fn no_header_unit_is_built_when_the_route_names_none() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+
         let mut units = Units::new();
-        push_scan_headers(&mut units, &scan_config, &headers);
+        push_scan_headers(&mut units, &[], &headers);
         assert!(units.is_empty());
+    }
+
+    /// A unit no selected guard wants is never constructed, so a selection that
+    /// admits only the body leaves the path and the query undecoded.
+    #[test]
+    fn only_the_units_the_selection_admits_are_built() {
+        let body_only = GuardSurface {
+            url_path: false,
+            query_params: false,
+            ..GuardSurface::default()
+        };
+        let selection = GuardSelection::for_test(Interest::from_surface(&body_only));
+
+        assert!(selection.wants(UnitKind::Body));
+        assert!(!selection.wants(UnitKind::UrlPath));
+        assert!(!selection.wants(UnitKind::QueryString));
     }
 }

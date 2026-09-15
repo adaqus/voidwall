@@ -2,13 +2,14 @@
 #
 # All other modes are disabled so the listener under test is the API on :8083.
 
-[pii]
+# Ingest keys come first: a bare key written after a [section] binds to
+# that section and is rejected.
+on_error = "fail_open"
+
+[builtin_guards.pii]
 countries = []
 languages = []
 scanner_threads = 4
-
-[scan]
-on_error = "fail_open"
 
 [http_api]
 enabled = true

@@ -50,7 +50,7 @@ TLS interception:
 
 ### 1.3 Checksum validation toggle, eval only — history § 19.1 to § 19.3
 
-Phase 19 is unchecked end to end. `PiiConfig` has no `validate` field. `config.rs:28`
+Phase 19 is unchecked end to end. `PiiGuardConfig` has no `validate` field. `config.rs:28`
 `pub validate: Option<PathBuf>` is the unrelated `--validate <config>` CLI flag.
 
 Warning: this switch turns off every detector validator. It exists for AI4Privacy
@@ -59,10 +59,10 @@ evaluation against fabricated ground truth. It inflates false positives.
 - Add `validate: bool` to `ScannerBuilder`, default `true`.
 - Thread it into `HyperscanDetector` and `KeywordContextDetector`. Gate every validator
   call site.
-- Add `pub validate: bool` to `PiiConfig`, default `true`. Chain it in `build_scanner`.
+- Add `pub validate: bool` to `PiiGuardConfig`, default `true`. Chain it in
+  `build_scanner`.
 - Emit one `warn!` line at startup when the value is false.
-- Unit-test both directions: a Luhn-failing card matches when the flag is off, and the
-  default stays `true` when `[pii]` is absent.
+- Unit-test both directions: a Luhn-failing card matches when the flag is off.
 
 ---
 

@@ -14,7 +14,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::config::OnError;
+use crate::config::{GuardSurface, OnError};
 use crate::error::Error;
 
 use super::finding::Finding;
@@ -54,6 +54,30 @@ impl Interest {
         Self { kinds: Vec::new() }
     }
 
+    /// The unit kinds a configured scan surface admits.
+    ///
+    /// `HeaderValue` is always admitted, because the surface does not decide
+    /// headers — the route does, by naming them. A route that names none
+    /// builds no header unit, so admitting the kind costs nothing there.
+    pub fn from_surface(surface: &GuardSurface) -> Self {
+        let mut kinds = vec![UnitKind::HeaderValue];
+        if surface.body {
+            kinds.push(UnitKind::Body);
+        }
+        if surface.url_path {
+            kinds.push(UnitKind::UrlPath);
+        }
+        if surface.query_params {
+            kinds.push(UnitKind::QueryString);
+        }
+        Self::in_kinds(kinds)
+    }
+
+    /// The kinds this interest covers.
+    pub fn kinds(&self) -> &[UnitKind] {
+        &self.kinds
+    }
+
     /// Whether this interest covers `kind`.
     pub fn wants(&self, kind: UnitKind) -> bool {
         self.kinds.contains(&kind)
@@ -76,10 +100,10 @@ pub struct GuardInput<'a> {
 
 /// One detection concern.
 pub trait Guard: Send + Sync {
-    /// A fixed name for this guard type. It reaches metric labels and finding
-    /// records, so it is never operator-supplied — that would make label
-    /// cardinality unbounded.
-    fn name(&self) -> &'static str;
+    /// This guard's name, the one configuration gave it. It reaches finding
+    /// records and can reach a metric label, so the set of names is bounded by
+    /// startup configuration and never by request content.
+    fn name(&self) -> &Arc<str>;
 
     /// The unit kinds this guard wants. The engine, not the guard, applies it.
     fn interest(&self) -> &Interest;
@@ -111,6 +135,53 @@ mod tests {
     fn interest_none_covers_nothing() {
         let interest = Interest::none();
         assert!(!UnitKind::ALL.iter().any(|k| interest.wants(*k)));
+    }
+
+    #[test]
+    fn a_default_surface_admits_the_path_the_query_and_the_body() {
+        let interest = Interest::from_surface(&GuardSurface::default());
+        assert!(interest.wants(UnitKind::Body));
+        assert!(interest.wants(UnitKind::UrlPath));
+        assert!(interest.wants(UnitKind::QueryString));
+    }
+
+    /// The surface does not decide headers — the route does, by naming them.
+    /// A guard therefore always admits the kind; a route that names no header
+    /// simply builds no such unit.
+    #[test]
+    fn every_surface_admits_header_values() {
+        let narrow = GuardSurface {
+            url_path: false,
+            query_params: false,
+            body: false,
+        };
+        for surface in [GuardSurface::default(), narrow] {
+            assert!(Interest::from_surface(&surface).wants(UnitKind::HeaderValue));
+        }
+    }
+
+    #[test]
+    fn a_surface_with_the_body_off_does_not_admit_the_body() {
+        let surface = GuardSurface {
+            body: false,
+            ..GuardSurface::default()
+        };
+        let interest = Interest::from_surface(&surface);
+        assert!(!interest.wants(UnitKind::Body));
+        assert!(interest.wants(UnitKind::UrlPath));
+    }
+
+    #[test]
+    fn a_surface_with_every_target_off_admits_only_header_values() {
+        let surface = GuardSurface {
+            url_path: false,
+            query_params: false,
+            body: false,
+        };
+        assert_eq!(
+            Interest::from_surface(&surface),
+            Interest::in_kinds([UnitKind::HeaderValue])
+        );
     }
 
     #[test]

@@ -16,7 +16,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_voidwall");
 fn valid_config_with_listen(listen: &str) -> String {
     format!(
         r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -96,7 +96,7 @@ fn invalid_toml_exits_non_zero_with_parse_tag() {
 #[test]
 fn invalid_schema_retired_actions_key_exits_non_zero() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -125,7 +125,7 @@ upstream = "http://localhost:9000"
 #[test]
 fn detect_and_ignore_both_set_exits_non_zero() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 detect = ["Email"]
@@ -156,11 +156,11 @@ upstream = "http://localhost:9000"
 #[test]
 fn custom_pii_bad_regex_exits_non_zero_and_cites_label() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label = "BAD_ENTRY"
 pattern = "["
 
@@ -189,11 +189,11 @@ upstream = "http://localhost:9000"
 #[test]
 fn custom_label_collides_with_builtin_exits_non_zero() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label = "EMAIL"
 pattern = "foo"
 
@@ -225,12 +225,12 @@ fn custom_entries_over_cap_exits_non_zero() {
     let mut entries = String::new();
     for i in 0..=64 {
         entries.push_str(&format!(
-            "[[pii.custom]]\nlabel = \"CUSTOM_{i}\"\npattern = \"x\"\n\n"
+            "[[builtin_guards.pii.custom]]\nlabel = \"CUSTOM_{i}\"\npattern = \"x\"\n\n"
         ));
     }
     let bad = format!(
         r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -261,7 +261,7 @@ upstream = "http://localhost:9000"
 #[test]
 fn custom_reserved_in_detect_exits_non_zero() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 detect = ["Custom"]
@@ -294,7 +294,7 @@ upstream = "http://localhost:9000"
 #[test]
 fn custom_reserved_in_ignore_exits_non_zero() {
     let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 ignore = ["Custom"]
@@ -379,4 +379,136 @@ fn missing_both_args_prints_usage_error() {
         stderr.contains("required") || stderr.contains("Usage"),
         "stderr: {stderr}",
     );
+}
+
+// ---------------------------------------------------------------------------
+// Guard configuration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unknown_built_in_guard_exits_non_zero_and_names_it() {
+    let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[builtin_guards.jailbreak]
+threshold = 0.5
+
+[reverse_proxy]
+enabled = true
+listen = "127.0.0.1:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+    let cfg = write_cfg(bad);
+    let out = run_validate(cfg.path());
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("[semantic]"), "stderr: {stderr}");
+    assert!(stderr.contains("jailbreak"), "stderr: {stderr}");
+}
+
+#[test]
+fn route_naming_a_guard_that_is_not_enabled_exits_non_zero() {
+    let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "127.0.0.1:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+guards = ["injection"]
+"#;
+    let cfg = write_cfg(bad);
+    let out = run_validate(cfg.path());
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("[semantic]"), "stderr: {stderr}");
+    assert!(stderr.contains("injection"), "stderr: {stderr}");
+}
+
+/// Enabling no guard is a deployment with nothing to inspect, not an invalid
+/// config. It validates, and the proxy starts — see
+/// `empty_guard_set_starts_and_warns` for what startup then does.
+#[test]
+fn a_config_enabling_no_guard_validates() {
+    let toml = r#"
+[reverse_proxy]
+enabled = true
+listen = "127.0.0.1:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+    let cfg = write_cfg(toml);
+    let out = run_validate(cfg.path());
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The old configuration format
+// ---------------------------------------------------------------------------
+
+/// A config written before this change names `pii` or `scan` at the top level.
+/// Neither key exists now, so startup stops and names the offending key rather
+/// than running with the old settings quietly ignored.
+#[test]
+fn a_config_in_the_old_format_is_rejected_at_startup() {
+    for (section, key) in [
+        ("[pii]\ncountries = [\"Us\"]", "pii"),
+        ("[scan]\nbody = true\nmax_body_size = 2048", "scan"),
+    ] {
+        let bad = format!(
+            r#"
+{section}
+
+[reverse_proxy]
+enabled = true
+listen = "127.0.0.1:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#
+        );
+        let cfg = write_cfg(&bad);
+
+        // `--validate` is the same load path the proxy runs at startup.
+        let out = run_validate(cfg.path());
+        assert!(!out.status.success(), "`{key}` must stop the start");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("[schema]"), "stderr: {stderr}");
+        assert!(
+            stderr.contains("unknown field") && stderr.contains(key),
+            "the failure must name `{key}`, got: {stderr}",
+        );
+
+        // And the proxy itself refuses to run, with the same diagnostic. It
+        // has a tracing subscriber by then, so the message goes to the log
+        // stream rather than to stderr directly.
+        let out = Command::new(BIN)
+            .arg("--config")
+            .arg(cfg.path())
+            .env_remove("VOIDWALL_CONFIG")
+            .output()
+            .expect("spawn voidwall");
+        assert!(!out.status.success(), "`{key}` must stop the start");
+        let logs = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(logs.contains(key), "the failure must name `{key}`: {logs}");
+    }
 }

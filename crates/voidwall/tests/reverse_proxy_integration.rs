@@ -10,7 +10,7 @@ use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
-    AppConfig, DirectionConfig, OnError, PiiConfig, ReverseProxyConfig, Route, ScanConfig,
+    AppConfig, BuiltinGuards, DirectionConfig, OnError, PiiGuardConfig, ReverseProxyConfig, Route,
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
@@ -99,14 +99,35 @@ async fn wait_for_port(addr: SocketAddr) {
     panic!("server did not start on {addr}");
 }
 
-fn default_pii_config() -> PiiConfig {
-    PiiConfig {
-        countries: vec![],
-        languages: vec![],
+fn default_pii_config() -> PiiGuardConfig {
+    PiiGuardConfig {
         scanner_threads: Some(1),
-        detect: None,
-        ignore: None,
-        custom: Vec::new(),
+        ..PiiGuardConfig::default()
+    }
+}
+
+/// The ingest settings a test varies.
+///
+/// Configuration splits what the old `[scan]` table held: these are
+/// deployment-wide top-level keys, while the scan surface belongs to the guard
+/// and so travels inside [`PiiGuardConfig`].
+#[derive(Clone)]
+struct Ingest {
+    max_body_size: usize,
+    on_error: OnError,
+    /// Header names the test's route exposes to detection. The allowlist is a
+    /// route property, not a guard one: which headers carry sensitive values
+    /// depends on the traffic, not on the detector.
+    headers: Vec<String>,
+}
+
+impl Default for Ingest {
+    fn default() -> Self {
+        Self {
+            max_body_size: 1_048_576,
+            on_error: OnError::FailClose,
+            headers: Vec::new(),
+        }
     }
 }
 
@@ -125,11 +146,12 @@ struct TestProxy {
 }
 
 /// Single detection engine shared by every `start` test in this binary. Tests
-/// that need a custom `PiiConfig` (custom regex, country filter, …) call
+/// that need a custom `PiiGuardConfig` (custom regex, country filter, …) call
 /// `start_with_pii` and build their own engine; everything else reuses
 /// this one to avoid paying ~9 s of regex/hyperscan compilation per test.
-static SHARED_DEFAULT_ENGINE: LazyLock<Arc<Engine>> =
-    LazyLock::new(|| Arc::new(Engine::new(&default_pii_config()).unwrap()));
+static SHARED_DEFAULT_ENGINE: LazyLock<Arc<Engine>> = LazyLock::new(|| {
+    Arc::new(Engine::new(&BuiltinGuards::with_pii(default_pii_config())).unwrap())
+});
 
 impl TestProxy {
     async fn start(
@@ -137,14 +159,14 @@ impl TestProxy {
         routes: Vec<(&str, &str)>,
         request_dir: DirectionConfig,
         response_dir: DirectionConfig,
-        scan: ScanConfig,
+        ingest: Ingest,
     ) -> Self {
         Self::start_inner(
             upstream_addr,
             routes,
             request_dir,
             response_dir,
-            scan,
+            ingest,
             default_pii_config(),
             SHARED_DEFAULT_ENGINE.clone(),
         )
@@ -156,16 +178,17 @@ impl TestProxy {
         routes: Vec<(&str, &str)>,
         request_dir: DirectionConfig,
         response_dir: DirectionConfig,
-        scan: ScanConfig,
-        pii_config: PiiConfig,
+        ingest: Ingest,
+        pii_config: PiiGuardConfig,
     ) -> Self {
-        let engine = Arc::new(Engine::new(&pii_config).unwrap());
+        let engine =
+            Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
         Self::start_inner(
             upstream_addr,
             routes,
             request_dir,
             response_dir,
-            scan,
+            ingest,
             pii_config,
             engine,
         )
@@ -177,16 +200,18 @@ impl TestProxy {
         routes: Vec<(&str, &str)>,
         request_dir: DirectionConfig,
         response_dir: DirectionConfig,
-        scan: ScanConfig,
-        pii_config: PiiConfig,
+        ingest: Ingest,
+        pii_config: PiiGuardConfig,
         engine: Arc<Engine>,
     ) -> Self {
+        let scanned_headers = ingest.headers.clone();
         let proxy_routes: Vec<Route> = routes
             .into_iter()
             .map(|(prefix, upstream_path)| Route {
                 path_prefix: prefix.to_string(),
                 upstream: format!("http://{upstream_addr}{upstream_path}"),
-                scan: None,
+                guards: None,
+                headers: scanned_headers.clone(),
             })
             .collect();
 
@@ -196,8 +221,9 @@ impl TestProxy {
         drop(listener);
 
         let config = AppConfig {
-            pii: pii_config,
-            scan,
+            max_body_size: ingest.max_body_size,
+            on_error: ingest.on_error,
+            builtin_guards: BuiltinGuards::with_pii(pii_config),
             reverse_proxy: ReverseProxyConfig {
                 enabled: true,
                 listen: proxy_addr.to_string(),
@@ -206,7 +232,7 @@ impl TestProxy {
                 routes: proxy_routes,
                 ..Default::default()
             },
-            ..default_app_config()
+            ..AppConfig::default()
         };
 
         let cancel = CancellationToken::new();
@@ -239,18 +265,6 @@ impl Drop for TestProxy {
     }
 }
 
-fn default_app_config() -> AppConfig {
-    AppConfig {
-        pii: default_pii_config(),
-        scan: ScanConfig::default(),
-        reverse_proxy: ReverseProxyConfig::default(),
-        forward_proxy: Default::default(),
-        http_api: Default::default(),
-        admin: Default::default(),
-        shutdown_timeout_secs: 30,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -264,7 +278,7 @@ async fn plain_http_proxy_end_to_end() {
         vec![("/", "")],
         scan_off(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -292,7 +306,7 @@ async fn route_matching_longest_prefix_and_404() {
         vec![("/echo", ""), ("/echo/sub", "")],
         scan_off(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -314,7 +328,7 @@ async fn request_pii_returns_fixed_403() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -342,7 +356,7 @@ async fn response_pii_returns_fixed_403() {
         vec![("/", "")],
         scan_off(),
         scan_on(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -363,7 +377,7 @@ async fn scan_false_disables_scanning() {
         vec![("/", "")],
         scan_off(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -392,7 +406,7 @@ async fn metrics_incremented_on_pii_detection() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -421,10 +435,10 @@ async fn metrics_incremented_on_pii_detection() {
 async fn on_error_fail_close_blocks_oversized_body() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    let ingest = Ingest {
         max_body_size: 10, // very small limit
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
 
     let proxy = TestProxy::start(
@@ -432,7 +446,7 @@ async fn on_error_fail_close_blocks_oversized_body() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
     )
     .await;
 
@@ -453,10 +467,10 @@ async fn on_error_fail_close_blocks_oversized_body() {
 async fn on_error_fail_open_passes_oversized_body() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    let ingest = Ingest {
         max_body_size: 10,
         on_error: OnError::FailOpen,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
 
     let proxy = TestProxy::start(
@@ -464,7 +478,7 @@ async fn on_error_fail_open_passes_oversized_body() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
     )
     .await;
 
@@ -493,12 +507,12 @@ async fn on_error_fail_open_passes_oversized_body() {
 async fn scanner_failure_fail_close_answers_500() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
 
-    let pii_config = PiiConfig {
+    let pii_config = PiiGuardConfig {
         scanner_threads: Some(0),
         ..default_pii_config()
     };
@@ -508,7 +522,7 @@ async fn scanner_failure_fail_close_answers_500() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
         pii_config,
     )
     .await;
@@ -536,12 +550,12 @@ async fn error_bodies_carry_no_scanned_text() {
     let client = reqwest::Client::new();
 
     // 413: the body passes max_body_size and is refused before any scan.
-    let scan = ScanConfig {
+    let ingest = Ingest {
         max_body_size: 4,
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
     let resp = client
         .post(proxy.url("/echo"))
         .header("content-type", "text/plain")
@@ -553,11 +567,11 @@ async fn error_bodies_carry_no_scanned_text() {
     assert!(!resp.text().await.unwrap().contains(PLACEHOLDER));
 
     // 400: the body declares JSON and does not parse as JSON.
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
     let resp = client
         .post(proxy.url("/echo"))
         .header("content-type", "application/json")
@@ -569,11 +583,11 @@ async fn error_bodies_carry_no_scanned_text() {
     assert!(!resp.text().await.unwrap().contains(PLACEHOLDER));
 
     // 500: the scanner pool owns no threads, so the scan itself fails.
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let pii_config = PiiConfig {
+    let pii_config = PiiGuardConfig {
         scanner_threads: Some(0),
         ..default_pii_config()
     };
@@ -582,7 +596,7 @@ async fn error_bodies_carry_no_scanned_text() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
         pii_config,
     )
     .await;
@@ -634,10 +648,14 @@ async fn default_config_blocks_on_scanner_failure() {
     let before = errors_total("blocked", "scanner_failure");
 
     // No `on_error` here on purpose — this is what the default gives you.
-    let scan = ScanConfig::default();
-    assert_eq!(scan.on_error, OnError::FailClose, "default must be fail_close");
+    let ingest = Ingest::default();
+    assert_eq!(
+        AppConfig::default().on_error,
+        OnError::FailClose,
+        "default must be fail_close"
+    );
 
-    let pii_config = PiiConfig {
+    let pii_config = PiiGuardConfig {
         scanner_threads: Some(0),
         ..default_pii_config()
     };
@@ -646,7 +664,7 @@ async fn default_config_blocks_on_scanner_failure() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
         pii_config,
     )
     .await;
@@ -673,11 +691,11 @@ async fn default_config_blocks_on_scanner_failure() {
 async fn unlisted_content_type_is_forwarded_under_fail_close() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailClose,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), scan).await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
 
     // image/png is outside the default allowlist, so the body is never scanned.
     let resp = reqwest::Client::new()
@@ -706,11 +724,11 @@ async fn unlisted_content_type_is_forwarded_under_fail_close() {
 async fn scanner_failure_fail_open_forwards_the_message() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    let ingest = Ingest {
         on_error: OnError::FailOpen,
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
-    let pii_config = PiiConfig {
+    let pii_config = PiiGuardConfig {
         scanner_threads: Some(0),
         ..default_pii_config()
     };
@@ -719,7 +737,7 @@ async fn scanner_failure_fail_open_forwards_the_message() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        scan,
+        ingest,
         pii_config,
     )
     .await;
@@ -750,7 +768,7 @@ async fn upstream_unreachable_answers_502() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -781,7 +799,7 @@ async fn block_body_kinds_are_sorted_and_stable_across_two_requests() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -830,7 +848,7 @@ async fn clean_request_passes_through() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -857,10 +875,7 @@ async fn request_pii_in_query_string_blocks() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig {
-            query_params: true,
-            ..ScanConfig::default()
-        },
+        Ingest::default(),
     )
     .await;
 
@@ -883,7 +898,7 @@ async fn hop_by_hop_headers_stripped() {
         vec![("/", "")],
         scan_off(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -911,7 +926,7 @@ async fn unsupported_content_type_body_not_scanned() {
         vec![("/", "")],
         scan_on(), // would block if scanned
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -937,19 +952,14 @@ async fn unsupported_content_type_body_not_scanned() {
 async fn request_header_scanning_blocks() {
     let upstream = start_echo_upstream().await;
 
-    let scan = ScanConfig {
+    // The route names the header it exposes to detection. Which headers carry
+    // sensitive values is a property of this route's traffic, not of the guard.
+    let ingest = Ingest {
         headers: vec!["authorization".to_string()],
-        ..ScanConfig::default()
+        ..Ingest::default()
     };
 
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        scan_on(),
-        scan_off(),
-        scan,
-    )
-    .await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -976,7 +986,7 @@ async fn multiple_routes_different_upstreams() {
         vec![("/echo", ""), ("/pii-response", "")],
         scan_off(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -1001,45 +1011,46 @@ async fn multiple_routes_different_upstreams() {
     assert!(body.contains("john.doe@example.com")); // no scanning configured
 }
 
-/// Per-route scan override fully replaces defaults
-#[tokio::test]
-async fn per_route_scan_override() {
-    let upstream = start_echo_upstream().await;
+/// Start a proxy whose routes carry their own guard selections.
+///
+/// `routes` is `(path_prefix, guards)`; `None` means the route names no guard
+/// list and so takes every enabled guard.
+async fn start_proxy_with_route_guards(
+    upstream: SocketAddr,
+    routes: Vec<(&str, Option<Vec<String>>)>,
+) -> (SocketAddr, CancellationToken, Arc<Engine>) {
     let pii_config = default_pii_config();
-    let engine = Arc::new(Engine::new(&pii_config).unwrap());
+    let engine = Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_addr = listener.local_addr().unwrap();
     drop(listener);
 
     let config = AppConfig {
-        pii: pii_config,
-        scan: ScanConfig::default(),
+        builtin_guards: BuiltinGuards::with_pii(pii_config),
         reverse_proxy: ReverseProxyConfig {
             enabled: true,
             listen: proxy_addr.to_string(),
             request: scan_on(),
             response: scan_off(),
-            routes: vec![Route {
-                path_prefix: "/".to_string(),
-                upstream: format!("http://{upstream}"),
-                scan: Some(ScanConfig {
-                    body: false, // disable body scanning
-                    url_path: false,
-                    query_params: false,
-                    headers: vec![],
-                    ..ScanConfig::default()
-                }),
-            }],
+            routes: routes
+                .into_iter()
+                .map(|(prefix, guards)| Route {
+                    path_prefix: prefix.to_string(),
+                    upstream: format!("http://{upstream}"),
+                    guards,
+                    headers: Vec::new(),
+                })
+                .collect(),
             ..Default::default()
         },
-        ..default_app_config()
+        ..AppConfig::default()
     };
+    config.validate().expect("route guard selection must validate");
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
     let engine_clone = engine.clone();
-
     tokio::spawn(async move {
         reverse_proxy::serve(&config, engine_clone, cancel_clone)
             .await
@@ -1047,19 +1058,75 @@ async fn per_route_scan_override() {
     });
     wait_for_port(proxy_addr).await;
 
+    (proxy_addr, cancel, engine)
+}
+
+/// A route selects guards by name. One route opts out with `guards = []`, the
+/// other names no list and so takes every enabled guard — same proxy, same
+/// body, opposite outcomes.
+#[tokio::test]
+async fn a_route_that_selects_no_guard_forwards_what_another_route_blocks() {
+    let upstream = start_echo_upstream().await;
+    // Both prefixes sit under `/echo`, which is what the upstream serves.
+    let (proxy_addr, cancel, _engine) = start_proxy_with_route_guards(
+        upstream,
+        vec![
+            ("/echo/opted-out", Some(Vec::new())),
+            ("/echo/inspected", None),
+        ],
+    )
+    .await;
+
     let client = reqwest::Client::new();
-    // Even though block action is configured, scanning is disabled
-    // so PII in body should pass through
-    let resp = client
+    let post = async |path: &str| {
+        client
+            .post(format!("http://{proxy_addr}{path}"))
+            .header("content-type", "text/plain")
+            .body("john.doe@example.com")
+            .send()
+            .await
+            .unwrap()
+    };
+
+    assert_eq!(
+        post("/echo/opted-out").await.status(),
+        200,
+        "`guards = []` selects no guard, so nothing inspects this route"
+    );
+    assert_eq!(
+        post("/echo/inspected").await.status(),
+        403,
+        "no `guards` key means every enabled guard"
+    );
+
+    cancel.cancel();
+}
+
+/// A route with `guards = []` forwards the body unchanged: the upstream sees
+/// exactly what the client sent, and nothing answers 403.
+#[tokio::test]
+async fn a_route_with_an_empty_guard_list_forwards_the_body_unchanged() {
+    const PLACEHOLDER: &str = "john.doe@example.com";
+
+    let upstream = start_echo_upstream().await;
+    let (proxy_addr, cancel, _engine) =
+        start_proxy_with_route_guards(upstream, vec![("/", Some(Vec::new()))]).await;
+
+    let resp = reqwest::Client::new()
         .post(format!("http://{proxy_addr}/echo"))
         .header("content-type", "text/plain")
-        .body("john.doe@example.com")
+        .body(PLACEHOLDER)
         .send()
         .await
         .unwrap();
 
-    // With all scan targets disabled, nothing to scan → Pass
     assert_eq!(resp.status(), 200);
+    // The echo upstream reflects the body it received.
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains(&format!("BODY:{PLACEHOLDER}")),
+        "the upstream received the body unchanged, got: {body}"
+    );
 
     cancel.cancel();
 }
@@ -1068,14 +1135,10 @@ async fn per_route_scan_override() {
 // User-defined PII integration tests
 // ---------------------------------------------------------------------------
 
-fn pii_config_with_custom(custom: Vec<voidwall_pii::UserPiiDefinition>) -> PiiConfig {
-    PiiConfig {
-        countries: vec![],
-        languages: vec![],
-        scanner_threads: Some(1),
-        detect: None,
-        ignore: None,
+fn pii_config_with_custom(custom: Vec<voidwall_pii::UserPiiDefinition>) -> PiiGuardConfig {
+    PiiGuardConfig {
         custom,
+        ..default_pii_config()
     }
 }
 
@@ -1096,7 +1159,7 @@ async fn custom_pii_block_lists_user_label() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config_with_custom(vec![employee_id_def()]),
     )
     .await;
@@ -1143,7 +1206,7 @@ async fn custom_pii_label_reaches_the_detection_metric() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config_with_custom(vec![def]),
     )
     .await;
@@ -1178,25 +1241,22 @@ async fn custom_pii_label_reaches_the_detection_metric() {
 #[tokio::test]
 async fn custom_pii_country_filter_drops_out_of_scope_entry() {
     let upstream = start_echo_upstream().await;
-    let pii_config = PiiConfig {
+    let pii_config = PiiGuardConfig {
         countries: vec![voidwall_pii::Country::Us],
-        languages: vec![],
-        scanner_threads: Some(1),
-        detect: None,
-        ignore: None,
         custom: vec![voidwall_pii::UserPiiDefinition {
             label: "GB_ONLY_ID".into(),
             pattern: r"GB-\d{6}".into(),
             keywords: Vec::new(),
             country: voidwall_pii::Country::Gb,
         }],
+        ..default_pii_config()
     };
     let proxy = TestProxy::start_with_pii(
         upstream,
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config,
     )
     .await;
@@ -1231,7 +1291,7 @@ async fn custom_pii_keyword_mode_requires_keyword() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config_with_custom(vec![def.clone()]),
     )
     .await;
@@ -1255,7 +1315,7 @@ async fn custom_pii_keyword_mode_requires_keyword() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config_with_custom(vec![def]),
     )
     .await;
@@ -1283,7 +1343,7 @@ async fn custom_pii_coexists_with_builtin_detection() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config_with_custom(vec![employee_id_def()]),
     )
     .await;
@@ -1328,7 +1388,7 @@ async fn person_name_detected_and_metric_labelled() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
     )
     .await;
 
@@ -1388,7 +1448,7 @@ async fn person_name_disabled_via_ignore_not_detected() {
         vec![("/", "")],
         scan_on(),
         scan_off(),
-        ScanConfig::default(),
+        Ingest::default(),
         pii_config,
     )
     .await;

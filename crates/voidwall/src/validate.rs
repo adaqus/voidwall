@@ -85,11 +85,14 @@ pub fn validate_config_file(path: &Path) -> Result<(), ValidationError> {
         message: inner_message(&e),
     })?;
 
-    // 5. Scanner build (regex + vectorscan compilation).
-    scanner::validate_build(&config.pii).map_err(|e| ValidationError {
-        category: Category::ScannerBuild,
-        message: inner_message(&e),
-    })?;
+    // 5. Scanner build (regex + vectorscan compilation). A guard section that
+    //    is absent or disabled builds nothing, so there is nothing to compile.
+    if let Some(pii) = config.builtin_guards.enabled_pii() {
+        scanner::validate_build(pii).map_err(|e| ValidationError {
+            category: Category::ScannerBuild,
+            message: inner_message(&e),
+        })?;
+    }
 
     Ok(())
 }
@@ -118,7 +121,7 @@ mod tests {
 
     fn valid_toml() -> &'static str {
         r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -165,7 +168,7 @@ upstream = "http://localhost:9000"
         // Well-formed TOML, but `actions` is a retired key that the schema
         // no longer defines. This doubles as the migration guarantee.
         let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -194,7 +197,7 @@ upstream = "http://localhost:9000"
         // Well-formed and well-typed, but two routes claim the same prefix.
         // This is the surviving semantic rule on the reverse proxy.
         let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
@@ -223,14 +226,14 @@ upstream = "http://localhost:9001"
 
     #[test]
     fn scanner_build_error_categorised_and_cites_label() {
-        // An invalid regex in `[[pii.custom]]` must fail with the scanner
-        // category and the failing entry's label in the message.
+        // An invalid regex in `[[builtin_guards.pii.custom]]` must fail with
+        // the scanner category and the failing entry's label in the message.
         let bad = r#"
-[pii]
+[builtin_guards.pii]
 countries = ["Us"]
 languages = ["En"]
 
-[[pii.custom]]
+[[builtin_guards.pii.custom]]
 label = "BAD_ENTRY"
 pattern = "["
 
@@ -256,5 +259,85 @@ upstream = "http://localhost:9000"
             "scanner diagnostic must cite the offending label, got: {}",
             err.message,
         );
+    }
+
+    /// A guard the build does not have is well-typed TOML asking for something
+    /// that does not exist, so it is semantic rather than schema — and the
+    /// diagnostic names it.
+    #[test]
+    fn unknown_built_in_guard_is_semantic_and_names_the_guard() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[builtin_guards.jailbreak]
+threshold = 0.5
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("unknown guard must fail");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("jailbreak"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn a_route_naming_an_unknown_guard_is_semantic_and_names_it() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+guards = ["injection"]
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("unknown route guard must fail");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("injection"), "got: {}", err.message);
+    }
+
+    /// A reserved name is rejected through the same semantic stage. The
+    /// configured-guard section does not exist yet, so the rule is exercised
+    /// directly here — this is the stage that categorises it.
+    #[test]
+    fn a_reserved_guard_name_is_semantic_and_names_the_guard() {
+        let err = crate::config::validate_configured_guard_name("pii")
+            .map_err(|e| ValidationError {
+                category: Category::Semantic,
+                message: inner_message(&e),
+            })
+            .expect_err("`pii` is reserved for the built-in guard");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("pii"), "got: {}", err.message);
+        assert!(err.message.contains("reserved"), "got: {}", err.message);
+    }
+
+    /// Enabling no guard is a deployment with nothing to inspect, not a config
+    /// the proxy cannot honour. It starts.
+    #[test]
+    fn a_config_enabling_no_guard_still_validates() {
+        let toml = r#"
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(toml);
+        validate_config_file(f.path()).expect("no guard is valid, and warns at startup");
     }
 }

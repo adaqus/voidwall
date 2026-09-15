@@ -17,8 +17,7 @@ use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
-    AppConfig, DirectionConfig, OnError, PiiConfig, ReverseProxyConfig,
-    Route, ScanConfig,
+    AppConfig, BuiltinGuards, DirectionConfig, OnError, PiiGuardConfig, ReverseProxyConfig, Route,
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
@@ -61,19 +60,22 @@ async fn wait_for_port(addr: SocketAddr) {
 // Test harness
 // ---------------------------------------------------------------------------
 
-fn pii_config() -> PiiConfig {
-    PiiConfig {
-        countries: vec![],
-        languages: vec![],
+fn pii_config() -> PiiGuardConfig {
+    PiiGuardConfig {
         scanner_threads: Some(1),
-        detect: None,
-        ignore: None,
-        custom: Vec::new(),
+        ..PiiGuardConfig::default()
     }
 }
 
+/// The ingest settings a test varies. The scan surface belongs to the guard;
+/// these are deployment-wide.
+#[derive(Clone, Default)]
+struct Ingest {
+    on_error: Option<OnError>,
+}
+
 static SHARED_ENGINE: LazyLock<Arc<Engine>> =
-    LazyLock::new(|| Arc::new(Engine::new(&pii_config()).unwrap()));
+    LazyLock::new(|| Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config())).unwrap()));
 
 fn scan_on() -> DirectionConfig {
     DirectionConfig { scan: true }
@@ -90,14 +92,15 @@ struct TestProxy {
 }
 
 impl TestProxy {
-    async fn start(upstream: SocketAddr, scan: ScanConfig, request: DirectionConfig) -> Self {
+    async fn start(upstream: SocketAddr, ingest: Ingest, request: DirectionConfig) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let proxy_addr = listener.local_addr().unwrap();
         drop(listener);
 
+        let defaults = AppConfig::default();
         let config = AppConfig {
-            pii: pii_config(),
-            scan,
+            on_error: ingest.on_error.unwrap_or(defaults.on_error),
+            builtin_guards: BuiltinGuards::with_pii(pii_config()),
             reverse_proxy: ReverseProxyConfig {
                 enabled: true,
                 listen: proxy_addr.to_string(),
@@ -106,14 +109,12 @@ impl TestProxy {
                 routes: vec![Route {
                     path_prefix: "/".into(),
                     upstream: format!("http://{upstream}"),
-                    scan: None,
+                    guards: None,
+                    headers: Vec::new(),
                 }],
                 ..Default::default()
             },
-            forward_proxy: Default::default(),
-            http_api: Default::default(),
-            admin: Default::default(),
-            shutdown_timeout_secs: 30,
+            ..defaults
         };
 
         let cancel = CancellationToken::new();
@@ -175,7 +176,7 @@ fn assert_blocked(body: &str, expect_kinds: &[&str], never: &[&str]) {
 #[tokio::test]
 async fn nested_json_body_pii_detected_and_blocked() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload =
         r#"{"user":{"contact":{"phone_number":"555-123-4567","email":"jane@example.com"}}}"#;
@@ -205,7 +206,7 @@ async fn nested_json_body_pii_detected_and_blocked() {
 #[tokio::test]
 async fn json_keyword_at_head_of_path() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload = r#"{"phone_number":{"primary":"555-123-4567","secondary":"555-987-6543"}}"#;
     let resp = reqwest::Client::new()
@@ -231,7 +232,7 @@ async fn json_keyword_at_head_of_path() {
 #[tokio::test]
 async fn json_keyword_in_middle_of_path() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload = r#"{"user":{"phone_number":{"value":"555-123-4567","verified":true}}}"#;
     let resp = reqwest::Client::new()
@@ -253,7 +254,7 @@ async fn json_keyword_in_middle_of_path() {
 #[tokio::test]
 async fn json_keyword_at_head_inside_array() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload = r#"{"phone_number":[{"primary":"555-123-4567"},{"primary":"555-987-6543"}]}"#;
     let resp = reqwest::Client::new()
@@ -279,11 +280,10 @@ async fn json_keyword_at_head_inside_array() {
 #[tokio::test]
 async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
     let upstream = start_echo_upstream().await;
-    let scan = ScanConfig {
-        on_error: OnError::FailOpen,
-        ..ScanConfig::default()
+    let ingest = Ingest {
+        on_error: Some(OnError::FailOpen),
     };
-    let proxy = TestProxy::start(upstream, scan, scan_on()).await;
+    let proxy = TestProxy::start(upstream, ingest, scan_on()).await;
 
     // Trailing garbage makes this not parse as JSON, but the email is still
     // present as plain text and should be found by the fallback path.
@@ -309,11 +309,10 @@ async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
 #[tokio::test]
 async fn json_parse_failure_fail_close_blocks_request() {
     let upstream = start_echo_upstream().await;
-    let scan = ScanConfig {
-        on_error: OnError::FailClose,
-        ..ScanConfig::default()
+    let ingest = Ingest {
+        on_error: Some(OnError::FailClose),
     };
-    let proxy = TestProxy::start(upstream, scan, scan_on()).await;
+    let proxy = TestProxy::start(upstream, ingest, scan_on()).await;
 
     let payload = r#"{not json"#;
     let resp = reqwest::Client::new()
@@ -341,7 +340,7 @@ async fn json_parse_failure_fail_close_blocks_request() {
 #[tokio::test]
 async fn csv_body_with_headers_detected_via_column_context() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload = "name,phone_number\nAda,555-123-4567\nBob,555-987-6543";
     let resp = reqwest::Client::new()
@@ -367,7 +366,7 @@ async fn csv_body_with_headers_detected_via_column_context() {
 #[tokio::test]
 async fn tsv_body_with_headers_detected_via_column_context() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     let payload = "name\tphone_number\nAda\t555-123-4567";
     let resp = reqwest::Client::new()
@@ -389,7 +388,7 @@ async fn tsv_body_with_headers_detected_via_column_context() {
 #[tokio::test]
 async fn csv_without_headers_falls_back_to_plain_text() {
     let upstream = start_echo_upstream().await;
-    let proxy = TestProxy::start(upstream, ScanConfig::default(), scan_on()).await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
 
     // First row is purely numeric → no headers, plain-text fallback.
     // The body contains an SSN-shaped value detected via pattern alone.
