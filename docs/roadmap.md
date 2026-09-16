@@ -9,7 +9,7 @@
 - [ ] Policy, Errors, and Deadlines
 - [x] Guard API
 - [ ] Model Evaluation Framework
-- [ ] Model Guard Configuration
+- [x] Model Guard Configuration
 - [ ] ONNX Runtime and Model Profiles
 - [ ] Supported Safety Profiles
 - [ ] Open-Core Release
