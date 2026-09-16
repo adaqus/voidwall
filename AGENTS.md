@@ -52,6 +52,12 @@ Proxy documentation lives under `docs/`.
 
 Only Linux is supported. Do not add platform-conditional code for other operating systems.
 
+## Distribution
+
+Voidwall ships as a Docker image that starts the guardrails proxy out of the box. The image
+carries the configuration and the model artifacts every shipped guard needs, so an operator
+runs the service without supplying either.
+
 ## Build
 
 Run commands from the workspace root:

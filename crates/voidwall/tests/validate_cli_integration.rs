@@ -119,7 +119,10 @@ upstream = "http://localhost:9000"
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("[schema]"), "stderr: {stderr}");
-    assert!(stderr.contains("actions"), "stderr should name the key: {stderr}");
+    assert!(
+        stderr.contains("actions"),
+        "stderr should name the key: {stderr}"
+    );
 }
 
 #[test]

@@ -11,6 +11,24 @@ countries = []
 languages = []
 scanner_threads = 6
 
+# A model-backed guard is declared in its own section. One section carries
+# everything one guard needs to run one model — there is no model section and no
+# model reference — and its surface defaults to the body alone, because each
+# unit it admits costs one model execution.
+#
+# Left commented: the model runtime is not built, so a guard declared here
+# parses, validates, warns at startup, and reports nothing.
+#
+# [guards.injection]
+# adapter = "text_classifier"
+# model_path = "/opt/voidwall/models/injection/model.onnx"
+# tokenizer_path = "/opt/voidwall/models/injection/tokenizer.json"
+# max_tokens = 512
+# labels = ["PROMPT_INJECTION"]
+#
+# [guards.injection.thresholds]
+# PROMPT_INJECTION = 0.90
+
 [reverse_proxy]
 enabled = true
 listen = "0.0.0.0:8082"

@@ -56,11 +56,15 @@ impl Interest {
 
     /// The unit kinds a configured scan surface admits.
     ///
-    /// `HeaderValue` is always admitted, because the surface does not decide
-    /// headers — the route does, by naming them. A route that names none
-    /// builds no header unit, so admitting the kind costs nothing there.
+    /// `headers` is the guard's half of a two-part decision: the route decides
+    /// which header values become units at all, and this decides whether the
+    /// guard is handed the ones that did. A route that names no header builds
+    /// no header unit either way.
     pub fn from_surface(surface: &GuardSurface) -> Self {
-        let mut kinds = vec![UnitKind::HeaderValue];
+        let mut kinds = Vec::new();
+        if surface.headers {
+            kinds.push(UnitKind::HeaderValue);
+        }
         if surface.body {
             kinds.push(UnitKind::Body);
         }
@@ -138,26 +142,26 @@ mod tests {
     }
 
     #[test]
-    fn a_default_surface_admits_the_path_the_query_and_the_body() {
+    fn a_default_surface_admits_the_path_the_query_the_body_and_headers() {
         let interest = Interest::from_surface(&GuardSurface::default());
         assert!(interest.wants(UnitKind::Body));
         assert!(interest.wants(UnitKind::UrlPath));
         assert!(interest.wants(UnitKind::QueryString));
+        assert!(interest.wants(UnitKind::HeaderValue));
     }
 
-    /// The surface does not decide headers — the route does, by naming them.
-    /// A guard therefore always admits the kind; a route that names no header
-    /// simply builds no such unit.
+    /// The route decides which header values become units; the surface decides
+    /// whether this guard is handed them. A built-in guard defaults to yes, so
+    /// no existing config changes meaning.
     #[test]
-    fn every_surface_admits_header_values() {
-        let narrow = GuardSurface {
-            url_path: false,
-            query_params: false,
-            body: false,
+    fn a_surface_with_headers_off_does_not_admit_header_values() {
+        let surface = GuardSurface {
+            headers: false,
+            ..GuardSurface::default()
         };
-        for surface in [GuardSurface::default(), narrow] {
-            assert!(Interest::from_surface(&surface).wants(UnitKind::HeaderValue));
-        }
+        let interest = Interest::from_surface(&surface);
+        assert!(!interest.wants(UnitKind::HeaderValue));
+        assert!(interest.wants(UnitKind::Body));
     }
 
     #[test]
@@ -171,17 +175,17 @@ mod tests {
         assert!(interest.wants(UnitKind::UrlPath));
     }
 
+    /// Such a surface fails validation, so the engine never sees one. The
+    /// mapping is still total, and it maps to the interest that is never called.
     #[test]
-    fn a_surface_with_every_target_off_admits_only_header_values() {
+    fn a_surface_with_every_target_off_admits_nothing() {
         let surface = GuardSurface {
             url_path: false,
             query_params: false,
             body: false,
+            headers: false,
         };
-        assert_eq!(
-            Interest::from_surface(&surface),
-            Interest::in_kinds([UnitKind::HeaderValue])
-        );
+        assert_eq!(Interest::from_surface(&surface), Interest::none());
     }
 
     #[test]

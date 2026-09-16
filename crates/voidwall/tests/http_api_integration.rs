@@ -68,16 +68,11 @@ impl TestApi {
     /// Builds a dedicated engine from `pii_config` instead of reusing the
     /// shared one. A test that needs a failing scanner pool must own it.
     async fn start_with_pii(ingest: Ingest, pii_config: PiiGuardConfig) -> Self {
-        let engine =
-            Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
+        let engine = Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
         Self::start_inner(ingest, pii_config, engine).await
     }
 
-    async fn start_inner(
-        ingest: Ingest,
-        pii_config: PiiGuardConfig,
-        engine: Arc<Engine>,
-    ) -> Self {
+    async fn start_inner(ingest: Ingest, pii_config: PiiGuardConfig, engine: Arc<Engine>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);

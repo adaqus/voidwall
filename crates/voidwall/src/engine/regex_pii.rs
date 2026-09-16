@@ -324,8 +324,8 @@ mod tests {
     /// section produces a differently named guard.
     #[test]
     fn the_guard_carries_the_name_configuration_gave_it() {
-        let guard = RegexPiiGuard::new("secondary_pii", &test_pii_config())
-            .expect("guard should build");
+        let guard =
+            RegexPiiGuard::new("secondary_pii", &test_pii_config()).expect("guard should build");
         assert_eq!(guard.name().as_ref(), "secondary_pii");
     }
 

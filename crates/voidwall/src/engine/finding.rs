@@ -214,7 +214,8 @@ mod tests {
     #[test]
     fn a_finding_names_the_guard_that_configuration_named() {
         let configured: Arc<str> = Arc::from("regex_pii");
-        let finding = Finding::spanned(UnitId(0), "EMAIL", Arc::clone(&configured), Span::new(0, 4));
+        let finding =
+            Finding::spanned(UnitId(0), "EMAIL", Arc::clone(&configured), Span::new(0, 4));
         assert_eq!(finding.guard, configured);
     }
 

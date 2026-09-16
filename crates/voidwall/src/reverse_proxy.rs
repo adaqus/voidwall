@@ -410,7 +410,9 @@ async fn scan_and_act(
     {
         units.push_query(query.to_string());
     }
-    push_scan_headers(&mut units, plan.headers, headers);
+    if plan.selection.wants(UnitKind::HeaderValue) {
+        push_scan_headers(&mut units, plan.headers, headers);
+    }
 
     if units.is_empty() {
         return PipelineResult::Pass;
@@ -435,7 +437,9 @@ async fn scan_and_act_response(
     if let Some(content) = scan_body {
         units.push_body(content);
     }
-    push_scan_headers(&mut units, plan.headers, headers);
+    if plan.selection.wants(UnitKind::HeaderValue) {
+        push_scan_headers(&mut units, plan.headers, headers);
+    }
 
     if units.is_empty() {
         return PipelineResult::Pass;
@@ -822,7 +826,6 @@ mod tests {
         assert_eq!(stripped.get("x-custom").unwrap(), "value");
     }
 
-
     // --- Scan header collection ---
 
     #[test]
@@ -865,5 +868,27 @@ mod tests {
         assert!(selection.wants(UnitKind::Body));
         assert!(!selection.wants(UnitKind::UrlPath));
         assert!(!selection.wants(UnitKind::QueryString));
+    }
+
+    /// The same rule reaches headers, which is why the call that collects them
+    /// is gated like the path and the query. A route may name a header while
+    /// no selected guard wants one: the value is then never copied into a unit.
+    #[test]
+    fn a_selection_that_declines_headers_builds_no_header_unit() {
+        let no_headers = GuardSurface {
+            headers: false,
+            ..GuardSurface::default()
+        };
+        let selection = GuardSelection::for_test(Interest::from_surface(&no_headers));
+        assert!(!selection.wants(UnitKind::HeaderValue));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+
+        let mut units = Units::new();
+        if selection.wants(UnitKind::HeaderValue) {
+            push_scan_headers(&mut units, &["Authorization".to_string()], &headers);
+        }
+        assert!(units.is_empty(), "no selected guard admits the kind");
     }
 }

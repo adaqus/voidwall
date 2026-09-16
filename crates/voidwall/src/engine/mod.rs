@@ -355,12 +355,7 @@ pub(crate) mod test_guard {
                     .selected
                     .iter()
                     .map(|id| {
-                        Finding::spanned(
-                            *id,
-                            self.kind,
-                            Arc::clone(&self.name),
-                            Span::new(0, 1),
-                        )
+                        Finding::spanned(*id, self.kind, Arc::clone(&self.name), Span::new(0, 1))
                     })
                     .collect();
                 self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);

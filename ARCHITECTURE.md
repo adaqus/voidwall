@@ -21,7 +21,8 @@ detection is always recorded as a metric, whether the message is blocked or repo
 on.
 
 Personally identifiable information is the class of finding it detects today. Each
-further class arrives as another guard behind the same contract.
+further class arrives as another guard behind the same contract. A model-backed guard is
+already declarable — see § 4.8 — but none runs: the model runtime is not built.
 
 It is not an ingress controller. It sits in front of one, or beside one, or replaces
 one in a small deployment.
@@ -284,7 +285,62 @@ than a setting, so an unknown one is captured and rejected in semantic validatio
 can say "unknown built-in guard 'jailbreak'" and list the guards the build has. A schema
 error would only say the field is unknown.
 
-### 4.7 No authentication
+### 4.7 A guard's surface is four booleans, and the route decides what exists
+
+Every guard carries a `surface` — `url_path`, `query_params`, `body`, `headers` — which
+is the configuration form of its `Interest`. It is per guard, not global, so two enabled
+guards may want different parts of the same message, and a unit kind no selected guard
+admits is never built.
+
+`headers` is a boolean rather than a list of header names, and that split is the point.
+Which headers carry sensitive values is a property of the traffic, not of a detector, so
+the *route* names the headers that become units at all. The guard's boolean then says
+only whether it wants the ones that exist. Putting the list in the guard would make the
+effective set a function of two places, and the engine could not enforce it anyway — a
+unit carries its kind, not a header name.
+
+A surface that disables all four describes a guard that can never be called, so it fails
+the start.
+
+The two guard kinds carry different defaults. A built-in guard defaults every target on:
+a regex pass over a URL is nearly free and an email in a path is a real hit. A model
+guard defaults to the body alone, because each unit it admits costs one model execution,
+so a default of path plus query plus body would turn one request into three. They are
+therefore separate types rather than one type with two default sets — a serde default on
+the *field* would not change the inner per-field defaults, so a half-written model guard
+surface would silently take the built-in's.
+
+### 4.8 A model guard owns its model, and none runs yet
+
+A guard an operator configures is declared under `[guards.<name>]`. That one section
+carries the adapter, the artifacts, `max_tokens`, the labels, the thresholds, and the
+surface. There is no model section and no model reference, which makes "one guard owns
+one model" structural rather than a rule: a guard's model is not addressable from
+anywhere else. That is the same move `[builtin_guards.pii]` makes for the
+second-PII-instance question.
+
+`adapter` names a code path the build ships. It owns the runtime, the preprocessing, the
+tensor contract, the output interpretation, and whether findings carry spans.
+Configuration picks one by name and overrides none of it, so an unknown adapter is a
+schema failure rather than a rule — the build fixes the set, so the schema can state it.
+Nothing names a runtime: ONNX is the only one, so the key could only be written wrong.
+
+`labels` is positional and is the tensor contract, so it cannot be shortened to turn a
+kind off, may not be empty, and may not name one kind twice. `thresholds` has no default, because the build has no evaluated number for an
+arbitrary model; a label absent from it reports nothing, and that absence is the only
+detection-layer off switch. A threshold key absent from `labels` is rejected, so a
+misspelling is an error rather than a silently disabled kind. A label itself is not
+checked against a vocabulary: there is no closed set of finding kinds to check against.
+
+**Today no model guard is built.** The section parses and validates in full, the model
+runtime does not exist, and startup logs one warning naming every configured model
+guard — the same precedent the enabled-but-unimplemented forward proxy sets. A route may
+still select such a guard by name and pass validation, so its traffic can look inspected
+by something that reports nothing. That warning is the only signal, and it is the
+sharpest edge in the configuration. Rejecting the route instead would be stricter; it
+would also make a config written for the next phase unusable in this one.
+
+### 4.9 No authentication
 
 The HTTP API authenticates nobody. Access control belongs to the deployment: an
 authenticating gateway in front, and network-level isolation around it.

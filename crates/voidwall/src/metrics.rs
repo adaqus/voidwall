@@ -161,7 +161,6 @@ mod tests {
         assert_eq!(after, before + 1);
     }
 
-
     #[test_case("http_api", "global", "POST", "200" ; "http api post 200")]
     #[test_case("reverse_proxy", "/api", "GET", "403" ; "reverse proxy get 403")]
     fn inc_request_increments(mode: &str, route: &str, method: &str, status: &str) {

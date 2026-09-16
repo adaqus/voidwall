@@ -412,8 +412,7 @@ mod tests {
     /// failure has to carry the command that fixes it.
     #[test]
     fn openapi_document_file_is_fresh() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/openapi.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/openapi.json");
         let generated = build_openapi_spec();
 
         if std::env::var_os("UPDATE_OPENAPI").is_some() {
@@ -437,8 +436,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("{} is not valid JSON: {e}", path.display()));
 
         assert_eq!(
-            checked_in,
-            generated,
+            checked_in, generated,
             "docs/openapi.json is stale — regenerate it with: {REGEN}"
         );
     }

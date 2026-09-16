@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
@@ -63,6 +64,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub builtin_guards: BuiltinGuards,
 
+    /// The model-backed guards an operator configured, by name. Empty by
+    /// default, and every entry is a guard the build cannot run yet: the
+    /// section parses and validates, and [`AppConfig::warn_on_model_guards`]
+    /// says so at startup.
+    #[serde(default)]
+    pub guards: BTreeMap<String, ModelGuardConfig>,
+
     #[serde(default)]
     pub reverse_proxy: ReverseProxyConfig,
 
@@ -87,6 +95,7 @@ impl Default for AppConfig {
             content_types: default_content_types(),
             on_error: default_on_error(),
             builtin_guards: BuiltinGuards::default(),
+            guards: BTreeMap::new(),
             reverse_proxy: ReverseProxyConfig::default(),
             forward_proxy: ForwardProxyConfig::default(),
             http_api: HttpApiConfig::default(),
@@ -230,19 +239,136 @@ impl PiiGuardConfig {
     }
 }
 
-/// Reject a configured guard that takes a name the build reserves.
+/// The longest guard name configuration may supply.
+///
+/// The name reaches a finding record and can reach a metric label, so its
+/// shape is bounded as well as its set.
+pub const MAX_GUARD_NAME_LEN: usize = 64;
+
+/// Whether `c` may appear in a configured guard name.
+fn is_guard_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// Reject a configured guard name the build cannot carry.
 ///
 /// Guard names live in one flat space so a route can select any guard by name,
-/// which means a configured guard may not shadow a built-in one. The
-/// configured-guard section itself — `[guards.<name>]`, for model-backed
-/// guards — is not built yet, so the set this runs over is empty today.
+/// which means a configured guard may not shadow a built-in one. The name also
+/// travels into every finding that guard reports and can reach a metric label,
+/// so it is held to ASCII `[a-zA-Z0-9_-]` and a length cap on top of that.
+///
+/// The charset is checked before the length, so [`MAX_GUARD_NAME_LEN`] counts
+/// characters rather than bytes by the time it is applied.
 pub fn validate_configured_guard_name(name: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(Error::Config(
+            "guards: a guard name must not be empty".into(),
+        ));
+    }
+    if let Some(c) = name.chars().find(|c| !is_guard_name_char(*c)) {
+        return Err(Error::Config(format!(
+            "guards: '{name}' holds '{c}'; a guard name may hold only a-z, A-Z, 0-9, \
+             '_', and '-'",
+        )));
+    }
+    if name.len() > MAX_GUARD_NAME_LEN {
+        return Err(Error::Config(format!(
+            "guards: '{name}' is {} characters; the limit is {MAX_GUARD_NAME_LEN}",
+            name.len(),
+        )));
+    }
     if BUILTIN_GUARD_NAMES.contains(&name) {
         return Err(Error::Config(format!(
             "guards: '{name}' is a reserved built-in guard name",
         )));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Model-backed guards
+// ---------------------------------------------------------------------------
+
+/// The code path that runs one model guard's model.
+///
+/// An adapter owns the runtime, the preprocessing, the tensor contract, the
+/// output interpretation, and whether the guard's findings carry spans. The
+/// build ships the set, so configuration picks one by name and can override
+/// none of it — which is also why an unknown name is a schema failure rather
+/// than a rule this module checks.
+///
+/// There is no `runtime` key anywhere: ONNX is the only runtime, so the key
+/// could only be written wrong.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Adapter {
+    /// One score for the whole input, over a single label.
+    TextClassifier,
+    /// One score per label, for several labels at once.
+    TextMultilabelClassifier,
+}
+
+impl Adapter {
+    /// The scores this adapter produces. A threshold outside it could never be
+    /// met or could never be missed, so it is rejected at startup.
+    pub fn score_range(self) -> RangeInclusive<f32> {
+        match self {
+            Self::TextClassifier | Self::TextMultilabelClassifier => 0.0..=1.0,
+        }
+    }
+}
+
+/// The fewest tokens a model guard may be given.
+///
+/// A window this small holds the adapter's special tokens and little else, so
+/// the guard would be configured to judge nothing. The floor is a sanity bound
+/// rather than a tuned number: what happens to an input *past* `max_tokens` is
+/// the decoder phases' question.
+pub const MIN_MODEL_GUARD_MAX_TOKENS: usize = 10;
+
+/// A model-backed guard, declared under `[guards.<name>]`.
+///
+/// One section carries everything one guard needs to run one model. There is
+/// no model section and no model reference, so "one guard owns one model" is
+/// structural: a guard's model is not addressable from anywhere else, and no
+/// rule is needed to keep it that way.
+///
+/// Two guards may name the same artifacts. That loads the model twice, which
+/// is the operator's choice rather than an error the schema detects.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ModelGuardConfig {
+    /// The build-shipped code path that runs the model.
+    pub adapter: Adapter,
+
+    pub model_path: PathBuf,
+    pub tokenizer_path: PathBuf,
+
+    /// The longest input the adapter feeds the model, in tokens. At least
+    /// [`MIN_MODEL_GUARD_MAX_TOKENS`]. What happens to an input *past* it is
+    /// the decoder phases' question, not this one's.
+    pub max_tokens: usize,
+
+    /// The model's output positions, in order, as the finding kinds they
+    /// carry. Positional, so it is the tensor contract and cannot be shortened
+    /// to turn a kind off.
+    ///
+    /// A label is whatever the operator writes: the build has no closed set of
+    /// finding kinds to check one against. The list must be non-empty and its
+    /// entries distinct — one output position names one kind.
+    pub labels: Vec<String>,
+
+    /// The lowest score that turns a detection into a finding, per kind.
+    ///
+    /// No default, because the build has no evaluated number for an arbitrary
+    /// model. A label absent from here reports nothing, and that absence is the
+    /// only detection-layer off switch — which is why a key absent from
+    /// `labels` is an error rather than a silently disabled kind.
+    #[serde(default)]
+    pub thresholds: BTreeMap<String, f32>,
+
+    #[serde(default)]
+    pub surface: ModelGuardSurface,
 }
 
 // ---------------------------------------------------------------------------
@@ -255,12 +381,14 @@ pub fn validate_configured_guard_name(name: &str) -> Result<(), Error> {
 /// the guard rather than to a global section, so two enabled guards may carry
 /// different surfaces. A unit kind no selected guard admits is never built.
 ///
-/// There is deliberately no header allowlist here. Which headers carry
-/// sensitive values is a property of the traffic, not of a detector — an
-/// `authorization` header on an auth route, an `x-user-id` on a chat one — and
-/// a guard scans whatever text it is handed either way. So the route names
-/// them: see [`Route::headers`]. It also keeps the surface to what the engine
-/// can actually enforce, since a unit carries its kind and not a header name.
+/// `headers` is a boolean and deliberately not a header allowlist. Which
+/// headers carry sensitive values is a property of the traffic, not of a
+/// detector — an `authorization` header on an auth route, an `x-user-id` on a
+/// chat one — and a guard scans whatever text it is handed either way. So the
+/// route names them: see [`Route::headers`], which decides what exists, while
+/// the boolean here decides only whether this guard is handed it. It also keeps
+/// the surface to what the engine can enforce, since a unit carries its kind
+/// and not a header name.
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GuardSurface {
@@ -272,6 +400,12 @@ pub struct GuardSurface {
 
     #[serde(default = "default_true")]
     pub body: bool,
+
+    /// Whether this guard sees the header units the route built. A boolean and
+    /// not a list: the route decides which headers exist, the guard decides
+    /// only whether it wants them.
+    #[serde(default = "default_true")]
+    pub headers: bool,
 }
 
 impl Default for GuardSurface {
@@ -280,7 +414,61 @@ impl Default for GuardSurface {
             url_path: true,
             query_params: true,
             body: true,
+            headers: true,
         }
+    }
+}
+
+impl GuardSurface {
+    /// Whether this surface admits nothing, which describes a guard that can
+    /// never be called.
+    fn admits_nothing(&self) -> bool {
+        !(self.url_path || self.query_params || self.body || self.headers)
+    }
+}
+
+/// One model guard's scan surface.
+///
+/// A separate type from [`GuardSurface`] rather than one struct with two
+/// default sets, because a `#[serde(default = "...")]` on the *field* does not
+/// change the *inner* per-field defaults: a partially written
+/// `[guards.<name>.surface]` would silently take the built-in guard's `true`s
+/// for the keys it omits. Two types put each default set where serde reads it.
+///
+/// Each unit a model guard admits costs one model execution, so the default is
+/// the body alone — a whole-input verdict on a URL path is cost without signal.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelGuardSurface {
+    #[serde(default)]
+    pub url_path: bool,
+
+    #[serde(default)]
+    pub query_params: bool,
+
+    #[serde(default = "default_true")]
+    pub body: bool,
+
+    #[serde(default)]
+    pub headers: bool,
+}
+
+impl Default for ModelGuardSurface {
+    fn default() -> Self {
+        Self {
+            url_path: false,
+            query_params: false,
+            body: true,
+            headers: false,
+        }
+    }
+}
+
+impl ModelGuardSurface {
+    /// Whether this surface admits nothing, which describes a guard that can
+    /// never be called.
+    fn admits_nothing(&self) -> bool {
+        !(self.url_path || self.query_params || self.body || self.headers)
     }
 }
 
@@ -557,7 +745,9 @@ impl AppConfig {
             .map_err(|e| Error::Config(format!("failed to read config file: {e}")))?;
         let config: AppConfig = toml::from_str(&content)?;
         config.validate()?;
+        config.validate_model_guard_artifacts()?;
         config.warn_on_empty_guard_set();
+        config.warn_on_model_guards();
         Ok(config)
     }
 
@@ -571,6 +761,28 @@ impl AppConfig {
         if self.builtin_guards.enabled_names().is_empty() {
             tracing::warn!("no guard is enabled; traffic is forwarded uninspected");
         }
+    }
+
+    /// Warn once for the model guards configuration declares and the build
+    /// cannot run.
+    ///
+    /// A `[guards.<name>]` section parses and validates in full, but the model
+    /// runtime is not built, so no such guard is constructed. A route may still
+    /// select one by name and pass validation, which makes its traffic look
+    /// inspected by a guard that reports nothing — this warning is the only
+    /// signal, and it is the sharpest edge in the configuration.
+    ///
+    /// Same precedent as the enabled-but-unimplemented forward proxy: the
+    /// setting is accepted, the absence is stated, and startup continues.
+    pub fn warn_on_model_guards(&self) {
+        if self.guards.is_empty() {
+            return;
+        }
+        let names: Vec<&str> = self.guards.keys().map(String::as_str).collect();
+        tracing::warn!(
+            guards = ?names,
+            "model guards are configured but not executed; the model runtime is not built",
+        );
     }
 }
 
@@ -586,8 +798,18 @@ impl AppConfig {
         self.validate_scanner_threads()?;
         self.validate_pii_kinds_exclusivity()?;
         self.validate_custom_pii()?;
+        self.validate_guard_surfaces()?;
+        self.validate_model_guards()?;
         self.validate_reverse_proxy()?;
         Ok(())
+    }
+
+    /// Every guard's name, built-in and configured, in one flat space. This is
+    /// what a route may select from.
+    fn known_guard_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.builtin_guards.enabled_names();
+        names.extend(self.guards.keys().map(String::as_str));
+        names
     }
 
     fn validate_at_least_one_mode(&self) -> Result<(), Error> {
@@ -728,17 +950,122 @@ impl AppConfig {
         Ok(())
     }
 
+    /// A surface that admits nothing describes a guard that can never be
+    /// called, whichever kind of guard carries it.
+    fn validate_guard_surfaces(&self) -> Result<(), Error> {
+        if let Some(pii) = self.pii_guard()
+            && pii.surface.admits_nothing()
+        {
+            return Err(Error::Config(format!(
+                "builtin_guards.{BUILTIN_PII_GUARD_NAME}.surface: every target is \
+                 disabled, so the guard can never be called",
+            )));
+        }
+        for (name, guard) in &self.guards {
+            if guard.surface.admits_nothing() {
+                return Err(Error::Config(format!(
+                    "guards.{name}.surface: every target is disabled, so the guard can \
+                     never be called",
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// The `[guards.<name>]` rules the schema cannot express.
+    ///
+    /// An unknown `adapter` is absent here: the build fixes the adapter names,
+    /// so serde rejects one at the schema stage. Artifact existence is absent
+    /// too — it touches the filesystem and carries the `file` category, so it
+    /// lives in [`AppConfig::validate_model_guard_artifacts`].
+    fn validate_model_guards(&self) -> Result<(), Error> {
+        for (name, guard) in &self.guards {
+            validate_configured_guard_name(name)?;
+
+            if guard.labels.is_empty() {
+                return Err(Error::Config(format!(
+                    "guards.{name}.labels: must not be empty; a guard that declares no \
+                     label can report nothing",
+                )));
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for label in &guard.labels {
+                if !seen.insert(label.as_str()) {
+                    return Err(Error::Config(format!(
+                        "guards.{name}.labels: duplicate label '{label}'; each output \
+                         position names one kind",
+                    )));
+                }
+            }
+
+            if guard.max_tokens < MIN_MODEL_GUARD_MAX_TOKENS {
+                return Err(Error::Config(format!(
+                    "guards.{name}.max_tokens: is {}; the minimum is \
+                     {MIN_MODEL_GUARD_MAX_TOKENS}",
+                    guard.max_tokens,
+                )));
+            }
+
+            let range = guard.adapter.score_range();
+            for (kind, score) in &guard.thresholds {
+                if !guard.labels.iter().any(|label| label == kind) {
+                    return Err(Error::Config(format!(
+                        "guards.{name}.thresholds: '{kind}' is absent from labels, so it \
+                         names a kind this guard does not declare",
+                    )));
+                }
+                if !range.contains(score) {
+                    return Err(Error::Config(format!(
+                        "guards.{name}.thresholds: '{kind}' is {score}, outside the \
+                         adapter's score range {}..={}",
+                        range.start(),
+                        range.end(),
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Every artifact a configured model guard names must be on disk.
+    ///
+    /// Held apart from [`AppConfig::validate`] for two reasons: a missing file
+    /// is a `file` failure rather than a semantic one, and this is the only
+    /// check that touches the filesystem — the rest of validation is a pure
+    /// function of the config file.
+    ///
+    /// It asks whether the path is a file and nothing more. Reading, parsing,
+    /// or executing an artifact belongs to the phase that builds the runtime:
+    /// a tensor shape cannot prove label semantics, so there is nothing here
+    /// worth opening the file for.
+    pub fn validate_model_guard_artifacts(&self) -> Result<(), Error> {
+        for (name, guard) in &self.guards {
+            for (field, path) in [
+                ("model_path", &guard.model_path),
+                ("tokenizer_path", &guard.tokenizer_path),
+            ] {
+                if !path.is_file() {
+                    return Err(Error::Config(format!(
+                        "guards.{name}.{field}: no file at '{}'",
+                        path.display(),
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_reverse_proxy(&self) -> Result<(), Error> {
         if !self.reverse_proxy.enabled {
             return Ok(());
         }
 
-        let enabled = self.builtin_guards.enabled_names();
+        let known = self.known_guard_names();
         let mut prefixes = HashSet::new();
         for route in &self.reverse_proxy.routes {
             if let Some(selected) = &route.guards {
                 for name in selected {
-                    if !enabled.contains(&name.as_str()) {
+                    if !known.contains(&name.as_str()) {
                         return Err(Error::Config(format!(
                             "reverse_proxy: route '{}' names guard '{}', which is not an \
                              enabled guard",
@@ -875,12 +1202,7 @@ upstream = "http://localhost:8080"
         assert_eq!(config.max_body_size, 1_048_576);
         assert_eq!(config.on_error, OnError::FailClose);
         assert_eq!(config.content_types.len(), 9);
-        assert!(
-            config
-                .content_types
-                .iter()
-                .any(|c| c == "application/json")
-        );
+        assert!(config.content_types.iter().any(|c| c == "application/json"));
     }
 
     #[test]
@@ -959,9 +1281,10 @@ listen = "0.0.0.0:8084"
         assert!(surface.query_params);
     }
 
-    /// Which headers carry sensitive values is a property of the traffic, so
-    /// the route names them. A guard that reaches for the setting is told it
-    /// does not live there.
+    /// `headers` is an on/off switch over units the route already built, never
+    /// a header allowlist. Which headers carry sensitive values is a property
+    /// of the traffic, so a guard reaching for the *list* is told it does not
+    /// live there.
     #[test]
     fn a_surface_naming_headers_is_rejected() {
         let toml = r#"
@@ -977,8 +1300,27 @@ listen = "0.0.0.0:8084"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("unknown field"), "got: {msg}");
+        assert!(msg.contains("expected a boolean"), "got: {msg}");
         assert!(msg.contains("headers"), "got: {msg}");
+    }
+
+    #[test]
+    fn a_built_in_guard_may_decline_header_units() {
+        let toml = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[builtin_guards.pii.surface]
+headers = false
+
+[forward_proxy]
+enabled = true
+listen = "0.0.0.0:8084"
+"#;
+        let config = parse(toml).unwrap();
+        let surface = &config.builtin_guards.pii.as_ref().unwrap().surface;
+        assert!(!surface.headers);
+        assert!(surface.body, "the other targets keep their default");
     }
 
     #[test]
@@ -1118,7 +1460,10 @@ upstream = "http://localhost:8080"
         let enabled = config.builtin_guards.enabled_names();
         let routes = &config.reverse_proxy.routes;
 
-        assert_eq!(routes[0].guards.as_deref(), Some(["pii".to_string()].as_slice()));
+        assert_eq!(
+            routes[0].guards.as_deref(),
+            Some(["pii".to_string()].as_slice())
+        );
         assert_eq!(routes[0].selected_guards(&enabled), vec!["pii"]);
 
         assert_eq!(routes[1].guards.as_deref(), Some([].as_slice()));
@@ -1146,7 +1491,11 @@ upstream = "http://localhost:8080"
 "#;
         let config = parse(toml).unwrap();
         let enabled = config.builtin_guards.enabled_names();
-        assert!(config.reverse_proxy.routes[0].selected_guards(&enabled).is_empty());
+        assert!(
+            config.reverse_proxy.routes[0]
+                .selected_guards(&enabled)
+                .is_empty()
+        );
     }
 
     // --- Scanner threads (1.6) ---
@@ -1667,7 +2016,15 @@ country = "International"
     #[test]
     fn valid_custom_pii_defaults_to_empty() {
         let config = parse(&minimal_toml()).unwrap();
-        assert!(config.builtin_guards.pii.as_ref().unwrap().custom.is_empty());
+        assert!(
+            config
+                .builtin_guards
+                .pii
+                .as_ref()
+                .unwrap()
+                .custom
+                .is_empty()
+        );
     }
 
     #[test_case(
@@ -1766,6 +2123,579 @@ listen = "0.0.0.0:8084"
             err.to_string().contains("'Custom' is reserved"),
             "got: {err}"
         );
+    }
+
+    // --- Model guards: schema ---
+
+    /// The smallest section from the design's § 3, plus a mode so the file is
+    /// startable. Artifact paths are not opened by `validate`.
+    fn model_guard_toml(section: &str) -> String {
+        format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+{section}
+
+[forward_proxy]
+enabled = true
+"#
+        )
+    }
+
+    const SMALLEST_MODEL_GUARD: &str = r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/opt/voidwall/models/injection/model.onnx"
+tokenizer_path = "/opt/voidwall/models/injection/tokenizer.json"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = 0.90
+"#;
+
+    #[test]
+    fn the_smallest_model_guard_section_loads() {
+        let config = parse(&model_guard_toml(SMALLEST_MODEL_GUARD)).expect("should be valid");
+        let guard = &config.guards["injection"];
+        assert_eq!(guard.adapter, Adapter::TextClassifier);
+        assert_eq!(guard.max_tokens, 512);
+        assert_eq!(guard.labels, vec!["PROMPT_INJECTION".to_string()]);
+        assert_eq!(guard.thresholds["PROMPT_INJECTION"], 0.90);
+        assert_eq!(guard.surface, ModelGuardSurface::default());
+    }
+
+    /// `guards` is a new optional key, so a file that never mentions it keeps
+    /// its meaning.
+    #[test]
+    fn the_guards_key_is_optional_and_empty_by_default() {
+        assert!(parse(&minimal_toml()).unwrap().guards.is_empty());
+    }
+
+    #[test_case("text_classifier", Adapter::TextClassifier ; "single label")]
+    #[test_case("text_multilabel_classifier", Adapter::TextMultilabelClassifier ; "multi label")]
+    fn an_adapter_name_the_build_ships_deserialises(name: &str, expected: Adapter) {
+        let toml = format!(
+            r#"
+[guards.g]
+adapter = "{name}"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#
+        );
+        let config = parse(&model_guard_toml(&toml)).expect("shipped adapter should parse");
+        assert_eq!(config.guards["g"].adapter, expected);
+    }
+
+    /// The build fixes the adapter names, so serde states the set and an
+    /// unknown one never reaches a validation rule.
+    #[test]
+    fn an_unknown_adapter_is_a_schema_error_naming_the_value() {
+        let toml = model_guard_toml(
+            r#"
+[guards.g]
+adapter = "tea_leaves"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#,
+        );
+        let err = toml::from_str::<AppConfig>(&toml).expect_err("unknown adapter must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("tea_leaves"), "got: {msg}");
+        assert!(msg.contains("text_classifier"), "got: {msg}");
+    }
+
+    /// ONNX is the only runtime, so the key could only be written wrong.
+    #[test]
+    fn a_model_guard_naming_a_runtime_is_rejected() {
+        let toml = model_guard_toml(
+            r#"
+[guards.g]
+adapter = "text_classifier"
+runtime = "onnx"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#,
+        );
+        let err = toml::from_str::<AppConfig>(&toml).expect_err("runtime must be rejected");
+        assert!(err.to_string().contains("runtime"), "got: {err}");
+    }
+
+    /// Two guards may point at the same artifacts. That loads the model twice,
+    /// which is the operator's choice rather than an error.
+    #[test]
+    fn two_guards_may_name_the_same_artifacts() {
+        let toml = model_guard_toml(
+            r#"
+[guards.a]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+
+[guards.b]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#,
+        );
+        assert_eq!(parse(&toml).expect("should be valid").guards.len(), 2);
+    }
+
+    // --- Model guards: surface defaults ---
+
+    /// The footgun a shared surface type would have: the keys this table omits
+    /// have to fall back to the *model* defaults, not the built-in guard's.
+    #[test]
+    fn a_partial_model_guard_surface_takes_the_model_defaults() {
+        let toml = model_guard_toml(
+            r#"
+[guards.g]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+
+[guards.g.surface]
+url_path = true
+"#,
+        );
+        let surface = parse(&toml).expect("should be valid").guards["g"]
+            .surface
+            .clone();
+        assert!(surface.url_path);
+        assert!(surface.body, "body defaults on");
+        assert!(
+            !surface.query_params,
+            "query defaults off for a model guard"
+        );
+        assert!(!surface.headers, "headers default off for a model guard");
+    }
+
+    #[test]
+    fn an_omitted_model_guard_surface_is_the_body_alone() {
+        let surface = ModelGuardSurface::default();
+        assert!(surface.body);
+        assert!(!surface.url_path);
+        assert!(!surface.query_params);
+        assert!(!surface.headers);
+    }
+
+    /// The built-in guard keeps its own defaults, headers included, so no
+    /// existing config changes meaning.
+    #[test]
+    fn a_built_in_guard_surface_defaults_every_target_on() {
+        let surface = GuardSurface::default();
+        assert!(surface.url_path && surface.query_params && surface.body && surface.headers);
+    }
+
+    // --- Guard names ---
+
+    #[test_case("injection" ; "plain")]
+    #[test_case("injection_check" ; "underscore")]
+    #[test_case("general-safety" ; "hyphen")]
+    #[test_case("G9" ; "upper and digit")]
+    #[test_case(&"n".repeat(MAX_GUARD_NAME_LEN) ; "at the cap")]
+    fn a_permitted_guard_name_is_accepted(name: &str) {
+        validate_configured_guard_name(name).expect("name should be accepted");
+    }
+
+    #[test_case("injection.v2", "." ; "dot")]
+    #[test_case("inj ection", " " ; "space")]
+    #[test_case("wstrzyknięcie", "ę" ; "non ascii")]
+    fn a_guard_name_outside_the_charset_is_rejected(name: &str, offender: &str) {
+        let err = validate_configured_guard_name(name).expect_err("must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains(name), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains(offender),
+            "must name the character, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn an_empty_guard_name_is_rejected() {
+        let err = validate_configured_guard_name("").expect_err("must be rejected");
+        assert!(err.to_string().contains("must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn a_guard_name_over_the_cap_is_rejected_naming_the_limit() {
+        let name = "n".repeat(MAX_GUARD_NAME_LEN + 1);
+        let err = validate_configured_guard_name(&name).expect_err("must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains(&MAX_GUARD_NAME_LEN.to_string()), "got: {msg}");
+    }
+
+    #[test_case(BUILTIN_PII_GUARD_NAME ; "the built-in pii guard")]
+    fn a_reserved_guard_name_is_rejected(name: &str) {
+        let err = validate_configured_guard_name(name).expect_err("must be rejected");
+        assert!(err.to_string().contains("reserved"), "got: {err}");
+    }
+
+    /// The rule had no caller until `[guards.<name>]` existed. This is it.
+    #[test]
+    fn a_model_guard_name_outside_the_charset_fails_the_load() {
+        let toml = model_guard_toml(
+            r#"
+[guards."inj.v2"]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#,
+        );
+        let err = parse(&toml).expect_err("a dotted guard name must fail");
+        assert!(err.to_string().contains("inj.v2"), "got: {err}");
+    }
+
+    #[test]
+    fn a_model_guard_may_not_take_a_built_in_name() {
+        let toml = model_guard_toml(
+            r#"
+[guards.pii]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+"#,
+        );
+        let err = parse(&toml).expect_err("a reserved name must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("pii") && msg.contains("reserved"),
+            "got: {msg}"
+        );
+    }
+
+    // --- Model guards: semantic rules ---
+
+    #[test]
+    fn a_threshold_absent_from_labels_is_rejected_naming_the_guard_and_the_kind() {
+        let toml = model_guard_toml(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJETCION = 0.9
+"#,
+        );
+        let err = parse(&toml).expect_err("a misspelled threshold key must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains("PROMPT_INJETCION"),
+            "must name the kind, got: {msg}"
+        );
+    }
+
+    /// A label is whatever the operator writes: the build has no closed set of
+    /// finding kinds to check one against.
+    #[test]
+    fn a_label_the_build_has_never_heard_of_still_loads() {
+        let toml = model_guard_toml(
+            r#"
+[guards.g]
+adapter = "text_multilabel_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["SOMETHING_ONLY_THIS_MODEL_EMITS", "HATE_SPEECH"]
+
+[guards.g.thresholds]
+SOMETHING_ONLY_THIS_MODEL_EMITS = 0.5
+"#,
+        );
+        let config = parse(&toml).expect("an unknown label is not an error");
+        assert_eq!(config.guards["g"].labels.len(), 2);
+    }
+
+    /// A label with no threshold reports nothing. That absence is the only
+    /// detection-layer off switch, so it is valid rather than incomplete.
+    #[test]
+    fn a_label_with_no_threshold_loads() {
+        let toml = model_guard_toml(
+            r#"
+[guards.g]
+adapter = "text_multilabel_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
+
+[guards.g.thresholds]
+PROMPT_INJECTION = 0.9
+"#,
+        );
+        let config = parse(&toml).expect("a label without a threshold is valid");
+        assert!(!config.guards["g"].thresholds.contains_key("HATE_SPEECH"));
+    }
+
+    #[test_case(1.5 ; "above the range")]
+    #[test_case(-0.1 ; "below the range")]
+    fn a_threshold_outside_the_adapters_range_is_rejected(score: f32) {
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = {score}
+"#
+        ));
+        let err = parse(&toml).expect_err("an out-of-range threshold must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains("PROMPT_INJECTION"),
+            "must name the kind, got: {msg}"
+        );
+        assert!(msg.contains("0..=1"), "must name the range, got: {msg}");
+    }
+
+    #[test_case(0.0 ; "the low bound")]
+    #[test_case(1.0 ; "the high bound")]
+    fn a_threshold_on_the_range_bound_is_accepted(score: f32) {
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.g]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+
+[guards.g.thresholds]
+K = {score}
+"#
+        ));
+        parse(&toml).expect("the range is inclusive");
+    }
+
+    #[test]
+    fn a_model_guard_surface_with_every_target_disabled_is_rejected() {
+        let toml = model_guard_toml(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+
+[guards.injection.surface]
+url_path = false
+query_params = false
+body = false
+headers = false
+"#,
+        );
+        let err = parse(&toml).expect_err("a guard that can never be called must fail");
+        assert!(err.to_string().contains("injection"), "got: {err}");
+    }
+
+    #[test]
+    fn a_built_in_guard_surface_with_every_target_disabled_is_rejected() {
+        let toml = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[builtin_guards.pii.surface]
+url_path = false
+query_params = false
+body = false
+headers = false
+
+[forward_proxy]
+enabled = true
+"#;
+        let err = parse(toml).expect_err("a guard that can never be called must fail");
+        assert!(err.to_string().contains("pii"), "got: {err}");
+    }
+
+    /// The name is known, so the route validates. The guard does not run, which
+    /// is what the startup warning is for.
+    #[test]
+    fn a_route_may_select_a_configured_model_guard_by_name() {
+        let toml = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[reverse_proxy]
+enabled = true
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+guards = ["pii", "injection"]
+"#;
+        parse(toml).expect("a configured model guard is a selectable name");
+    }
+
+    /// A guard that declares no label can report nothing, so the list is not
+    /// an optional part of the tensor contract.
+    #[test]
+    fn an_empty_labels_list_is_rejected_naming_the_guard() {
+        let toml = model_guard_toml(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = []
+"#,
+        );
+        let err = parse(&toml).expect_err("a guard with no label must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(msg.contains("must not be empty"), "got: {msg}");
+    }
+
+    /// `labels` is positional, so one output position names one kind. Two
+    /// positions naming the same kind is a config the tensor contract cannot
+    /// mean.
+    #[test]
+    fn a_duplicate_label_is_rejected_naming_the_guard_and_the_label() {
+        let toml = model_guard_toml(
+            r#"
+[guards.safety]
+adapter = "text_multilabel_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION", "HATE_SPEECH", "PROMPT_INJECTION"]
+"#,
+        );
+        let err = parse(&toml).expect_err("a duplicate label must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("safety"), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains("PROMPT_INJECTION"),
+            "must name the label, got: {msg}"
+        );
+        assert!(msg.contains("duplicate"), "got: {msg}");
+    }
+
+    #[test_case(0 ; "zero")]
+    #[test_case(1 ; "one")]
+    #[test_case(MIN_MODEL_GUARD_MAX_TOKENS - 1 ; "just under the floor")]
+    fn a_max_tokens_under_the_floor_is_rejected_naming_the_limit(max_tokens: usize) {
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = {max_tokens}
+labels = ["PROMPT_INJECTION"]
+"#
+        ));
+        let err = parse(&toml).expect_err("a window this small must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains(&MIN_MODEL_GUARD_MAX_TOKENS.to_string()),
+            "must name the limit, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn a_max_tokens_on_the_floor_is_accepted() {
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.g]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = {MIN_MODEL_GUARD_MAX_TOKENS}
+labels = ["K"]
+"#
+        ));
+        parse(&toml).expect("the floor is inclusive");
+    }
+
+    // --- Model guard artifacts ---
+
+    /// Validation asks whether the path is a file and never opens it: proving
+    /// a tensor contract belongs to the phase that builds the runtime.
+    #[test]
+    fn validation_does_not_read_the_artifact_it_finds() {
+        let model = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(model.path(), b"not an onnx model").expect("write");
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.g]
+adapter = "text_classifier"
+model_path = "{path}"
+tokenizer_path = "{path}"
+max_tokens = 512
+labels = ["K"]
+"#,
+            path = model.path().display(),
+        ));
+        let config = parse(&toml).expect("semantic rules pass");
+        config
+            .validate_model_guard_artifacts()
+            .expect("the bytes are never read");
+    }
+
+    #[test_case("model_path" ; "the model")]
+    #[test_case("tokenizer_path" ; "the tokenizer")]
+    fn a_missing_artifact_is_reported_with_the_path_that_was_expected(field: &str) {
+        let present = tempfile::NamedTempFile::new().expect("tempfile");
+        let missing = "/definitely/does/not/exist/artifact.bin";
+        let (model, tokenizer) = match field {
+            "model_path" => (missing.to_string(), present.path().display().to_string()),
+            _ => (present.path().display().to_string(), missing.to_string()),
+        };
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+max_tokens = 512
+labels = ["K"]
+"#
+        ));
+        let config = parse(&toml).expect("semantic rules pass");
+        let err = config
+            .validate_model_guard_artifacts()
+            .expect_err("a missing artifact must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(msg.contains(field), "must name the field, got: {msg}");
+        assert!(msg.contains(missing), "must name the path, got: {msg}");
     }
 
     // --- CLI parsing ---

@@ -85,7 +85,17 @@ pub fn validate_config_file(path: &Path) -> Result<(), ValidationError> {
         message: inner_message(&e),
     })?;
 
-    // 5. Scanner build (regex + vectorscan compilation). A guard section that
+    // 5. Model guard artifacts. Held apart from step 4 because a missing file
+    //    is a `file` failure, and because it is the only check that touches the
+    //    filesystem. It does not open what it finds.
+    config
+        .validate_model_guard_artifacts()
+        .map_err(|e| ValidationError {
+            category: Category::File,
+            message: inner_message(&e),
+        })?;
+
+    // 6. Scanner build (regex + vectorscan compilation). A guard section that
     //    is absent or disabled builds nothing, so there is nothing to compile.
     if let Some(pii) = config.builtin_guards.enabled_pii() {
         scanner::validate_build(pii).map_err(|e| ValidationError {
@@ -339,5 +349,170 @@ upstream = "http://localhost:9000"
 "#;
         let f = write_tmp(toml);
         validate_config_file(f.path()).expect("no guard is valid, and warns at startup");
+    }
+
+    /// A model guard is well-typed TOML asking for something the rules reject,
+    /// so it is semantic — the same stage a duplicate prefix lands in.
+    #[test]
+    fn a_model_guard_rule_failure_is_semantic_and_names_the_guard() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = 1.4
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("out-of-range threshold must fail");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("injection"), "got: {}", err.message);
+        assert!(err.message.contains("0..=1"), "got: {}", err.message);
+    }
+
+    /// A guard name outside the charset reaches the same stage, through the
+    /// caller `[guards.<name>]` finally gave `validate_configured_guard_name`.
+    #[test]
+    fn a_model_guard_name_outside_the_charset_is_semantic_and_names_the_guard() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards."inj.v2"]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("a dotted guard name must fail");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("inj.v2"), "got: {}", err.message);
+    }
+
+    /// The build fixes the adapter names, so the schema states the set and an
+    /// unknown one never reaches a rule.
+    #[test]
+    fn an_unknown_adapter_is_schema_and_names_the_value() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.injection]
+adapter = "tea_leaves"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("an unknown adapter must fail");
+        assert_eq!(err.category, Category::Schema);
+        assert!(err.message.contains("tea_leaves"), "got: {}", err.message);
+        assert!(
+            err.message.contains("text_classifier"),
+            "must list what the build ships, got: {}",
+            err.message,
+        );
+    }
+
+    /// A missing artifact is a property of the deployment rather than of the
+    /// file, so it carries the `file` category and names the path.
+    #[test]
+    fn a_missing_model_artifact_is_file_and_names_the_expected_path() {
+        let missing = "/definitely/does/not/exist/tokenizer.json";
+        let bad = format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{missing}"
+tokenizer_path = "{missing}"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#
+        );
+        let f = write_tmp(&bad);
+        let err = validate_config_file(f.path()).expect_err("a missing artifact must fail");
+        assert_eq!(err.category, Category::File);
+        assert!(err.to_string().starts_with("[file]"), "got: {err}");
+        assert!(err.message.contains(missing), "got: {}", err.message);
+        assert!(err.message.contains("injection"), "got: {}", err.message);
+    }
+
+    /// The whole pipeline over a model guard whose artifacts are present but
+    /// hold nothing a model runtime would accept. Validation never opens them.
+    #[test]
+    fn a_model_guard_whose_artifacts_exist_passes_every_stage() {
+        let artifact = write_tmp("not an onnx model");
+        let good = format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{path}"
+tokenizer_path = "{path}"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = 0.90
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+guards = ["pii", "injection"]
+"#,
+            path = artifact.path().display(),
+        );
+        let f = write_tmp(&good);
+        validate_config_file(f.path()).expect("a configured model guard is valid");
     }
 }

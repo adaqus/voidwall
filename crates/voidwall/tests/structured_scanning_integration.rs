@@ -150,8 +150,8 @@ impl Drop for TestProxy {
 /// A blocked response: 403, the expected kinds named in the body, and none of
 /// the matched values echoed back.
 fn assert_blocked(body: &str, expect_kinds: &[&str], never: &[&str]) {
-    let json: serde_json::Value =
-        serde_json::from_str(body).unwrap_or_else(|e| panic!("block body is JSON: {e}, got {body}"));
+    let json: serde_json::Value = serde_json::from_str(body)
+        .unwrap_or_else(|e| panic!("block body is JSON: {e}, got {body}"));
     let kinds: Vec<&str> = json["kinds"]
         .as_array()
         .expect("kinds array")
@@ -159,7 +159,10 @@ fn assert_blocked(body: &str, expect_kinds: &[&str], never: &[&str]) {
         .map(|k| k.as_str().unwrap())
         .collect();
     for kind in expect_kinds {
-        assert!(kinds.contains(kind), "expected {kind} in kinds, got {kinds:?}");
+        assert!(
+            kinds.contains(kind),
+            "expected {kind} in kinds, got {kinds:?}"
+        );
     }
     for value in never {
         assert!(!body.contains(value), "matched value leaked: {body}");

@@ -26,11 +26,50 @@ Diagnostic categories:
 
 | Tag | Stage that failed |
 |-----|-------------------|
-| `[file]` | Config file could not be read from disk. |
+| `[file]` | Config file could not be read from disk, or a `[guards.*]` `model_path` / `tokenizer_path` names no file. The message carries the path that was expected. |
 | `[toml parse]` | File is not well-formed TOML. |
-| `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). |
-| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in). |
+| `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). An `adapter` the build does not ship lands here: the build fixes the set of adapter names, so the schema states it. |
+| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in). Every model guard rule lands here too — see below. |
 | `[scanner build]` | Regex or vectorscan compilation failed. For `[[builtin_guards.pii.custom]]` entries the message cites the offending `label`. |
+
+## Model guard rules
+
+A `[guards.<name>]` section parses and validates in full, but the model runtime is
+not built, so no such guard runs. The proxy logs one warning naming every
+configured model guard and starts. A route may still select one by name.
+
+These each fail the start with the `[semantic]` category, naming the guard:
+
+| Rule | Message |
+|------|---------|
+| A guard name outside ASCII `[a-zA-Z0-9_-]` | `guards: '<name>' holds '<c>'; a guard name may hold only a-z, A-Z, 0-9, '_', and '-'` |
+| An empty guard name | `guards: a guard name must not be empty` |
+| A guard name over 64 characters | `guards: '<name>' is <n> characters; the limit is 64` |
+| A guard name the build reserves | `guards: '<name>' is a reserved built-in guard name` |
+| An empty `labels` list | `guards.<name>.labels: must not be empty; a guard that declares no label can report nothing` |
+| A label listed more than once | `guards.<name>.labels: duplicate label '<label>'; each output position names one kind` |
+| A `max_tokens` below 10 | `guards.<name>.max_tokens: is <n>; the minimum is 10` |
+| A `thresholds` key absent from `labels` | `guards.<name>.thresholds: '<kind>' is absent from labels, so it names a kind this guard does not declare` |
+| A threshold outside the adapter's range | `guards.<name>.thresholds: '<kind>' is <score>, outside the adapter's score range 0..=1` |
+| A surface that disables every target | `guards.<name>.surface: every target is disabled, so the guard can never be called` |
+
+A missing artifact carries `[file]` instead, and names the path:
+
+```
+guards.<name>.model_path: no file at '<path>'
+```
+
+A `labels` entry is **not** checked against a vocabulary of finding kinds: the
+build has no closed set to check one against, so a label is whatever the
+operator writes. Its *shape* is still checked — the list must be non-empty and
+its entries distinct, because `labels` is positional and one output position
+names one kind. A label with no threshold is valid and reports nothing — that
+absence is the only detection-layer off switch, which is why a threshold key
+absent from `labels` is an error rather than a silently disabled kind.
+
+Validation never reads, parses, or executes an artifact. It asks whether the
+path is a file and nothing more; proving a tensor contract belongs to the phase
+that builds the runtime.
 
 ## Pre-commit hook
 
@@ -74,6 +113,7 @@ on the machine running the proxy, not on the config itself:
 
 - Listen-address availability (a port being free right now)
 - TLS cert/key file *contents* (only that the path field is present)
+- Model and tokenizer artifact *contents* (only that a file is at the path)
 - Upstream reachability
 - Filesystem permissions on metric/log sinks
 

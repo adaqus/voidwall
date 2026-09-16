@@ -181,8 +181,7 @@ impl TestProxy {
         ingest: Ingest,
         pii_config: PiiGuardConfig,
     ) -> Self {
-        let engine =
-            Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
+        let engine = Arc::new(Engine::new(&BuiltinGuards::with_pii(pii_config.clone())).unwrap());
         Self::start_inner(
             upstream_addr,
             routes,
@@ -441,14 +440,7 @@ async fn on_error_fail_close_blocks_oversized_body() {
         ..Ingest::default()
     };
 
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        scan_on(),
-        scan_off(),
-        ingest,
-    )
-    .await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -473,14 +465,7 @@ async fn on_error_fail_open_passes_oversized_body() {
         ..Ingest::default()
     };
 
-    let proxy = TestProxy::start(
-        upstream,
-        vec![("/", "")],
-        scan_on(),
-        scan_off(),
-        ingest,
-    )
-    .await;
+    let proxy = TestProxy::start(upstream, vec![("/", "")], scan_on(), scan_off(), ingest).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -1046,7 +1031,9 @@ async fn start_proxy_with_route_guards(
         },
         ..AppConfig::default()
     };
-    config.validate().expect("route guard selection must validate");
+    config
+        .validate()
+        .expect("route guard selection must validate");
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
