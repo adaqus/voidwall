@@ -58,6 +58,11 @@ Voidwall ships as a Docker image that starts the guardrails proxy out of the box
 carries the configuration and the model artifacts every shipped guard needs, so an operator
 runs the service without supplying either.
 
+## Writing code in Rust
+
+Always use Rust's type system to make undesired states (e.g. invalid configuration, code dependencies)
+irrepresentable.
+
 ## Build
 
 Run commands from the workspace root:
@@ -236,3 +241,5 @@ Rules:
   `openspec-sync-specs` workflow can write it before archive when a change lands in parts.
 - Do not edit checkboxes in `docs/history/tasks-phases-1-20.md`; it is history.
 - Verify implementation against the change's spec deltas and then `ARCHITECTURE.md`.
+- In proposal.md, design.md and changes/ write only stuff explicitly agreed on - do not
+  infer requirements that seem implicit - in such case ask whether your suspicion is correct.
