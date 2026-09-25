@@ -58,6 +58,11 @@ Voidwall ships as a Docker image that starts the guardrails proxy out of the box
 carries the configuration and the model artifacts every shipped guard needs, so an operator
 runs the service without supplying either.
 
+The image ships the default models only. Using any other model, including one a community
+member added support for, means the operator mounts it as a volume (for example in
+docker-compose) and points a guard at it. A pull request never adds model artifacts to the
+image; an adapter it adds ships in the binary.
+
 ## Writing code in Rust
 
 Always use Rust's type system to make undesired states (e.g. invalid configuration, code dependencies)
