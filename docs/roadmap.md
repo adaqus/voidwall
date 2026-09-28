@@ -11,6 +11,7 @@
 - [ ] Model Evaluation Framework
 - [x] Model Guard Configuration
 - [ ] ONNX Runtime and Model Profiles
+- [ ] Configurable Graph Optimization Level for Guards
 - [ ] Supported Safety Profiles
 - [ ] Open-Core Release
 - [ ] ML PII Guard
