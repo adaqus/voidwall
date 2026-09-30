@@ -373,18 +373,24 @@ Planned:
 | Crate | Holds |
 |---|---|
 | `voidwall-pii` | today's detector chain, plus the verdict types and the L1 gate |
-| `voidwall-ml` | the model runtimes, behind one cargo feature each |
+| `voidwall-ml` | the ONNX Runtime integration and the adapters |
 | `voidwall` | the proxy |
 
 `voidwall-pii` is one detection tier beside `voidwall-ml`, not a foundation under it.
 It carries a tier name for that reason: nothing in it is a base layer for the model
 crate, and a name suggesting otherwise would misdescribe the dependency.
 
-The reason for a third crate is structural. A model cannot follow the detector
-lifecycle: a `Detector` is built per `Scanner`, and a `Scanner` is built per OS
-thread. A multi-gigabyte model cannot be built per thread. The cost classes differ by
-six orders of magnitude, and the deadline logic has to see them apart. So a model tier
-never joins the `Scanner` chain; the proxy orders the steps itself.
+A model cannot follow the detector lifecycle: a `Detector` is built per `Scanner`, and a
+`Scanner` is built per OS thread. A multi-gigabyte model cannot be built per thread. The
+cost classes differ by six orders of magnitude, and the deadline logic has to see them
+apart. So a model tier never joins the `Scanner` chain; the proxy orders the steps itself.
+
+The reason the model code is a crate rather than a module of `voidwall` is the
+dependency boundary. `voidwall-ml` cannot depend on `voidwall`, so an adapter cannot
+reach the engine, metrics, HTTP, or configuration internals: it can only load a model
+and return scores. `voidwall` turns scores into findings. A module could import any
+sibling, and only review would stop it. This matters most for adapters contributed from
+outside the project.
 
 ---
 
