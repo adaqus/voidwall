@@ -170,6 +170,7 @@ its own workers and awaits the reply. Keep it that way.
 - A blocking error answers the status that names the party at fault: 413 for an oversize
   body, 400 for a body that does not parse as its declared content type, 500 for a scanner
   failure. 502 is reserved for a failure of the upstream itself.
+- A 500 body is fixed and never carries failure details. Write the details to the log.
 - Always increment `voidwall_errors_total` with the outcome.
 - Propagate proxy and I/O errors with context instead of turning all failures into generic
   500 responses.
