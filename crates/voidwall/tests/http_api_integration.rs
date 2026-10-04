@@ -422,6 +422,11 @@ async fn scanner_failure_fail_close_returns_500() {
         .unwrap();
 
     assert_eq!(resp.status(), 500);
+    assert_eq!(
+        resp.text().await.unwrap(),
+        r#"{"error":"internal error"}"#,
+        "a 500 body is fixed and carries no failure details"
+    );
 }
 
 /// The same failure under `fail_open` answers 200 and reports nothing found.

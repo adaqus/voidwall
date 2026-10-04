@@ -196,6 +196,9 @@ The proxy SHALL reserve 502 for a failure of the upstream itself. Each of these 
 bodies SHALL be a JSON object holding an `error` field, and SHALL carry no matched text
 and no fragment of the message that was scanned.
 
+The 500 body SHALL be exactly `{"error":"internal error"}`. Every 502 body SHALL be
+exactly `{"error":"upstream error"}`. Neither body SHALL carry a detail of the failure.
+
 #### Scenario: Oversize body under fail_close
 
 - **WHEN** a request body is larger than `max_body_size` and `on_error` is `fail_close`
@@ -211,11 +214,13 @@ and no fragment of the message that was scanned.
 
 - **WHEN** the scanner returns an error and `on_error` is `fail_close`
 - **THEN** the proxy answers 500 and does not forward the request
+- **AND** the body is exactly `{"error":"internal error"}`
 
 #### Scenario: The upstream cannot be reached
 
 - **WHEN** the proxy forwards a clean request and the upstream connection fails
 - **THEN** the proxy answers 502
+- **AND** the body is exactly `{"error":"upstream error"}`
 
 #### Scenario: An error body carries no scanned text
 

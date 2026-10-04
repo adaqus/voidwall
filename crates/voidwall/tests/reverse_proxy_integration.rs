@@ -522,6 +522,11 @@ async fn scanner_failure_fail_close_answers_500() {
         .unwrap();
 
     assert_eq!(resp.status(), 500);
+    assert_eq!(
+        resp.text().await.unwrap(),
+        r#"{"error":"internal error"}"#,
+        "a 500 body is fixed and carries no failure details"
+    );
 }
 
 /// Every blocking error body names the error and nothing else. A message that
@@ -769,6 +774,11 @@ async fn upstream_unreachable_answers_502() {
         resp.status(),
         502,
         "a failure of the upstream itself is the only thing that earns 502"
+    );
+    assert_eq!(
+        resp.text().await.unwrap(),
+        r#"{"error":"upstream error"}"#,
+        "a 502 body is fixed and carries no failure details"
     );
 }
 

@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 
 use crate::config::{AppConfig, OnError};
 use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, Units};
-use crate::error::Error;
+use crate::error::{Error, INTERNAL_ERROR};
 use crate::metrics;
 use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body};
 
@@ -355,10 +355,11 @@ fn handle_scanner_failure(on_error: OnError) -> Response {
         }
         OnError::FailClose => {
             metrics::inc_error("blocked", "scanner_failure");
+            let body = serde_json::json!({ "error": INTERNAL_ERROR }).to_string();
             let resp = (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [("content-type", "application/json")],
-                r#"{"error":"scanner failure"}"#,
+                body,
             )
                 .into_response();
             record_request(resp.status());

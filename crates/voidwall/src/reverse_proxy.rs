@@ -579,10 +579,10 @@ fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
 // ---------------------------------------------------------------------------
 
 async fn buffer_body(req: Request, max_size: usize, on_error: OnError) -> Result<Bytes, Response> {
-    let collected =
-        req.into_body().collect().await.map_err(|e| {
-            Error::Proxy(format!("failed to read request body: {e}")).into_response()
-        })?;
+    let collected = req.into_body().collect().await.map_err(|e| {
+        error!(error = %e, "failed to read request body");
+        Error::Proxy(format!("failed to read request body: {e}")).into_response()
+    })?;
     let bytes = collected.to_bytes();
 
     if bytes.len() > max_size {

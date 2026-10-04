@@ -84,13 +84,20 @@ impl From<hyper_util::client::legacy::Error> for Error {
 
 // --- IntoResponse for HTTP error responses ---
 
+/// The fixed `error` text of every 500. The failure details go to the log only.
+pub const INTERNAL_ERROR: &str = "internal error";
+
+/// The fixed `error` text of every 502. The failure details go to the log only.
+pub const UPSTREAM_ERROR: &str = "upstream error";
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            Error::Config(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            Error::Scanner(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            Error::Proxy(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
-            Error::Io(e) => (StatusCode::BAD_GATEWAY, e.to_string()),
+            Error::Config(_) | Error::Scanner(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                INTERNAL_ERROR.to_string(),
+            ),
+            Error::Proxy(_) | Error::Io(_) => (StatusCode::BAD_GATEWAY, UPSTREAM_ERROR.to_string()),
             Error::BodyTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body too large".to_string(),
@@ -161,9 +168,9 @@ mod tests {
         assert!(Error::Config("bad".into()).source().is_none());
     }
 
-    #[test_case(Error::Config("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "msg")]
-    #[test_case(Error::Scanner("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "msg")]
-    #[test_case(Error::Proxy("msg".into()), StatusCode::BAD_GATEWAY, "msg")]
+    #[test_case(Error::Config("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "internal error")]
+    #[test_case(Error::Scanner("msg".into()), StatusCode::INTERNAL_SERVER_ERROR, "internal error")]
+    #[test_case(Error::Proxy("msg".into()), StatusCode::BAD_GATEWAY, "upstream error")]
     #[test_case(
         Error::BodyTooLarge,
         StatusCode::PAYLOAD_TOO_LARGE,
@@ -189,5 +196,8 @@ mod tests {
         let err = Error::Io(std::io::Error::other("reset"));
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["error"], "upstream error");
     }
 }
