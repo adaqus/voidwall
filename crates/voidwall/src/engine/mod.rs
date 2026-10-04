@@ -27,10 +27,11 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::{BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError};
 use crate::error::Error;
+use crate::scanner::SCANNER_ERROR_LIMITER;
 
 pub use finding::{Finding, FindingKind, ScanResult, Span};
 pub use guard::{DetectFuture, Guard, GuardInput, Interest};
@@ -160,13 +161,17 @@ impl Engine {
     /// order, whatever order the guards finished in. `policy` decides whether a
     /// finding ends the scan early; a guard still running when that happens is
     /// abandoned, and its findings do not appear in the result.
+    ///
+    /// A guard error does not end the scan. The result carries the findings
+    /// of the guards that succeeded and the first guard error; the caller
+    /// decides which wins.
     pub async fn guard(
         &self,
         units: Arc<[Unit]>,
         selection: &GuardSelection,
         policy: BlockPolicy,
         on_error: OnError,
-    ) -> Result<ScanResult, Error> {
+    ) -> ScanResult {
         // Apply each selected guard's declared interest. `plans` outlives the
         // futures that borrow its selections.
         let plans: Vec<(&dyn Guard, Vec<UnitId>)> = selection
@@ -194,16 +199,32 @@ impl Engine {
         // of cloning the content.
         let mut in_flight = FuturesUnordered::new();
         for (guard, selected) in &plans {
-            in_flight.push(guard.detect(GuardInput {
+            let name = guard.name();
+            let detect = guard.detect(GuardInput {
                 units: &units,
                 selected,
                 on_error,
-            }));
+            });
+            in_flight.push(async move { (name, detect.await) });
         }
 
         let mut findings = Vec::new();
-        while let Some(result) = in_flight.next().await {
-            let batch = result?;
+        let mut first_error = None;
+        while let Some((name, result)) = in_flight.next().await {
+            // A guard error does not end the scan: another guard may still
+            // block. The first error is kept for the caller; a later one is
+            // only logged.
+            let batch = match result {
+                Ok(batch) => batch,
+                Err(e) => {
+                    if first_error.is_none() {
+                        first_error = Some(e);
+                    } else if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+                        warn!(dropped, guard = %name, error = %e, "further guard error");
+                    }
+                    continue;
+                }
+            };
             let blocks = policy.blocks(&batch);
             findings.extend(batch);
             if blocks {
@@ -215,7 +236,7 @@ impl Engine {
         drop(in_flight);
 
         findings.sort_by(canonical_order);
-        Ok(ScanResult::new(findings))
+        ScanResult::with_error(findings, first_error)
     }
 
     /// Release the guards, then say so.
@@ -301,6 +322,8 @@ pub(crate) mod test_guard {
         kind: &'static str,
         interest: Interest,
         delay: Option<Duration>,
+        fails: bool,
+        silent: bool,
         probe: GuardProbe,
     }
 
@@ -311,8 +334,23 @@ pub(crate) mod test_guard {
                 kind,
                 interest: Interest::all(),
                 delay: None,
+                fails: false,
+                silent: false,
                 probe: GuardProbe::default(),
             }
+        }
+
+        /// Make `detect` succeed and report nothing.
+        pub(crate) fn silent(mut self) -> Self {
+            self.silent = true;
+            self
+        }
+
+        /// Make `detect` return a scanner error instead of findings, after the
+        /// delay if there is one.
+        pub(crate) fn failing(mut self) -> Self {
+            self.fails = true;
+            self
         }
 
         pub(crate) fn with_interest(mut self, interest: Interest) -> Self {
@@ -351,9 +389,14 @@ pub(crate) mod test_guard {
                 if let Some(delay) = self.delay {
                     tokio::time::sleep(delay).await;
                 }
+                if self.fails {
+                    self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
+                    return Err(Error::Scanner(format!("{} failed", self.name)));
+                }
                 let findings = input
                     .selected
                     .iter()
+                    .filter(|_| !self.silent)
                     .map(|id| {
                         Finding::spanned(*id, self.kind, Arc::clone(&self.name), Span::new(0, 1))
                     })
@@ -393,11 +436,20 @@ mod tests {
     }
 
     async fn run(engine: &Engine, units: Arc<[Unit]>, policy: BlockPolicy) -> ScanResult {
+        let mut result = run_with_errors(engine, units, policy).await;
+        assert!(result.take_error().is_none(), "guard should succeed");
+        result
+    }
+
+    async fn run_with_errors(
+        engine: &Engine,
+        units: Arc<[Unit]>,
+        policy: BlockPolicy,
+    ) -> ScanResult {
         let selection = engine.select(None);
         engine
             .guard(units, &selection, policy, OnError::FailOpen)
             .await
-            .expect("guard should succeed")
     }
 
     fn guard_names(result: &ScanResult) -> Vec<String> {
@@ -501,6 +553,62 @@ mod tests {
             result.kinds(),
             vec!["EMAIL".to_string(), "US_SSN".to_string()]
         );
+    }
+
+    // --- A guard error does not end the scan ---
+
+    #[test_case::test_case(BlockPolicy::AnyFinding ; "blocking caller")]
+    #[test_case::test_case(BlockPolicy::Never ; "reporting caller")]
+    #[tokio::test]
+    async fn a_guard_error_waits_for_a_slower_guard_that_reports(policy: BlockPolicy) {
+        let failing = TestGuard::new("failing", "EMAIL").failing();
+        let slow = TestGuard::new("slow", "US_SSN").with_delay(SLOW);
+        let slow_probe = slow.probe();
+        let engine = Engine::with_guards(vec![Box::new(failing), Box::new(slow)]);
+
+        let mut result = run_with_errors(&engine, body_only(), policy).await;
+
+        assert_eq!(slow_probe.completions(), 1, "the slow guard ran to the end");
+        assert_eq!(result.kinds(), vec!["US_SSN".to_string()]);
+        assert!(result.take_error().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_alone_returns_the_error_and_no_finding() {
+        let engine =
+            Engine::with_guards(vec![Box::new(TestGuard::new("failing", "EMAIL").failing())]);
+
+        let mut result = run_with_errors(&engine, body_only(), BlockPolicy::AnyFinding).await;
+
+        assert!(!result.detected());
+        assert!(result.take_error().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_with_a_guard_that_reports_nothing_returns_the_error() {
+        let engine = Engine::with_guards(vec![
+            Box::new(TestGuard::new("failing", "EMAIL").failing()),
+            Box::new(TestGuard::new("quiet", "US_SSN").silent()),
+        ]);
+
+        let mut result = run_with_errors(&engine, body_only(), BlockPolicy::AnyFinding).await;
+
+        assert!(!result.detected());
+        assert!(result.take_error().is_some());
+    }
+
+    #[tokio::test]
+    async fn two_guard_errors_return_one_error() {
+        let engine = Engine::with_guards(vec![
+            Box::new(TestGuard::new("first", "EMAIL").failing()),
+            Box::new(TestGuard::new("second", "US_SSN").failing()),
+        ]);
+
+        let mut result = run_with_errors(&engine, body_only(), BlockPolicy::Never).await;
+
+        assert!(!result.detected());
+        assert!(result.take_error().is_some());
+        assert!(result.take_error().is_none(), "only one error is carried");
     }
 
     #[tokio::test]
@@ -629,8 +737,7 @@ mod tests {
                 BlockPolicy::AnyFinding,
                 OnError::FailOpen,
             )
-            .await
-            .expect("guard should succeed");
+            .await;
 
         assert_eq!(probe.calls(), 0);
         assert!(!result.detected());
@@ -651,8 +758,7 @@ mod tests {
                 BlockPolicy::Never,
                 OnError::FailOpen,
             )
-            .await
-            .expect("guard should succeed");
+            .await;
 
         assert_eq!(a.calls(), 0);
         assert_eq!(b.completions(), 1);

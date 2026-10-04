@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use super::unit::UnitId;
+use crate::error::Error;
 
 /// A byte range inside a unit's source bytes.
 ///
@@ -106,15 +107,33 @@ impl Finding {
 ///
 /// The findings are held in the engine's canonical order. Everything a caller
 /// reports is derived from them.
-#[derive(Debug, Default, Clone)]
+///
+/// A guard error does not end the scan, so a result can hold the findings of
+/// the guards that succeeded and the first guard error together. The caller
+/// decides which wins.
+#[derive(Debug, Default)]
 pub struct ScanResult {
     findings: Vec<Finding>,
+    error: Option<Error>,
 }
 
 impl ScanResult {
     /// Wrap findings that are already in canonical order.
     pub fn new(findings: Vec<Finding>) -> Self {
-        Self { findings }
+        Self {
+            findings,
+            error: None,
+        }
+    }
+
+    /// Wrap findings together with the guard error that came with them.
+    pub fn with_error(findings: Vec<Finding>, error: Option<Error>) -> Self {
+        Self { findings, error }
+    }
+
+    /// Take the guard error out of the result, if a guard failed.
+    pub fn take_error(&mut self) -> Option<Error> {
+        self.error.take()
     }
 
     /// The findings, in canonical order.

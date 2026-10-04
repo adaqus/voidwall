@@ -462,7 +462,7 @@ async fn run_engine(
 ) -> PipelineResult {
     let units = units.into_shared();
 
-    let scan_result = match plan
+    let mut scan_result = plan
         .engine
         .guard(
             Arc::clone(&units),
@@ -470,19 +470,25 @@ async fn run_engine(
             BlockPolicy::AnyFinding,
             plan.ingest.on_error,
         )
-        .await
+        .await;
+
+    // A block from another guard wins over a guard error, whatever on_error
+    // says. The error is still logged and counted, as blocked.
+    let error = scan_result.take_error();
+    if let Some(e) = &error
+        && let Some(dropped) = SCANNER_ERROR_LIMITER.should_log()
     {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
-                warn!(dropped, error = %e, "{error_message}");
-            }
-            return handle_scan_error(e, plan.ingest.on_error);
-        }
-    };
+        warn!(dropped, error = %e, "{error_message}");
+    }
 
     if !scan_result.detected() {
-        return PipelineResult::Pass;
+        return match error {
+            Some(e) => handle_scan_error(e, plan.ingest.on_error),
+            None => PipelineResult::Pass,
+        };
+    }
+    if error.is_some() {
+        metrics::inc_error("blocked", "scanner_failure");
     }
 
     // The kind list is sorted and holds each kind once, so the counter moves
@@ -890,5 +896,99 @@ mod tests {
             push_scan_headers(&mut units, &["Authorization".to_string()], &headers);
         }
         assert!(units.is_empty(), "no selected guard admits the kind");
+    }
+
+    // --- A block from another guard wins over a guard error ---
+
+    use crate::engine::test_guard::TestGuard;
+    use crate::engine::{Engine, UnitContent};
+    use crate::metrics::ERRORS_TOTAL;
+
+    /// Run one request body through `run_engine` with the given guards.
+    async fn run_guards(guards: Vec<TestGuard>, on_error: OnError) -> PipelineResult {
+        let engine = Engine::with_guards(guards.into_iter().map(|g| Box::new(g) as _).collect());
+        let selection = engine.select(None);
+        let ingest = Ingest {
+            max_body_size: 1024,
+            content_types: Vec::new(),
+            on_error,
+        };
+        let plan = ScanPlan {
+            engine: &engine,
+            ingest: &ingest,
+            selection: &selection,
+            headers: &[],
+        };
+        let ctx = MetricContext {
+            route: "/guard-error-test",
+            direction: "request",
+        };
+        let mut units = Units::new();
+        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        run_engine(&plan, units, &ctx, "scanner error").await
+    }
+
+    fn blocked_scanner_failures() -> u64 {
+        ERRORS_TOTAL
+            .with_label_values(&["blocked", "scanner_failure"])
+            .get()
+    }
+
+    #[test_case(OnError::FailOpen ; "fail_open")]
+    #[test_case(OnError::FailClose ; "fail_close")]
+    #[tokio::test]
+    async fn a_block_from_another_guard_wins_over_a_guard_error(on_error: OnError) {
+        let before = blocked_scanner_failures();
+
+        let result = run_guards(
+            vec![
+                TestGuard::new("failing", "RP_UNUSED").failing(),
+                TestGuard::new("detecting", "RP_GUARD_ERROR_KIND")
+                    .with_delay(std::time::Duration::from_millis(50)),
+            ],
+            on_error,
+        )
+        .await;
+
+        let PipelineResult::Block(resp) = result else {
+            panic!("expected a 403 block");
+        };
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body: serde_json::Value = serde_json::from_slice(&read_body(resp).await).unwrap();
+        assert_eq!(body["kinds"], serde_json::json!(["RP_GUARD_ERROR_KIND"]));
+        // Other tests can count the same labels at the same time, so the
+        // check is a lower bound.
+        assert!(
+            blocked_scanner_failures() > before,
+            "the error is counted as blocked"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_alone_under_fail_open_passes() {
+        let result = run_guards(
+            vec![TestGuard::new("failing", "RP_UNUSED").failing()],
+            OnError::FailOpen,
+        )
+        .await;
+        assert!(matches!(result, PipelineResult::Pass));
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_alone_under_fail_close_answers_the_fixed_500() {
+        let result = run_guards(
+            vec![
+                TestGuard::new("failing", "RP_UNUSED").failing(),
+                TestGuard::new("quiet", "RP_UNUSED").silent(),
+            ],
+            OnError::FailClose,
+        )
+        .await;
+
+        let PipelineResult::Error(resp) = result else {
+            panic!("expected a 500");
+        };
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(&read_body(resp).await[..], br#"{"error":"internal error"}"#);
     }
 }

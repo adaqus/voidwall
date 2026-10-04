@@ -48,6 +48,9 @@ Guards still running at that point SHALL be abandoned, and their findings SHALL 
 in the result. A caller that reports a detection without stopping the message SHALL NOT
 stop the engine early.
 
+A guard error SHALL NOT end the scan. The engine SHALL keep waiting for the other guards,
+and SHALL return the findings of the guards that succeeded together with the error.
+
 #### Scenario: No guard is interested
 
 - **WHEN** the selected units are of a kind no guard declares interest in
@@ -74,6 +77,18 @@ stop the engine early.
 - **WHEN** one guard reports a finding while another guard is still running, and the
   caller reports rather than blocks
 - **THEN** the engine waits for the second guard and the result holds both findings
+
+#### Scenario: A guard fails before another guard reports
+
+- **WHEN** one guard returns an error while another guard is still running, and the second
+  guard then reports a finding
+- **THEN** the engine waits for the second guard and returns its finding together with the
+  error
+
+#### Scenario: A guard fails and no other guard reports
+
+- **WHEN** one guard returns an error and every other guard reports nothing
+- **THEN** the engine returns the error and no finding
 
 ### Requirement: The kind list is ordered and holds each kind once
 

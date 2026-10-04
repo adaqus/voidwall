@@ -293,7 +293,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
     units.push_body(body_format);
     let units = units.into_shared();
 
-    let scan_result = match state
+    let mut scan_result = state
         .engine
         .guard(
             Arc::clone(&units),
@@ -301,22 +301,25 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
             BlockPolicy::Never,
             state.on_error,
         )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
-                warn!(dropped, error = %e, "scanner error in http api");
-            }
-            return handle_scanner_failure(state.on_error);
-        }
-    };
+        .await;
 
     let kinds = scan_result.kinds();
 
-    // Always increment detection metrics when PII is detected.
+    // Always increment detection metrics when PII is detected — also when a
+    // guard error turns the answer into a 500.
     for kind in &kinds {
         metrics::inc_detection(kind, MODE, ROUTE, "request");
+    }
+
+    // A guard error does not discard the findings of the guards that
+    // succeeded: fail_open reports them, fail_close answers 500.
+    if let Some(e) = scan_result.take_error() {
+        if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+            warn!(dropped, error = %e, "scanner error in http api");
+        }
+        if let Some(resp) = handle_scanner_failure(state.on_error) {
+            return resp;
+        }
     }
 
     let resp = build_scan_response(&scan_result, &kinds);
@@ -337,21 +340,13 @@ fn build_scan_response(scan_result: &ScanResult, kinds: &[String]) -> Response {
 
 /// On scanner failure, follow the configured `on_error` policy.
 ///
-/// `fail_open`: answer with an empty result. `fail_close`: return 500.
-fn handle_scanner_failure(on_error: OnError) -> Response {
+/// `fail_open`: count the error and return `None`, so the caller reports the
+/// findings of the guards that succeeded. `fail_close`: return the fixed 500.
+fn handle_scanner_failure(on_error: OnError) -> Option<Response> {
     match on_error {
         OnError::FailOpen => {
             metrics::inc_error("passed", "scanner_failure");
-            let payload = ScanResponse {
-                detected: false,
-                matches_count: 0,
-                kinds: Vec::new(),
-            };
-            let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
-            let resp =
-                (StatusCode::OK, [("content-type", "application/json")], body).into_response();
-            record_request(resp.status());
-            resp
+            None
         }
         OnError::FailClose => {
             metrics::inc_error("blocked", "scanner_failure");
@@ -363,7 +358,7 @@ fn handle_scanner_failure(on_error: OnError) -> Response {
             )
                 .into_response();
             record_request(resp.status());
-            resp
+            Some(resp)
         }
     }
 }
@@ -465,5 +460,67 @@ mod tests {
 
         let err_schema = &spec["components"]["schemas"]["ErrorResponse"];
         assert!(err_schema["example"]["error"].is_string());
+    }
+
+    // --- A guard error does not discard the other guards' findings ---
+
+    use crate::engine::test_guard::TestGuard;
+    use crate::metrics::{DETECTIONS_TOTAL, ERRORS_TOTAL};
+    use http_body_util::BodyExt;
+
+    /// Post one plain-text body to `/v1/scan` over a failing guard and a guard
+    /// that reports `kind`.
+    async fn scan_with_a_failing_guard(on_error: OnError, kind: &'static str) -> Response {
+        let engine = Arc::new(Engine::with_guards(vec![
+            Box::new(TestGuard::new("failing", "API_UNUSED").failing()),
+            Box::new(TestGuard::new("detecting", kind)),
+        ]));
+        let config = AppConfig {
+            on_error,
+            ..AppConfig::default()
+        };
+        let state = build_state(&config, engine);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+        process(state, headers, Bytes::from_static(b"content")).await
+    }
+
+    fn detections(kind: &str) -> u64 {
+        DETECTIONS_TOTAL
+            .with_label_values(&[kind, MODE, ROUTE, "request"])
+            .get()
+    }
+
+    fn scanner_failures(outcome: &str) -> u64 {
+        ERRORS_TOTAL
+            .with_label_values(&[outcome, "scanner_failure"])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn fail_open_reports_the_findings_of_the_guards_that_succeeded() {
+        let errors_before = scanner_failures("passed");
+
+        let resp = scan_with_a_failing_guard(OnError::FailOpen, "API_FAIL_OPEN_KIND").await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["detected"], true);
+        assert_eq!(body["kinds"], serde_json::json!(["API_FAIL_OPEN_KIND"]));
+        // Other tests can count the same labels at the same time, so the
+        // check is a lower bound.
+        assert!(scanner_failures("passed") > errors_before);
+    }
+
+    #[tokio::test]
+    async fn fail_close_answers_500_and_counts_the_detections() {
+        let resp = scan_with_a_failing_guard(OnError::FailClose, "API_FAIL_CLOSE_KIND").await;
+
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"internal error"}"#);
+        // The kind label is unique to this test, so the count is exact.
+        assert_eq!(detections("API_FAIL_CLOSE_KIND"), 1);
     }
 }
