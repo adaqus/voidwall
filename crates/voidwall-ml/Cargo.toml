@@ -1,0 +1,16 @@
+[package]
+name = "voidwall-ml"
+description = "ONNX Runtime integration and model adapters for Voidwall"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# Pinned exactly: 2.0 is a release candidate with no semver promise. Default
+# features are off so `download-binaries` never runs; `.cargo/config.toml`
+# links the archive `docker/fetch-ort.sh` verified.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+test-case = "3"

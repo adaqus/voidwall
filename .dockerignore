@@ -1,4 +1,6 @@
 *
 !target/release/voidwall
 !target/release/echo-server
+!target/notices/
+!licenses/
 !docker/

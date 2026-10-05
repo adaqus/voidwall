@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
 use serde::Deserialize;
+use voidwall_ml::AdapterKind;
 
 use crate::error::Error;
 
@@ -289,35 +289,6 @@ pub fn validate_configured_guard_name(name: &str) -> Result<(), Error> {
 // Model-backed guards
 // ---------------------------------------------------------------------------
 
-/// The code path that runs one model guard's model.
-///
-/// An adapter owns the runtime, the preprocessing, the tensor contract, the
-/// output interpretation, and whether the guard's findings carry spans. The
-/// build ships the set, so configuration picks one by name and can override
-/// none of it — which is also why an unknown name is a schema failure rather
-/// than a rule this module checks.
-///
-/// There is no `runtime` key anywhere: ONNX is the only runtime, so the key
-/// could only be written wrong.
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Adapter {
-    /// One score for the whole input, over a single label.
-    TextClassifier,
-    /// One score per label, for several labels at once.
-    TextMultilabelClassifier,
-}
-
-impl Adapter {
-    /// The scores this adapter produces. A threshold outside it could never be
-    /// met or could never be missed, so it is rejected at startup.
-    pub fn score_range(self) -> RangeInclusive<f32> {
-        match self {
-            Self::TextClassifier | Self::TextMultilabelClassifier => 0.0..=1.0,
-        }
-    }
-}
-
 /// The fewest tokens a model guard may be given.
 ///
 /// A window this small holds the adapter's special tokens and little else, so
@@ -339,7 +310,7 @@ pub const MIN_MODEL_GUARD_MAX_TOKENS: usize = 10;
 #[serde(deny_unknown_fields)]
 pub struct ModelGuardConfig {
     /// The build-shipped code path that runs the model.
-    pub adapter: Adapter,
+    pub adapter: AdapterKind,
 
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
@@ -2159,7 +2130,7 @@ PROMPT_INJECTION = 0.90
     fn the_smallest_model_guard_section_loads() {
         let config = parse(&model_guard_toml(SMALLEST_MODEL_GUARD)).expect("should be valid");
         let guard = &config.guards["injection"];
-        assert_eq!(guard.adapter, Adapter::TextClassifier);
+        assert_eq!(guard.adapter, AdapterKind::TextClassifier);
         assert_eq!(guard.max_tokens, 512);
         assert_eq!(guard.labels, vec!["PROMPT_INJECTION".to_string()]);
         assert_eq!(guard.thresholds["PROMPT_INJECTION"], 0.90);
@@ -2173,9 +2144,9 @@ PROMPT_INJECTION = 0.90
         assert!(parse(&minimal_toml()).unwrap().guards.is_empty());
     }
 
-    #[test_case("text_classifier", Adapter::TextClassifier ; "single label")]
-    #[test_case("text_multilabel_classifier", Adapter::TextMultilabelClassifier ; "multi label")]
-    fn an_adapter_name_the_build_ships_deserialises(name: &str, expected: Adapter) {
+    #[test_case("text_classifier", AdapterKind::TextClassifier ; "single label")]
+    #[test_case("text_multilabel_classifier", AdapterKind::TextMultilabelClassifier ; "multi label")]
+    fn an_adapter_name_the_build_ships_deserialises(name: &str, expected: AdapterKind) {
         let toml = format!(
             r#"
 [guards.g]

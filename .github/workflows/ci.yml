@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  attestations: read
+
+# Actions are pinned to commit SHAs; the comment names the ref they came from.
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      # Vectorscan is built from source by vectorscan-rs-sys.
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libboost-dev patch xz-utils
+
+      - uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2
+        with:
+          tool: cargo-deny
+
+      # Keyed by the pinned archive hash. The fetch script re-hashes a restored
+      # library and fetches again unless it matches the hash it recorded.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ort
+          key: ort-1.28.0-e454f710f8a49f53aa5b4ff51e3454ae1835777e431c6c35c5255ce6f205fd68
+
+      - name: Fetch and verify ONNX Runtime
+        run: docker/fetch-ort.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: License gate
+        run: cargo deny check licenses
+
+      - name: Check
+        run: cargo check --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace

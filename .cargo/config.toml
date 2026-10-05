@@ -1,0 +1,5 @@
+# Every build links the ONNX Runtime archive that `docker/fetch-ort.sh` verified.
+# `ort-sys` fails the build when the library is missing and never downloads one.
+[env]
+ORT_LIB_PATH = { value = ".ort/1.28.0", relative = true }
+ORT_SKIP_DOWNLOAD = "1"

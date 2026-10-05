@@ -14,6 +14,30 @@ use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
 use voidwall::validate;
 
+/// Runs before every static constructor, including ONNX Runtime's, which use
+/// x86-64-v3 instructions. A check in `main` would come too late: an older
+/// CPU dies on an illegal instruction before `main` is reached.
+///
+/// Keep this in the binary crate. A shared library ignores `.preinit_array`,
+/// and from a library crate the linker may drop the static without notice.
+/// The function runs before std's own setup, so it uses only `cpuid`,
+/// `eprintln!`, and `process::exit`.
+#[used]
+#[unsafe(link_section = ".preinit_array")]
+static CPU_FLOOR_CHECK: extern "C" fn() = refuse_cpu_below_floor;
+
+extern "C" fn refuse_cpu_below_floor() {
+    let missing = voidwall_ml::cpu::missing_features();
+    if !missing.is_empty() {
+        eprintln!(
+            "error: this CPU is below the minimum {}; missing features: {}",
+            voidwall_ml::cpu::MIN_CPU_LEVEL,
+            missing.join(", "),
+        );
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 

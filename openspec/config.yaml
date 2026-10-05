@@ -7,11 +7,13 @@ context: |
 
   Language: Rust, edition 2024. Platform: Linux only. Never add code for another OS.
 
-  Workspace, two crates:
+  Workspace, three crates:
   - `crates/voidwall/` — the binary, package `voidwall`. Integration tests in
     `crates/voidwall/tests/`. Load tests and benches in `crates/voidwall/benches/`.
   - `crates/voidwall-pii/` — the detection library. Read `crates/voidwall-pii/AGENTS.md` before you
     edit anything under it.
+  - `crates/voidwall-ml/` — ONNX Runtime integration and model adapters. It cannot
+    depend on `voidwall`. Run `docker/fetch-ort.sh` once before the first build.
 
   Four modes share one `ScannerPool`: reverse proxy :8082, forward proxy :8084,
   REST API :8083, admin :9090. Config is TOML, loaded with `--config` or

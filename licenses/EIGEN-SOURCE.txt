@@ -1,0 +1,13 @@
+Eigen source code
+
+ONNX Runtime 1.28.0, which is statically linked into the voidwall binary,
+contains Eigen. Eigen is licensed under the Mozilla Public License 2.0; its
+license text is in onnxruntime/ThirdPartyNotices.txt.
+
+The Eigen source used by ONNX Runtime 1.28.0 (per its cmake/deps.txt) is
+available at:
+
+  https://github.com/eigen-mirror/eigen/archive/1d8b82b0740839c0de7f1242a3585e3390ff5f33/eigen-1d8b82b0740839c0de7f1242a3585e3390ff5f33.zip
+  SHA-1: 05b19b49e6fbb91246be711d801160528c135e34
+
+Upstream project: https://gitlab.com/libeigen/eigen

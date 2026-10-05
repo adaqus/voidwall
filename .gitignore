@@ -3,6 +3,9 @@
 # Auto-fetched AI4Privacy eval datasets (docker/ctl eval) — never committed.
 /.cache/
 
+# ONNX Runtime archive verified by docker/fetch-ort.sh — never committed.
+/.ort/
+
 # Agent-local runtime state.
 **/.claude/settings.local.json
 **/.claude/scheduled_tasks.lock

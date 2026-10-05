@@ -2,6 +2,7 @@
 name = "voidwall"
 version = "0.1.0"
 edition = "2024"
+publish = false
 autobenches = false
 
 [dependencies]
@@ -50,6 +51,9 @@ tikv-jemallocator = "0.6"
 
 # PII scanning
 voidwall-pii = { path = "../voidwall-pii" }
+
+# Model runtime: adapter kinds today, ONNX Runtime from S5 on
+voidwall-ml = { path = "../voidwall-ml" }
 regex = "1"
 percent-encoding = "2"
 

@@ -1,0 +1,27 @@
+# License gate. `cargo deny check licenses` fails on a crate whose license is
+# not listed here. Only the licenses check is configured.
+
+[graph]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "ISC",
+    "BSD-3-Clause",
+]
+confidence-threshold = 0.93
+
+# aws-lc-sys (rustls' default crypto provider) is
+# `ISC AND (Apache-2.0 OR ISC) AND OpenSSL`. The OpenSSL License is allowed for
+# this crate only, so any other crate under it still fails the gate.
+[[licenses.exceptions]]
+crate = "aws-lc-sys"
+allow = ["OpenSSL"]
+
+# Workspace crates have no `license` field yet; Voidwall's own license is
+# undecided. They are `publish = false`, so the gate checks third-party crates only.
+[licenses.private]
+ignore = true

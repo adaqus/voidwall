@@ -363,6 +363,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime; no inference yet |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
@@ -399,6 +400,15 @@ outside the project.
 Linux only. Do not add platform-conditional code for another operating system.
 
 Rust edition 2024. Vectorscan is a native dependency.
+
+ONNX Runtime 1.28.0 is linked statically from pyke's prebuilt archive. `docker/fetch-ort.sh`
+checks its SHA-256 and its build attestation before Cargo sees it, and
+`.cargo/config.toml` points every build at the verified copy with downloads turned off.
+
+The minimum CPU is x86-64-v3 (Intel Haswell or later, any AMD Ryzen). ONNX Runtime's static
+constructors run AVX code before `main`, so the binary checks the CPU from its
+`.preinit_array`, which runs first, and refuses to start with a message naming the missing
+features. Without that, a CPU without AVX dies with SIGILL (exit 132) and no log line.
 
 ---
 

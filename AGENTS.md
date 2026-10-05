@@ -39,18 +39,25 @@ For multi-step work, state a brief plan with a verification check for each step.
 
 Start coding agents from the workspace root. Commands below assume that location.
 
-The Cargo workspace has two members:
+The Cargo workspace has three members:
 
 - `crates/voidwall/`: binary package `voidwall`. Integration tests, k6 load tests, and
   benchmark scripts live under `crates/voidwall/tests/` and `crates/voidwall/benches/`.
 - `crates/voidwall-pii/`: detection library. Read `crates/voidwall-pii/AGENTS.md` before editing anything
   under this crate.
+- `crates/voidwall-ml/`: ONNX Runtime integration and model adapters. It cannot depend on
+  `voidwall`.
 
 Proxy documentation lives under `docs/`.
 
 ## Platform
 
 Only Linux is supported. Do not add platform-conditional code for other operating systems.
+
+The minimum CPU is x86-64-v3 (Intel Haswell or later, any AMD Ryzen), set by the linked
+ONNX Runtime. The binary checks it from `.preinit_array` in `crates/voidwall/src/main.rs`,
+before any static constructor runs, and refuses to start below it. Keep that check in the
+binary crate.
 
 ## Distribution
 
@@ -70,15 +77,26 @@ irrepresentable.
 
 ## Build
 
-Run commands from the workspace root:
+Run commands from the workspace root. Before the first build, fetch the verified ONNX
+Runtime archive once; it needs `gh` 2.49 or later, logged in or with `GH_TOKEN`, and `xz`.
+`.cargo/config.toml` links every build against it, and a build without it fails:
 
 ```bash
+docker/fetch-ort.sh
 cargo check --workspace
 cargo test --workspace
 cargo test -p voidwall <name>
 cargo test -p voidwall-pii <name>
+cargo test -p voidwall-ml <name>
 cargo clippy --workspace --all-targets
+cargo deny check licenses
 ```
+
+`docker/ctl compile` builds the release binary for the image. It also runs the license
+gate (`deny.toml`) and generates the crate notices with `cargo-about` (`about.toml`). Install
+the tools with `cargo install --locked cargo-deny` and
+`cargo install --locked --features cli cargo-about`. Vendored license texts for ONNX
+Runtime, pyke's build, and Eigen live in `licenses/`.
 
 Treat Clippy warnings as errors. The workspace uses Rust edition 2024.
 
