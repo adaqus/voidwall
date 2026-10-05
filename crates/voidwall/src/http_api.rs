@@ -310,6 +310,9 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
     for kind in &kinds {
         metrics::inc_detection(kind, MODE, ROUTE, "request");
     }
+    for guard in scan_result.guards() {
+        metrics::inc_guard_detection(&guard, MODE, ROUTE, "request");
+    }
 
     // A guard error does not discard the findings of the guards that
     // succeeded: fail_open reports them, fail_close answers 500.
@@ -473,7 +476,9 @@ mod tests {
     async fn scan_with_a_failing_guard(on_error: OnError, kind: &'static str) -> Response {
         let engine = Arc::new(Engine::with_guards(vec![
             Box::new(TestGuard::new("failing", "API_UNUSED").failing()),
-            Box::new(TestGuard::new("detecting", kind)),
+            // The guard is named after its kind, so each test reads a guard
+            // label no other test uses.
+            Box::new(TestGuard::new(kind, kind)),
         ]));
         let config = AppConfig {
             on_error,
@@ -522,5 +527,49 @@ mod tests {
         assert_eq!(&bytes[..], br#"{"error":"internal error"}"#);
         // The kind label is unique to this test, so the count is exact.
         assert_eq!(detections("API_FAIL_CLOSE_KIND"), 1);
+        assert_eq!(guard_detections("API_FAIL_CLOSE_KIND"), 1);
+        assert_eq!(guard_detections("failing"), 0);
+        assert_eq!(api_blocks(), 0, "a 500 on /v1/scan is not a block");
+    }
+
+    // --- Guard detections and blocks ---
+
+    use crate::metrics::{GUARD_DETECTIONS_TOTAL, MESSAGES_BLOCKED_TOTAL};
+
+    fn guard_detections(guard: &str) -> u64 {
+        GUARD_DETECTIONS_TOTAL
+            .with_label_values(&[guard, MODE, ROUTE, "request"])
+            .get()
+    }
+
+    fn api_blocks() -> u64 {
+        MESSAGES_BLOCKED_TOTAL
+            .with_label_values(&[MODE, ROUTE, "request"])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn each_guard_with_findings_counts_once_and_nothing_is_blocked() {
+        let engine = Arc::new(Engine::with_guards(vec![
+            Box::new(TestGuard::new("api_gm_a", "API_GM_KIND_A")),
+            Box::new(TestGuard::new("api_gm_b", "API_GM_KIND_B")),
+            Box::new(TestGuard::new("api_gm_quiet", "API_UNUSED").silent()),
+        ]));
+        let state = build_state(&AppConfig::default(), engine);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+
+        let resp = process(state.clone(), headers, Bytes::from_static(b"content")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let mut json = HeaderMap::new();
+        json.insert("content-type", "application/json".parse().unwrap());
+        let malformed = process(state, json, Bytes::from_static(b"{not json")).await;
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+
+        assert_eq!(guard_detections("api_gm_a"), 1);
+        assert_eq!(guard_detections("api_gm_b"), 1);
+        assert_eq!(guard_detections("api_gm_quiet"), 0);
+        assert_eq!(api_blocks(), 0, "/v1/scan reports and blocks nothing");
     }
 }

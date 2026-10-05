@@ -19,6 +19,25 @@ lazy_static! {
     )
     .unwrap();
 
+    /// Messages in which a guard reported findings, by guard, mode, route, and
+    /// direction. One increment per guard per message, however many findings.
+    /// The guard name comes from configuration, never from a request.
+    pub static ref GUARD_DETECTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "voidwall_detections_total",
+            "Total messages in which a guard reported findings"
+        ),
+        &["guard", "mode", "route", "direction"]
+    )
+    .unwrap();
+
+    /// Messages the proxy stopped: a detection, or a fail_close error.
+    pub static ref MESSAGES_BLOCKED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!("voidwall_blocked_total", "Total messages the proxy stopped"),
+        &["mode", "route", "direction"]
+    )
+    .unwrap();
+
     /// Total HTTP requests processed.
     pub static ref REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!("voidwall_requests_total", "Total HTTP requests"),
@@ -90,6 +109,20 @@ pub fn inc_blocked(mode: &str, route: &str, direction: &str) {
         .inc();
 }
 
+/// Record a message in which `guard` reported findings.
+pub fn inc_guard_detection(guard: &str, mode: &str, route: &str, direction: &str) {
+    GUARD_DETECTIONS_TOTAL
+        .with_label_values(&[guard, mode, route, direction])
+        .inc();
+}
+
+/// Record a message the proxy stopped, whatever stopped it.
+pub fn inc_message_blocked(mode: &str, route: &str, direction: &str) {
+    MESSAGES_BLOCKED_TOTAL
+        .with_label_values(&[mode, route, direction])
+        .inc();
+}
+
 /// Record a completed request.
 pub fn inc_request(mode: &str, route: &str, method: &str, status: &str) {
     REQUESTS_TOTAL
@@ -156,6 +189,32 @@ mod tests {
             .get();
         inc_blocked(mode, route, direction);
         let after = BLOCKED_TOTAL
+            .with_label_values(&[mode, route, direction])
+            .get();
+        assert_eq!(after, before + 1);
+    }
+
+    #[test_case("pii", "reverse_proxy", "/api", "request" ; "pii guard on reverse proxy request")]
+    #[test_case("injection", "http_api", "global", "request" ; "configured guard on http api")]
+    fn inc_guard_detection_increments(guard: &str, mode: &str, route: &str, direction: &str) {
+        let before = GUARD_DETECTIONS_TOTAL
+            .with_label_values(&[guard, mode, route, direction])
+            .get();
+        inc_guard_detection(guard, mode, route, direction);
+        let after = GUARD_DETECTIONS_TOTAL
+            .with_label_values(&[guard, mode, route, direction])
+            .get();
+        assert_eq!(after, before + 1);
+    }
+
+    #[test_case("reverse_proxy", "/api", "request" ; "reverse proxy request")]
+    #[test_case("reverse_proxy", "/payments", "response" ; "reverse proxy response")]
+    fn inc_message_blocked_increments(mode: &str, route: &str, direction: &str) {
+        let before = MESSAGES_BLOCKED_TOTAL
+            .with_label_values(&[mode, route, direction])
+            .get();
+        inc_message_blocked(mode, route, direction);
+        let after = MESSAGES_BLOCKED_TOTAL
             .with_label_values(&[mode, route, direction])
             .get();
         assert_eq!(after, before + 1);

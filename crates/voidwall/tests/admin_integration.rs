@@ -135,3 +135,50 @@ async fn metrics_endpoint_carries_no_specialization_surface() {
 
     cancel.cancel();
 }
+
+/// The two guard families carry exactly the label sets the metrics spec names,
+/// and no kind label.
+#[tokio::test]
+async fn metrics_endpoint_carries_the_guard_families() {
+    let (addr, _, cancel) = start_admin(true).await;
+
+    // Force one sample of each family so both are emitted.
+    voidwall::metrics::inc_guard_detection("pii", "reverse_proxy", "/admin-scrape", "request");
+    voidwall::metrics::inc_message_blocked("reverse_proxy", "/admin-scrape", "request");
+
+    let body = reqwest::get(format!("http://{addr}/metrics"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let label_names = |family: &str| -> Vec<Vec<String>> {
+        body.lines()
+            .filter_map(|l| l.strip_prefix(&format!("{family}{{")))
+            .map(|rest| {
+                let labels = rest.split('}').next().unwrap();
+                let mut names: Vec<String> = labels
+                    .split(',')
+                    .map(|pair| pair.split('=').next().unwrap().to_string())
+                    .collect();
+                names.sort();
+                names
+            })
+            .collect()
+    };
+
+    let detections = label_names("voidwall_detections_total");
+    assert!(!detections.is_empty(), "expected a detections sample");
+    for names in detections {
+        assert_eq!(names, ["direction", "guard", "mode", "route"]);
+    }
+
+    let blocked = label_names("voidwall_blocked_total");
+    assert!(!blocked.is_empty(), "expected a blocked sample");
+    for names in blocked {
+        assert_eq!(names, ["direction", "mode", "route"]);
+    }
+
+    cancel.cancel();
+}

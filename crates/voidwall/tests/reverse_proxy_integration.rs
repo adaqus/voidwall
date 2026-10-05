@@ -26,7 +26,9 @@ async fn start_echo_upstream() -> SocketAddr {
         .route("/echo/{*rest}", any(echo_handler))
         .route("/pii-response", get(pii_response_handler))
         .route("/pii-response-headers", get(pii_response_headers_handler))
-        .route("/echo-with-pii", any(echo_with_pii_handler));
+        .route("/echo-with-pii", any(echo_with_pii_handler))
+        .route("/pii-response/{*rest}", get(pii_response_handler))
+        .route("/bad-json-response/{*rest}", get(bad_json_response_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -74,6 +76,15 @@ async fn pii_response_headers_handler() -> impl IntoResponse {
             ("x-user-info", "john.doe@example.com"),
         ],
         "clean response body",
+    )
+}
+
+/// Returns a body that declares JSON and does not parse as JSON.
+async fn bad_json_response_handler() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        "{not json",
     )
 }
 
@@ -1467,4 +1478,232 @@ async fn person_name_disabled_via_ignore_not_detected() {
         "name should pass through undetected, got: {body}"
     );
     assert!(!body.contains("[PERSON_NAME]"));
+}
+
+// ---------------------------------------------------------------------------
+// Guard metrics: voidwall_detections_total and voidwall_blocked_total
+// ---------------------------------------------------------------------------
+
+/// Every test below uses a route prefix no other test uses, so the counters it
+/// reads move only for its own requests and the counts are exact.
+fn blocked(route: &str, direction: &str) -> u64 {
+    voidwall::metrics::MESSAGES_BLOCKED_TOTAL
+        .with_label_values(&["reverse_proxy", route, direction])
+        .get()
+}
+
+fn pii_blocked(route: &str, direction: &str) -> u64 {
+    voidwall::metrics::BLOCKED_TOTAL
+        .with_label_values(&["reverse_proxy", route, direction])
+        .get()
+}
+
+fn pii_guard_detections(route: &str, direction: &str) -> u64 {
+    voidwall::metrics::GUARD_DETECTIONS_TOTAL
+        .with_label_values(&["pii", "reverse_proxy", route, direction])
+        .get()
+}
+
+async fn post_text(proxy: &TestProxy, path: &str, body: &'static str) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(proxy.url(path))
+        .header("content-type", "text/plain")
+        .body(body)
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_request_block_counts_once_in_both_blocked_families() {
+    const ROUTE: &str = "/echo/gm-request-403";
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![(ROUTE, "")],
+        scan_on(),
+        scan_off(),
+        Ingest::default(),
+    )
+    .await;
+
+    // Two kinds from one guard in one message.
+    let resp = post_text(
+        &proxy,
+        ROUTE,
+        "Mail john.doe@example.com and SSN 123-45-6789",
+    )
+    .await;
+
+    assert_eq!(resp.status(), 403);
+    assert_eq!(blocked(ROUTE, "request"), 1);
+    assert_eq!(pii_blocked(ROUTE, "request"), 1);
+    assert_eq!(pii_guard_detections(ROUTE, "request"), 1);
+}
+
+#[tokio::test]
+async fn a_response_block_counts_once_in_both_blocked_families() {
+    const ROUTE: &str = "/pii-response/gm-response-403";
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![(ROUTE, "")],
+        scan_off(),
+        scan_on(),
+        Ingest::default(),
+    )
+    .await;
+
+    let resp = reqwest::get(proxy.url(ROUTE)).await.unwrap();
+
+    assert_eq!(resp.status(), 403);
+    assert_eq!(blocked(ROUTE, "response"), 1);
+    assert_eq!(pii_blocked(ROUTE, "response"), 1);
+    assert_eq!(pii_guard_detections(ROUTE, "response"), 1);
+    assert_eq!(blocked(ROUTE, "request"), 0);
+}
+
+#[tokio::test]
+async fn an_oversize_body_under_fail_close_counts_as_blocked() {
+    const ROUTE: &str = "/echo/gm-oversize-close";
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        max_body_size: 10,
+        on_error: OnError::FailClose,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(ROUTE, "")], scan_on(), scan_off(), ingest).await;
+
+    let resp = post_text(&proxy, ROUTE, "This body is way longer than 10 bytes").await;
+
+    assert_eq!(resp.status(), 413);
+    assert_eq!(blocked(ROUTE, "request"), 1);
+    assert_eq!(pii_blocked(ROUTE, "request"), 0);
+}
+
+#[tokio::test]
+async fn an_unparseable_response_under_fail_close_counts_as_blocked() {
+    const ROUTE: &str = "/bad-json-response/gm-parse-close";
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        on_error: OnError::FailClose,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(ROUTE, "")], scan_off(), scan_on(), ingest).await;
+
+    let resp = reqwest::get(proxy.url(ROUTE)).await.unwrap();
+
+    assert_eq!(resp.status(), 400);
+    assert_eq!(blocked(ROUTE, "response"), 1);
+    assert_eq!(pii_blocked(ROUTE, "response"), 0);
+}
+
+/// The scanner failure is induced as in `scanner_failure_fail_close_answers_500`:
+/// a pool with no scanner threads.
+#[tokio::test]
+async fn a_scanner_failure_under_fail_close_counts_as_blocked() {
+    const ROUTE: &str = "/echo/gm-scanner-close";
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        on_error: OnError::FailClose,
+        ..Ingest::default()
+    };
+    let pii_config = PiiGuardConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![(ROUTE, "")],
+        scan_on(),
+        scan_off(),
+        ingest,
+        pii_config,
+    )
+    .await;
+
+    let resp = post_text(&proxy, ROUTE, "nothing sensitive here").await;
+
+    assert_eq!(resp.status(), 500);
+    assert_eq!(blocked(ROUTE, "request"), 1);
+    assert_eq!(pii_blocked(ROUTE, "request"), 0);
+}
+
+/// Under fail_open the same three errors let the message through, so nothing is
+/// counted as blocked.
+#[tokio::test]
+async fn errors_under_fail_open_are_not_counted_as_blocked() {
+    const OVERSIZE: &str = "/echo/gm-oversize-open";
+    const PARSE: &str = "/bad-json-response/gm-parse-open";
+    const SCANNER: &str = "/echo/gm-scanner-open";
+    let upstream = start_echo_upstream().await;
+
+    let ingest = Ingest {
+        max_body_size: 10,
+        on_error: OnError::FailOpen,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(
+        upstream,
+        vec![(OVERSIZE, "")],
+        scan_on(),
+        scan_off(),
+        ingest,
+    )
+    .await;
+    let resp = post_text(&proxy, OVERSIZE, "This body is way longer than 10 bytes").await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(blocked(OVERSIZE, "request"), 0);
+
+    let ingest = Ingest {
+        on_error: OnError::FailOpen,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(PARSE, "")], scan_off(), scan_on(), ingest).await;
+    let resp = reqwest::get(proxy.url(PARSE)).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(blocked(PARSE, "response"), 0);
+
+    let ingest = Ingest {
+        on_error: OnError::FailOpen,
+        ..Ingest::default()
+    };
+    let pii_config = PiiGuardConfig {
+        scanner_threads: Some(0),
+        ..default_pii_config()
+    };
+    let proxy = TestProxy::start_with_pii(
+        upstream,
+        vec![(SCANNER, "")],
+        scan_on(),
+        scan_off(),
+        ingest,
+        pii_config,
+    )
+    .await;
+    let resp = post_text(&proxy, SCANNER, "nothing sensitive here").await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(blocked(SCANNER, "request"), 0);
+}
+
+#[tokio::test]
+async fn an_upstream_failure_is_not_counted_as_blocked() {
+    const ROUTE: &str = "/echo/gm-upstream-502";
+    // Bind and drop: nothing listens here, so the proxy's connection is refused.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead_upstream = listener.local_addr().unwrap();
+    drop(listener);
+    let proxy = TestProxy::start(
+        dead_upstream,
+        vec![(ROUTE, "")],
+        scan_on(),
+        scan_off(),
+        Ingest::default(),
+    )
+    .await;
+
+    let resp = post_text(&proxy, ROUTE, "nothing sensitive here").await;
+
+    assert_eq!(resp.status(), 502);
+    assert_eq!(blocked(ROUTE, "request"), 0);
 }

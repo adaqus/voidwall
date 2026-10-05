@@ -219,7 +219,14 @@ async fn handle_proxied_request(
     let headers = req.headers().clone();
 
     // Buffer the request body.
-    let body_bytes = match buffer_body(req, ingest.max_body_size, ingest.on_error).await {
+    let body_bytes = match buffer_body(
+        req,
+        ingest.max_body_size,
+        ingest.on_error,
+        &route.path_prefix,
+    )
+    .await
+    {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -250,9 +257,11 @@ async fn handle_proxied_request(
         )
         .await
         {
-            PipelineResult::Block(resp) => return resp,
+            PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
+                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                return resp;
+            }
             PipelineResult::Pass => {}
-            PipelineResult::Error(resp) => return resp,
         }
     }
 
@@ -333,12 +342,14 @@ async fn handle_proxied_request(
         )
         .await
         {
-            PipelineResult::Block(resp) => return resp,
+            PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
+                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                return resp;
+            }
             PipelineResult::Pass => {
                 let final_headers = strip_hop_by_hop(&resp_headers);
                 return build_response(resp_status, final_headers, resp_body);
             }
-            PipelineResult::Error(resp) => return resp,
         }
     }
 
@@ -354,8 +365,11 @@ async fn handle_proxied_request(
 // ---------------------------------------------------------------------------
 
 enum PipelineResult {
+    /// A detection stopped the message: the fixed 403.
     Block(Response),
     Pass,
+    /// A `fail_close` error stopped the message. Only a stopped message is
+    /// built here — it is counted as blocked — so a 502 never is.
     Error(Response),
 }
 
@@ -497,6 +511,13 @@ async fn run_engine(
     for kind in &kinds {
         metrics::inc_detection(kind, MODE, ctx.route, ctx.direction);
     }
+    // Once per guard that reported, however many findings it reported. A
+    // guard the block abandoned returned nothing, so it is not counted.
+    for guard in scan_result.guards() {
+        metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction);
+    }
+    // The PII family counts the 403 only. The engine-wide family counts every
+    // stopped message and moves where the pipeline result is known.
     metrics::inc_blocked(MODE, ctx.route, ctx.direction);
 
     PipelineResult::Block(block_response(&kinds))
@@ -584,7 +605,15 @@ fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
 // Body buffering
 // ---------------------------------------------------------------------------
 
-async fn buffer_body(req: Request, max_size: usize, on_error: OnError) -> Result<Bytes, Response> {
+/// Read the request body whole. An oversize body under `fail_close` stops the
+/// message, so it is counted as blocked on `route`; a read failure is a 502 and
+/// is not.
+async fn buffer_body(
+    req: Request,
+    max_size: usize,
+    on_error: OnError,
+    route: &str,
+) -> Result<Bytes, Response> {
     let collected = req.into_body().collect().await.map_err(|e| {
         error!(error = %e, "failed to read request body");
         Error::Proxy(format!("failed to read request body: {e}")).into_response()
@@ -599,6 +628,7 @@ async fn buffer_body(req: Request, max_size: usize, on_error: OnError) -> Result
             }
             OnError::FailClose => {
                 metrics::inc_error("blocked", "body_too_large");
+                metrics::inc_message_blocked(MODE, route, "request");
                 Err(Error::BodyTooLarge.into_response())
             }
         }
@@ -760,7 +790,7 @@ mod tests {
     #[tokio::test]
     async fn buffer_body_within_limit() {
         let req = Request::builder().body(Body::from("hello")).unwrap();
-        let result = buffer_body(req, 1024, OnError::FailClose).await;
+        let result = buffer_body(req, 1024, OnError::FailClose, "/buffer-body-test").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello"));
     }
@@ -768,14 +798,14 @@ mod tests {
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_close() {
         let req = Request::builder().body(Body::from("hello world")).unwrap();
-        let result = buffer_body(req, 5, OnError::FailClose).await;
+        let result = buffer_body(req, 5, OnError::FailClose, "/buffer-body-test").await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_open() {
         let req = Request::builder().body(Body::from("hello world")).unwrap();
-        let result = buffer_body(req, 5, OnError::FailOpen).await;
+        let result = buffer_body(req, 5, OnError::FailOpen, "/buffer-body-test").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
     }
@@ -906,6 +936,18 @@ mod tests {
 
     /// Run one request body through `run_engine` with the given guards.
     async fn run_guards(guards: Vec<TestGuard>, on_error: OnError) -> PipelineResult {
+        run_guards_on(guards, on_error, "/guard-error-test", 1).await
+    }
+
+    /// Run `unit_count` request bodies through `run_engine` on `route`. A test
+    /// that reads a counter passes a route no other test uses, so its count is
+    /// exact.
+    async fn run_guards_on(
+        guards: Vec<TestGuard>,
+        on_error: OnError,
+        route: &str,
+        unit_count: usize,
+    ) -> PipelineResult {
         let engine = Engine::with_guards(guards.into_iter().map(|g| Box::new(g) as _).collect());
         let selection = engine.select(None);
         let ingest = Ingest {
@@ -920,11 +962,13 @@ mod tests {
             headers: &[],
         };
         let ctx = MetricContext {
-            route: "/guard-error-test",
+            route,
             direction: "request",
         };
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        for _ in 0..unit_count {
+            units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        }
         run_engine(&plan, units, &ctx, "scanner error").await
     }
 
@@ -990,5 +1034,164 @@ mod tests {
         };
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(&read_body(resp).await[..], br#"{"error":"internal error"}"#);
+    }
+
+    // --- Guard detections count once per guard per message ---
+
+    use crate::metrics::GUARD_DETECTIONS_TOTAL;
+
+    fn guard_detections(guard: &str, route: &str) -> u64 {
+        GUARD_DETECTIONS_TOTAL
+            .with_label_values(&[guard, MODE, route, "request"])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn each_guard_with_findings_counts_once_per_message() {
+        let route = "/guard-metrics-two-guards";
+
+        // Four units, so each guard reports four findings.
+        let result = run_guards_on(
+            vec![
+                TestGuard::new("gm_two_a", "RP_GM_KIND_A"),
+                TestGuard::new("gm_two_b", "RP_GM_KIND_B"),
+            ],
+            OnError::FailClose,
+            route,
+            4,
+        )
+        .await;
+
+        // The first guard to report blocks, so the other may be abandoned. A
+        // guard counts only when its findings came back.
+        let PipelineResult::Block(resp) = result else {
+            panic!("expected a 403 block");
+        };
+        let body: serde_json::Value = serde_json::from_slice(&read_body(resp).await).unwrap();
+        let kinds = body["kinds"].as_array().unwrap();
+        let counted = |guard: &str, kind: &str| {
+            let expected = u64::from(kinds.iter().any(|k| k == kind));
+            assert_eq!(guard_detections(guard, route), expected, "{guard}");
+        };
+        counted("gm_two_a", "RP_GM_KIND_A");
+        counted("gm_two_b", "RP_GM_KIND_B");
+    }
+
+    #[tokio::test]
+    async fn one_guard_with_many_findings_counts_once() {
+        let route = "/guard-metrics-many-findings";
+
+        let result = run_guards_on(
+            vec![TestGuard::new("gm_many", "RP_GM_MANY_KIND")],
+            OnError::FailClose,
+            route,
+            4,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Block(_)));
+        assert_eq!(guard_detections("gm_many", route), 1);
+    }
+
+    #[tokio::test]
+    async fn an_abandoned_guard_is_not_counted() {
+        let route = "/guard-metrics-abandoned";
+
+        let result = run_guards_on(
+            vec![
+                TestGuard::new("gm_fast", "RP_GM_FAST_KIND"),
+                TestGuard::new("gm_slow", "RP_GM_SLOW_KIND")
+                    .with_delay(std::time::Duration::from_secs(5)),
+            ],
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Block(_)));
+        assert_eq!(guard_detections("gm_fast", route), 1);
+        assert_eq!(guard_detections("gm_slow", route), 0);
+    }
+
+    #[tokio::test]
+    async fn a_guard_without_findings_is_not_counted() {
+        let route = "/guard-metrics-clean";
+
+        let result = run_guards_on(
+            vec![TestGuard::new("gm_quiet", "RP_UNUSED").silent()],
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Pass));
+        assert_eq!(guard_detections("gm_quiet", route), 0);
+    }
+
+    // --- A stopped message counts once in voidwall_blocked_total ---
+
+    use crate::config::{ReverseProxyConfig, Route};
+    use crate::metrics::MESSAGES_BLOCKED_TOTAL;
+
+    /// Send one plain-text request through the whole handler, over the given
+    /// guards. Request scanning blocks it before the upstream, so nothing
+    /// listens there.
+    async fn block_through_the_handler(guards: Vec<TestGuard>, route: &str) -> Response {
+        let engine = Arc::new(Engine::with_guards(
+            guards.into_iter().map(|g| Box::new(g) as _).collect(),
+        ));
+        let config = AppConfig {
+            reverse_proxy: ReverseProxyConfig {
+                routes: vec![Route {
+                    path_prefix: route.to_string(),
+                    upstream: "http://127.0.0.1:9".to_string(),
+                    guards: None,
+                    headers: Vec::new(),
+                }],
+                ..ReverseProxyConfig::default()
+            },
+            ..AppConfig::default()
+        };
+        let state = build_state(&config, engine);
+        let req = Request::builder()
+            .method("POST")
+            .uri(route)
+            .header("content-type", "text/plain")
+            .body(Body::from("content"))
+            .unwrap();
+        proxy_handler(State(state), req).await
+    }
+
+    fn blocked(route: &str) -> u64 {
+        MESSAGES_BLOCKED_TOTAL
+            .with_label_values(&[MODE, route, "request"])
+            .get()
+    }
+
+    #[test_case(
+        vec![
+            TestGuard::new("gm_block_a", "RP_GM_BLOCK_A"),
+            TestGuard::new("gm_block_b", "RP_GM_BLOCK_B"),
+        ],
+        "/guard-metrics-two-guards-blocked" ;
+        "two guards report findings"
+    )]
+    #[test_case(
+        vec![
+            TestGuard::new("gm_block_failing", "RP_UNUSED").failing(),
+            TestGuard::new("gm_block_detecting", "RP_GM_BLOCK_DETECT")
+                .with_delay(std::time::Duration::from_millis(50)),
+        ],
+        "/guard-metrics-error-and-detection" ;
+        "a guard error and a detection"
+    )]
+    #[tokio::test]
+    async fn a_stopped_message_counts_once_as_blocked(guards: Vec<TestGuard>, route: &str) {
+        let resp = block_through_the_handler(guards, route).await;
+
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(blocked(route), 1);
     }
 }

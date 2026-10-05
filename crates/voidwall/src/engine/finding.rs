@@ -5,8 +5,8 @@
 //! span and a confidence. A guard returns findings and nothing else: it does
 //! not block the message, change it, or write a metric.
 //!
-//! [`ScanResult`] wraps the merged findings. `detected`, `matches_count`, and
-//! `kinds` are derived from `findings` rather than stored beside them, so they
+//! [`ScanResult`] wraps the merged findings. `detected`, `matches_count`, `kinds`,
+//! and `guards` are derived from `findings` rather than stored beside them, so they
 //! cannot drift from the set they describe.
 
 use std::sync::Arc;
@@ -160,6 +160,16 @@ impl ScanResult {
         kinds.dedup();
         kinds.into_iter().map(str::to_owned).collect()
     }
+
+    /// The guards that reported findings, sorted by name and holding each guard
+    /// once however many findings it reported.
+    pub fn guards(&self) -> Vec<Arc<str>> {
+        let mut guards: Vec<Arc<str>> =
+            self.findings.iter().map(|f| Arc::clone(&f.guard)).collect();
+        guards.sort_unstable();
+        guards.dedup();
+        guards
+    }
 }
 
 #[cfg(test)]
@@ -246,5 +256,29 @@ mod tests {
         ]);
         assert_eq!(result.kinds(), vec!["EMAIL".to_string()]);
         assert_eq!(result.matches_count(), 2);
+    }
+
+    #[test]
+    fn guards_holds_one_entry_for_many_findings_of_one_guard() {
+        let result = kinds_of(&["EMAIL", "EMAIL", "US_SSN", "IBAN_CODE"]);
+        assert_eq!(result.guards(), vec![Arc::<str>::from(GUARD)]);
+    }
+
+    #[test]
+    fn guards_is_sorted_and_holds_each_guard_once() {
+        let result = ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "EMAIL", "guard_b", Span::new(0, 5)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_a", Span::new(0, 5)),
+            Finding::spanned(UnitId(1), "US_SSN", "guard_b", Span::new(0, 5)),
+        ]);
+        assert_eq!(
+            result.guards(),
+            vec![Arc::<str>::from("guard_a"), Arc::<str>::from("guard_b")]
+        );
+    }
+
+    #[test]
+    fn guards_is_empty_without_findings() {
+        assert!(ScanResult::default().guards().is_empty());
     }
 }

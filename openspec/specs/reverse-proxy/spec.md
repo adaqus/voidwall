@@ -108,7 +108,9 @@ When a scan detects PII, the proxy SHALL stop the message and SHALL answer 403. 
 SHALL be a JSON object holding an `error` field and a `kinds` array. The array SHALL list
 the detected kind names sorted, holding each kind once, and SHALL carry no matched text.
 The status, the body, and the response headers SHALL NOT be configurable. The proxy SHALL
-increment `voidwall_pii_blocked_total` once, and the detection counter once per kind.
+increment `voidwall_pii_blocked_total` once, `voidwall_blocked_total` once, the PII
+detection counter once per kind, and `voidwall_detections_total` once per guard that
+reported a finding.
 
 #### Scenario: PII is found in a request
 
@@ -124,6 +126,12 @@ increment `voidwall_pii_blocked_total` once, and the detection counter once per 
 
 - **WHEN** a scan detects three kinds
 - **THEN** the `kinds` array names them sorted, each once, with no matched value
+
+#### Scenario: A block increments the guard metrics
+
+- **WHEN** the PII guard's finding blocks a request
+- **THEN** `voidwall_blocked_total` increments by one and `voidwall_detections_total`
+  increments by one with `guard="pii"`
 
 ### Requirement: A clean message is forwarded unchanged
 
