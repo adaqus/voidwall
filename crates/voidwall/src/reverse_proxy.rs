@@ -228,7 +228,7 @@ async fn handle_proxied_request(
     .await
     {
         Ok(b) => b,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     // --- Request scanning ---
@@ -621,10 +621,10 @@ async fn buffer_body(
     max_size: usize,
     on_error: OnError,
     route: &str,
-) -> Result<Bytes, Response> {
+) -> Result<Bytes, Box<Response>> {
     let collected = req.into_body().collect().await.map_err(|e| {
         error!(error = %e, "failed to read request body");
-        Error::Proxy(format!("failed to read request body: {e}")).into_response()
+        Box::new(Error::Proxy(format!("failed to read request body: {e}")).into_response())
     })?;
     let bytes = collected.to_bytes();
 
@@ -637,7 +637,7 @@ async fn buffer_body(
             OnError::FailClose => {
                 metrics::inc_error("blocked", "body_too_large");
                 metrics::inc_message_blocked(MODE, route, "request");
-                Err(Error::BodyTooLarge.into_response())
+                Err(Box::new(Error::BodyTooLarge.into_response()))
             }
         }
     } else {

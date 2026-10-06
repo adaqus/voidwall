@@ -90,9 +90,7 @@ impl UserDetector {
             }
 
             let has_keywords = !def.keywords.is_empty();
-            let detection_expr;
-            let extract_expr;
-            if has_keywords {
+            let (detection_expr, extract_expr) = if has_keywords {
                 let kw_alt = def
                     .keywords
                     .iter()
@@ -103,12 +101,10 @@ impl UserDetector {
                     "(?i)(?:{kw_alt}){KEYWORD_SEPARATOR}({pat})",
                     pat = def.pattern
                 );
-                detection_expr = combined.clone();
-                extract_expr = combined;
+                (combined.clone(), combined)
             } else {
-                detection_expr = def.pattern.clone();
-                extract_expr = def.pattern.clone();
-            }
+                (def.pattern.clone(), def.pattern.clone())
+            };
 
             let extract = Regex::new(&extract_expr).map_err(PiiError::RegexCompilation)?;
 

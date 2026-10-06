@@ -472,7 +472,6 @@ impl Detector for DictionaryDetector {
 
 #[cfg(test)]
 mod tests {
-    use super::flags::*;
     use super::*;
     use test_case::test_case;
 

@@ -292,8 +292,10 @@ where
         .ok_or("its shape is invalid")?;
     let data: Vec<T> = match raw {
         Some(bytes) => bytes
-            .chunks_exact(N)
-            .map(|c| from_le(c.try_into().expect("chunks_exact yields N bytes")))
+            .as_chunks::<N>()
+            .0
+            .iter()
+            .map(|c| from_le(*c))
             .collect(),
         None => typed(),
     };
