@@ -9,8 +9,24 @@ publish = false
 # Pinned exactly: 2.0 is a release candidate with no semver promise. Default
 # features are off so `download-binaries` never runs; `.cargo/config.toml`
 # links the archive `docker/fetch-ort.sh` verified.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "half"] }
+# Float16 and BFloat16 initializers (fp16 and mixed-precision models) are
+# shared as `half` tensors; `ort`'s `half` feature brings the same crate.
+half = { version = "2", default-features = false }
 serde = { version = "1", features = ["derive"] }
+# Decodes `onnx.proto` messages; the types are generated once and checked in
+# (`scripts/gen-onnx-proto.sh`), so no build needs `protoc`.
+prost = "0.14"
+# The model read maps the file and decodes it without copying the weight bytes:
+# `raw_data` is a `Bytes` slice of the map.
+bytes = "1.9"
+memmap2 = "0.9"
+# Pinned to the version the tokenizer parity research ran on. `onig` is the
+# regex engine Python `tokenizers` uses, so token IDs match the reference.
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+# Sessions load the weight-free graph from a private temp directory, removed
+# when the load ends.
+tempfile = "3"
 
 [dev-dependencies]
 test-case = "3"

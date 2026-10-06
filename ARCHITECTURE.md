@@ -363,7 +363,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime; no inference yet |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; no scoring yet |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
@@ -380,6 +380,20 @@ Planned:
 `voidwall-pii` is one detection tier beside `voidwall-ml`, not a foundation under it.
 It carries a tier name for that reason: nothing in it is a base layer for the model
 crate, and a name suggesting otherwise would misdescribe the dependency.
+
+`voidwall_ml::load(&LoadSettings)` turns one model guard's model into N workers. Each
+worker owns one ONNX Runtime session with one intra-op thread, so a worker serves one OS
+thread; `voidwall` will own those threads and their channels, as it owns `ScannerPool`'s.
+The N sessions share one copy of the weights: the `.onnx` file is memory-mapped and decoded
+once without copying its weight bytes, each initializer is copied once into a tensor every
+session takes as an override, and one `PrepackedWeights` container holds the packed copies
+for all N. ONNX Runtime parses a copy of the graph whose initializers of 1 KiB or more carry
+no data, staged with an empty placeholder in a private temp directory (`TMPDIR`) for the
+length of the load, so creating a session does not copy the weights again. Measured on a
+256 MiB fixture with 4 sessions: 1.03× the weights kept, 2.00× at the startup peak, half of
+which is mapped file pages the kernel can drop. The sessions load in parallel after the
+first. A load returns only after the tensor contract, the tokenizer-against-embedding
+check, and one smoke inference per session have passed, so a model that loads also runs.
 
 A model cannot follow the detector lifecycle: a `Detector` is built per `Scanner`, and a
 `Scanner` is built per OS thread. A multi-gigabyte model cannot be built per thread. The

@@ -4,9 +4,19 @@
 //! returns scores, and `voidwall` turns scores into findings.
 
 pub mod adapter;
+mod checks;
 pub mod cpu;
+#[cfg(test)]
+mod fixtures;
+mod load;
+mod model_file;
+// Generated from `proto/onnx.proto` and not edited by hand, so its lints are
+// off; the load reads only part of it.
+#[allow(dead_code, clippy::all)]
+mod onnx_proto;
 
-pub use adapter::AdapterKind;
+pub use adapter::{Adapter, AdapterKind, TextClassifier};
+pub use load::{LoadError, LoadSettings, Worker, load};
 
 use std::ffi::CStr;
 

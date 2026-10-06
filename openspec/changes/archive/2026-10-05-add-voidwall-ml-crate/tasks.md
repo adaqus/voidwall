@@ -30,7 +30,7 @@
 
 ## 6. CI
 
-- [ ] 6.1 Add `.github/workflows/ci.yml` (D5): native deps, fetch with `GH_TOKEN: ${{ github.token }}`, cache keyed by the archive hash, then deny, check, clippy `-D warnings`, test. Verify: the workflow run on a pushed branch is green.
+- [x] 6.1 Add `.github/workflows/ci.yml` (D5): native deps, fetch with `GH_TOKEN: ${{ github.token }}`, cache keyed by the archive hash, then deny, check, clippy `-D warnings`, test. Verify: the workflow run on a pushed branch is green.
 
 ## 7. Docs and final checks
 
