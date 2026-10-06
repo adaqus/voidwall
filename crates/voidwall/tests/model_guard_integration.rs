@@ -267,7 +267,7 @@ async fn the_model_guard_blocks_on_the_proxy_and_reports_on_the_api() {
 async fn a_route_that_names_the_pii_guard_and_a_model_guard_runs_both() {
     let artifacts = trigger_artifacts();
     let guards = format!(
-        "[builtin_guards.pii]\nscanner_threads = 1\n{}",
+        "[builtin_guards.pii]\nscanner_threads = 1\ndetect = [\"Email\"]\n{}",
         guard_section(&artifacts, "threads = 1")
     );
     let server = start(&guards, r#"guards = ["pii", "injection"]"#, "").await;
@@ -299,7 +299,7 @@ async fn a_block_cancels_the_model_run_without_an_error() {
         TokenizerFixture::default(),
     );
     let guards = format!(
-        "[builtin_guards.pii]\nscanner_threads = 1\n{}",
+        "[builtin_guards.pii]\nscanner_threads = 1\ndetect = [\"Email\"]\n{}",
         guard_section(&artifacts, "threads = 1")
     );
     let server = start(
