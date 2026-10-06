@@ -11,7 +11,12 @@
 //! requires it to exist, but takes every value from the overrides, so the
 //! graph and an empty placeholder are staged in a private temp directory for
 //! the length of the load.
+//!
+//! A weight that feeds only constant nodes keeps its data: ONNX Runtime's
+//! constant folding evaluates those nodes at load from the graph itself, not
+//! from the overrides.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,7 +28,7 @@ use ort::value::{DynValue, PrimitiveTensorElementType, Tensor};
 use prost::Message;
 
 use crate::load::LoadError;
-use crate::onnx_proto::{ModelProto, StringStringEntryProto, TensorProto, tensor_proto};
+use crate::onnx_proto::{ModelProto, NodeProto, StringStringEntryProto, TensorProto, tensor_proto};
 
 /// Initializers at least this large leave the graph ONNX Runtime parses. This
 /// is the `size_threshold` default of ONNX's own external-data conversion.
@@ -98,12 +103,13 @@ impl ModelFile {
 
         let embedding_rows = embedding_rows(&graph.node, &graph.initializer)
             .ok_or(LoadError::EmbeddingTableNotFound)?;
+        let folded = folded_inputs(&graph.node, &graph.initializer);
         let mut initializers = Vec::with_capacity(graph.initializer.len());
         for tensor in &mut graph.initializer {
             let name = tensor.name.clone().unwrap_or_default();
             let (value, size) = decode(tensor)
                 .map_err(|reason| unreadable(format!("initializer `{name}`: {reason}")))?;
-            if size >= STRIP_THRESHOLD {
+            if size >= STRIP_THRESHOLD && !folded.contains(name.as_str()) {
                 strip(tensor);
             }
             initializers.push(SharedWeight {
@@ -153,6 +159,44 @@ fn strip(tensor: &mut TensorProto) {
         key: Some("location".into()),
         value: Some(STRIPPED_LOCATION.into()),
     }];
+}
+
+/// The initializers that feed a node whose inputs are all constant: an
+/// initializer, or an output of such a node. ONNX Runtime folds those nodes at
+/// load and reads their inputs from the graph. The nodes of an ONNX graph are
+/// in topological order, so one pass finds them all.
+///
+/// This may name more than ONNX Runtime folds, which costs memory only.
+fn folded_inputs(nodes: &[NodeProto], initializers: &[TensorProto]) -> HashSet<String> {
+    let weights: HashSet<&str> = initializers
+        .iter()
+        .filter_map(|t| t.name.as_deref())
+        .collect();
+    let mut constant = weights.clone();
+    let mut folded = HashSet::new();
+    for node in nodes {
+        let inputs: Vec<&str> = node
+            .input
+            .iter()
+            .map(String::as_str)
+            .filter(|i| !i.is_empty())
+            .collect();
+        let foldable = if inputs.is_empty() {
+            node.op_type.as_deref() == Some("Constant")
+        } else {
+            inputs.iter().all(|i| constant.contains(i))
+        };
+        if foldable {
+            folded.extend(
+                inputs
+                    .iter()
+                    .filter(|i| weights.contains(*i))
+                    .map(|i| (*i).to_owned()),
+            );
+            constant.extend(node.output.iter().map(String::as_str));
+        }
+    }
+    folded
 }
 
 /// The row count of the initializer a `Gather` node reads `input_ids` from.
@@ -322,6 +366,30 @@ mod tests {
             let large = name == "embedding";
             assert_eq!((external, has_data), (large, !large), "{name}");
         }
+    }
+
+    #[test]
+    fn a_weight_that_feeds_only_constant_nodes_keeps_its_data() {
+        let file = read(&Fixture {
+            folded_weight: true,
+            ..Fixture::default()
+        })
+        .unwrap();
+        let graph = ModelProto::decode(file.graph_bytes.as_slice())
+            .unwrap()
+            .graph
+            .unwrap();
+        let tensor = |name: &str| {
+            graph
+                .initializer
+                .iter()
+                .find(|t| t.name.as_deref() == Some(name))
+                .unwrap()
+        };
+        // Both are 1 KiB or more; only the embedding feeds a non-constant node.
+        assert!(tensor("fold_table").raw_data.is_some());
+        assert!(tensor("embedding").raw_data.is_none());
+        assert!(file.initializers.iter().any(|w| w.name == "fold_table"));
     }
 
     #[test]

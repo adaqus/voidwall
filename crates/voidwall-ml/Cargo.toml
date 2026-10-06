@@ -29,4 +29,6 @@ tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"
 tempfile = "3"
 
 [dev-dependencies]
+# Reads the parity references `parity/reference.py` writes.
+serde_json = "1"
 test-case = "3"

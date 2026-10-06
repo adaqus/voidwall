@@ -42,18 +42,30 @@ impl AdapterKind {
 /// The code path of one [`AdapterKind`]. A contributor adds an adapter by
 /// implementing this trait and giving its kind an arm in [`crate::load`].
 ///
-/// This holds the load side only: what the model's tensors must look like for
-/// the adapter to run it.
+/// It holds what differs between adapters: the width of the model's output
+/// and how one window's output becomes a score. Tokenizing, windows, and the
+/// maximum over windows are shared code.
 pub trait Adapter {
     /// The last dimension the model's single output must have.
     const OUTPUT_WIDTH: i64;
+
+    /// The score of one window, in the adapter's score range, from its
+    /// `OUTPUT_WIDTH` logits. The run checks that every logit is finite first.
+    fn window_score(logits: &[f32]) -> f32;
 }
 
 /// [`AdapterKind::TextClassifier`]: a binary head, two logits per input.
+/// Class 1 is the class its single label names.
 pub struct TextClassifier;
 
 impl Adapter for TextClassifier {
     const OUTPUT_WIDTH: i64 = 2;
+
+    /// `softmax(logits)[1]`, written as `sigmoid(l1 − l0)`: for finite logits it
+    /// needs no max-shift and cannot become NaN.
+    fn window_score(logits: &[f32]) -> f32 {
+        1.0 / (1.0 + (logits[0] - logits[1]).exp())
+    }
 }
 
 #[cfg(test)]
@@ -68,5 +80,22 @@ mod tests {
     fn the_name_is_the_config_name(kind: AdapterKind) {
         let name: StrDeserializer<Error> = kind.name().into_deserializer();
         assert_eq!(AdapterKind::deserialize(name).unwrap(), kind);
+    }
+
+    #[test_case([0.0, 0.0], 0.5 ; "equal logits")]
+    #[test_case([3.0, 3.0], 0.5 ; "equal non-zero logits")]
+    #[test_case([-1e30, 1e30], 1.0 ; "class 1 far ahead")]
+    #[test_case([1e30, -1e30], 0.0 ; "class 0 far ahead")]
+    fn the_text_classifier_scores_softmax_one(logits: [f32; 2], expected: f32) {
+        let score = TextClassifier::window_score(&logits);
+        assert!(!score.is_nan());
+        assert_eq!(score, expected);
+    }
+
+    #[test]
+    fn the_text_classifier_score_equals_softmax() {
+        let (l0, l1) = (0.3f32, 1.7f32);
+        let softmax = l1.exp() / (l0.exp() + l1.exp());
+        assert!((TextClassifier::window_score(&[l0, l1]) - softmax).abs() < 1e-6);
     }
 }

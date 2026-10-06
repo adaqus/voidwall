@@ -107,26 +107,20 @@ pub(crate) fn check_tokenizer(tokenizer: &Tokenizer, rows: i64) -> Result<(), Lo
     Ok(())
 }
 
-/// Token IDs and attention mask for the smoke inference.
-///
-/// With a fixed sequence length the IDs are cut or padded to it, padding with
-/// `pad_id` under mask 0. Real padding belongs to the
-/// adapter's run; this input only needs a shape the model accepts.
+/// Token IDs for the smoke inference, cut to a fixed sequence length when the
+/// model has one. The run pads them as it pads any window.
 pub(crate) fn smoke_input(
     tokenizer: &Tokenizer,
-    pad_id: i64,
     fixed_seq: Option<usize>,
-) -> Result<(Vec<i64>, Vec<i64>), LoadError> {
+) -> Result<Vec<i64>, LoadError> {
     let encoding = tokenizer
         .encode(SMOKE_TEXT, true)
         .map_err(|e| LoadError::SmokeInference(format!("the tokenizer failed: {e}")))?;
     let mut ids: Vec<i64> = encoding.get_ids().iter().map(|&id| i64::from(id)).collect();
-    let mut mask = vec![1; ids.len()];
     if let Some(n) = fixed_seq {
-        ids.resize(n, pad_id);
-        mask.resize(n, 0);
+        ids.truncate(n);
     }
-    Ok((ids, mask))
+    Ok(ids)
 }
 
 fn tensor(ty: &ValueType) -> Option<(TensorElementType, &Shape)> {
@@ -242,20 +236,11 @@ mod tests {
     }
 
     #[test]
-    fn the_smoke_input_is_padded_to_a_fixed_length() {
+    fn the_smoke_input_is_cut_to_a_fixed_length() {
         let dir = tempfile::tempdir().unwrap();
         let tokenizer = Tokenizer::from_file(write_tokenizer(dir.path(), 4)).unwrap();
-        assert_eq!(
-            smoke_input(&tokenizer, 9, None).unwrap(),
-            (vec![1, 2, 3], vec![1, 1, 1])
-        );
-        assert_eq!(
-            smoke_input(&tokenizer, 9, Some(5)).unwrap(),
-            (vec![1, 2, 3, 9, 9], vec![1, 1, 1, 0, 0])
-        );
-        assert_eq!(
-            smoke_input(&tokenizer, 9, Some(2)).unwrap(),
-            (vec![1, 2], vec![1, 1])
-        );
+        assert_eq!(smoke_input(&tokenizer, None).unwrap(), vec![1, 2, 3]);
+        assert_eq!(smoke_input(&tokenizer, Some(5)).unwrap(), vec![1, 2, 3]);
+        assert_eq!(smoke_input(&tokenizer, Some(2)).unwrap(), vec![1, 2]);
     }
 }

@@ -2933,6 +2933,7 @@ dependencies = [
  "ort",
  "prost",
  "serde",
+ "serde_json",
  "tempfile",
  "test-case",
  "tokenizers",

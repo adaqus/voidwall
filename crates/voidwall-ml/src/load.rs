@@ -3,15 +3,16 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ort::session::Session;
 use ort::session::builder::{GraphOptimizationLevel, PrepackedWeights};
-use ort::value::Tensor;
 use tokenizers::Tokenizer;
 
 use crate::adapter::{Adapter, AdapterKind, TextClassifier};
 use crate::checks::{self, InputLayout};
 use crate::model_file::ModelFile;
+use crate::run::{RunError, Windowing};
 
 /// What one load needs. `voidwall` builds it from a model guard's configuration.
 #[derive(Debug, Clone)]
@@ -21,6 +22,13 @@ pub struct LoadSettings {
     pub tokenizer_path: PathBuf,
     /// The longest input the adapter feeds the model, in tokens.
     pub max_tokens: usize,
+    /// Tokens shared by neighbouring windows. `None` means
+    /// [`default_overlap`](crate::default_overlap); a value above
+    /// `max_tokens / 2` fails the load.
+    pub overlap_tokens: Option<usize>,
+    /// The largest body ingest admits, in bytes. A unit may need at most
+    /// `ceil(max_body_size / stride)` windows.
+    pub max_body_size: NonZeroUsize,
     /// How many sessions to load. Each is meant for one worker thread.
     pub workers: NonZeroUsize,
 }
@@ -28,8 +36,18 @@ pub struct LoadSettings {
 /// One loaded session, ready for one worker thread. The guard in `voidwall`
 /// owns the thread.
 pub struct Worker {
-    session: Session,
-    layout: InputLayout,
+    pub(crate) session: Session,
+    pub(crate) layout: InputLayout,
+    /// Shared by every worker of one load.
+    pub(crate) tokenizer: Arc<Tokenizer>,
+    pub(crate) pad_id: i64,
+    pub(crate) windowing: Windowing,
+    pub(crate) width: i64,
+    /// The adapter's [`Adapter::window_score`].
+    pub(crate) window_score: fn(&[f32]) -> f32,
+    /// Inferences run, so tests can see how many windows a run took.
+    #[cfg(test)]
+    pub(crate) inferences: usize,
 }
 
 /// Why a load failed. No variant carries input text: a load sees none.
@@ -47,6 +65,8 @@ pub enum LoadError {
     InputType { name: String, found: String },
     InputRank { name: String, rank: usize },
     FixedSequence { fixed: usize, max_tokens: usize },
+    OverlapTooLarge { overlap: usize, bound: usize },
+    WindowTooShort { window: usize, overlap: usize },
     OutputCount(usize),
     OutputType(String),
     OutputRank(usize),
@@ -114,6 +134,15 @@ impl fmt::Display for LoadError {
                 "the model fixes the sequence dimension at {fixed}, but max_tokens is \
                  {max_tokens}; they must be equal"
             ),
+            Self::OverlapTooLarge { overlap, bound } => write!(
+                f,
+                "overlap_tokens is {overlap}; it must be at most max_tokens / 2 = {bound}"
+            ),
+            Self::WindowTooShort { window, overlap } => write!(
+                f,
+                "the window of {window} tokens (max_tokens minus the tokenizer's special \
+                 tokens) is not longer than the overlap of {overlap} tokens"
+            ),
             Self::OutputCount(n) => write!(f, "the model has {n} outputs; exactly 1 is required"),
             Self::OutputType(found) => {
                 write!(f, "the output has element type {found}; f32 is required")
@@ -152,6 +181,15 @@ pub fn load(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
 fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
     // Cheap checks first: nothing is loaded into ONNX Runtime until they pass.
     let (tokenizer, pad_id) = read_tokenizer(settings)?;
+    let special = tokenizer
+        .get_post_processor()
+        .map_or(0, |p| tokenizers::PostProcessor::added_tokens(p, false));
+    let windowing = Windowing::new(
+        settings.max_tokens,
+        special,
+        settings.overlap_tokens,
+        settings.max_body_size,
+    )?;
     let model = ModelFile::read(&settings.model_path)?;
     checks::check_tokenizer(&tokenizer, model.embedding_rows)?;
     // Removed when this function returns; the sessions no longer need it then.
@@ -164,22 +202,29 @@ fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadErr
     let first = new_session(settings, &model, &graph, &prepacked)?;
     let layout = checks::check_inputs(first.inputs(), settings.max_tokens)?;
     checks::check_output(first.outputs(), A::OUTPUT_WIDTH)?;
-    let (ids, mask) = checks::smoke_input(&tokenizer, pad_id, layout.fixed_seq)?;
-    drop(tokenizer);
+    let ids = checks::smoke_input(&tokenizer, layout.fixed_seq)?;
 
-    let first = Worker {
-        session: first,
+    let tokenizer = Arc::new(tokenizer);
+    let worker = |session: Session| Worker {
+        session,
         layout,
+        tokenizer: Arc::clone(&tokenizer),
+        pad_id,
+        windowing,
+        width: A::OUTPUT_WIDTH,
+        window_score: A::window_score,
+        #[cfg(test)]
+        inferences: 0,
     };
+    let first = worker(first);
     let workers = std::thread::scope(|scope| {
-        let smoke =
-            |mut worker: Worker| worker.smoke(&ids, &mask, A::OUTPUT_WIDTH).map(|()| worker);
+        let smoke = |mut worker: Worker| worker.smoke(&ids).map(|()| worker);
         let mut handles = vec![scope.spawn(move || smoke(first))];
         handles.extend((1..settings.workers.get()).map(|_| {
-            let (model, graph, prepacked) = (&model, &graph, &prepacked);
+            let (model, graph, prepacked, worker) = (&model, &graph, &prepacked, &worker);
             scope.spawn(move || {
                 let session = new_session(settings, model, graph, prepacked)?;
-                smoke(Worker { session, layout })
+                smoke(worker(session))
             })
         }));
         handles
@@ -243,30 +288,13 @@ fn new_session(
 }
 
 impl Worker {
-    /// Runs one inference and checks that it returns `[1, width]` finite values.
-    fn smoke(&mut self, ids: &[i64], mask: &[i64], width: i64) -> Result<(), LoadError> {
-        let failed = |e: ort::Error| LoadError::SmokeInference(e.to_string());
-        let shape = [1usize, ids.len()];
-        let mut inputs = ort::inputs![
-            "input_ids" => Tensor::from_array((shape, ids.to_vec())).map_err(failed)?,
-            "attention_mask" => Tensor::from_array((shape, mask.to_vec())).map_err(failed)?,
-        ];
-        if self.layout.token_type_ids {
-            let zeros = Tensor::from_array((shape, vec![0i64; ids.len()])).map_err(failed)?;
-            inputs.push(("token_type_ids".into(), zeros.into()));
-        }
-        let outputs = self.session.run(inputs).map_err(failed)?;
-        let (out_shape, values) = outputs[0].try_extract_tensor::<f32>().map_err(failed)?;
-        if **out_shape != [1, width] {
-            return Err(LoadError::SmokeInference(format!(
-                "the output has shape {:?}; [1, {width}] is required",
-                &**out_shape
-            )));
-        }
-        if !values.iter().all(|v| v.is_finite()) {
-            return Err(LoadError::SmokeNonFinite);
-        }
-        Ok(())
+    /// Runs one inference on the smoke input through the same path a run uses.
+    fn smoke(&mut self, ids: &[i64]) -> Result<(), LoadError> {
+        self.infer(ids).map(drop).map_err(|e| match e {
+            RunError::NonFinite => LoadError::SmokeNonFinite,
+            RunError::Inference(reason) => LoadError::SmokeInference(reason),
+            other => LoadError::SmokeInference(other.to_string()),
+        })
     }
 }
 
@@ -274,6 +302,7 @@ impl Worker {
 mod tests {
     use super::*;
     use crate::fixtures::{Fixture, ROWS, write_tokenizer};
+    use ort::value::Tensor;
 
     fn settings(dir: &std::path::Path, fixture: &Fixture, workers: usize) -> LoadSettings {
         LoadSettings {
@@ -281,6 +310,8 @@ mod tests {
             model_path: fixture.write(dir),
             tokenizer_path: write_tokenizer(dir, ROWS as u32 - 1),
             max_tokens: 16,
+            overlap_tokens: None,
+            max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
             workers: NonZeroUsize::new(workers).unwrap(),
         }
     }
@@ -406,14 +437,32 @@ mod tests {
             .commit_from_file(&settings.model_path)
             .unwrap();
         let mut worker = load(&settings).unwrap().pop().unwrap();
-        let logits = |session: &mut Session| {
-            let ids = Tensor::from_array(([1usize, 3], vec![1i64, 2, 3])).unwrap();
-            let mask = Tensor::from_array(([1usize, 3], vec![1i64, 1, 1])).unwrap();
-            let outputs = session
-                .run(ort::inputs!["input_ids" => ids, "attention_mask" => mask])
-                .unwrap();
-            outputs[0].try_extract_tensor::<f32>().unwrap().1.to_vec()
+        assert_eq!(logits(&mut worker.session), logits(&mut plain));
+    }
+
+    /// The logits of one fixed input.
+    fn logits(session: &mut Session) -> Vec<f32> {
+        let ids = Tensor::from_array(([1usize, 3], vec![1i64, 2, 3])).unwrap();
+        let mask = Tensor::from_array(([1usize, 3], vec![1i64, 1, 1])).unwrap();
+        let outputs = session
+            .run(ort::inputs!["input_ids" => ids, "attention_mask" => mask])
+            .unwrap();
+        outputs[0].try_extract_tensor::<f32>().unwrap().1.to_vec()
+    }
+
+    #[test]
+    fn a_weight_that_feeds_only_constant_nodes_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = Fixture {
+            folded_weight: true,
+            ..Fixture::default()
         };
+        let settings = settings(dir.path(), &fixture, 2);
+        let mut plain = Session::builder()
+            .unwrap()
+            .commit_from_file(&settings.model_path)
+            .unwrap();
+        let mut worker = load(&settings).unwrap().pop().unwrap();
         assert_eq!(logits(&mut worker.session), logits(&mut plain));
     }
 

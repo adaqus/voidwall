@@ -14,9 +14,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use prost::Message;
-use tokenizers::Tokenizer;
 use tokenizers::models::wordlevel::WordLevel;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
+use tokenizers::processors::template::TemplateProcessing;
+use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
 
 use crate::onnx_proto::{
     AttributeProto, GraphProto, ModelProto, NodeProto, OperatorSetIdProto, TensorProto,
@@ -26,6 +27,14 @@ use crate::onnx_proto::{
 /// Rows of the fixture's embedding table.
 pub const ROWS: i64 = 16;
 const HIDDEN: i64 = 32;
+
+/// The token that [`Fixture::trigger`] makes score high, and its ID.
+pub const TRIGGER: &str = "trigger";
+pub const TRIGGER_ID: u32 = 8;
+const CLS_ID: u32 = 9;
+const SEP_ID: u32 = 10;
+/// The pad ID of a tokenizer written with [`TokenizerFixture::truncate_and_pad`].
+pub const PAD_ID: u32 = 11;
 
 /// One fixture model. `Fixture::default()` passes every load check.
 #[derive(Clone)]
@@ -49,6 +58,18 @@ pub struct Fixture {
     pub nan_bias: bool,
     /// A reshape that the load accepts and the first run rejects.
     pub fails_at_run: bool,
+    /// Every token but [`TRIGGER_ID`] gives logits `[0.5, -0.5]` (score 0.27);
+    /// each [`TRIGGER_ID`] adds `[-10, 10]`, so a window holding it scores 1.0.
+    pub trigger: bool,
+    /// The embedding row of this token ID is NaN, so only a unit holding it
+    /// gives NaN logits; the smoke input does not.
+    pub nan_row: Option<u32>,
+    /// The attention mask is reshaped to `[1, n]`, so a run fails on any
+    /// sequence length but `n`. The plain tokenizer's smoke input has 3 tokens.
+    pub mask_reshaped_to: Option<i64>,
+    /// A 1 KiB weight of zeros whose only consumer is a `ReduceSum`, added to
+    /// the logits: ONNX Runtime constant-folds it at load, from the graph.
+    pub folded_weight: bool,
 }
 
 impl Default for Fixture {
@@ -67,6 +88,10 @@ impl Default for Fixture {
             cast_before_gather: false,
             nan_bias: false,
             fails_at_run: false,
+            trigger: false,
+            nan_row: None,
+            mask_reshaped_to: None,
+            folded_weight: false,
         }
     }
 }
@@ -126,9 +151,20 @@ impl Fixture {
                 &["mask_f"],
                 vec![int_attr("to", 1)],
             ));
+            let mask_f = if self.mask_reshaped_to.is_some() {
+                nodes.push(node(
+                    "Reshape",
+                    &["mask_f", "mask_shape"],
+                    &["mask_fixed"],
+                    vec![],
+                ));
+                "mask_fixed"
+            } else {
+                "mask_f"
+            };
             nodes.push(node(
                 "Unsqueeze",
-                &["mask_f", "last_axis"],
+                &[mask_f, "last_axis"],
                 &["mask_3d"],
                 vec![],
             ));
@@ -161,7 +197,18 @@ impl Fixture {
         } else {
             "logits"
         };
-        nodes.push(node("Add", &["projected", "bias"], &[logits], vec![]));
+        if self.folded_weight {
+            nodes.push(node("Add", &["projected", "bias"], &["biased"], vec![]));
+            nodes.push(node(
+                "ReduceSum",
+                &["fold_table"],
+                &["folded"],
+                vec![int_attr("keepdims", 0)],
+            ));
+            nodes.push(node("Add", &["biased", "folded"], &[logits], vec![]));
+        } else {
+            nodes.push(node("Add", &["projected", "bias"], &[logits], vec![]));
+        }
         if self.float16_output {
             nodes.push(node(
                 "Cast",
@@ -190,18 +237,42 @@ impl Fixture {
             ));
         }
 
-        let bias = if self.nan_bias { f32::NAN } else { 0.1 };
-        let initializer = vec![
-            float_tensor("embedding", &[self.rows, HIDDEN], |i| (i % 7) as f32 * 0.1),
-            float_tensor("weight", &[HIDDEN, self.width], |i| {
-                (i % 5) as f32 * 0.2 - 0.4
-            }),
-            float_tensor("bias", &[self.width], |_| bias),
+        let trigger_row = TRIGGER_ID as usize * HIDDEN as usize;
+        let nan_row = self.nan_row.map(|id| id as usize * HIDDEN as usize);
+        let embedding = |i: usize| match self.trigger {
+            _ if nan_row.is_some_and(|row| (row..row + HIDDEN as usize).contains(&i)) => f32::NAN,
+            // Only the trigger's row is non-zero, in its first column.
+            true if i == trigger_row => 10.0,
+            true => 0.0,
+            false => (i % 7) as f32 * 0.1,
+        };
+        let weight = |i: usize| match self.trigger {
+            // Only the first hidden column projects: -1 to logit 0, +1 to logit 1.
+            true if i == 0 => -1.0,
+            true if i == 1 => 1.0,
+            true => 0.0,
+            false => (i % 5) as f32 * 0.2 - 0.4,
+        };
+        let bias = |i: usize| match (self.nan_bias, self.trigger) {
+            (true, _) => f32::NAN,
+            (false, true) => [0.5, -0.5][i % 2],
+            (false, false) => 0.1,
+        };
+        let mut initializer = vec![
+            float_tensor("embedding", &[self.rows, HIDDEN], embedding),
+            float_tensor("weight", &[HIDDEN, self.width], weight),
+            float_tensor("bias", &[self.width], bias),
             int64_tensor("last_axis", &[1], &[-1]),
             int64_tensor("seq_axis", &[1], &[1]),
             int64_tensor("shape_by_3", &[2], &[-1, 3]),
             int64_tensor("shape_back", &[2], &[-1, HIDDEN]),
         ];
+        if self.folded_weight {
+            initializer.push(float_tensor("fold_table", &[256], |_| 0.0));
+        }
+        if let Some(n) = self.mask_reshaped_to {
+            initializer.push(int64_tensor("mask_shape", &[2], &[1, n]));
+        }
 
         ModelProto {
             ir_version: Some(8),
@@ -243,24 +314,84 @@ impl Fixture {
 
 /// Writes a word-level tokenizer whose highest ID is `highest_id` and returns its path.
 pub fn write_tokenizer(dir: &Path, highest_id: u32) -> PathBuf {
-    let mut vocab: HashMap<String, u32> = ["[UNK]", "voidwall", "smoke", "test"]
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.to_string(), i as u32))
-        .collect();
-    vocab.insert("highest".into(), highest_id);
-    let model = WordLevel::builder()
-        .vocab(vocab.into_iter().collect())
-        .unk_token("[UNK]".into())
-        .build()
-        .expect("build word-level model");
-    let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Some(Whitespace {}));
-    let path = dir.join("tokenizer.json");
-    tokenizer
-        .save(&path, false)
-        .expect("write fixture tokenizer");
-    path
+    TokenizerFixture {
+        highest_id,
+        ..TokenizerFixture::default()
+    }
+    .write(dir)
+}
+
+/// One word-level fixture tokenizer: `[UNK]` 0, `voidwall` 1, `smoke` 2,
+/// `test` 3, [`TRIGGER`] 8, `[CLS]` 9, `[SEP]` 10, `[PAD]` 11, and `highest`.
+pub struct TokenizerFixture {
+    /// The ID of the token `highest`.
+    pub highest_id: u32,
+    /// A `[CLS] $A [SEP]` post-processor, so each sequence gets 2 special tokens.
+    pub special_tokens: bool,
+    /// The file sets truncation at 2 tokens and padding with [`PAD_ID`].
+    pub truncate_and_pad: bool,
+}
+
+impl Default for TokenizerFixture {
+    fn default() -> Self {
+        Self {
+            highest_id: ROWS as u32 - 1,
+            special_tokens: false,
+            truncate_and_pad: false,
+        }
+    }
+}
+
+impl TokenizerFixture {
+    /// Writes the tokenizer into `dir` and returns its path.
+    pub fn write(&self, dir: &Path) -> PathBuf {
+        let mut vocab: HashMap<String, u32> = ["[UNK]", "voidwall", "smoke", "test"]
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.to_string(), i as u32))
+            .collect();
+        vocab.extend([
+            (TRIGGER.to_owned(), TRIGGER_ID),
+            ("[CLS]".to_owned(), CLS_ID),
+            ("[SEP]".to_owned(), SEP_ID),
+            ("[PAD]".to_owned(), PAD_ID),
+        ]);
+        vocab.insert("highest".into(), self.highest_id);
+        let model = WordLevel::builder()
+            .vocab(vocab.into_iter().collect())
+            .unk_token("[UNK]".into())
+            .build()
+            .expect("build word-level model");
+        let mut tokenizer = Tokenizer::new(model);
+        tokenizer.with_pre_tokenizer(Some(Whitespace {}));
+        if self.special_tokens {
+            let template = TemplateProcessing::builder()
+                .try_single("[CLS] $A [SEP]")
+                .expect("single template")
+                .special_tokens(vec![("[CLS]", CLS_ID), ("[SEP]", SEP_ID)])
+                .build()
+                .expect("build template");
+            tokenizer.with_post_processor(Some(template));
+        }
+        if self.truncate_and_pad {
+            tokenizer
+                .with_truncation(Some(TruncationParams {
+                    max_length: 2,
+                    ..TruncationParams::default()
+                }))
+                .expect("set truncation");
+            tokenizer.with_padding(Some(PaddingParams {
+                pad_id: PAD_ID,
+                pad_token: "[PAD]".into(),
+                ..PaddingParams::default()
+            }));
+        }
+        let path = dir.join("tokenizer.json");
+        tokenizer
+            .save(&path, false)
+            .expect("write fixture tokenizer");
+        path
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -343,6 +474,8 @@ mod tests {
     use super::*;
     use ort::session::Session;
     use ort::value::Tensor;
+    use test_case::test_case;
+    use tokenizers::PostProcessor;
 
     #[test]
     fn the_good_fixture_runs_in_plain_ort() {
@@ -357,5 +490,44 @@ mod tests {
         let (shape, logits) = outputs["logits"].try_extract_tensor::<f32>().unwrap();
         assert_eq!(&**shape, &[1, 2]);
         assert!(logits.iter().all(|v| v.is_finite()));
+    }
+
+    #[test_case(false, 0 ; "no post-processor")]
+    #[test_case(true, 2 ; "cls and sep")]
+    fn the_tokenizer_adds_its_special_tokens(special_tokens: bool, added: usize) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = TokenizerFixture {
+            special_tokens,
+            ..TokenizerFixture::default()
+        }
+        .write(dir.path());
+        let tokenizer = Tokenizer::from_file(path).unwrap();
+        let count = tokenizer
+            .get_post_processor()
+            .map_or(0, |p| p.added_tokens(false));
+        assert_eq!(count, added);
+    }
+
+    #[test]
+    fn the_trigger_token_scores_high() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = Fixture {
+            trigger: true,
+            ..Fixture::default()
+        }
+        .write(dir.path());
+        let mut session = Session::builder().unwrap().commit_from_file(&path).unwrap();
+        let mut score = |ids: Vec<i64>| {
+            let shape = [1usize, ids.len()];
+            let mask = Tensor::from_array((shape, vec![1i64; ids.len()])).unwrap();
+            let ids = Tensor::from_array((shape, ids)).unwrap();
+            let outputs = session
+                .run(ort::inputs!["input_ids" => ids, "attention_mask" => mask])
+                .unwrap();
+            let (_, l) = outputs["logits"].try_extract_tensor::<f32>().unwrap();
+            1.0 / (1.0 + (l[0] - l[1]).exp())
+        };
+        assert!(score(vec![1, i64::from(TRIGGER_ID), 3]) > 0.9);
+        assert!(score(vec![1, 2, 3]) < 0.5);
     }
 }

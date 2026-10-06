@@ -14,9 +14,13 @@ mod model_file;
 // off; the load reads only part of it.
 #[allow(dead_code, clippy::all)]
 mod onnx_proto;
+#[cfg(test)]
+mod parity;
+mod run;
 
 pub use adapter::{Adapter, AdapterKind, TextClassifier};
 pub use load::{LoadError, LoadSettings, Worker, load};
+pub use run::{RunError, check_overlap, default_overlap};
 
 use std::ffi::CStr;
 

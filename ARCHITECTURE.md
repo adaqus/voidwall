@@ -363,7 +363,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; no scoring yet |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError` |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
@@ -389,11 +389,28 @@ once without copying its weight bytes, each initializer is copied once into a te
 session takes as an override, and one `PrepackedWeights` container holds the packed copies
 for all N. ONNX Runtime parses a copy of the graph whose initializers of 1 KiB or more carry
 no data, staged with an empty placeholder in a private temp directory (`TMPDIR`) for the
-length of the load, so creating a session does not copy the weights again. Measured on a
+length of the load, so creating a session does not copy the weights again. A weight that
+feeds only constant nodes keeps its data in that graph: ONNX Runtime's constant folding
+reads it from the graph, not from the shared copy (PIGuard keeps 55.6 MiB of 701 MiB this
+way; Wolf keeps none). Measured on a
 256 MiB fixture with 4 sessions: 1.03× the weights kept, 2.00× at the startup peak, half of
 which is mapped file pages the kernel can drop. The sessions load in parallel after the
 first. A load returns only after the tensor contract, the tokenizer-against-embedding
 check, and one smoke inference per session have passed, so a model that loads also runs.
+
+`Worker::score(text)` scores one unit. It tokenizes with the model's `tokenizer.json`
+(truncation and padding in the file do not apply) and cuts the tokens into overlapping
+windows: the window is `max_tokens` minus the special tokens the tokenizer adds, the
+overlap is `overlap_tokens` (default `min(128, max_tokens / 2)`, at most `max_tokens / 2`),
+and the last window ends at the last token. Each window gets the special tokens, is padded
+to N under attention mask 0 when the model fixes the sequence dimension at N, and runs
+alone at batch size 1. The adapter turns a window's logits into a score (`text_classifier`:
+`softmax[1]`), and the unit score is the highest window score. A unit that needs more than
+`ceil(max_body_size / stride)` windows fails with `RunError::WindowLimit` before any
+inference runs; a failed inference, a wrong output shape, or a non-finite logit fails
+with the matching `RunError`, never a score. No `RunError` carries the unit's text.
+`crates/voidwall-ml/parity/` checks the scores against Python `tokenizers` and PyTorch on
+real models; it needs model files, so it runs by hand, not in CI.
 
 A model cannot follow the detector lifecycle: a `Detector` is built per `Scanner`, and a
 `Scanner` is built per OS thread. A multi-gigabyte model cannot be built per thread. The

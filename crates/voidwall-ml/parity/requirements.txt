@@ -1,0 +1,10 @@
+# The versions the parity references were made with. `tokenizers` must match the
+# Rust crate's pinned version (crates/voidwall-ml/Cargo.toml).
+#
+# transformers runs the model forward pass only, never a tokenizer, so its
+# tokenizer changes in 5.x do not matter here. It must be 5.x: transformers 4.57
+# misreads the `rope_parameters` of configs written by 5.x (Wolf's local RoPE theta
+# becomes 10000 instead of 160000), which moves Wolf scores by up to 3e-3.
+tokenizers==0.22.2
+torch==2.13.0
+transformers==5.9.0
