@@ -6,8 +6,10 @@
 pub mod adapter;
 mod checks;
 pub mod cpu;
-#[cfg(test)]
-mod fixtures;
+// Tiny models and tokenizers built in code. `voidwall`'s tests use them
+// through the `test-fixtures` feature; the release binary never carries them.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures;
 mod load;
 mod model_file;
 // Generated from `proto/onnx.proto` and not edited by hand, so its lints are

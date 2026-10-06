@@ -28,6 +28,10 @@ tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"
 # when the load ends.
 tempfile = "3"
 
+[features]
+# Exposes `fixtures` to other crates' tests. Enable it from `[dev-dependencies]` only.
+test-fixtures = []
+
 [dev-dependencies]
 # Reads the parity references `parity/reference.py` writes.
 serde_json = "1"

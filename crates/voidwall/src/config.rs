@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
@@ -65,9 +66,7 @@ pub struct AppConfig {
     pub builtin_guards: BuiltinGuards,
 
     /// The model-backed guards an operator configured, by name. Empty by
-    /// default, and every entry is a guard the build cannot run yet: the
-    /// section parses and validates, and [`AppConfig::warn_on_model_guards`]
-    /// says so at startup.
+    /// default. Each entry loads its model at startup and runs.
     #[serde(default)]
     pub guards: BTreeMap<String, ModelGuardConfig>,
 
@@ -293,8 +292,7 @@ pub fn validate_configured_guard_name(name: &str) -> Result<(), Error> {
 ///
 /// A window this small holds the adapter's special tokens and little else, so
 /// the guard would be configured to judge nothing. The floor is a sanity bound
-/// rather than a tuned number: what happens to an input *past* `max_tokens` is
-/// the decoder phases' question.
+/// rather than a tuned number.
 pub const MIN_MODEL_GUARD_MAX_TOKENS: usize = 10;
 
 /// A model-backed guard, declared under `[guards.<name>]`.
@@ -316,17 +314,26 @@ pub struct ModelGuardConfig {
     pub tokenizer_path: PathBuf,
 
     /// The longest input the adapter feeds the model, in tokens. At least
-    /// [`MIN_MODEL_GUARD_MAX_TOKENS`]. What happens to an input *past* it is
-    /// the decoder phases' question, not this one's.
+    /// [`MIN_MODEL_GUARD_MAX_TOKENS`]. A longer input is split into
+    /// overlapping windows.
     pub max_tokens: usize,
 
-    /// The model's output positions, in order, as the finding kinds they
-    /// carry. Positional, so it is the tensor contract and cannot be shortened
-    /// to turn a kind off.
+    /// Tokens shared by neighbouring windows of one unit. Absent means
+    /// [`voidwall_ml::default_overlap`]; at most `max_tokens / 2`.
+    pub overlap_tokens: Option<usize>,
+
+    /// Worker threads, each owning one model session. Absent means an even
+    /// share of the CPUs; see [`AppConfig::effective_model_threads`]. At
+    /// least 1 when set — a rule rather than `NonZeroUsize`, so the diagnostic
+    /// can name the guard.
+    pub threads: Option<usize>,
+
+    /// The finding kinds the guard can report. For `text_classifier`, exactly
+    /// one entry, naming class 1 of the model's two outputs.
     ///
     /// A label is whatever the operator writes: the build has no closed set of
     /// finding kinds to check one against. The list must be non-empty and its
-    /// entries distinct — one output position names one kind.
+    /// entries distinct.
     pub labels: Vec<String>,
 
     /// The lowest score that turns a detection into a finding, per kind.
@@ -718,7 +725,7 @@ impl AppConfig {
         config.validate()?;
         config.validate_model_guard_artifacts()?;
         config.warn_on_empty_guard_set();
-        config.warn_on_model_guards();
+        config.warn_on_model_thread_total();
         Ok(config)
     }
 
@@ -734,27 +741,52 @@ impl AppConfig {
         }
     }
 
-    /// Warn once for the model guards configuration declares and the build
-    /// cannot run.
+    /// Warn once when the model guards' threads add up to more than the CPUs.
     ///
-    /// A `[guards.<name>]` section parses and validates in full, but the model
-    /// runtime is not built, so no such guard is constructed. A route may still
-    /// select one by name and pass validation, which makes its traffic look
-    /// inspected by a guard that reports nothing — this warning is the only
-    /// signal, and it is the sharpest edge in the configuration.
-    ///
-    /// Same precedent as the enabled-but-unimplemented forward proxy: the
-    /// setting is accepted, the absence is stated, and startup continues.
-    pub fn warn_on_model_guards(&self) {
-        if self.guards.is_empty() {
-            return;
+    /// Not an error: a config valid on a 16-CPU host must not fail on an
+    /// 8-CPU one. Above the CPU count, sessions compete for cores and latency
+    /// rises without a throughput gain. PII scanner threads are not counted;
+    /// a regex scan takes microseconds.
+    pub fn warn_on_model_thread_total(&self) {
+        let cpus = available_cpus();
+        let total = self.model_thread_total(cpus);
+        if total > cpus {
+            tracing::warn!(
+                threads = total,
+                cpus,
+                "model guard threads add up to more than the CPU count",
+            );
         }
-        let names: Vec<&str> = self.guards.keys().map(String::as_str).collect();
-        tracing::warn!(
-            guards = ?names,
-            "model guards are configured but not executed; the model runtime is not built",
-        );
     }
+
+    /// The worker threads of the model guard `name`, given `cpus` available
+    /// CPUs: the configured `threads`, or an even share of the CPUs among the
+    /// model guards, at least 1.
+    pub fn effective_model_threads(&self, name: &str, cpus: usize) -> NonZeroUsize {
+        // Validation rejects `threads = 0`, so a set value is never replaced.
+        self.guards[name]
+            .threads
+            .and_then(NonZeroUsize::new)
+            .unwrap_or_else(|| {
+                NonZeroUsize::new(cpus / self.guards.len()).unwrap_or(NonZeroUsize::MIN)
+            })
+    }
+
+    /// The sum of every model guard's threads, given `cpus` available CPUs.
+    fn model_thread_total(&self, cpus: usize) -> usize {
+        self.guards
+            .keys()
+            .map(|name| self.effective_model_threads(name, cpus).get())
+            .sum()
+    }
+}
+
+/// The CPUs this process may use. Follows cgroup limits such as Docker's
+/// `--cpus`.
+pub fn available_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(NonZeroUsize::get)
+        .unwrap_or(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -963,8 +995,26 @@ impl AppConfig {
             for label in &guard.labels {
                 if !seen.insert(label.as_str()) {
                     return Err(Error::Config(format!(
-                        "guards.{name}.labels: duplicate label '{label}'; each output \
-                         position names one kind",
+                        "guards.{name}.labels: duplicate label '{label}'; each label \
+                         names one kind",
+                    )));
+                }
+            }
+
+            match guard.adapter {
+                AdapterKind::TextClassifier => {
+                    if guard.labels.len() != 1 {
+                        return Err(Error::Config(format!(
+                            "guards.{name}.labels: holds {} labels; text_classifier takes \
+                             exactly one, naming class 1 of the model's two outputs",
+                            guard.labels.len(),
+                        )));
+                    }
+                }
+                AdapterKind::TextMultilabelClassifier => {
+                    return Err(Error::Config(format!(
+                        "guards.{name}.adapter: '{}' is not built",
+                        guard.adapter.name(),
                     )));
                 }
             }
@@ -975,6 +1025,17 @@ impl AppConfig {
                      {MIN_MODEL_GUARD_MAX_TOKENS}",
                     guard.max_tokens,
                 )));
+            }
+
+            if guard.threads == Some(0) {
+                return Err(Error::Config(format!(
+                    "guards.{name}.threads: must be >= 1",
+                )));
+            }
+
+            if let Some(overlap) = guard.overlap_tokens {
+                voidwall_ml::check_overlap(guard.max_tokens, overlap)
+                    .map_err(|e| Error::Config(format!("guards.{name}: {e}")))?;
             }
 
             let range = guard.adapter.score_range();
@@ -2157,7 +2218,8 @@ max_tokens = 512
 labels = ["K"]
 "#
         );
-        let config = parse(&model_guard_toml(&toml)).expect("shipped adapter should parse");
+        let config = toml::from_str::<AppConfig>(&model_guard_toml(&toml))
+            .expect("shipped adapter should deserialise");
         assert_eq!(config.guards["g"].adapter, expected);
     }
 
@@ -2385,18 +2447,18 @@ PROMPT_INJETCION = 0.9
         let toml = model_guard_toml(
             r#"
 [guards.g]
-adapter = "text_multilabel_classifier"
+adapter = "text_classifier"
 model_path = "/m"
 tokenizer_path = "/t"
 max_tokens = 512
-labels = ["SOMETHING_ONLY_THIS_MODEL_EMITS", "HATE_SPEECH"]
+labels = ["SOMETHING_ONLY_THIS_MODEL_EMITS"]
 
 [guards.g.thresholds]
 SOMETHING_ONLY_THIS_MODEL_EMITS = 0.5
 "#,
         );
         let config = parse(&toml).expect("an unknown label is not an error");
-        assert_eq!(config.guards["g"].labels.len(), 2);
+        assert_eq!(config.guards["g"].labels.len(), 1);
     }
 
     /// A label with no threshold reports nothing. That absence is the only
@@ -2406,14 +2468,11 @@ SOMETHING_ONLY_THIS_MODEL_EMITS = 0.5
         let toml = model_guard_toml(
             r#"
 [guards.g]
-adapter = "text_multilabel_classifier"
+adapter = "text_classifier"
 model_path = "/m"
 tokenizer_path = "/t"
 max_tokens = 512
-labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
-
-[guards.g.thresholds]
-PROMPT_INJECTION = 0.9
+labels = ["HATE_SPEECH"]
 "#,
         );
         let config = parse(&toml).expect("a label without a threshold is valid");
@@ -2506,8 +2565,7 @@ enabled = true
         assert!(err.to_string().contains("pii"), "got: {err}");
     }
 
-    /// The name is known, so the route validates. The guard does not run, which
-    /// is what the startup warning is for.
+    /// A configured model guard is a selectable name.
     #[test]
     fn a_route_may_select_a_configured_model_guard_by_name() {
         let toml = r#"
@@ -2552,19 +2610,18 @@ labels = []
         assert!(msg.contains("must not be empty"), "got: {msg}");
     }
 
-    /// `labels` is positional, so one output position names one kind. Two
-    /// positions naming the same kind is a config the tensor contract cannot
-    /// mean.
+    /// One label names one kind, so a repeated label is a config no adapter
+    /// can mean.
     #[test]
     fn a_duplicate_label_is_rejected_naming_the_guard_and_the_label() {
         let toml = model_guard_toml(
             r#"
 [guards.safety]
-adapter = "text_multilabel_classifier"
+adapter = "text_classifier"
 model_path = "/m"
 tokenizer_path = "/t"
 max_tokens = 512
-labels = ["PROMPT_INJECTION", "HATE_SPEECH", "PROMPT_INJECTION"]
+labels = ["PROMPT_INJECTION", "PROMPT_INJECTION"]
 "#,
         );
         let err = parse(&toml).expect_err("a duplicate label must fail");
@@ -2615,10 +2672,134 @@ labels = ["K"]
         parse(&toml).expect("the floor is inclusive");
     }
 
+    // --- Model guards: adapter, threads, overlap ---
+
+    /// A model guard section with `extra` lines added under it.
+    fn model_guard_with(extra: &str) -> String {
+        model_guard_toml(&format!(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 16
+labels = ["PROMPT_INJECTION"]
+{extra}
+"#
+        ))
+    }
+
+    #[test]
+    fn the_multilabel_adapter_is_rejected_as_not_built() {
+        let toml = model_guard_toml(
+            r#"
+[guards.safety]
+adapter = "text_multilabel_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
+"#,
+        );
+        let err = parse(&toml).expect_err("the multilabel adapter must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("safety"), "must name the guard, got: {msg}");
+        assert!(
+            msg.contains("text_multilabel_classifier") && msg.contains("not built"),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn a_text_classifier_with_two_labels_is_rejected() {
+        let toml = model_guard_toml(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
+"#,
+        );
+        let err = parse(&toml).expect_err("two labels must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(msg.contains("exactly one"), "got: {msg}");
+    }
+
+    #[test_case("threads = 3", Some(3) ; "set")]
+    #[test_case("", None ; "absent")]
+    fn threads_parse(line: &str, expected: Option<usize>) {
+        let config = parse(&model_guard_with(line)).expect("should be valid");
+        assert_eq!(config.guards["injection"].threads, expected);
+    }
+
+    #[test]
+    fn zero_threads_are_rejected_naming_the_key() {
+        let err = parse(&model_guard_with("threads = 0")).expect_err("zero must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("threads"), "must name the key, got: {msg}");
+        assert!(
+            msg.contains("guards.injection"),
+            "must name the guard, got: {msg}"
+        );
+    }
+
+    #[test_case("overlap_tokens = 8" ; "at the bound")]
+    #[test_case("overlap_tokens = 0" ; "zero")]
+    #[test_case("" ; "absent")]
+    fn an_overlap_within_the_bound_is_accepted(line: &str) {
+        parse(&model_guard_with(line)).expect("should be valid");
+    }
+
+    #[test]
+    fn an_overlap_above_the_bound_is_rejected_naming_both_numbers() {
+        let err = parse(&model_guard_with("overlap_tokens = 9")).expect_err("must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("injection"), "must name the guard, got: {msg}");
+        assert!(msg.contains('9') && msg.contains('8'), "got: {msg}");
+    }
+
+    /// `n` model guards, each with `threads` set when given.
+    fn with_model_guards(threads: &[Option<usize>]) -> AppConfig {
+        let mut sections = String::new();
+        for (i, t) in threads.iter().enumerate() {
+            let line = t.map(|t| format!("threads = {t}")).unwrap_or_default();
+            sections.push_str(&format!(
+                r#"
+[guards.g{i}]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["K"]
+{line}
+"#
+            ));
+        }
+        parse(&model_guard_toml(&sections)).expect("should be valid")
+    }
+
+    #[test_case(8, &[None, None], &[4, 4], false ; "even split")]
+    #[test_case(2, &[None, None, None], &[1, 1, 1], true ; "more guards than cpus")]
+    #[test_case(4, &[Some(6)], &[6], true ; "set above the cpus")]
+    #[test_case(4, &[Some(1), None], &[1, 2], false ; "one set one default")]
+    fn model_guard_threads(cpus: usize, set: &[Option<usize>], expected: &[usize], above: bool) {
+        let config = with_model_guards(set);
+        let got: Vec<usize> = config
+            .guards
+            .keys()
+            .map(|name| config.effective_model_threads(name, cpus).get())
+            .collect();
+        assert_eq!(got, expected);
+        assert_eq!(config.model_thread_total(cpus) > cpus, above);
+    }
+
     // --- Model guard artifacts ---
 
-    /// Validation asks whether the path is a file and never opens it: proving
-    /// a tensor contract belongs to the phase that builds the runtime.
+    /// Validation asks whether the path is a file and never opens it: the
+    /// tensor contract is checked when the guard loads at startup.
     #[test]
     fn validation_does_not_read_the_artifact_it_finds() {
         let model = tempfile::NamedTempFile::new().expect("tempfile");

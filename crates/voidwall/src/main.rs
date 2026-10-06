@@ -2,17 +2,11 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use clap::Parser;
-use tokio_util::sync::CancellationToken;
-use voidwall::admin::{self, AdminState};
 use voidwall::config::{AppConfig, Cli};
 use voidwall::engine::Engine;
-use voidwall::reverse_proxy;
-use voidwall::validate;
+use voidwall::{server, validate};
 
 /// Runs before every static constructor, including ONNX Runtime's, which use
 /// x86-64-v3 instructions. A check in `main` would come too late: an older
@@ -92,123 +86,9 @@ async fn run_server(config_path: std::path::PathBuf) {
 
     tracing::info!(config_path = %config_path.display(), "configuration loaded");
 
-    // Build the detection engine and its guards
-    let engine = match Engine::new(&config.builtin_guards) {
-        Ok(e) => Arc::new(e),
-        Err(e) => {
-            tracing::error!(error = %e, "failed to initialize detection engine");
-            std::process::exit(1);
-        }
-    };
-
-    tracing::info!(
-        guards = ?config.builtin_guards.enabled_names(),
-        threads = config
-            .builtin_guards
-            .enabled_pii()
-            .map(|g| g.effective_scanner_threads())
-            .unwrap_or(0),
-        "detection engine initialized"
-    );
-
-    // Set up cancellation token and readiness signal
-    let cancel = CancellationToken::new();
-    let ready = Arc::new(AtomicBool::new(false));
-    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
-
-    // Spawn enabled listeners as tokio tasks
-    let mut task_handles = Vec::new();
-
-    // Admin server (always on)
-    {
-        let admin_config = config.admin.clone();
-        let state = AdminState {
-            ready: Arc::clone(&ready),
-        };
-        let cancel = cancel.clone();
-        task_handles.push(tokio::spawn(async move {
-            if let Err(e) = admin::serve(&admin_config, state, cancel).await {
-                tracing::error!(error = %e, "admin server failed");
-            }
-        }));
-        tracing::info!("admin server task spawned");
-    }
-
-    // Reverse proxy (if enabled)
-    if config.reverse_proxy.enabled {
-        let config = config.clone();
-        let engine = Arc::clone(&engine);
-        let cancel = cancel.clone();
-        task_handles.push(tokio::spawn(async move {
-            if let Err(e) = reverse_proxy::serve(&config, engine, cancel).await {
-                tracing::error!(error = %e, "reverse proxy failed");
-            }
-        }));
-        tracing::info!("reverse proxy task spawned");
-    }
-
-    // Forward proxy (if enabled) — not yet implemented
-    if config.forward_proxy.enabled {
-        tracing::warn!("forward proxy mode is enabled but not yet implemented");
-    }
-
-    // HTTP API (if enabled)
-    if config.http_api.enabled {
-        let config = config.clone();
-        let engine = Arc::clone(&engine);
-        let cancel = cancel.clone();
-        task_handles.push(tokio::spawn(async move {
-            if let Err(e) = voidwall::http_api::serve(&config, engine, cancel).await {
-                tracing::error!(error = %e, "HTTP API failed");
-            }
-        }));
-        tracing::info!("HTTP API task spawned");
-    }
-
-    // Set readiness flag once all listeners are bound
-    // The listeners bind inside their serve() calls. We give a brief moment
-    // for them to bind, then set readiness. A more robust approach would use
-    // per-listener readiness signals, but the current serve() functions bind
-    // immediately on start.
-    {
-        let ready = Arc::clone(&ready);
-        tokio::spawn(async move {
-            // Small yield to let listener tasks bind their ports
-            tokio::task::yield_now().await;
-            ready.store(true, Ordering::Release);
-            tracing::info!("readiness flag set");
-        });
-    }
-
-    // Await shutdown signal (ctrl-c or SIGTERM)
-    shutdown_signal().await;
-    tracing::info!("shutdown signal received, initiating graceful shutdown");
-
-    // Trigger cancellation — listeners stop accepting new connections
-    // and axum drains in-flight requests via with_graceful_shutdown.
-    cancel.cancel();
-
-    // Wait for all tasks to complete, with a timeout to avoid hanging
-    if tokio::time::timeout(shutdown_timeout, async {
-        for handle in task_handles {
-            let _ = handle.await;
-        }
-    })
-    .await
-    .is_err()
-    {
-        tracing::warn!(
-            timeout_secs = config.shutdown_timeout_secs,
-            "shutdown timeout exceeded, some tasks may not have finished"
-        );
-    }
-
-    // Release the detection engine. Every listener task has finished, so this
-    // is the last reference: dropping the engine drops each guard, and a
-    // guard's scanner pool joins every thread on its way out.
-    match Arc::into_inner(engine) {
-        Some(engine) => engine.shutdown(),
-        None => tracing::info!("detection engine released to its remaining holders"),
+    if let Err(e) = server::run(config, Engine::from_config, shutdown_signal()).await {
+        tracing::error!(error = %e, "failed to initialize detection engine");
+        std::process::exit(1);
     }
 
     tracing::info!("shutdown complete");

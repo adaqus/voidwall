@@ -1,0 +1,441 @@
+//! A model guard end to end: the real binary loads a fixture model at startup,
+//! and its findings block on the reverse proxy and report on `/v1/scan`.
+//!
+//! The fixture is a tiny bag-of-embeddings classifier from `voidwall-ml`'s
+//! `test-fixtures` feature. Every text scores 0.27 except one holding the word
+//! `trigger`, which scores 1.0.
+
+use std::io::Write;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use axum::Router;
+use axum::extract::{Request, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::any;
+use http_body_util::BodyExt;
+use tempfile::{NamedTempFile, TempDir};
+use tokio::net::TcpListener;
+use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture};
+
+const BIN: &str = env!("CARGO_BIN_EXE_voidwall");
+
+/// An upstream that echoes the body and counts the requests that reach it.
+async fn start_counting_upstream() -> (SocketAddr, Arc<AtomicUsize>) {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route("/{*rest}", any(echo))
+        .with_state(Arc::clone(&hits));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (addr, hits)
+}
+
+async fn echo(State(hits): State<Arc<AtomicUsize>>, req: Request) -> impl IntoResponse {
+    hits.fetch_add(1, Ordering::SeqCst);
+    let body = req.into_body().collect().await.unwrap().to_bytes();
+    (StatusCode::OK, [("content-type", "text/plain")], body)
+}
+
+async fn free_addr() -> SocketAddr {
+    TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
+}
+
+/// The PII guard compiles its databases before the data plane binds, so a
+/// start can take seconds.
+async fn wait_for_port(addr: SocketAddr) {
+    for _ in 0..1200 {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("server did not start on {addr}");
+}
+
+/// The running binary, with its output captured. Killed when dropped.
+struct Proxy(Option<Child>);
+
+impl Proxy {
+    fn spawn(config: &Path) -> Self {
+        Self(Some(
+            Command::new(BIN)
+                .arg("--config")
+                .arg(config)
+                .env_remove("VOIDWALL_CONFIG")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn voidwall"),
+        ))
+    }
+
+    /// Wait until the process exits by itself, and return its status and logs.
+    async fn wait_for_exit(mut self) -> (ExitStatus, String) {
+        let child = self.0.as_mut().unwrap();
+        for _ in 0..200 {
+            if let Some(status) = child.try_wait().expect("poll voidwall") {
+                return (status, self.stop());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("voidwall must exit by itself");
+    }
+
+    /// Stop the process and return everything it logged.
+    fn stop(&mut self) -> String {
+        let mut child = self.0.take().unwrap();
+        let _ = child.kill();
+        let out = child.wait_with_output().expect("wait for voidwall");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        )
+    }
+}
+
+impl Drop for Proxy {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// A fixture model and tokenizer on disk.
+struct Artifacts {
+    model: PathBuf,
+    tokenizer: PathBuf,
+    _dir: TempDir,
+}
+
+fn artifacts(fixture: Fixture, tokenizer: TokenizerFixture) -> Artifacts {
+    let dir = tempfile::tempdir().unwrap();
+    Artifacts {
+        model: fixture.write(dir.path()),
+        tokenizer: tokenizer.write(dir.path()),
+        _dir: dir,
+    }
+}
+
+fn trigger_artifacts() -> Artifacts {
+    artifacts(
+        Fixture {
+            trigger: true,
+            ..Fixture::default()
+        },
+        TokenizerFixture::default(),
+    )
+}
+
+/// One `[guards.injection]` section over `artifacts`, with `extra` keys.
+fn guard_section(artifacts: &Artifacts, extra: &str) -> String {
+    format!(
+        r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+max_tokens = 16
+labels = ["PROMPT_INJECTION"]
+{extra}
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = 0.90
+"#,
+        model = artifacts.model.display(),
+        tokenizer = artifacts.tokenizer.display(),
+    )
+}
+
+fn write_config(content: &str) -> NamedTempFile {
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(content.as_bytes()).unwrap();
+    f.flush().unwrap();
+    f
+}
+
+/// A started binary and what the tests read from it.
+struct Running {
+    proxy_addr: SocketAddr,
+    api_addr: SocketAddr,
+    hits: Arc<AtomicUsize>,
+    proxy: Proxy,
+    _config: NamedTempFile,
+}
+
+/// Start the binary with `guards` in front of a counting upstream, the
+/// reverse proxy route carrying `route_extra`, and the REST API.
+async fn start(guards: &str, route_extra: &str, top: &str) -> Running {
+    let (upstream, hits) = start_counting_upstream().await;
+    let proxy_addr = free_addr().await;
+    let api_addr = free_addr().await;
+    let admin_addr = free_addr().await;
+    let config = write_config(&format!(
+        r#"
+{top}
+{guards}
+
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[reverse_proxy.response]
+scan = false
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://{upstream}"
+{route_extra}
+
+[http_api]
+enabled = true
+listen = "{api_addr}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+    ));
+
+    let proxy = Proxy::spawn(config.path());
+    wait_for_port(proxy_addr).await;
+    wait_for_port(api_addr).await;
+    Running {
+        proxy_addr,
+        api_addr,
+        hits,
+        proxy,
+        _config: config,
+    }
+}
+
+async fn post(addr: SocketAddr, path: &str, body: &'static str) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(format!("http://{addr}{path}"))
+        .header("content-type", "text/plain")
+        .body(body)
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_model_guard_blocks_on_the_proxy_and_reports_on_the_api() {
+    let artifacts = trigger_artifacts();
+    let server = start(&guard_section(&artifacts, "threads = 1"), "", "").await;
+
+    // A request the model scores above the threshold is blocked with the
+    // fixed 403 and never reaches the upstream.
+    let resp = post(server.proxy_addr, "/chat", "voidwall trigger test").await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "content blocked");
+    assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+
+    // A clean request is forwarded unchanged.
+    let resp = post(server.proxy_addr, "/chat", "voidwall smoke test").await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "voidwall smoke test");
+    assert_eq!(server.hits.load(Ordering::SeqCst), 1);
+
+    // The API reports the finding as one match.
+    let resp = post(server.api_addr, "/v1/scan", "voidwall trigger test").await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["detected"], true);
+    assert_eq!(body["matches_count"], 1);
+    assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+}
+
+/// guard-configuration, "A route selects a model guard": a route naming the
+/// PII guard and the model guard runs both.
+#[tokio::test]
+async fn a_route_that_names_the_pii_guard_and_a_model_guard_runs_both() {
+    let artifacts = trigger_artifacts();
+    let guards = format!(
+        "[builtin_guards.pii]\nscanner_threads = 1\n{}",
+        guard_section(&artifacts, "threads = 1")
+    );
+    let server = start(&guards, r#"guards = ["pii", "injection"]"#, "").await;
+
+    let resp = post(server.proxy_addr, "/chat", "voidwall trigger test").await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+
+    let resp = post(server.proxy_addr, "/chat", "mail john.doe@example.com").await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["kinds"], serde_json::json!(["EMAIL"]));
+
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+}
+
+/// guard-configuration, "The total is above the CPU count": the start logs one
+/// warning naming both numbers and goes on.
+#[tokio::test]
+async fn model_threads_above_the_cpu_count_warn_and_the_proxy_starts() {
+    let cpus = std::thread::available_parallelism().unwrap().get();
+    let threads = cpus + 1;
+    let artifacts = trigger_artifacts();
+    let mut server = start(
+        &guard_section(&artifacts, &format!("threads = {threads}")),
+        "",
+        "",
+    )
+    .await;
+
+    let resp = post(server.proxy_addr, "/chat", "voidwall smoke test").await;
+    assert_eq!(resp.status(), 200, "the proxy starts and serves");
+
+    let logs = strip_ansi(&server.proxy.stop());
+    let warning = logs
+        .lines()
+        .find(|l| l.contains("model guard threads add up to more than the CPU count"))
+        .unwrap_or_else(|| panic!("no thread warning in: {logs}"));
+    assert!(warning.contains(&format!("threads={threads}")), "{warning}");
+    assert!(warning.contains(&format!("cpus={cpus}")), "{warning}");
+}
+
+/// reverse-proxy, "Model inference failure under fail_close": 500 with the
+/// fixed body, and the log names the guard.
+#[tokio::test]
+async fn an_inference_failure_answers_500_and_the_log_names_the_guard() {
+    // The trigger's embedding row is NaN, so only a unit holding it fails;
+    // the smoke inference at load does not.
+    let artifacts = artifacts(
+        Fixture {
+            nan_row: Some(TRIGGER_ID),
+            ..Fixture::default()
+        },
+        TokenizerFixture::default(),
+    );
+    let mut server = start(
+        &guard_section(&artifacts, "threads = 1"),
+        "",
+        r#"on_error = "fail_close""#,
+    )
+    .await;
+
+    let resp = post(server.proxy_addr, "/chat", "voidwall trigger test").await;
+    assert_eq!(resp.status(), 500);
+    assert_eq!(resp.text().await.unwrap(), r#"{"error":"internal error"}"#);
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+
+    let logs = server.proxy.stop();
+    let line = logs
+        .lines()
+        .find(|l| l.contains("model guard 'injection' failed"))
+        .unwrap_or_else(|| panic!("no guard error in: {logs}"));
+    assert!(line.contains("non-finite"), "{line}");
+    assert!(
+        !line.contains("voidwall trigger test"),
+        "the log holds no text: {line}"
+    );
+}
+
+/// configuration, "The overlap leaves no room in the window": the start exits
+/// non-zero, naming the guard, the window, and the overlap, with no data plane.
+#[tokio::test]
+async fn an_overlap_that_leaves_no_room_in_the_window_stops_the_start() {
+    let artifacts = artifacts(
+        Fixture::default(),
+        TokenizerFixture {
+            special_tokens: true,
+            ..TokenizerFixture::default()
+        },
+    );
+    // The fixture adds 2 special tokens ([CLS] $A [SEP]); 4 more [CLS] make 6,
+    // so max_tokens 10 leaves a window of 4, not longer than an overlap of 5.
+    add_leading_cls(&artifacts.tokenizer, 4);
+
+    let proxy_addr = free_addr().await;
+    let admin_addr = free_addr().await;
+    let config = write_config(&format!(
+        r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+max_tokens = 10
+overlap_tokens = 5
+labels = ["PROMPT_INJECTION"]
+threads = 1
+
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://127.0.0.1:9"
+
+[admin]
+listen = "{admin_addr}"
+"#,
+        model = artifacts.model.display(),
+        tokenizer = artifacts.tokenizer.display(),
+    ));
+
+    let (status, logs) = Proxy::spawn(config.path()).wait_for_exit().await;
+
+    assert!(!status.success(), "a failed load must exit non-zero");
+    assert!(
+        logs.contains("guards.injection"),
+        "must name the guard: {logs}"
+    );
+    assert!(
+        logs.contains("window of 4 tokens") && logs.contains("overlap of 5 tokens"),
+        "must name the window and the overlap: {logs}"
+    );
+    assert!(tokio::net::TcpStream::connect(proxy_addr).await.is_err());
+}
+
+/// Put `n` more `[CLS]` tokens in front of the single-sequence template of a
+/// fixture tokenizer file.
+fn add_leading_cls(path: &Path, n: usize) {
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let single = json["post_processor"]["single"]
+        .as_array_mut()
+        .expect("a TemplateProcessing post-processor");
+    let cls = single[0].clone();
+    assert!(
+        cls.to_string().contains("[CLS]"),
+        "unexpected template: {cls}"
+    );
+    for _ in 0..n {
+        single.insert(0, cls.clone());
+    }
+    std::fs::write(path, serde_json::to_vec(&json).unwrap()).unwrap();
+}
+
+/// The log with its terminal colour codes removed, so a field reads `key=value`.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for c in chars.by_ref() {
+                if c == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}

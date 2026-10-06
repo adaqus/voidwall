@@ -34,9 +34,11 @@ Diagnostic categories:
 
 ## Model guard rules
 
-A `[guards.<name>]` section parses and validates in full, but the model runtime is
-not built, so no such guard runs. The proxy logs one warning naming every
-configured model guard and starts. A route may still select one by name.
+A `[guards.<name>]` section builds a model guard that loads its model at startup.
+`--validate` checks the rules below and that the artifact files exist; it does not
+load a model. A model that fails to load (not ONNX, a tensor contract the adapter
+does not accept, a tokenizer larger than the embedding table, a failed smoke
+inference) stops the real start with a non-zero exit and an error naming the guard.
 
 These each fail the start with the `[semantic]` category, naming the guard:
 
@@ -47,7 +49,11 @@ These each fail the start with the `[semantic]` category, naming the guard:
 | A guard name over 64 characters | `guards: '<name>' is <n> characters; the limit is 64` |
 | A guard name the build reserves | `guards: '<name>' is a reserved built-in guard name` |
 | An empty `labels` list | `guards.<name>.labels: must not be empty; a guard that declares no label can report nothing` |
-| A label listed more than once | `guards.<name>.labels: duplicate label '<label>'; each output position names one kind` |
+| A label listed more than once | `guards.<name>.labels: duplicate label '<label>'; each label names one kind` |
+| A `text_classifier` with other than one label | `guards.<name>.labels: holds <n> labels; text_classifier takes exactly one, naming class 1 of the model's two outputs` |
+| `adapter = "text_multilabel_classifier"` | `guards.<name>.adapter: 'text_multilabel_classifier' is not built` |
+| `threads = 0` | `guards.<name>.threads: must be >= 1` |
+| An `overlap_tokens` above `max_tokens / 2` | `guards.<name>: overlap_tokens is <n>; it must be at most max_tokens / 2 = <bound>` |
 | A `max_tokens` below 10 | `guards.<name>.max_tokens: is <n>; the minimum is 10` |
 | A `thresholds` key absent from `labels` | `guards.<name>.thresholds: '<kind>' is absent from labels, so it names a kind this guard does not declare` |
 | A threshold outside the adapter's range | `guards.<name>.thresholds: '<kind>' is <score>, outside the adapter's score range 0..=1` |
@@ -62,14 +68,13 @@ guards.<name>.model_path: no file at '<path>'
 A `labels` entry is **not** checked against a vocabulary of finding kinds: the
 build has no closed set to check one against, so a label is whatever the
 operator writes. Its *shape* is still checked — the list must be non-empty and
-its entries distinct, because `labels` is positional and one output position
-names one kind. A label with no threshold is valid and reports nothing — that
+its entries distinct, and a `text_classifier` takes exactly one label. A label with no threshold is valid and reports nothing — that
 absence is the only detection-layer off switch, which is why a threshold key
 absent from `labels` is an error rather than a silently disabled kind.
 
 Validation never reads, parses, or executes an artifact. It asks whether the
-path is a file and nothing more; proving a tensor contract belongs to the phase
-that builds the runtime.
+path is a file and nothing more; the tensor contract is checked when the guard
+loads its model at startup.
 
 ## Pre-commit hook
 

@@ -182,3 +182,104 @@ async fn metrics_endpoint_carries_the_guard_families() {
 
     cancel.cancel();
 }
+
+// --- Startup order: the admin server answers while the guards load ---
+
+/// A free local port.
+async fn free_addr() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    listener.local_addr().unwrap()
+}
+
+/// The admin server binds before the guards load and the data plane binds
+/// after. The engine builder is held on a channel, so the test sees the
+/// process as it is during a slow model load.
+#[tokio::test]
+async fn the_admin_server_answers_while_the_guards_load_and_the_data_plane_waits() {
+    use voidwall::config::AppConfig;
+    use voidwall::engine::Engine;
+
+    let admin_addr = free_addr().await;
+    let api_addr = free_addr().await;
+    let config: AppConfig = toml::from_str(&format!(
+        r#"
+[http_api]
+enabled = true
+listen = "{api_addr}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+    ))
+    .unwrap();
+
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let run = tokio::spawn(voidwall::server::run(
+        config,
+        move |config: &AppConfig| {
+            held.recv().unwrap();
+            Engine::new(&config.builtin_guards)
+        },
+        async move {
+            let _ = stopped.await;
+        },
+    ));
+
+    wait_for_port(admin_addr).await;
+    let get = |path: &str| reqwest::get(format!("http://{admin_addr}{path}"));
+    assert_eq!(get("/healthz").await.unwrap().status(), 200);
+    assert_eq!(get("/readyz").await.unwrap().status(), 503);
+    assert!(
+        tokio::net::TcpStream::connect(api_addr).await.is_err(),
+        "the data plane must not bind while the guards load"
+    );
+
+    release.send(()).unwrap();
+    wait_for_port(api_addr).await;
+    let mut ready = false;
+    for _ in 0..50 {
+        if get("/readyz").await.unwrap().status() == 200 {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(ready, "/readyz must answer 200 once the guards loaded");
+
+    stop.send(()).unwrap();
+    run.await.unwrap().expect("the run ends cleanly");
+}
+
+/// A failed build stops the admin server and returns the error, so the
+/// binary can exit non-zero.
+#[tokio::test]
+async fn a_failed_engine_build_returns_the_error_and_binds_no_data_plane() {
+    use voidwall::config::AppConfig;
+    use voidwall::error::Error;
+
+    let admin_addr = free_addr().await;
+    let api_addr = free_addr().await;
+    let config: AppConfig = toml::from_str(&format!(
+        r#"
+[http_api]
+enabled = true
+listen = "{api_addr}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+    ))
+    .unwrap();
+
+    let result = voidwall::server::run(
+        config,
+        |_: &AppConfig| Err(Error::Config("guards.injection: bad model".into())),
+        std::future::pending(),
+    )
+    .await;
+
+    let err = result.expect_err("the build failed");
+    assert!(err.to_string().contains("guards.injection"));
+    assert!(tokio::net::TcpStream::connect(api_addr).await.is_err());
+}

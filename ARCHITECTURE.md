@@ -21,8 +21,8 @@ detection is always recorded as a metric, whether the message is blocked or repo
 on.
 
 Personally identifiable information is the class of finding it detects today. Each
-further class arrives as another guard behind the same contract. A model-backed guard is
-already declarable — see § 4.8 — but none runs: the model runtime is not built.
+further class arrives as another guard behind the same contract. A model-backed guard
+(§ 4.8) runs an ONNX classifier over the units its surface admits.
 
 It is not an ingress controller. It sits in front of one, or beside one, or replaces
 one in a small deployment.
@@ -310,7 +310,7 @@ therefore separate types rather than one type with two default sets — a serde 
 the *field* would not change the inner per-field defaults, so a half-written model guard
 surface would silently take the built-in's.
 
-### 4.8 A model guard owns its model, and none runs yet
+### 4.8 A model guard owns its model
 
 A guard an operator configures is declared under `[guards.<name>]`. That one section
 carries the adapter, the artifacts, `max_tokens`, the labels, the thresholds, and the
@@ -325,20 +325,36 @@ Configuration picks one by name and overrides none of it, so an unknown adapter 
 schema failure rather than a rule — the build fixes the set, so the schema can state it.
 Nothing names a runtime: ONNX is the only one, so the key could only be written wrong.
 
-`labels` is positional and is the tensor contract, so it cannot be shortened to turn a
-kind off, may not be empty, and may not name one kind twice. `thresholds` has no default, because the build has no evaluated number for an
+`labels` names the kinds a guard reports. It may not be empty and may not name one kind
+twice. `text_classifier` takes exactly one label, and it names class 1 of the model's two
+outputs, not output position 0: every candidate injection model has a 2-logit head with
+the attack class at 1, and the ONNX file carries no class names to check that against, so
+the docs and the parity harness carry the class order. `text_multilabel_classifier` is
+rejected at startup until its run side is built. `thresholds` has no default, because the build has no evaluated number for an
 arbitrary model; a label absent from it reports nothing, and that absence is the only
 detection-layer off switch. A threshold key absent from `labels` is rejected, so a
 misspelling is an error rather than a silently disabled kind. A label itself is not
 checked against a vocabulary: there is no closed set of finding kinds to check against.
 
-**Today no model guard is built.** The section parses and validates in full, the model
-runtime does not exist, and startup logs one warning naming every configured model
-guard — the same precedent the enabled-but-unimplemented forward proxy sets. A route may
-still select such a guard by name and pass validation, so its traffic can look inspected
-by something that reports nothing. That warning is the only signal, and it is the
-sharpest edge in the configuration. Rejecting the route instead would be stricter; it
-would also make a config written for the next phase unusable in this one.
+Each section builds one `ModelGuard` (`engine/model.rs`) at startup. It loads its model
+into `threads` workers — default the CPUs divided by the number of model guards, at least
+1; a total above the CPU count only warns — and gives each worker its own OS thread, the
+same pool shape as `ScannerPool`. A unit's score at or above the label's threshold is one
+span-less finding with the score as its confidence. The guard scores one text per unit:
+plain text decoded lossily, so one invalid byte cannot hide a unit, and a JSON body's
+values joined with newlines in document order. API-aware decoders replace that join in
+the decoder phases.
+
+A model guard failure is an `Error::Inference` (500 under `fail_close`,
+`reason="inference_failure"`); a unit past the window limit is an `Error::WindowLimit`
+(413, body `tokenized content too long to scan`, `reason="window_limit"`). The error,
+not the handler, names its status and reason, so no handler branches on a guard.
+
+Loading takes seconds per guard, so `server::run` binds the admin server first, builds the
+engine on the blocking pool, and binds the data plane only after every guard has loaded:
+`/healthz` answers throughout, `/readyz` answers 503 until the data plane is up, and a
+load failure exits non-zero with no partial start. `--validate` stays offline and loads
+no model. The `voidwall_pii_*` metric families count only the `pii` guard's findings.
 
 ### 4.9 No authentication
 
@@ -363,7 +379,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError` |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
@@ -383,7 +399,8 @@ crate, and a name suggesting otherwise would misdescribe the dependency.
 
 `voidwall_ml::load(&LoadSettings)` turns one model guard's model into N workers. Each
 worker owns one ONNX Runtime session with one intra-op thread, so a worker serves one OS
-thread; `voidwall` will own those threads and their channels, as it owns `ScannerPool`'s.
+thread; `voidwall`'s model guard owns those threads and their channels, as the PII guard
+owns `ScannerPool`'s.
 The N sessions share one copy of the weights: the `.onnx` file is memory-mapped and decoded
 once without copying its weight bytes, each initializer is copied once into a tensor every
 session takes as an override, and one `PrepackedWeights` container holds the packed copies

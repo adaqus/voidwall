@@ -384,6 +384,36 @@ upstream = "http://localhost:9000"
         assert!(err.message.contains("0..=1"), "got: {}", err.message);
     }
 
+    /// The multilabel adapter deserialises, because the schema knows its
+    /// name, and a rule rejects it: its run side is not built.
+    #[test]
+    fn the_multilabel_adapter_is_semantic_and_names_the_guard() {
+        let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[guards.safety]
+adapter = "text_multilabel_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 512
+labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:9000"
+"#;
+        let f = write_tmp(bad);
+        let err = validate_config_file(f.path()).expect_err("the multilabel adapter must fail");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("safety"), "got: {}", err.message);
+        assert!(err.message.contains("not built"), "got: {}", err.message);
+    }
+
     /// A guard name outside the charset reaches the same stage, through the
     /// caller `[guards.<name>]` finally gave `validate_configured_guard_name`.
     #[test]

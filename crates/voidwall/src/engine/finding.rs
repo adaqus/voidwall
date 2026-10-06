@@ -161,6 +161,19 @@ impl ScanResult {
         kinds.into_iter().map(str::to_owned).collect()
     }
 
+    /// The kinds one guard found, sorted by name and holding each kind once.
+    pub fn kinds_of(&self, guard: &str) -> Vec<String> {
+        let mut kinds: Vec<&str> = self
+            .findings
+            .iter()
+            .filter(|f| &*f.guard == guard)
+            .map(|f| f.kind.as_str())
+            .collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        kinds.into_iter().map(str::to_owned).collect()
+    }
+
     /// The guards that reported findings, sorted by name and holding each guard
     /// once however many findings it reported.
     pub fn guards(&self) -> Vec<Arc<str>> {
@@ -218,6 +231,22 @@ mod tests {
     #[test]
     fn matches_count_is_the_finding_count() {
         assert_eq!(kinds_of(&["EMAIL", "EMAIL", "US_SSN"]).matches_count(), 3);
+    }
+
+    #[test]
+    fn kinds_of_holds_one_guards_kinds_once() {
+        let finding = |guard: &str, kind: &str| {
+            Finding::spanned(UnitId(0), kind, Arc::<str>::from(guard), Span::new(0, 1))
+        };
+        let result = ScanResult::new(vec![
+            finding("pii", "US_SSN"),
+            finding("injection", "PROMPT_INJECTION"),
+            finding("pii", "EMAIL"),
+            finding("pii", "EMAIL"),
+        ]);
+        assert_eq!(result.kinds_of("pii"), vec!["EMAIL", "US_SSN"]);
+        assert_eq!(result.kinds_of("injection"), vec!["PROMPT_INJECTION"]);
+        assert!(result.kinds_of("absent").is_empty());
     }
 
     #[test]

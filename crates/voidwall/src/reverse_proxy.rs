@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::config::{AppConfig, OnError};
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError};
 use crate::engine::{BlockPolicy, Engine, GuardSelection, UnitContent, UnitKind, Units};
 use crate::error::Error;
 use crate::metrics;
@@ -501,14 +501,16 @@ async fn run_engine(
             None => PipelineResult::Pass,
         };
     }
-    if error.is_some() {
-        metrics::inc_error("blocked", "scanner_failure");
+    if let Some(e) = &error {
+        metrics::inc_error("blocked", e.scan_reason());
     }
 
-    // The kind list is sorted and holds each kind once, so the counter moves
-    // once per kind and the block body lists them in a stable order.
+    // The kind lists are sorted and hold each kind once, so the counter moves
+    // once per kind and the block body lists them in a stable order. The PII
+    // families count the `pii` guard's findings only.
     let kinds = scan_result.kinds();
-    for kind in &kinds {
+    let pii_kinds = scan_result.kinds_of(BUILTIN_PII_GUARD_NAME);
+    for kind in &pii_kinds {
         metrics::inc_detection(kind, MODE, ctx.route, ctx.direction);
     }
     // Once per guard that reported, however many findings it reported. A
@@ -516,18 +518,22 @@ async fn run_engine(
     for guard in scan_result.guards() {
         metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction);
     }
-    // The PII family counts the 403 only. The engine-wide family counts every
-    // stopped message and moves where the pipeline result is known.
-    metrics::inc_blocked(MODE, ctx.route, ctx.direction);
+    // The PII family counts only a 403 the `pii` guard took part in. The
+    // engine-wide family counts every stopped message and moves where the
+    // pipeline result is known.
+    if !pii_kinds.is_empty() {
+        metrics::inc_blocked(MODE, ctx.route, ctx.direction);
+    }
 
     PipelineResult::Block(block_response(&kinds))
 }
 
 /// The fixed response a detection produces: 403, JSON, and the kind names that
-/// were found. It never carries matched text — see
+/// were found. The `error` text names no class of finding, because any guard
+/// can cause the block. It never carries matched text — see
 /// `openspec/specs/security/spec.md`.
 fn block_response(kinds: &[String]) -> Response {
-    let payload = serde_json::json!({ "error": "PII detected", "kinds": kinds });
+    let payload = serde_json::json!({ "error": "content blocked", "kinds": kinds });
     let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
     (
         StatusCode::FORBIDDEN,
@@ -588,14 +594,16 @@ fn push_scan_headers(units: &mut Units, scanned_headers: &[String], headers: &He
     }
 }
 
+/// Apply `on_error` to a guard error no detection overruled. The error names
+/// its own reason and, under `fail_close`, its own status and fixed body.
 fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
     match on_error {
         OnError::FailOpen => {
-            metrics::inc_error("passed", "scanner_failure");
+            metrics::inc_error("passed", err.scan_reason());
             PipelineResult::Pass
         }
         OnError::FailClose => {
-            metrics::inc_error("blocked", "scanner_failure");
+            metrics::inc_error("blocked", err.scan_reason());
             PipelineResult::Error(err.into_response())
         }
     }
@@ -829,7 +837,7 @@ mod tests {
         let kinds = ["US_SSN".to_string(), "EMAIL".to_string()];
         let body = read_body(block_response(&kinds)).await;
         let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
-        assert_eq!(json["error"], "PII detected");
+        assert_eq!(json["error"], "content blocked");
         assert_eq!(json["kinds"], serde_json::json!(["US_SSN", "EMAIL"]));
         assert!(!String::from_utf8_lossy(&body).contains("@"));
     }
@@ -1034,6 +1042,143 @@ mod tests {
         };
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(&read_body(resp).await[..], br#"{"error":"internal error"}"#);
+    }
+
+    // --- A model guard error names its own status and reason ---
+
+    use crate::engine::test_guard::TestFailure;
+
+    fn errors(outcome: &str, reason: &str) -> u64 {
+        ERRORS_TOTAL.with_label_values(&[outcome, reason]).get()
+    }
+
+    #[test_case(TestFailure::Inference, StatusCode::INTERNAL_SERVER_ERROR, br#"{"error":"internal error"}"#, "inference_failure" ; "inference")]
+    #[test_case(TestFailure::WindowLimit, StatusCode::PAYLOAD_TOO_LARGE, br#"{"error":"tokenized content too long to scan"}"#, "window_limit" ; "window limit")]
+    #[tokio::test]
+    async fn a_model_guard_error_under_fail_close_answers_its_fixed_response(
+        failure: TestFailure,
+        status: StatusCode,
+        body: &[u8],
+        reason: &str,
+    ) {
+        let before = errors("blocked", reason);
+
+        let result = run_guards(
+            vec![TestGuard::new("model", "RP_UNUSED").failing_with(failure)],
+            OnError::FailClose,
+        )
+        .await;
+
+        let PipelineResult::Error(resp) = result else {
+            panic!("expected an error response");
+        };
+        assert_eq!(resp.status(), status);
+        assert_eq!(&read_body(resp).await[..], body);
+        assert!(errors("blocked", reason) > before);
+    }
+
+    #[test_case(TestFailure::Inference, "inference_failure" ; "inference")]
+    #[test_case(TestFailure::WindowLimit, "window_limit" ; "window limit")]
+    #[tokio::test]
+    async fn a_model_guard_error_under_fail_open_passes_and_counts_its_reason(
+        failure: TestFailure,
+        reason: &str,
+    ) {
+        let before = errors("passed", reason);
+
+        let result = run_guards(
+            vec![TestGuard::new("model", "RP_UNUSED").failing_with(failure)],
+            OnError::FailOpen,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Pass));
+        assert!(errors("passed", reason) > before);
+    }
+
+    #[tokio::test]
+    async fn a_block_counts_an_earlier_window_limit_with_its_own_reason() {
+        let before = errors("blocked", "window_limit");
+
+        let result = run_guards(
+            vec![
+                TestGuard::new("model", "RP_UNUSED").failing_with(TestFailure::WindowLimit),
+                TestGuard::new("detecting", "RP_WINDOW_LIMIT_KIND")
+                    .with_delay(std::time::Duration::from_millis(50)),
+            ],
+            OnError::FailOpen,
+        )
+        .await;
+
+        let PipelineResult::Block(resp) = result else {
+            panic!("expected a 403 block");
+        };
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert!(errors("blocked", "window_limit") > before);
+    }
+
+    // --- The PII families count the `pii` guard's findings only ---
+
+    use crate::metrics::{BLOCKED_TOTAL, DETECTIONS_TOTAL};
+
+    fn pii_detections(kind: &str, route: &str) -> u64 {
+        DETECTIONS_TOTAL
+            .with_label_values(&[kind, MODE, route, "request"])
+            .get()
+    }
+
+    fn pii_blocks(route: &str) -> u64 {
+        BLOCKED_TOTAL
+            .with_label_values(&[MODE, route, "request"])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn a_block_by_a_model_guard_alone_leaves_the_pii_families_alone() {
+        let route = "/pii-metrics-model-only";
+
+        let result = run_guards_on(
+            vec![TestGuard::new("rp_model_only", "PROMPT_INJECTION")],
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        let PipelineResult::Block(resp) = result else {
+            panic!("expected a 403 block");
+        };
+        let body: serde_json::Value = serde_json::from_slice(&read_body(resp).await).unwrap();
+        assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+        assert_eq!(guard_detections("rp_model_only", route), 1);
+        assert_eq!(pii_detections("PROMPT_INJECTION", route), 0);
+        assert_eq!(pii_blocks(route), 0);
+    }
+
+    #[tokio::test]
+    async fn a_kind_the_pii_guard_and_a_model_guard_both_report_counts_once() {
+        let route = "/pii-metrics-shared-kind";
+
+        let result = run_guards_on(
+            vec![
+                TestGuard::new(crate::config::BUILTIN_PII_GUARD_NAME, "RP_SHARED_KIND"),
+                TestGuard::new("rp_model_shared", "RP_SHARED_KIND"),
+            ],
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Block(_)));
+        // The first guard to report blocks and the other may be abandoned;
+        // either way the kind is counted once, and only for the `pii` guard.
+        let pii_reported = guard_detections(crate::config::BUILTIN_PII_GUARD_NAME, route) == 1;
+        assert_eq!(
+            pii_detections("RP_SHARED_KIND", route),
+            u64::from(pii_reported)
+        );
+        assert_eq!(pii_blocks(route), u64::from(pii_reported));
     }
 
     // --- Guard detections count once per guard per message ---

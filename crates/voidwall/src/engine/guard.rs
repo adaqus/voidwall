@@ -14,7 +14,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::config::{GuardSurface, OnError};
+use crate::config::{GuardSurface, ModelGuardSurface, OnError};
 use crate::error::Error;
 
 use super::finding::Finding;
@@ -75,6 +75,16 @@ impl Interest {
             kinds.push(UnitKind::QueryString);
         }
         Self::in_kinds(kinds)
+    }
+
+    /// The unit kinds a model guard's scan surface admits.
+    pub fn from_model_surface(surface: &ModelGuardSurface) -> Self {
+        Self::from_surface(&GuardSurface {
+            url_path: surface.url_path,
+            query_params: surface.query_params,
+            body: surface.body,
+            headers: surface.headers,
+        })
     }
 
     /// The kinds this interest covers.

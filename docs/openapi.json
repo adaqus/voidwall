@@ -65,7 +65,7 @@
             }
           },
           "413": {
-            "description": "Body exceeds configured `max_body_size`",
+            "description": "Body exceeds configured `max_body_size`, or, with `on_error = fail_close`, a model guard needs more windows than its limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -85,7 +85,7 @@
             }
           },
           "500": {
-            "description": "Scanner failed and `on_error = fail_close`",
+            "description": "A guard failed (scanner or model inference) and `on_error = fail_close`",
             "content": {
               "application/json": {
                 "schema": {

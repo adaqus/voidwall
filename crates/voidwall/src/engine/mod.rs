@@ -19,6 +19,7 @@
 
 pub mod finding;
 pub mod guard;
+mod model;
 mod regex_pii;
 pub mod unit;
 
@@ -29,7 +30,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use tracing::{info, warn};
 
-use crate::config::{BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError};
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError, available_cpus};
 use crate::error::Error;
 use crate::scanner::SCANNER_ERROR_LIMITER;
 
@@ -122,6 +123,25 @@ impl Engine {
             )?));
         }
         Ok(Self { guards })
+    }
+
+    /// Build the built-in guards and then every model guard, in name order.
+    ///
+    /// Each model guard loads its model here, which takes seconds per guard,
+    /// so a caller on the async runtime runs this on the blocking pool. A
+    /// load failure names the guard and stops the start.
+    pub fn from_config(config: &AppConfig) -> Result<Self, Error> {
+        let mut engine = Self::new(&config.builtin_guards)?;
+        let cpus = available_cpus();
+        for (name, guard) in &config.guards {
+            engine.guards.push(Box::new(model::ModelGuard::new(
+                name,
+                guard,
+                config.max_body_size,
+                config.effective_model_threads(name, cpus),
+            )?));
+        }
+        Ok(engine)
     }
 
     /// Resolve a guard selection by name.
@@ -317,12 +337,20 @@ pub(crate) mod test_guard {
     }
 
     /// Reports one finding of a fixed kind per selected unit.
+    /// The error a failing [`TestGuard`] returns.
+    #[derive(Clone, Copy)]
+    pub(crate) enum TestFailure {
+        Scanner,
+        Inference,
+        WindowLimit,
+    }
+
     pub(crate) struct TestGuard {
         name: Arc<str>,
         kind: &'static str,
         interest: Interest,
         delay: Option<Duration>,
-        fails: bool,
+        fails: Option<TestFailure>,
         silent: bool,
         probe: GuardProbe,
     }
@@ -334,7 +362,7 @@ pub(crate) mod test_guard {
                 kind,
                 interest: Interest::all(),
                 delay: None,
-                fails: false,
+                fails: None,
                 silent: false,
                 probe: GuardProbe::default(),
             }
@@ -348,8 +376,13 @@ pub(crate) mod test_guard {
 
         /// Make `detect` return a scanner error instead of findings, after the
         /// delay if there is one.
-        pub(crate) fn failing(mut self) -> Self {
-            self.fails = true;
+        pub(crate) fn failing(self) -> Self {
+            self.failing_with(TestFailure::Scanner)
+        }
+
+        /// Make `detect` return the given error instead of findings.
+        pub(crate) fn failing_with(mut self, failure: TestFailure) -> Self {
+            self.fails = Some(failure);
             self
         }
 
@@ -389,9 +422,21 @@ pub(crate) mod test_guard {
                 if let Some(delay) = self.delay {
                     tokio::time::sleep(delay).await;
                 }
-                if self.fails {
+                if let Some(failure) = self.fails {
                     self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
-                    return Err(Error::Scanner(format!("{} failed", self.name)));
+                    let guard = Arc::clone(&self.name);
+                    return Err(match failure {
+                        TestFailure::Scanner => Error::Scanner(format!("{guard} failed")),
+                        TestFailure::Inference => Error::Inference {
+                            guard,
+                            detail: "test failure".into(),
+                        },
+                        TestFailure::WindowLimit => Error::WindowLimit {
+                            guard,
+                            windows: 3,
+                            limit: 2,
+                        },
+                    });
                 }
                 let findings = input
                     .selected
@@ -840,6 +885,58 @@ mod tests {
         assert_eq!(engine.guards.len(), 1);
         assert_eq!(engine.guards[0].name().as_ref(), "pii");
         engine.shutdown();
+    }
+
+    /// A config with no built-in guard and one fixture model guard.
+    fn model_guard_config(dir: &std::path::Path, model: &[u8]) -> AppConfig {
+        use voidwall_ml::fixtures::{Fixture, TokenizerFixture};
+        let model_path = Fixture::default().write(dir);
+        if !model.is_empty() {
+            std::fs::write(&model_path, model).unwrap();
+        }
+        let toml = format!(
+            r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+max_tokens = 16
+labels = ["PROMPT_INJECTION"]
+threads = 1
+
+[forward_proxy]
+enabled = true
+"#,
+            model = model_path.display(),
+            tokenizer = TokenizerFixture::default().write(dir).display(),
+        );
+        toml::from_str(&toml).unwrap()
+    }
+
+    #[test]
+    fn a_model_guard_is_built_and_selectable_by_name_and_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine =
+            Engine::from_config(&model_guard_config(dir.path(), b"")).expect("engine should build");
+        assert_eq!(engine.guards.len(), 1);
+        assert_eq!(engine.guards[0].name().as_ref(), "injection");
+        assert!(!engine.select(Some(&["injection"])).is_empty());
+        assert!(!engine.select(None).is_empty());
+    }
+
+    #[test]
+    fn a_bad_model_fails_the_engine_naming_the_guard_and_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = model_guard_config(dir.path(), b"not an onnx model");
+        let err = Engine::from_config(&config)
+            .err()
+            .expect("a bad model must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("guards.injection"), "got: {msg}");
+        assert!(
+            msg.contains(&config.guards["injection"].model_path.display().to_string()),
+            "got: {msg}"
+        );
     }
 
     #[tokio::test]

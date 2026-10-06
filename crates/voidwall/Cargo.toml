@@ -65,6 +65,8 @@ name = "echo-server"
 path = "benches/echo_server.rs"
 
 [dev-dependencies]
+# Fixture models for the model guard tests.
+voidwall-ml = { path = "../voidwall-ml", features = ["test-fixtures"] }
 test-case = "3.3.1"
 tower = { version = "0.5", features = ["util"] }
 reqwest = { version = "0.12", features = ["json"] }

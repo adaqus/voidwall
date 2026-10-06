@@ -12,9 +12,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use utoipa::ToSchema;
 
-use crate::config::{AppConfig, OnError};
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError};
 use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, Units};
-use crate::error::{Error, INTERNAL_ERROR};
+use crate::error::Error;
 use crate::metrics;
 use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body};
 
@@ -138,9 +138,9 @@ struct ErrorResponse {
             content_type = "application/json",
         ),
         (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
-        (status = 413, description = "Body exceeds configured `max_body_size`", body = ErrorResponse, content_type = "application/json"),
+        (status = 413, description = "Body exceeds configured `max_body_size`, or, with `on_error = fail_close`, a model guard needs more windows than its limit", body = ErrorResponse, content_type = "application/json"),
         (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
-        (status = 500, description = "Scanner failed and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
+        (status = 500, description = "A guard failed (scanner or model inference) and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
     ),
 )]
 async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -306,8 +306,9 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
     let kinds = scan_result.kinds();
 
     // Always increment detection metrics when PII is detected — also when a
-    // guard error turns the answer into a 500.
-    for kind in &kinds {
+    // guard error turns the answer into a 500. The PII family counts the
+    // `pii` guard's kinds only.
+    for kind in &scan_result.kinds_of(BUILTIN_PII_GUARD_NAME) {
         metrics::inc_detection(kind, MODE, ROUTE, "request");
     }
     for guard in scan_result.guards() {
@@ -320,7 +321,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
         if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
             warn!(dropped, error = %e, "scanner error in http api");
         }
-        if let Some(resp) = handle_scanner_failure(state.on_error) {
+        if let Some(resp) = handle_scanner_failure(e, state.on_error) {
             return resp;
         }
     }
@@ -341,25 +342,21 @@ fn build_scan_response(scan_result: &ScanResult, kinds: &[String]) -> Response {
     (StatusCode::OK, [("content-type", "application/json")], body).into_response()
 }
 
-/// On scanner failure, follow the configured `on_error` policy.
+/// On a guard error, follow the configured `on_error` policy. The error names
+/// its own reason, status, and fixed body.
 ///
 /// `fail_open`: count the error and return `None`, so the caller reports the
-/// findings of the guards that succeeded. `fail_close`: return the fixed 500.
-fn handle_scanner_failure(on_error: OnError) -> Option<Response> {
+/// findings of the guards that succeeded. `fail_close`: return the error's
+/// fixed response — 500 for a failure, 413 for a window limit.
+fn handle_scanner_failure(err: Error, on_error: OnError) -> Option<Response> {
     match on_error {
         OnError::FailOpen => {
-            metrics::inc_error("passed", "scanner_failure");
+            metrics::inc_error("passed", err.scan_reason());
             None
         }
         OnError::FailClose => {
-            metrics::inc_error("blocked", "scanner_failure");
-            let body = serde_json::json!({ "error": INTERNAL_ERROR }).to_string();
-            let resp = (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [("content-type", "application/json")],
-                body,
-            )
-                .into_response();
+            metrics::inc_error("blocked", err.scan_reason());
+            let resp = err.into_response();
             record_request(resp.status());
             Some(resp)
         }
@@ -471,14 +468,14 @@ mod tests {
     use crate::metrics::{DETECTIONS_TOTAL, ERRORS_TOTAL};
     use http_body_util::BodyExt;
 
-    /// Post one plain-text body to `/v1/scan` over a failing guard and a guard
-    /// that reports `kind`.
+    /// Post one plain-text body to `/v1/scan` over a failing guard and the
+    /// `pii` guard reporting `kind`.
     async fn scan_with_a_failing_guard(on_error: OnError, kind: &'static str) -> Response {
         let engine = Arc::new(Engine::with_guards(vec![
             Box::new(TestGuard::new("failing", "API_UNUSED").failing()),
-            // The guard is named after its kind, so each test reads a guard
-            // label no other test uses.
-            Box::new(TestGuard::new(kind, kind)),
+            // Each test passes a kind no other test uses, so the PII
+            // detection count for it is exact.
+            Box::new(TestGuard::new(BUILTIN_PII_GUARD_NAME, kind)),
         ]));
         let config = AppConfig {
             on_error,
@@ -525,11 +522,79 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&bytes[..], br#"{"error":"internal error"}"#);
-        // The kind label is unique to this test, so the count is exact.
+        // The kind label is unique to this test, so the count is exact. Other
+        // tests count the `pii` guard too, so its check is a lower bound.
         assert_eq!(detections("API_FAIL_CLOSE_KIND"), 1);
-        assert_eq!(guard_detections("API_FAIL_CLOSE_KIND"), 1);
+        assert!(guard_detections(BUILTIN_PII_GUARD_NAME) >= 1);
         assert_eq!(guard_detections("failing"), 0);
         assert_eq!(api_blocks(), 0, "a 500 on /v1/scan is not a block");
+    }
+
+    // --- A model guard error names its own status and reason ---
+
+    use crate::engine::test_guard::TestFailure;
+
+    /// Post one plain-text body to `/v1/scan` over a guard failing with
+    /// `failure` and a guard that reports `kind`.
+    async fn scan_with_a_model_failure(
+        failure: TestFailure,
+        on_error: OnError,
+        kind: &'static str,
+    ) -> Response {
+        let engine = Arc::new(Engine::with_guards(vec![
+            Box::new(TestGuard::new("model", "API_UNUSED").failing_with(failure)),
+            Box::new(TestGuard::new(kind, kind)),
+        ]));
+        let config = AppConfig {
+            on_error,
+            ..AppConfig::default()
+        };
+        let state = build_state(&config, engine);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+        process(state, headers, Bytes::from_static(b"content")).await
+    }
+
+    fn errors(outcome: &str, reason: &str) -> u64 {
+        ERRORS_TOTAL.with_label_values(&[outcome, reason]).get()
+    }
+
+    #[test_case(TestFailure::Inference, StatusCode::INTERNAL_SERVER_ERROR, br#"{"error":"internal error"}"#, "inference_failure" ; "inference")]
+    #[test_case(TestFailure::WindowLimit, StatusCode::PAYLOAD_TOO_LARGE, br#"{"error":"tokenized content too long to scan"}"#, "window_limit" ; "window limit")]
+    #[tokio::test]
+    async fn a_model_guard_error_under_fail_close_answers_its_fixed_response(
+        failure: TestFailure,
+        status: StatusCode,
+        body: &[u8],
+        reason: &str,
+    ) {
+        let before = errors("blocked", reason);
+
+        let resp = scan_with_a_model_failure(failure, OnError::FailClose, "API_MODEL_FC").await;
+
+        assert_eq!(resp.status(), status);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], body);
+        assert!(errors("blocked", reason) > before);
+    }
+
+    #[test_case(TestFailure::Inference, "inference_failure", "API_MODEL_FO_INF" ; "inference")]
+    #[test_case(TestFailure::WindowLimit, "window_limit", "API_MODEL_FO_WL" ; "window limit")]
+    #[tokio::test]
+    async fn a_model_guard_error_under_fail_open_reports_the_other_guards(
+        failure: TestFailure,
+        reason: &str,
+        kind: &'static str,
+    ) {
+        let before = errors("passed", reason);
+
+        let resp = scan_with_a_model_failure(failure, OnError::FailOpen, kind).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["kinds"], serde_json::json!([kind]));
+        assert!(errors("passed", reason) > before);
     }
 
     // --- Guard detections and blocks ---

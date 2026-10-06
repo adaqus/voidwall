@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
@@ -10,6 +12,17 @@ pub enum Error {
 
     /// PII scanner initialization or runtime failure.
     Scanner(String),
+
+    /// A model guard failed at run time: its pool, its tokenizer, ONNX
+    /// Runtime, or an invalid output. `detail` goes to the log only.
+    Inference { guard: Arc<str>, detail: String },
+
+    /// A unit needs more windows than a model guard's window limit.
+    WindowLimit {
+        guard: Arc<str>,
+        windows: usize,
+        limit: usize,
+    },
 
     /// Proxy I/O or upstream errors.
     Proxy(String),
@@ -32,6 +45,17 @@ impl std::fmt::Display for Error {
         match self {
             Error::Config(msg) => write!(f, "configuration error: {msg}"),
             Error::Scanner(msg) => write!(f, "scanner error: {msg}"),
+            Error::Inference { guard, detail } => {
+                write!(f, "model guard '{guard}' failed: {detail}")
+            }
+            Error::WindowLimit {
+                guard,
+                windows,
+                limit,
+            } => write!(
+                f,
+                "model guard '{guard}': the unit needs {windows} windows; the limit is {limit}"
+            ),
             Error::Proxy(msg) => write!(f, "proxy error: {msg}"),
             Error::Io(e) => write!(f, "I/O error: {e}"),
             Error::BodyTooLarge => write!(f, "request body too large"),
@@ -46,6 +70,18 @@ impl std::error::Error for Error {
         match self {
             Error::Io(e) => Some(e),
             _ => None,
+        }
+    }
+}
+
+impl Error {
+    /// The `reason` label of `voidwall_errors_total` for a guard error. A
+    /// variant no guard-specific reason covers counts as a scanner failure.
+    pub fn scan_reason(&self) -> &'static str {
+        match self {
+            Error::Inference { .. } => "inference_failure",
+            Error::WindowLimit { .. } => "window_limit",
+            _ => "scanner_failure",
         }
     }
 }
@@ -90,10 +126,14 @@ pub const INTERNAL_ERROR: &str = "internal error";
 /// The fixed `error` text of every 502. The failure details go to the log only.
 pub const UPSTREAM_ERROR: &str = "upstream error";
 
+/// The fixed `error` text of a window-limit 413. The guard and the window
+/// counts go to the log only.
+pub const WINDOW_LIMIT_ERROR: &str = "tokenized content too long to scan";
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            Error::Config(_) | Error::Scanner(_) => (
+            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR.to_string(),
             ),
@@ -101,6 +141,10 @@ impl IntoResponse for Error {
             Error::BodyTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body too large".to_string(),
+            ),
+            Error::WindowLimit { .. } => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                WINDOW_LIMIT_ERROR.to_string(),
             ),
             Error::BodyParse => (StatusCode::BAD_REQUEST, "body parse failed".to_string()),
             Error::UnsupportedContentType => (
@@ -189,6 +233,54 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["error"], expected_body);
+    }
+
+    fn inference_error() -> Error {
+        Error::Inference {
+            guard: Arc::from("injection"),
+            detail: "Gemm: Invalid bias shape".into(),
+        }
+    }
+
+    fn window_limit_error() -> Error {
+        Error::WindowLimit {
+            guard: Arc::from("injection"),
+            windows: 2746,
+            limit: 2745,
+        }
+    }
+
+    #[test_case(inference_error(), StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR ; "inference")]
+    #[test_case(window_limit_error(), StatusCode::PAYLOAD_TOO_LARGE, WINDOW_LIMIT_ERROR ; "window limit")]
+    #[tokio::test]
+    async fn a_model_guard_error_answers_a_fixed_body(
+        err: Error,
+        expected_status: StatusCode,
+        expected_error: &str,
+    ) {
+        let response = err.into_response();
+        assert_eq!(response.status(), expected_status);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json, serde_json::json!({ "error": expected_error }));
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        for detail in ["injection", "Gemm", "2746", "2745"] {
+            assert!(!text.contains(detail), "body leaks {detail}: {text}");
+        }
+    }
+
+    #[test_case(inference_error(), "inference_failure" ; "inference")]
+    #[test_case(window_limit_error(), "window_limit" ; "window limit")]
+    #[test_case(Error::Scanner("pool dead".into()), "scanner_failure" ; "scanner")]
+    fn scan_reason(err: Error, expected: &str) {
+        assert_eq!(err.scan_reason(), expected);
+    }
+
+    #[test]
+    fn a_model_guard_error_display_names_the_guard() {
+        assert!(inference_error().to_string().contains("injection"));
+        let msg = window_limit_error().to_string();
+        assert!(msg.contains("injection") && msg.contains("2746") && msg.contains("2745"));
     }
 
     #[tokio::test]

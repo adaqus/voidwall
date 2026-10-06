@@ -515,3 +515,35 @@ upstream = "http://localhost:9000"
         assert!(logs.contains(key), "the failure must name `{key}`: {logs}");
     }
 }
+
+/// `--validate` stays offline: a model guard whose model file exists but is
+/// not ONNX passes, because validation never loads a model.
+#[test]
+fn validate_does_not_load_a_model() {
+    let artifact = write_cfg("not an onnx model");
+    let cfg = write_cfg(&format!(
+        r#"
+[guards.injection]
+adapter = "text_classifier"
+model_path = "{path}"
+tokenizer_path = "{path}"
+max_tokens = 512
+labels = ["PROMPT_INJECTION"]
+
+[guards.injection.thresholds]
+PROMPT_INJECTION = 0.90
+
+[http_api]
+enabled = true
+listen = "127.0.0.1:18083"
+"#,
+        path = artifact.path().display(),
+    ));
+    let out = run_validate(cfg.path());
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
