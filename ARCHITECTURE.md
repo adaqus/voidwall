@@ -204,7 +204,9 @@ Three consequences worth stating:
   going anywhere, so the remaining findings cannot change the outcome; a guard still
   running is abandoned and its findings do not appear. A caller that reports rather
   than blocks needs
-  the full set, so it waits.
+  the full set, so it waits. An abandoned model guard cancels its run when its future
+  is dropped: ONNX Runtime stops at the next graph node, a queued job is skipped, and
+  the worker takes the next job. A cancelled run is not a failure and is not counted.
 
 Nothing rewrites a message. A guard reads the units it was handed and reports spans; no
 stage downstream turns those spans into replacement bytes. That is not only a policy
@@ -379,7 +381,7 @@ Today:
 | Crate | Holds |
 |---|---|
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError`, stoppable through a `Cancel`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
@@ -415,7 +417,7 @@ which is mapped file pages the kernel can drop. The sessions load in parallel af
 first. A load returns only after the tensor contract, the tokenizer-against-embedding
 check, and one smoke inference per session have passed, so a model that loads also runs.
 
-`Worker::score(text)` scores one unit. It tokenizes with the model's `tokenizer.json`
+`Worker::score(text, &Cancel)` scores one unit. It tokenizes with the model's `tokenizer.json`
 (truncation and padding in the file do not apply) and cuts the tokens into overlapping
 windows: the window is `max_tokens` minus the special tokens the tokenizer adds, the
 overlap is `overlap_tokens` (default `min(128, max_tokens / 2)`, at most `max_tokens / 2`),
@@ -426,6 +428,10 @@ alone at batch size 1. The adapter turns a window's logits into a score (`text_c
 `ceil(max_body_size / stride)` windows fails with `RunError::WindowLimit` before any
 inference runs; a failed inference, a wrong output shape, or a non-finite logit fails
 with the matching `RunError`, never a score. No `RunError` carries the unit's text.
+A `Cancel` stops a run from another thread: the run checks it before it tokenizes and
+before each window, and its `RunOptions` terminate flag stops an inference in progress at
+the next graph node. A cancelled run returns `RunError::Cancelled`, which the model guard
+treats as "nobody waits", never as a failure.
 `crates/voidwall-ml/parity/` checks the scores against Python `tokenizers` and PyTorch on
 real models; it needs model files, so it runs by hand, not in CI.
 

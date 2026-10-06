@@ -251,8 +251,8 @@ impl Engine {
                 break;
             }
         }
-        // Abandon whatever is still running. The worker behind an abandoned
-        // future runs to completion and its reply is discarded.
+        // Abandon whatever is still running. Dropping a guard's future is the
+        // whole signal: a model guard cancels its run on drop.
         drop(in_flight);
 
         findings.sort_by(canonical_order);

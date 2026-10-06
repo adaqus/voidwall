@@ -8,7 +8,8 @@
 //!                         logits [batch, width] ◄─ Add(bias) ◄─ MatMul(weight [HIDDEN, width])
 //! ```
 //!
-//! Each field of [`Fixture`] bends one part of it into a bad case.
+//! Each field of [`Fixture`] bends one part of it into a bad case, or, for
+//! [`Fixture::slow`], makes a run take longer.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,8 @@ use crate::onnx_proto::{
 /// Rows of the fixture's embedding table.
 pub const ROWS: i64 = 16;
 const HIDDEN: i64 = 32;
+/// The width of [`Fixture::slow`]'s chain.
+const SLOW_WIDTH: i64 = 2048;
 
 /// The token that [`Fixture::trigger`] makes score high, and its ID.
 pub const TRIGGER: &str = "trigger";
@@ -70,6 +73,11 @@ pub struct Fixture {
     /// A 1 KiB weight of zeros whose only consumer is a `ReduceSum`, added to
     /// the logits: ONNX Runtime constant-folds it at load, from the graph.
     pub folded_weight: bool,
+    /// A chain of this many `MatMul` nodes over the masked embeddings, widened
+    /// to [`SLOW_WIDTH`] and multiplied by an identity, summed, times 0, and
+    /// added to the logits. Scores do not change; a run takes longer with each
+    /// node, so a test can cancel a run in progress.
+    pub slow: Option<usize>,
 }
 
 impl Default for Fixture {
@@ -92,6 +100,7 @@ impl Default for Fixture {
             nan_row: None,
             mask_reshaped_to: None,
             folded_weight: false,
+            slow: None,
         }
     }
 }
@@ -197,6 +206,10 @@ impl Fixture {
         } else {
             "logits"
         };
+        let (head, logits) = match self.slow {
+            Some(_) => ("unslowed", logits),
+            None => (logits, logits),
+        };
         if self.folded_weight {
             nodes.push(node("Add", &["projected", "bias"], &["biased"], vec![]));
             nodes.push(node(
@@ -205,9 +218,29 @@ impl Fixture {
                 &["folded"],
                 vec![int_attr("keepdims", 0)],
             ));
-            nodes.push(node("Add", &["biased", "folded"], &[logits], vec![]));
+            nodes.push(node("Add", &["biased", "folded"], &[head], vec![]));
         } else {
-            nodes.push(node("Add", &["projected", "bias"], &[logits], vec![]));
+            nodes.push(node("Add", &["projected", "bias"], &[head], vec![]));
+        }
+        if let Some(chain) = self.slow {
+            nodes.push(node("MatMul", &[masked, "slow_widen"], &["slow_0"], vec![]));
+            for i in 0..chain {
+                let (from, to) = (format!("slow_{i}"), format!("slow_{}", i + 1));
+                nodes.push(node("MatMul", &[&from, "slow_identity"], &[&to], vec![]));
+            }
+            nodes.push(node(
+                "ReduceSum",
+                &[&format!("slow_{chain}")],
+                &["slow_sum"],
+                vec![int_attr("keepdims", 0)],
+            ));
+            nodes.push(node(
+                "Mul",
+                &["slow_sum", "slow_zero"],
+                &["slow_term"],
+                vec![],
+            ));
+            nodes.push(node("Add", &[head, "slow_term"], &[logits], vec![]));
         }
         if self.float16_output {
             nodes.push(node(
@@ -269,6 +302,19 @@ impl Fixture {
         ];
         if self.folded_weight {
             initializer.push(float_tensor("fold_table", &[256], |_| 0.0));
+        }
+        if self.slow.is_some() {
+            let width = SLOW_WIDTH as usize;
+            // Each hidden column goes to the column of the same index, so values stay finite.
+            initializer.push(float_tensor("slow_widen", &[HIDDEN, SLOW_WIDTH], |i| {
+                f32::from(u8::from(i / width == i % width))
+            }));
+            initializer.push(float_tensor(
+                "slow_identity",
+                &[SLOW_WIDTH, SLOW_WIDTH],
+                |i| f32::from(u8::from(i / width == i % width)),
+            ));
+            initializer.push(float_tensor("slow_zero", &[], |_| 0.0));
         }
         if let Some(n) = self.mask_reshaped_to {
             initializer.push(int64_tensor("mask_shape", &[2], &[1, n]));
@@ -472,8 +518,13 @@ fn int64_tensor(name: &str, dims: &[i64], values: &[i64]) -> TensorProto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter::AdapterKind;
+    use crate::load::{LoadSettings, Worker, load};
+    use crate::run::uncancelled;
     use ort::session::Session;
     use ort::value::Tensor;
+    use std::num::NonZeroUsize;
+    use std::time::Instant;
     use test_case::test_case;
     use tokenizers::PostProcessor;
 
@@ -529,5 +580,47 @@ mod tests {
         };
         assert!(score(vec![1, i64::from(TRIGGER_ID), 3]) > 0.9);
         assert!(score(vec![1, 2, 3]) < 0.5);
+    }
+
+    fn worker(model: Fixture) -> Worker {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = LoadSettings {
+            adapter: AdapterKind::TextClassifier,
+            model_path: model.write(dir.path()),
+            tokenizer_path: TokenizerFixture::default().write(dir.path()),
+            max_tokens: 16,
+            overlap_tokens: None,
+            max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
+            workers: NonZeroUsize::MIN,
+        };
+        load(&settings).unwrap().pop().unwrap()
+    }
+
+    /// Same score as the model without the chain, and a run that takes longer.
+    #[test]
+    fn the_slow_chain_changes_the_time_and_not_the_score() {
+        let text = "voidwall smoke test trigger ".repeat(3);
+        let base = Fixture {
+            trigger: true,
+            ..Fixture::default()
+        };
+        let mut fast = worker(base.clone());
+        let mut slow = worker(Fixture {
+            slow: Some(200),
+            ..base
+        });
+
+        let started = Instant::now();
+        let fast_score = fast.score(&text, &uncancelled()).unwrap();
+        let fast_time = started.elapsed();
+        let started = Instant::now();
+        let slow_score = slow.score(&text, &uncancelled()).unwrap();
+        let slow_time = started.elapsed();
+
+        assert_eq!(slow_score, fast_score);
+        assert!(
+            slow_time >= 4 * fast_time,
+            "slow {slow_time:?} vs fast {fast_time:?}"
+        );
     }
 }

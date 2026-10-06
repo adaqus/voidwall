@@ -22,7 +22,7 @@ mod run;
 
 pub use adapter::{Adapter, AdapterKind, TextClassifier};
 pub use load::{LoadError, LoadSettings, Worker, load};
-pub use run::{RunError, check_overlap, default_overlap};
+pub use run::{Cancel, RunError, check_overlap, default_overlap};
 
 use std::ffi::CStr;
 

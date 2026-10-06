@@ -12,7 +12,7 @@ use tokenizers::Tokenizer;
 use crate::adapter::{Adapter, AdapterKind, TextClassifier};
 use crate::checks::{self, InputLayout};
 use crate::model_file::ModelFile;
-use crate::run::{RunError, Windowing};
+use crate::run::{Cancel, RunError, Windowing};
 
 /// What one load needs. `voidwall` builds it from a model guard's configuration.
 #[derive(Debug, Clone)]
@@ -48,6 +48,10 @@ pub struct Worker {
     /// Inferences run, so tests can see how many windows a run took.
     #[cfg(test)]
     pub(crate) inferences: usize,
+    /// Cancel the run once this many inferences have returned, so a test can
+    /// land a cancel between two windows.
+    #[cfg(test)]
+    pub(crate) cancel_after: Option<usize>,
 }
 
 /// Why a load failed. No variant carries input text: a load sees none.
@@ -215,6 +219,8 @@ fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadErr
         window_score: A::window_score,
         #[cfg(test)]
         inferences: 0,
+        #[cfg(test)]
+        cancel_after: None,
     };
     let first = worker(first);
     let workers = std::thread::scope(|scope| {
@@ -290,7 +296,9 @@ fn new_session(
 impl Worker {
     /// Runs one inference on the smoke input through the same path a run uses.
     fn smoke(&mut self, ids: &[i64]) -> Result<(), LoadError> {
-        self.infer(ids).map(drop).map_err(|e| match e {
+        // Nobody cancels the smoke inference.
+        let cancel = Cancel::new().map_err(|e| LoadError::SmokeInference(e.to_string()))?;
+        self.infer(ids, &cancel).map(drop).map_err(|e| match e {
             RunError::NonFinite => LoadError::SmokeNonFinite,
             RunError::Inference(reason) => LoadError::SmokeInference(reason),
             other => LoadError::SmokeInference(other.to_string()),

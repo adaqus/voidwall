@@ -5,6 +5,10 @@
 //! inference is CPU-bound and must never run on the tokio runtime. `detect`
 //! hands the units to a pool thread over a bounded channel and awaits the
 //! reply on a oneshot, the same shape as the regex PII guard's scanner pool.
+//!
+//! When the engine abandons the guard, dropping the `detect` future cancels
+//! the job's run: the worker stops within about one graph node and takes the
+//! next job. A cancelled run is not a failure and produces no reply.
 
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
@@ -14,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{SendTimeoutError, Sender};
 use tracing::{debug, error, info};
-use voidwall_ml::{LoadSettings, RunError, Worker};
+use voidwall_ml::{Cancel, LoadSettings, RunError, Worker};
 
 use crate::config::ModelGuardConfig;
 use crate::error::Error;
@@ -38,10 +42,22 @@ struct Verdict {
     threshold: Option<f32>,
 }
 
-/// One message's work: its units, and the subset this guard was asked to score.
+/// One message's work: its units, the subset this guard was asked to score,
+/// and the handle that stops its run.
 struct ModelJob {
     units: Arc<[Unit]>,
     selected: Vec<UnitId>,
+    cancel: Arc<Cancel>,
+}
+
+/// Cancels a job's run when the `detect` future that owns it is dropped. On
+/// a normal finish the job is done, so the cancel touches nothing.
+struct CancelOnDrop(Arc<Cancel>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 type Reply = Result<Vec<Finding>, Error>;
@@ -55,6 +71,9 @@ struct ModelPool {
     guard: Arc<str>,
     sender: Option<Sender<WorkItem>>,
     handles: Vec<JoinHandle<()>>,
+    /// Jobs a worker started to score, so tests can see a skipped job.
+    #[cfg(test)]
+    started: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl ModelPool {
@@ -64,16 +83,28 @@ impl ModelPool {
         let guard = Arc::clone(&verdict.guard);
         let (sender, receiver) = crossbeam_channel::bounded::<WorkItem>(workers.len() * 4);
         let mut handles = Vec::with_capacity(workers.len());
+        #[cfg(test)]
+        let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         for (thread_id, mut worker) in workers.into_iter().enumerate() {
             let rx = receiver.clone();
             let verdict = Arc::clone(&verdict);
+            #[cfg(test)]
+            let started = Arc::clone(&started);
             let handle = std::thread::Builder::new()
                 .name(format!("model-{guard}-{thread_id}"))
                 .spawn(move || {
                     debug!(guard = %verdict.guard, thread_id, "model thread started");
                     while let Ok((job, reply_tx)) = rx.recv() {
-                        let _ = reply_tx.send(score_job(&mut worker, &verdict, &job));
+                        // Nobody waits for this job any more: skip it.
+                        if reply_tx.is_closed() {
+                            continue;
+                        }
+                        #[cfg(test)]
+                        started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if let Some(reply) = score_job(&mut worker, &verdict, &job) {
+                            let _ = reply_tx.send(reply);
+                        }
                     }
                     debug!(guard = %verdict.guard, thread_id, "model thread exiting");
                 })
@@ -89,6 +120,8 @@ impl ModelPool {
             guard,
             sender: Some(sender),
             handles,
+            #[cfg(test)]
+            started,
         })
     }
 
@@ -149,16 +182,18 @@ impl Drop for ModelPool {
 
 /// Score the selected units on a worker thread. The first failure ends the
 /// job: the message's outcome is then `on_error`'s, whatever the other units
-/// score.
-fn score_job(worker: &mut Worker, verdict: &Verdict, job: &ModelJob) -> Reply {
+/// score. `None` is a cancelled job: nobody waits for it, so it has no reply,
+/// and it is never an error.
+fn score_job(worker: &mut Worker, verdict: &Verdict, job: &ModelJob) -> Option<Reply> {
     let mut findings = Vec::new();
     for id in &job.selected {
         let Some(unit) = job.units.get(id.index()) else {
             continue;
         };
-        let score = worker
-            .score(&unit_text(&unit.content))
-            .map_err(|e| run_error(&verdict.guard, e))?;
+        let score = match worker.score(&unit_text(&unit.content), &job.cancel) {
+            Ok(score) => score,
+            Err(e) => return run_error(&verdict.guard, e).map(Err),
+        };
         if verdict.threshold.is_some_and(|t| score >= t) {
             findings.push(Finding::whole_unit(
                 *id,
@@ -168,7 +203,7 @@ fn score_job(worker: &mut Worker, verdict: &Verdict, job: &ModelJob) -> Reply {
             ));
         }
     }
-    Ok(findings)
+    Some(Ok(findings))
 }
 
 /// The one text a model guard scores for a unit.
@@ -188,19 +223,25 @@ fn unit_text(content: &UnitContent) -> Cow<'_, str> {
     }
 }
 
-/// A run error as the error the handlers act on. Neither variant carries the
-/// unit's text: `RunError` never holds it.
-fn run_error(guard: &Arc<str>, e: RunError) -> Error {
+/// A run error as the error the handlers act on, or `None` for a cancelled
+/// run: nobody waits for it, so it is never an error. Neither variant carries
+/// the unit's text: `RunError` never holds it.
+fn run_error(guard: &Arc<str>, e: RunError) -> Option<Error> {
+    let guard = Arc::clone(guard);
     match e {
-        RunError::WindowLimit { windows, limit } => Error::WindowLimit {
-            guard: Arc::clone(guard),
+        RunError::Cancelled => None,
+        RunError::WindowLimit { windows, limit } => Some(Error::WindowLimit {
+            guard,
             windows,
             limit,
-        },
-        other => Error::Inference {
-            guard: Arc::clone(guard),
+        }),
+        other @ (RunError::Tokenizer
+        | RunError::Inference(_)
+        | RunError::OutputShape { .. }
+        | RunError::NonFinite) => Some(Error::Inference {
+            guard,
             detail: other.to_string(),
-        },
+        }),
     }
 }
 
@@ -267,11 +308,22 @@ impl Guard for ModelGuard {
     }
 
     fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a> {
-        let job = ModelJob {
-            units: Arc::clone(input.units),
-            selected: input.selected.to_vec(),
-        };
-        Box::pin(async move { self.pool.submit(job).await })
+        let units = Arc::clone(input.units);
+        let selected = input.selected.to_vec();
+        Box::pin(async move {
+            let cancel = Arc::new(Cancel::new().map_err(|e| Error::Inference {
+                guard: Arc::clone(&self.name),
+                detail: e.to_string(),
+            })?);
+            // Dropped with this future, so an abandoned guard stops its run.
+            let _armed = CancelOnDrop(Arc::clone(&cancel));
+            let job = ModelJob {
+                units,
+                selected,
+                cancel,
+            };
+            self.pool.submit(job).await
+        })
     }
 }
 
@@ -534,5 +586,128 @@ mod tests {
         assert_eq!(handles, 2);
         // Drop joins; a thread that never exits would hang the test here.
         drop(guard);
+    }
+
+    // --- An abandoned guard cancels its run ---
+
+    /// 40 tokens: window 16, stride 8, so four windows.
+    fn long_unit() -> Units {
+        plain(&["voidwall smoke test trigger ".repeat(10).as_bytes()])
+    }
+
+    /// One token: about a sixteenth of one long window's work.
+    fn short_unit() -> Units {
+        plain(&[b"voidwall"])
+    }
+
+    /// One worker on a model slow enough to abandon mid-run.
+    fn slow_guard(dir: &Path) -> ModelGuard {
+        let fixture = Fixture {
+            slow: Some(300),
+            ..trigger_fixture()
+        };
+        ModelGuard::new(
+            "injection",
+            &config(dir, fixture, Some(0.9)),
+            1_048_576,
+            NonZeroUsize::MIN,
+        )
+        .expect("the slow fixture loads")
+    }
+
+    /// How long the guard takes on the long unit.
+    async fn full_run(guard: &ModelGuard) -> Duration {
+        let started = Instant::now();
+        detect(guard, long_unit()).await.unwrap();
+        started.elapsed()
+    }
+
+    #[tokio::test]
+    async fn an_abandoned_inference_frees_the_worker_within_a_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let guard = slow_guard(dir.path());
+        let full = full_run(&guard).await;
+
+        let abandoned = tokio::time::timeout(full / 2, detect(&guard, long_unit())).await;
+        assert!(abandoned.is_err(), "the long run must still be running");
+        let dropped = Instant::now();
+        let findings = detect(&guard, short_unit()).await.unwrap();
+
+        let freed = dropped.elapsed();
+        assert!(findings.is_empty());
+        assert!(freed < full / 4, "freed after {freed:?}; full run {full:?}");
+    }
+
+    #[tokio::test]
+    async fn a_queued_job_of_an_abandoned_message_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let guard = slow_guard(dir.path());
+        let full = full_run(&guard).await;
+        let started = || {
+            guard
+                .pool
+                .started
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        assert_eq!(started(), 1);
+
+        // The first job takes the only worker; the second, sent later, waits
+        // in the queue and is abandoned there.
+        let queued = async {
+            tokio::time::sleep(full / 8).await;
+            tokio::time::timeout(full / 4, detect(&guard, long_unit())).await
+        };
+        let (running, queued) = tokio::join!(detect(&guard, long_unit()), queued);
+
+        assert_eq!(running.unwrap().len(), 1);
+        assert!(queued.is_err(), "the queued job must be abandoned");
+        detect(&guard, short_unit()).await.unwrap();
+        assert_eq!(started(), 3, "the queued job never started");
+    }
+
+    #[test]
+    fn a_cancelled_run_maps_to_no_error() {
+        let guard: Arc<str> = Arc::from("injection");
+        assert!(run_error(&guard, RunError::Cancelled).is_none());
+        assert!(matches!(
+            run_error(&guard, RunError::NonFinite),
+            Some(Error::Inference { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_run_is_not_an_error() {
+        use crate::engine::test_guard::TestGuard;
+        use crate::engine::{BlockPolicy, Engine};
+
+        let dir = tempfile::tempdir().unwrap();
+        let guard = slow_guard(dir.path());
+        let full = full_run(&guard).await;
+        let blocker = TestGuard::new("blocker", "EMAIL").with_delay(full / 4);
+        let engine = Engine::with_guards(vec![Box::new(blocker), Box::new(guard)]);
+
+        let mut result = engine
+            .guard(
+                long_unit().into_shared(),
+                &engine.select(None),
+                BlockPolicy::AnyFinding,
+                OnError::FailClose,
+            )
+            .await;
+
+        assert_eq!(result.kinds(), vec!["EMAIL".to_string()]);
+        assert!(result.take_error().is_none(), "a cancelled run is no error");
+        let dropped = Instant::now();
+        let mut next = engine
+            .guard(
+                short_unit().into_shared(),
+                &engine.select(Some(&["injection"])),
+                BlockPolicy::AnyFinding,
+                OnError::FailClose,
+            )
+            .await;
+        assert!(next.take_error().is_none());
+        let freed = dropped.elapsed();
+        assert!(freed < full / 4, "freed after {freed:?}; full run {full:?}");
     }
 }

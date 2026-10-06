@@ -18,6 +18,7 @@ use serde::Deserialize;
 
 use crate::adapter::AdapterKind;
 use crate::load::{LoadSettings, load};
+use crate::run::uncancelled;
 
 /// The largest score difference from the reference that parity accepts.
 const TOLERANCE: f64 = 1e-4;
@@ -101,7 +102,7 @@ fn check_model(dir: &Path) -> Vec<String> {
         }
 
         let score = worker
-            .score(&unit.text)
+            .score(&unit.text, &uncancelled())
             .unwrap_or_else(|e| panic!("{name}/{}: {e}", unit.id));
         let delta = (f64::from(score) - unit.score).abs();
         max_delta = max_delta.max(delta);

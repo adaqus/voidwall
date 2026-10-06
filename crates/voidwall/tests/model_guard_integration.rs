@@ -170,6 +170,7 @@ fn write_config(content: &str) -> NamedTempFile {
 struct Running {
     proxy_addr: SocketAddr,
     api_addr: SocketAddr,
+    admin_addr: SocketAddr,
     hits: Arc<AtomicUsize>,
     proxy: Proxy,
     _config: NamedTempFile,
@@ -214,13 +215,14 @@ listen = "{admin_addr}"
     Running {
         proxy_addr,
         api_addr,
+        admin_addr,
         hits,
         proxy,
         _config: config,
     }
 }
 
-async fn post(addr: SocketAddr, path: &str, body: &'static str) -> reqwest::Response {
+async fn post(addr: SocketAddr, path: &str, body: impl Into<reqwest::Body>) -> reqwest::Response {
     reqwest::Client::new()
         .post(format!("http://{addr}{path}"))
         .header("content-type", "text/plain")
@@ -281,6 +283,69 @@ async fn a_route_that_names_the_pii_guard_and_a_model_guard_runs_both() {
     assert_eq!(body["kinds"], serde_json::json!(["EMAIL"]));
 
     assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+}
+
+/// model-runtime, "A cancelled run is not counted as an error": the PII guard
+/// blocks while the model guard is mid-run; the model run is cancelled, no
+/// error is counted, and the model guard's only worker is free at once.
+#[tokio::test]
+async fn a_block_cancels_the_model_run_without_an_error() {
+    let artifacts = artifacts(
+        Fixture {
+            trigger: true,
+            slow: Some(300),
+            ..Fixture::default()
+        },
+        TokenizerFixture::default(),
+    );
+    let guards = format!(
+        "[builtin_guards.pii]\nscanner_threads = 1\n{}",
+        guard_section(&artifacts, "threads = 1")
+    );
+    let server = start(
+        &guards,
+        r#"guards = ["pii", "injection"]"#,
+        r#"on_error = "fail_close""#,
+    )
+    .await;
+    // 80 tokens: eight windows of 16 with a stride of 8.
+    let long = "voidwall smoke test test ".repeat(20);
+
+    let started = std::time::Instant::now();
+    let resp = post(server.proxy_addr, "/chat", long.clone()).await;
+    let full = started.elapsed();
+    assert_eq!(resp.status(), 200, "a clean long body is forwarded");
+
+    let resp = post(
+        server.proxy_addr,
+        "/chat",
+        format!("mail john.doe@example.com {long}"),
+    )
+    .await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["kinds"], serde_json::json!(["EMAIL"]));
+
+    let started = std::time::Instant::now();
+    let resp = post(server.proxy_addr, "/chat", "voidwall").await;
+    let freed = started.elapsed();
+    assert_eq!(resp.status(), 200);
+    assert!(
+        freed < full / 4,
+        "answered after {freed:?}; full run {full:?}"
+    );
+
+    let metrics = reqwest::get(format!("http://{}/metrics", server.admin_addr))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let errors: Vec<&str> = metrics
+        .lines()
+        .filter(|l| l.starts_with("voidwall_errors_total{"))
+        .collect();
+    assert!(errors.is_empty(), "no error is counted: {errors:?}");
 }
 
 /// guard-configuration, "The total is above the CPU count": the start logs one

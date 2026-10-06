@@ -4,7 +4,9 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use ort::session::RunOptions;
 use ort::value::Tensor;
 use tokenizers::Encoding;
 
@@ -28,10 +30,53 @@ pub fn check_overlap(max_tokens: usize, overlap: usize) -> Result<(), LoadError>
     Ok(())
 }
 
+/// Stops one run from another thread. Share it through an `Arc`.
+///
+/// A run checks the flag before it tokenizes and before each window, and
+/// ONNX Runtime checks its own terminate flag between graph nodes, so a
+/// cancelled run stops within about one node.
+pub struct Cancel {
+    options: RunOptions,
+    cancelled: AtomicBool,
+}
+
+impl Cancel {
+    /// Fresh options for one job. Cancelling is final: a job that needs to run
+    /// again takes a new `Cancel`.
+    pub fn new() -> Result<Self, RunError> {
+        Ok(Self {
+            options: RunOptions::new().map_err(|e| RunError::Inference(e.to_string()))?,
+            cancelled: AtomicBool::new(false),
+        })
+    }
+
+    /// Stops the run. The flag is set first: ONNX Runtime's flag is sticky,
+    /// so a cancel that lands between a check and the next inference still
+    /// stops that inference at its first node.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        // A failed terminate leaves the flag, which still stops the next window.
+        let _ = self.options.terminate();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
+
+/// A `Cancel` nobody cancels, for tests that only score.
+#[cfg(test)]
+pub(crate) fn uncancelled() -> Cancel {
+    Cancel::new().expect("fresh run options")
+}
+
 /// Why scoring one unit failed. No variant carries the unit's text or its
 /// token IDs.
 #[derive(Debug)]
 pub enum RunError {
+    /// The run was cancelled through its [`Cancel`]. Not a failure: nobody
+    /// waits for the score any more.
+    Cancelled,
     /// The tokenizer failed. Its message is dropped, because it may quote the input.
     Tokenizer,
     WindowLimit {
@@ -50,6 +95,7 @@ pub enum RunError {
 impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("the run was cancelled"),
             Self::Tokenizer => f.write_str("the tokenizer could not encode the unit"),
             Self::WindowLimit { windows, limit } => {
                 write!(f, "the unit needs {windows} windows; the limit is {limit}")
@@ -173,16 +219,27 @@ fn chunk(encoding: &Encoding, span: Range<usize>) -> Encoding {
 impl Worker {
     /// The unit's score, in the adapter's score range: the highest score of
     /// its windows. Windows run in order, and the first failure ends the run.
-    pub fn score(&mut self, text: &str) -> Result<f32, RunError> {
+    /// A cancel ends it with [`RunError::Cancelled`].
+    pub fn score(&mut self, text: &str, cancel: &Cancel) -> Result<f32, RunError> {
+        if cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
         let encoding = self
             .tokenizer
             .encode(text, false)
             .map_err(|_| RunError::Tokenizer)?;
         let mut best = 0.0f32;
         for span in self.windowing.spans(encoding.len())? {
+            if cancel.is_cancelled() {
+                return Err(RunError::Cancelled);
+            }
             let ids = self.window_ids(&encoding, span)?;
-            let logits = self.infer(&ids)?;
+            let logits = self.infer(&ids, cancel)?;
             best = best.max((self.window_score)(&logits));
+            #[cfg(test)]
+            if self.cancel_after == Some(self.inferences) {
+                cancel.cancel();
+            }
         }
         Ok(best)
     }
@@ -202,7 +259,9 @@ impl Worker {
 
     /// One inference on one window: returns its logits once they have shape
     /// `[1, width]` and are all finite. The load's smoke inference runs this too.
-    pub(crate) fn infer(&mut self, ids: &[i64]) -> Result<Vec<f32>, RunError> {
+    /// A run error after a cancel is [`RunError::Cancelled`], whatever ONNX
+    /// Runtime's message says.
+    pub(crate) fn infer(&mut self, ids: &[i64], cancel: &Cancel) -> Result<Vec<f32>, RunError> {
         #[cfg(test)]
         {
             self.inferences += 1;
@@ -219,7 +278,16 @@ impl Worker {
             let zeros = Tensor::from_array((shape, vec![0i64; len])).map_err(failed)?;
             inputs.push(("token_type_ids".into(), zeros.into()));
         }
-        let outputs = self.session.run(inputs).map_err(failed)?;
+        let outputs = self
+            .session
+            .run_with_options(inputs, &cancel.options)
+            .map_err(|e| {
+                if cancel.is_cancelled() {
+                    RunError::Cancelled
+                } else {
+                    failed(e)
+                }
+            })?;
         let (out_shape, values) = outputs[0].try_extract_tensor::<f32>().map_err(failed)?;
         if **out_shape != [1, self.width] {
             return Err(RunError::OutputShape {
@@ -240,6 +308,8 @@ mod tests {
     use crate::adapter::{Adapter, AdapterKind, TextClassifier};
     use crate::fixtures::{Fixture, PAD_ID, TRIGGER_ID, TokenizerFixture};
     use crate::load::{LoadSettings, load};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
     use test_case::test_case;
 
     fn windowing(window: usize, overlap: usize, max_body_size: usize) -> Windowing {
@@ -369,6 +439,12 @@ mod tests {
         assert_send_sync::<tokenizers::Tokenizer>();
     }
 
+    #[test]
+    fn a_cancel_can_be_shared_with_another_thread() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Cancel>();
+    }
+
     /// A test case: a fixture model and tokenizer with the run's settings.
     struct Case {
         model: Fixture,
@@ -442,14 +518,17 @@ mod tests {
     #[test]
     fn a_short_unit_runs_one_inference() {
         let mut worker = Case::default().worker();
-        assert_eq!(worker.score("voidwall smoke").unwrap(), plain_score());
+        assert_eq!(
+            worker.score("voidwall smoke", &uncancelled()).unwrap(),
+            plain_score()
+        );
         assert_eq!(worker.inferences, 1);
     }
 
     #[test]
     fn an_empty_unit_runs_one_inference_on_the_special_tokens() {
         let mut worker = Case::default().worker();
-        assert_eq!(worker.score("").unwrap(), plain_score());
+        assert_eq!(worker.score("", &uncancelled()).unwrap(), plain_score());
         assert_eq!(worker.inferences, 1);
     }
 
@@ -459,7 +538,7 @@ mod tests {
         // 8 tokens, window 4, stride 3: [0, 4), [3, 7), [4, 8). Only the last
         // holds the trigger.
         let text = "voidwall smoke test voidwall smoke test voidwall trigger";
-        assert_eq!(worker.score(text).unwrap(), trigger_score());
+        assert_eq!(worker.score(text, &uncancelled()).unwrap(), trigger_score());
         assert_eq!(worker.inferences, 3);
         assert!(trigger_score() > 0.9 && plain_score() < 0.5);
     }
@@ -477,7 +556,9 @@ mod tests {
         .worker();
         // The file truncates at 2 tokens; the trigger is the 4th.
         assert_eq!(
-            worker.score("voidwall smoke test trigger").unwrap(),
+            worker
+                .score("voidwall smoke test trigger", &uncancelled())
+                .unwrap(),
             trigger_score()
         );
     }
@@ -500,8 +581,14 @@ mod tests {
         .worker();
         assert_eq!(worker.pad_id, i64::from(PAD_ID));
         // 2 tokens + 2 special, padded to 6 under mask 0.
-        assert_eq!(worker.score("voidwall trigger").unwrap(), trigger_score());
-        assert_eq!(worker.score("voidwall").unwrap(), plain_score());
+        assert_eq!(
+            worker.score("voidwall trigger", &uncancelled()).unwrap(),
+            trigger_score()
+        );
+        assert_eq!(
+            worker.score("voidwall", &uncancelled()).unwrap(),
+            plain_score()
+        );
     }
 
     #[test]
@@ -515,13 +602,19 @@ mod tests {
         // 7 tokens: [0, 4), [3, 7). The limit is met.
         assert!(
             worker
-                .score("voidwall smoke test voidwall smoke test trigger")
+                .score(
+                    "voidwall smoke test voidwall smoke test trigger",
+                    &uncancelled()
+                )
                 .is_ok()
         );
         worker.inferences = 0;
         // 8 tokens need 3 windows.
         let err = worker
-            .score("voidwall smoke test voidwall smoke test voidwall trigger")
+            .score(
+                "voidwall smoke test voidwall smoke test voidwall trigger",
+                &uncancelled(),
+            )
             .unwrap_err();
         assert!(matches!(
             err,
@@ -554,7 +647,9 @@ mod tests {
             ..Fixture::default()
         })
         .worker();
-        let err = worker.score(&format!("{MARKER} trigger")).unwrap_err();
+        let err = worker
+            .score(&format!("{MARKER} trigger"), &uncancelled())
+            .unwrap_err();
         assert!(matches!(err, RunError::NonFinite), "got: {err}");
         assert!(err.to_string().contains("non-finite"));
         assert!(!err.to_string().contains(MARKER));
@@ -569,7 +664,7 @@ mod tests {
         })
         .worker();
         let err = worker
-            .score(&format!("voidwall smoke {MARKER} test"))
+            .score(&format!("voidwall smoke {MARKER} test"), &uncancelled())
             .unwrap_err();
         assert!(matches!(err, RunError::Inference(_)), "got: {err}");
         assert!(!err.to_string().contains(MARKER), "got: {err}");
@@ -584,7 +679,7 @@ mod tests {
         .worker();
         let text = format!("voidwall smoke test {MARKER} voidwall smoke test");
         let errors = [
-            limited.score(&text).unwrap_err(),
+            limited.score(&text, &uncancelled()).unwrap_err(),
             RunError::Tokenizer,
             RunError::OutputShape {
                 found: vec![1, 3],
@@ -598,5 +693,94 @@ mod tests {
                 "got: {msg}"
             );
         }
+    }
+
+    /// 9 tokens, window 4, stride 3: [0, 4), [3, 7), [5, 9). Three windows.
+    const THREE_WINDOWS: &str = "voidwall smoke test voidwall smoke test voidwall smoke trigger";
+
+    /// The default case on a model whose run is slow enough to cancel mid-way.
+    fn slow_case() -> Case {
+        Case {
+            model: Fixture {
+                trigger: true,
+                slow: Some(600),
+                ..Fixture::default()
+            },
+            ..Case::default()
+        }
+    }
+
+    #[test]
+    fn a_run_cancelled_before_it_starts_runs_no_inference() {
+        let mut worker = Case::default().worker();
+        let cancel = Cancel::new().unwrap();
+        cancel.cancel();
+        let err = worker.score(THREE_WINDOWS, &cancel).unwrap_err();
+        assert!(matches!(err, RunError::Cancelled), "got: {err}");
+        assert_eq!(worker.inferences, 0);
+    }
+
+    #[test]
+    fn a_run_cancelled_during_an_inference_stops_at_a_node() {
+        let mut worker = slow_case().worker();
+        let started = Instant::now();
+        worker.score(THREE_WINDOWS, &uncancelled()).unwrap();
+        let full = started.elapsed();
+        assert_eq!(worker.inferences, 3);
+        worker.inferences = 0;
+
+        let cancel = Arc::new(Cancel::new().unwrap());
+        let canceller = {
+            let cancel = Arc::clone(&cancel);
+            std::thread::spawn(move || {
+                std::thread::sleep(full / 2);
+                cancel.cancel();
+                Instant::now()
+            })
+        };
+        let err = worker.score(THREE_WINDOWS, &cancel).unwrap_err();
+        let returned = Instant::now();
+        let cancelled_at = canceller.join().unwrap();
+
+        assert!(matches!(err, RunError::Cancelled), "got: {err}");
+        let lag = returned.saturating_duration_since(cancelled_at);
+        // Which window the cancel lands in depends on timing; that no window
+        // starts after it is checked without timing, between windows.
+        assert!(lag < full / 4, "lag {lag:?}, full run {full:?}");
+    }
+
+    #[test]
+    fn a_run_cancelled_between_windows_starts_no_further_window() {
+        let mut worker = Case::default().worker();
+        worker.cancel_after = Some(1);
+        let err = worker
+            .score(THREE_WINDOWS, &Cancel::new().unwrap())
+            .unwrap_err();
+        assert!(matches!(err, RunError::Cancelled), "got: {err}");
+        assert_eq!(worker.inferences, 1, "no window started after the cancel");
+    }
+
+    #[test]
+    fn a_session_scores_normally_after_a_cancelled_run() {
+        let mut worker = slow_case().worker();
+        let cancel = Arc::new(Cancel::new().unwrap());
+        let canceller = {
+            let cancel = Arc::clone(&cancel);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                cancel.cancel();
+            })
+        };
+        let err = worker.score(THREE_WINDOWS, &cancel).unwrap_err();
+        canceller.join().unwrap();
+        assert!(matches!(err, RunError::Cancelled), "got: {err}");
+
+        let after = worker.score(THREE_WINDOWS, &uncancelled()).unwrap();
+        let fresh = slow_case()
+            .worker()
+            .score(THREE_WINDOWS, &uncancelled())
+            .unwrap();
+        assert_eq!(after, fresh);
+        assert_eq!(after, trigger_score());
     }
 }
