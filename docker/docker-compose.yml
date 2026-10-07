@@ -6,6 +6,15 @@ services:
     command: ["--config", "/etc/voidwall/voidwall.toml"]
     volumes:
       - ./voidwall.toml:/etc/voidwall/voidwall.toml:ro
+      # Fetched by `docker/ctl fetch_models`; the image ships no model. A missing
+      # directory fails the start instead of being created as root, which would
+      # stop a later fetch from writing into models/.
+      - type: bind
+        source: ../models/wolf-small
+        target: /opt/voidwall/models/wolf-small
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "8082:8082"
       - "8083:8083"

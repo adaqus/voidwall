@@ -6,6 +6,9 @@
 # ONNX Runtime archive verified by docker/fetch-ort.sh — never committed.
 /.ort/
 
+# Model files fetched by docker/fetch-models.sh — never committed.
+/models/
+
 # Agent-local runtime state.
 **/.claude/settings.local.json
 **/.claude/scheduled_tasks.lock

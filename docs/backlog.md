@@ -82,6 +82,19 @@ No proposal needed.
 - Soak test: 30 minutes at 80% of the maximum rate. Watch memory, file descriptors, and
   p99 drift.
 
+### 2.3 Redesign the k6 tests for model guards
+
+- The dev stack that `docker/ctl start` runs has a `prompt_injection` model guard. The k6
+  scripts in `crates/voidwall/benches/k6/` target `:8082` by default, so against that
+  stack they measure model inference, not the proxy. Measured on 2026-10-07: a benign
+  10 KB body takes 5.7 s alone, and up to 47 s with 24 requests in parallel, near k6's
+  default 60 s timeout.
+- `soak.js` expects 200, but its payload `benches/payloads/pii_medium.json` is blocked by
+  the PII guard (403, kinds `EMAIL`, `US_ITIN`, `US_SSN`). This was so before the model
+  guard was added.
+- Decide which stack each script targets, which guards it runs, and what status each
+  payload expects.
+
 ---
 
 ## 3. `pii` crate follow-ups — history § 17.1, § 17.2

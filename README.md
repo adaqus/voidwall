@@ -13,9 +13,11 @@ docker/ctl start
 ```
 
 `docker/ctl start` fetches ONNX Runtime, runs the license gate, writes the notices, builds
-the release binaries on the host, and starts the containers with Docker Compose. The
-config is `docker/voidwall.toml`. It runs the PII guard and declares no model guard,
-because the image ships no model.
+the release binaries on the host, fetches the model files, and starts the containers with
+Docker Compose. The config is `docker/voidwall.toml`. It runs the PII guard and a
+`prompt_injection` model guard on Wolf Defender Prompt-Injection Detector Small v2. The
+image ships no model: `docker/ctl fetch_models` downloads it into `models/` (about 600 MB
+on first run, no Hugging Face token), and the compose file mounts it.
 
 ### Ports
 
@@ -49,7 +51,8 @@ curl -s localhost:8083/v1/scan -d 'write to jan.kowalski@example.com'
 | Command | Does |
 |---|---|
 | `docker/ctl compile` | Fetches ONNX Runtime, runs the license gate, writes the notices, and builds the release binaries |
-| `docker/ctl start` | Runs `compile`, then starts Voidwall, the echo server, Prometheus, and Grafana |
+| `docker/ctl fetch_models` | Downloads the dev stack's model files into `models/` and verifies their SHA-256. Skips files that already match |
+| `docker/ctl start` | Runs `compile` and `fetch_models`, then starts Voidwall, the echo server, Prometheus, and Grafana |
 | `docker/ctl stop` | Stops all containers |
 | `docker/ctl start_echo_server` | Runs `compile`, then starts only the echo server |
 | `docker/ctl soak` | Runs the k6 soak test against the running stack. Set `DURATION` (default `30m`), `PEAK_VUS` (default `100`), and `CYCLES` (default `1`) |

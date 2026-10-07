@@ -16,21 +16,24 @@ scanner_threads = 6
 # model reference — and its surface defaults to the body alone, because each
 # unit it admits costs one model execution.
 #
-# Left commented: the image ships no model. A guard declared here loads its model
-# at startup (seconds per guard; /readyz answers 503 until it ends) and blocks on
-# its findings. A model that fails to load stops the start.
+# The image ships no model. `docker/ctl fetch_models` downloads Wolf Defender
+# Prompt-Injection Detector Small v2 into models/wolf-small/, and the compose
+# file mounts it. The guard loads its model at startup (/readyz answers 503 until
+# it ends) and blocks on its findings. A model that fails to load stops the start.
 #
-# [guards.injection]
-# adapter = "text_classifier"
-# model_path = "/opt/voidwall/models/injection/model.onnx"
-# tokenizer_path = "/opt/voidwall/models/injection/tokenizer.json"
-# max_tokens = 512
-# labels = ["PROMPT_INJECTION"]   # text_classifier: one label, naming class 1
-# overlap_tokens = 128            # optional; default min(128, max_tokens / 2)
-# threads = 4                     # optional; default CPUs / number of model guards
-#
-# [guards.injection.thresholds]
-# PROMPT_INJECTION = 0.90
+# The window, overlap, and threshold are the values on the model card.
+
+[guards.prompt_injection]
+adapter = "text_classifier"
+model_path = "/opt/voidwall/models/wolf-small/model.onnx"
+tokenizer_path = "/opt/voidwall/models/wolf-small/tokenizer.json"
+max_tokens = 2048
+labels = ["PROMPT_INJECTION"]   # text_classifier: one label, naming class 1
+overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
+# threads = 4                   # optional; default CPUs / number of model guards
+
+[guards.prompt_injection.thresholds]
+PROMPT_INJECTION = 0.5
 
 [reverse_proxy]
 enabled = true
