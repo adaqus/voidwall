@@ -20,8 +20,3 @@ confidence-threshold = 0.93
 [[licenses.exceptions]]
 crate = "aws-lc-sys"
 allow = ["OpenSSL"]
-
-# Workspace crates have no `license` field yet; Voidwall's own license is
-# undecided. They are `publish = false`, so the gate checks third-party crates only.
-[licenses.private]
-ignore = true

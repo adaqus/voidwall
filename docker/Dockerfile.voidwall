@@ -1,5 +1,7 @@
 FROM debian:trixie-slim
 
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -11,5 +13,8 @@ COPY target/release/echo-server /usr/local/bin/echo-server
 # Oniguruma (C code inside the `onig_sys` crate, BSD-2-Clause).
 COPY target/notices/THIRD-PARTY-RUST-CRATES.html /usr/share/doc/voidwall/
 COPY licenses/ /usr/share/doc/voidwall/
+
+# Voidwall's own license and attribution notice.
+COPY LICENSE NOTICE /usr/share/doc/voidwall/
 
 ENTRYPOINT ["voidwall"]

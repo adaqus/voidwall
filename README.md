@@ -120,3 +120,8 @@ cargo install --locked --features cli cargo-about
 | `protoc` | Regenerating `src/onnx_proto.rs` with `crates/voidwall-ml/scripts/gen-onnx-proto.sh`. Normal builds do not need it |
 | `qemu-user` (`qemu-x86_64`) | Manual check of the CPU floor: run the binary with `-cpu Nehalem` and see it exit 1 |
 | [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (Node.js) | Proposing, validating, and archiving changes under `openspec/` |
+
+## License
+
+Voidwall is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for
+attribution.

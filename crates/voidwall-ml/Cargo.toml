@@ -4,6 +4,7 @@ description = "ONNX Runtime integration and model adapters for Voidwall"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license.workspace = true
 
 [dependencies]
 # Pinned exactly: 2.0 is a release candidate with no semver promise. Default
