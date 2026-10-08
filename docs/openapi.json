@@ -4,7 +4,8 @@
     "title": "Voidwall HTTP API",
     "description": "Detect PII in arbitrary text, JSON, CSV, and TSV bodies with `POST /v1/scan`, the one route this listener serves. The body itself is the content to scan — there is no JSON envelope. The `Content-Type` header drives parsing.",
     "license": {
-      "name": ""
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
     },
     "version": "0.1.0"
   },
