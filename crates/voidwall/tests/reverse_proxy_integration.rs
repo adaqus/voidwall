@@ -4,13 +4,15 @@ use std::sync::{Arc, LazyLock};
 use axum::Router;
 use axum::extract::Request;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{AppendHeaders, IntoResponse};
 use axum::routing::{any, get};
 use http_body_util::BodyExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
     AppConfig, BuiltinGuards, DirectionConfig, OnError, PiiGuardConfig, ReverseProxyConfig, Route,
+    UpstreamTimeout,
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
@@ -28,7 +30,9 @@ async fn start_echo_upstream() -> SocketAddr {
         .route("/pii-response-headers", get(pii_response_headers_handler))
         .route("/echo-with-pii", any(echo_with_pii_handler))
         .route("/pii-response/{*rest}", get(pii_response_handler))
-        .route("/bad-json-response/{*rest}", get(bad_json_response_handler));
+        .route("/bad-json-response/{*rest}", get(bad_json_response_handler))
+        .route("/body-64/{*rest}", any(body_64_handler))
+        .route("/two-cookies", get(two_cookies_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -88,6 +92,45 @@ async fn bad_json_response_handler() -> impl IntoResponse {
     )
 }
 
+/// Returns a clean 64-byte body.
+async fn body_64_handler() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain")],
+        "x".repeat(64),
+    )
+}
+
+/// Sets two cookies in one response.
+async fn two_cookies_handler() -> impl IntoResponse {
+    (
+        AppendHeaders([("set-cookie", "a=1"), ("set-cookie", "b=2")]),
+        "ok",
+    )
+}
+
+/// Starts an upstream that reads one request, writes `head` (which may be
+/// empty or a partial response), and then holds the connection open without
+/// writing more. It stands in for an upstream that hangs.
+async fn start_stalling_upstream(head: &'static str) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(head.as_bytes()).await;
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            });
+        }
+    });
+    addr
+}
+
 /// Echoes the request body and appends its own PII to the response.
 async fn echo_with_pii_handler(req: Request) -> impl IntoResponse {
     let body = req.into_body().collect().await.unwrap().to_bytes();
@@ -130,6 +173,7 @@ struct Ingest {
     /// route property, not a guard one: which headers carry sensitive values
     /// depends on the traffic, not on the detector.
     headers: Vec<String>,
+    upstream_timeout_secs: UpstreamTimeout,
 }
 
 impl Default for Ingest {
@@ -138,6 +182,7 @@ impl Default for Ingest {
             max_body_size: 1_048_576,
             on_error: OnError::FailClose,
             headers: Vec::new(),
+            upstream_timeout_secs: UpstreamTimeout::default(),
         }
     }
 }
@@ -233,6 +278,7 @@ impl TestProxy {
         let config = AppConfig {
             max_body_size: ingest.max_body_size,
             on_error: ingest.on_error,
+            upstream_timeout_secs: ingest.upstream_timeout_secs,
             builtin_guards: BuiltinGuards::with_pii(pii_config),
             reverse_proxy: ReverseProxyConfig {
                 enabled: true,
@@ -1706,4 +1752,202 @@ async fn an_upstream_failure_is_not_counted_as_blocked() {
 
     assert_eq!(resp.status(), 502);
     assert_eq!(blocked(ROUTE, "request"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Upstream limits: timeout, response body size, repeated headers
+// ---------------------------------------------------------------------------
+
+fn one_second_timeout(on_error: OnError) -> Ingest {
+    Ingest {
+        on_error,
+        upstream_timeout_secs: UpstreamTimeout::try_from(1).unwrap(),
+        ..Ingest::default()
+    }
+}
+
+#[test_case::test_case(OnError::FailClose, "/to-headers-close" ; "fail_close")]
+#[test_case::test_case(OnError::FailOpen, "/to-headers-open" ; "fail_open")]
+#[tokio::test]
+async fn upstream_that_sends_no_headers_in_time_answers_504(on_error: OnError, route: &str) {
+    let upstream = start_stalling_upstream("").await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![(route, "")],
+        scan_on(),
+        scan_on(),
+        one_second_timeout(on_error),
+    )
+    .await;
+    let errors_before = errors_total("blocked", "upstream_timeout");
+
+    let resp = reqwest::Client::new()
+        .post(proxy.url(route))
+        .header("content-type", "text/plain")
+        .body("nothing sensitive here")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 504);
+    assert_eq!(
+        resp.text().await.unwrap(),
+        r#"{"error":"upstream timeout"}"#
+    );
+    assert!(errors_total("blocked", "upstream_timeout") > errors_before);
+    assert_eq!(blocked(route, "request"), 0);
+    assert_eq!(blocked(route, "response"), 0);
+}
+
+#[tokio::test]
+async fn upstream_body_that_stalls_under_response_scan_answers_504() {
+    const ROUTE: &str = "/to-body";
+    let upstream = start_stalling_upstream(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 100\r\n\r\npartial",
+    )
+    .await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![(ROUTE, "")],
+        scan_off(),
+        scan_on(),
+        one_second_timeout(OnError::FailClose),
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url(ROUTE))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 504);
+    let body = resp.text().await.unwrap();
+    assert_eq!(body, r#"{"error":"upstream timeout"}"#);
+    assert!(!body.contains("partial"));
+}
+
+#[test_case::test_case(OnError::FailClose, "/body-64/close" ; "fail_close")]
+#[test_case::test_case(OnError::FailOpen, "/body-64/open" ; "fail_open")]
+#[tokio::test]
+async fn oversize_response_under_response_scan_answers_502(on_error: OnError, route: &str) {
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        max_body_size: 63,
+        on_error,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(route, "")], scan_off(), scan_on(), ingest).await;
+    let errors_before = errors_total("blocked", "response_too_large");
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url(route))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 502);
+    assert_eq!(resp.text().await.unwrap(), r#"{"error":"upstream error"}"#);
+    assert!(errors_total("blocked", "response_too_large") > errors_before);
+    assert_eq!(blocked(route, "response"), 0);
+}
+
+#[tokio::test]
+async fn response_at_the_limit_under_response_scan_is_forwarded() {
+    const ROUTE: &str = "/body-64/at-limit";
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        max_body_size: 64,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(ROUTE, "")], scan_off(), scan_on(), ingest).await;
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url(ROUTE))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "x".repeat(64));
+}
+
+#[tokio::test]
+async fn oversize_response_without_response_scan_streams_whole() {
+    const ROUTE: &str = "/body-64/no-scan";
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        max_body_size: 8,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, vec![(ROUTE, "")], scan_off(), scan_off(), ingest).await;
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url(ROUTE))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "x".repeat(64));
+}
+
+#[test_case::test_case(scan_on() ; "response scan on")]
+#[test_case::test_case(scan_off() ; "response scan off")]
+#[tokio::test]
+async fn both_cookies_of_the_upstream_reach_the_client(response_dir: DirectionConfig) {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![("/", "")],
+        scan_off(),
+        response_dir,
+        Ingest::default(),
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url("/two-cookies"))
+        .send()
+        .await
+        .unwrap();
+
+    let cookies: Vec<_> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert_eq!(cookies, ["a=1", "b=2"]);
+}
+
+#[test_case::test_case(scan_on() ; "request scan on")]
+#[test_case::test_case(scan_off() ; "request scan off")]
+#[tokio::test]
+async fn both_values_of_a_repeated_request_header_reach_the_upstream(request_dir: DirectionConfig) {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start(
+        upstream,
+        vec![("/", "")],
+        request_dir,
+        scan_off(),
+        Ingest::default(),
+    )
+    .await;
+
+    let resp = reqwest::Client::new()
+        .get(proxy.url("/echo"))
+        .header("x-multi", "first")
+        .header("x-multi", "second")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    let values: Vec<_> = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("x-multi: "))
+        .collect();
+    assert_eq!(values, ["first", "second"]);
 }

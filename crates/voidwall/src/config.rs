@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use clap::{ArgGroup, Parser};
 use serde::Deserialize;
@@ -85,6 +86,12 @@ pub struct AppConfig {
     /// Seconds to wait for in-flight requests to drain during graceful shutdown.
     #[serde(default = "default_shutdown_timeout_secs")]
     pub shutdown_timeout_secs: u64,
+
+    /// Seconds one upstream exchange may take: from sending the request until
+    /// the response headers arrive, and the body read when response scan
+    /// buffers it. The type rejects a value outside its range at parse.
+    #[serde(default)]
+    pub upstream_timeout_secs: UpstreamTimeout,
 }
 
 impl Default for AppConfig {
@@ -100,12 +107,49 @@ impl Default for AppConfig {
             http_api: HttpApiConfig::default(),
             admin: AdminConfig::default(),
             shutdown_timeout_secs: default_shutdown_timeout_secs(),
+            upstream_timeout_secs: UpstreamTimeout::default(),
         }
     }
 }
 
 fn default_shutdown_timeout_secs() -> u64 {
     30
+}
+
+/// The limit on one upstream exchange, in whole seconds from 1 to
+/// [`UpstreamTimeout::MAX_SECS`]. The upper bound keeps `Instant::now() +
+/// timeout` from overflowing, which would panic on every request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "u64")]
+pub struct UpstreamTimeout(u64);
+
+impl UpstreamTimeout {
+    pub const MAX_SECS: u64 = 3600;
+
+    pub fn as_duration(self) -> Duration {
+        Duration::from_secs(self.0)
+    }
+}
+
+impl Default for UpstreamTimeout {
+    fn default() -> Self {
+        Self(300)
+    }
+}
+
+impl TryFrom<u64> for UpstreamTimeout {
+    type Error = String;
+
+    fn try_from(secs: u64) -> Result<Self, Self::Error> {
+        if (1..=Self::MAX_SECS).contains(&secs) {
+            Ok(Self(secs))
+        } else {
+            Err(format!(
+                "upstream_timeout_secs must be from 1 to {}, got {secs}",
+                Self::MAX_SECS
+            ))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1274,6 +1318,39 @@ listen = "0.0.0.0:8084"
         let msg = err.to_string();
         assert!(msg.contains("unknown field"), "got: {msg}");
         assert!(msg.contains("max_body_size"), "got: {msg}");
+    }
+
+    // --- Upstream timeout ---
+
+    #[test]
+    fn upstream_timeout_defaults_to_300_seconds() {
+        let config = parse(&minimal_toml()).unwrap();
+        assert_eq!(
+            config.upstream_timeout_secs.as_duration(),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test_case(1 ; "lower bound")]
+    #[test_case(60 ; "inside")]
+    #[test_case(3600 ; "upper bound")]
+    fn upstream_timeout_is_read_from_the_top_level(secs: u64) {
+        let toml = format!("upstream_timeout_secs = {secs}\n{}", minimal_toml());
+        let config = parse(&toml).unwrap();
+        assert_eq!(
+            config.upstream_timeout_secs.as_duration(),
+            Duration::from_secs(secs)
+        );
+    }
+
+    #[test_case("0" ; "zero")]
+    #[test_case("-1" ; "negative")]
+    #[test_case("3601" ; "above the upper bound")]
+    #[test_case("9223372036854775807" ; "largest TOML integer")]
+    fn upstream_timeout_outside_the_range_is_rejected(value: &str) {
+        let toml = format!("upstream_timeout_secs = {value}\n{}", minimal_toml());
+        let msg = parse(&toml).unwrap_err().to_string();
+        assert!(msg.contains("upstream_timeout_secs"), "got: {msg}");
     }
 
     // --- Guard surface (1.2) ---

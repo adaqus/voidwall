@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
@@ -7,7 +8,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use http_body_util::BodyExt;
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use tokio::net::TcpListener;
@@ -79,6 +80,9 @@ pub struct ReverseProxyState {
     ingest: Arc<Ingest>,
     request_scan: bool,
     response_scan: bool,
+    /// The limit on one upstream exchange: the wait for the response headers,
+    /// and the body read when response scan buffers the body.
+    upstream_timeout: Duration,
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +132,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         }),
         request_scan: rp.request.scan,
         response_scan: rp.response.scan,
+        upstream_timeout: config.upstream_timeout_secs.as_duration(),
     }
 }
 
@@ -280,7 +285,7 @@ async fn handle_proxied_request(
     let mut upstream_headers = HeaderMap::new();
     for (name, value) in headers.iter() {
         if !is_hop_by_hop(name) && name != "host" && name != "content-length" {
-            upstream_headers.insert(name.clone(), value.clone());
+            upstream_headers.append(name.clone(), value.clone());
         }
     }
 
@@ -299,12 +304,17 @@ async fn handle_proxied_request(
         }
     };
 
-    let upstream_resp = match client.request(upstream_req).await {
-        Ok(r) => r,
-        Err(e) => {
+    // One deadline bounds the whole exchange: the headers here, and the body
+    // read below when response scan buffers it.
+    let deadline = tokio::time::Instant::now() + state.upstream_timeout;
+    let upstream_resp = match tokio::time::timeout_at(deadline, client.request(upstream_req)).await
+    {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
             error!(error = %e, upstream = %route.upstream, "upstream request failed");
             return Error::Proxy(format!("upstream error: {e}")).into_response();
         }
+        Err(_) => return upstream_timeout(&route.upstream),
     };
 
     let resp_status = upstream_resp.status();
@@ -312,13 +322,24 @@ async fn handle_proxied_request(
 
     // --- Response scanning ---
     if state.response_scan {
-        let resp_body = match upstream_resp.into_body().collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(e) => {
+        let limited = Limited::new(upstream_resp.into_body(), ingest.max_body_size);
+        let resp_body = match tokio::time::timeout_at(deadline, limited.collect()).await {
+            Ok(Ok(collected)) => collected.to_bytes(),
+            Ok(Err(e)) if e.is::<LengthLimitError>() => {
+                error!(
+                    upstream = %route.upstream,
+                    limit = ingest.max_body_size,
+                    "upstream response body too large"
+                );
+                metrics::inc_error("blocked", "response_too_large");
+                return Error::ResponseTooLarge.into_response();
+            }
+            Ok(Err(e)) => {
                 error!(error = %e, "failed to read upstream response body");
                 return Error::Proxy(format!("failed to read upstream response: {e}"))
                     .into_response();
             }
+            Err(_) => return upstream_timeout(&route.upstream),
         };
 
         let ctx = MetricContext {
@@ -662,11 +683,18 @@ fn is_content_type_allowed(headers: &HeaderMap, allowed: &[String]) -> bool {
     allowed.iter().any(|a| a.eq_ignore_ascii_case(media_type))
 }
 
+/// The answer to an upstream exchange that outlived `upstream_timeout_secs`.
+fn upstream_timeout(upstream: &str) -> Response {
+    error!(upstream = %upstream, "upstream exchange timed out");
+    metrics::inc_error("blocked", "upstream_timeout");
+    Error::UpstreamTimeout.into_response()
+}
+
 fn strip_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     let mut out = HeaderMap::new();
     for (name, value) in headers.iter() {
         if !is_hop_by_hop(name) {
-            out.insert(name.clone(), value.clone());
+            out.append(name.clone(), value.clone());
         }
     }
     out
@@ -868,6 +896,19 @@ mod tests {
         assert!(stripped.get("transfer-encoding").is_none());
         assert_eq!(stripped.get("content-type").unwrap(), "text/plain");
         assert_eq!(stripped.get("x-custom").unwrap(), "value");
+    }
+
+    #[test]
+    fn strip_hop_by_hop_keeps_every_value_of_a_repeated_header() {
+        let mut headers = HeaderMap::new();
+        headers.append("set-cookie", "a=1".parse().unwrap());
+        headers.append("set-cookie", "b=2".parse().unwrap());
+        headers.insert("connection", "close".parse().unwrap());
+
+        let stripped = strip_hop_by_hop(&headers);
+        let cookies: Vec<_> = stripped.get_all("set-cookie").iter().collect();
+        assert_eq!(cookies, ["a=1", "b=2"]);
+        assert!(stripped.get("connection").is_none());
     }
 
     // --- Scan header collection ---

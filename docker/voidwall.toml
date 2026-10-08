@@ -5,6 +5,7 @@
 # written after a [section] parses as that section's field and is rejected.
 max_body_size = 1048576
 on_error = "fail_close"
+upstream_timeout_secs = 300
 
 [builtin_guards.pii]
 countries = []

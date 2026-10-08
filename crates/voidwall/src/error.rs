@@ -30,6 +30,12 @@ pub enum Error {
     /// Generic I/O errors.
     Io(std::io::Error),
 
+    /// The upstream exchange did not finish within `upstream_timeout_secs`.
+    UpstreamTimeout,
+
+    /// The upstream response body under response scan exceeds `max_body_size`.
+    ResponseTooLarge,
+
     /// Request body exceeds configured `max_body_size`.
     BodyTooLarge,
 
@@ -58,6 +64,8 @@ impl std::fmt::Display for Error {
             ),
             Error::Proxy(msg) => write!(f, "proxy error: {msg}"),
             Error::Io(e) => write!(f, "I/O error: {e}"),
+            Error::UpstreamTimeout => write!(f, "upstream timed out"),
+            Error::ResponseTooLarge => write!(f, "upstream response body too large"),
             Error::BodyTooLarge => write!(f, "request body too large"),
             Error::BodyParse => write!(f, "body parse failed"),
             Error::UnsupportedContentType => write!(f, "unsupported content type"),
@@ -126,6 +134,9 @@ pub const INTERNAL_ERROR: &str = "internal error";
 /// The fixed `error` text of every 502. The failure details go to the log only.
 pub const UPSTREAM_ERROR: &str = "upstream error";
 
+/// The fixed `error` text of every 504. The failure details go to the log only.
+pub const UPSTREAM_TIMEOUT: &str = "upstream timeout";
+
 /// The fixed `error` text of a window-limit 413. The guard and the window
 /// counts go to the log only.
 pub const WINDOW_LIMIT_ERROR: &str = "tokenized content too long to scan";
@@ -137,7 +148,10 @@ impl IntoResponse for Error {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR.to_string(),
             ),
-            Error::Proxy(_) | Error::Io(_) => (StatusCode::BAD_GATEWAY, UPSTREAM_ERROR.to_string()),
+            Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
+                (StatusCode::BAD_GATEWAY, UPSTREAM_ERROR.to_string())
+            }
+            Error::UpstreamTimeout => (StatusCode::GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT.to_string()),
             Error::BodyTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body too large".to_string(),
@@ -167,6 +181,8 @@ mod tests {
     #[test_case(Error::Config("bad toml".into()), "configuration error", "bad toml")]
     #[test_case(Error::Scanner("pool dead".into()), "scanner error", "pool dead")]
     #[test_case(Error::Proxy("upstream refused".into()), "proxy error", "upstream refused")]
+    #[test_case(Error::UpstreamTimeout, "upstream timed out", "")]
+    #[test_case(Error::ResponseTooLarge, "upstream response body too large", "")]
     #[test_case(Error::BodyTooLarge, "request body too large", "")]
     #[test_case(Error::BodyParse, "body parse failed", "")]
     #[test_case(Error::UnsupportedContentType, "unsupported content type", "")]
@@ -233,6 +249,20 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["error"], expected_body);
+    }
+
+    #[test_case(Error::UpstreamTimeout, StatusCode::GATEWAY_TIMEOUT, r#"{"error":"upstream timeout"}"# ; "timeout")]
+    #[test_case(Error::ResponseTooLarge, StatusCode::BAD_GATEWAY, r#"{"error":"upstream error"}"# ; "oversize response")]
+    #[tokio::test]
+    async fn an_upstream_limit_error_answers_an_exact_body(
+        err: Error,
+        expected_status: StatusCode,
+        expected_body: &str,
+    ) {
+        let response = err.into_response();
+        assert_eq!(response.status(), expected_status);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(bytes, expected_body.as_bytes());
     }
 
     fn inference_error() -> Error {

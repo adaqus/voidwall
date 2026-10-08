@@ -203,6 +203,17 @@ upstream = "http://localhost:9000"
     }
 
     #[test]
+    fn an_upstream_timeout_outside_the_range_is_schema_and_names_the_key() {
+        let f = write_tmp(&format!("upstream_timeout_secs = 3601\n{}", valid_toml()));
+        let err = validate_config_file(f.path()).expect_err("3601 is above the bound");
+        assert_eq!(err.category, Category::Schema);
+        assert!(
+            err.to_string().contains("upstream_timeout_secs"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn semantic_error_categorised_as_semantic() {
         // Well-formed and well-typed, but two routes claim the same prefix.
         // This is the surviving semantic rule on the reverse proxy.
