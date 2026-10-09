@@ -1,7 +1,6 @@
 # Backlog — unbuilt work
 
-This file holds the work that `docs/history/tasks-phases-1-20.md` left unchecked when the project moved to
-OpenSpec. That file is the former `TASKS.md`.
+This file holds unbuilt work.
 
 Rules:
 
@@ -11,15 +10,13 @@ Rules:
 - Nothing here has a spec under `openspec/specs/`. The specs describe built behaviour
   only.
 
-The section numbers point back into the history file.
-
 ---
 
 ## 1. Unbuilt features
 
 Each item needs an OpenSpec proposal first.
 
-### 1.1 Reverse proxy TLS termination — history § 5.2
+### 1.1 Reverse proxy TLS termination
 
 `crates/voidwall/src/tls.rs` is empty. `TlsConfig` parses, and validation rejects
 `tls.enabled = true` in both proxy modes (`AppConfig::validate_tls_disabled`).
@@ -28,7 +25,7 @@ Each item needs an OpenSpec proposal first.
 - Build a `tokio_rustls::TlsAcceptor` from the configured certificate and key paths.
 - Wrap the TCP listener with the acceptor when `reverse_proxy.tls.enabled` is true.
 
-### 1.2 Forward proxy mode — history § 9.1, § 9.2
+### 1.2 Forward proxy mode
 
 `crates/voidwall/src/forward_proxy.rs` is empty. `ForwardProxyConfig` parses, and
 validation rejects `forward_proxy.enabled = true` (`AppConfig::validate_forward_proxy_disabled`).
@@ -51,9 +48,9 @@ TLS interception:
 - Originate upstream TLS through `hyper-rustls`.
 - Add integration tests for HTTP forwarding and the action pipeline.
 
-### 1.3 Checksum validation toggle, eval only — history § 19.1 to § 19.3
+### 1.3 Checksum validation toggle, eval only
 
-Phase 19 is unchecked end to end. `PiiGuardConfig` has no `validate` field. `config.rs:28`
+`PiiGuardConfig` has no `validate` field. `config.rs:28`
 `pub validate: Option<PathBuf>` is the unrelated `--validate <config>` CLI flag.
 
 Warning: this switch turns off every detector validator. It exists for AI4Privacy
@@ -73,13 +70,13 @@ evaluation against fabricated ground truth. It inflates false positives.
 
 No proposal needed.
 
-### 2.1 Cross-mode end-to-end tests — history § 12.1
+### 2.1 Cross-mode end-to-end tests
 
 - Start the binary with a test config. Drive every mode. Assert scan and block
   behaviour.
 - Assert that config validation rejects every invalid case at startup.
 
-### 2.2 Full load-test suite — history § 10.1
+### 2.2 Full load-test suite
 
 - Compare the modes: reverse proxy, forward proxy, HTTP API. Blocked on § 1.2.
 - Soak test: 30 minutes at 80% of the maximum rate. Watch memory, file descriptors, and
@@ -100,7 +97,7 @@ No proposal needed.
 
 ---
 
-## 3. `pii` crate follow-ups — history § 17.1, § 17.2
+## 3. `pii` crate follow-ups
 
 Read `crates/voidwall-pii/AGENTS.md` first. These came out of the Italian support review.
 
@@ -126,27 +123,6 @@ Cleanup:
 
 - Evaluation documentation, once a replacement for the retired AI4Privacy harness
   ships.
-  History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
-  normalization, and frequency handling. History § 20.12.
-- Note the `--validate` flag in a README or quick-start. There is no README yet.
-  History § 14.4.
+  normalization, and frequency handling.
 
----
-
-## Dropped as stale
-
-History § 13.4 carried two unchecked rows:
-
-- `HTTP API /v1/scan: returns user label in kinds`
-- `HTTP API /v1/redact: replaces matched value with [USER_LABEL]`
-
-Both said *deferred — Phase 8 HTTP API mode not yet implemented*. Phase 8 shipped. The
-second row is now permanently unbuildable: `/v1/redact` was removed with the action
-layer, and nothing rewrites a message.
-`http_api.rs:140` states that custom labels surface with their configured `label`. The
-`custom-pii` and `http-api` specs cover this behaviour.
-
-History § 16.10 carried a *Demo page smoke test* gap. The demo page is gone: it existed
-to render `GET /openapi.json` and call `GET /v1/info`, and both routes were removed with
-it.

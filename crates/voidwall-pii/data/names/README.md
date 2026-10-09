@@ -135,7 +135,7 @@ The FST value per key is a `u64` OR of: `IS_GIVEN` (`1<<0`), `IS_SURNAME` (`1<<1
 `ALSO_COMMON_WORD` (`1<<2`). `ALSO_COMMON_WORD` is auto-derived by intersecting the
 name set with the common-word lists (EN `google-10000-english.txt` + IT/ES
 `{it,es}/common.txt`) — not hand-curated. These constants must match
-`DictionaryDetector` (`docs/history/tasks-phases-1-20.md` § 20.2).
+`DictionaryDetector`.
 
 ## Reproducibility
 

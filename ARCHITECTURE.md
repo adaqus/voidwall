@@ -8,7 +8,6 @@ state behaviour.
 | What the system does today | `openspec/specs/<capability>/spec.md` |
 | Work in flight | `openspec/changes/` |
 | Work not started | `docs/backlog.md` |
-| How Phases 1 to 20 were built | `docs/history/tasks-phases-1-20.md` |
 
 ---
 

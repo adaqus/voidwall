@@ -30,7 +30,7 @@ CACHE="$OUT_DIR/.cache"           # raw per-bucket TSV cache
 mkdir -p "$CACHE"
 
 ENDPOINT='https://query.wikidata.org/sparql'
-UA='voidwall-pii-gazetteer/1.0 (https://github.com/; adaqus@gmail.com)'
+UA='voidwall-pii-gazetteer/1.0 (https://github.com/adaqus/voidwall)'
 # A single-hex MD5 bucket holds ~37k rows when complete; below this we treat the
 # response as timeout-truncated and split it.
 FULL_MIN=34000

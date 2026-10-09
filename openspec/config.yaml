@@ -56,7 +56,6 @@ context: |
   `#[test_case()]` where it fits, to cut duplicated test code.
 
   Architecture and rationale: `ARCHITECTURE.md`. Unbuilt work: `docs/backlog.md`.
-  History for Phases 1 to 20: `docs/history/tasks-phases-1-20.md`.
 
 rules:
   specs:

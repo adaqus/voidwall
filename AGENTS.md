@@ -35,7 +35,6 @@ For multi-step work, state a brief plan with a verification check for each step.
 - Active work: `openspec/changes/`
 - Unbuilt work: `docs/backlog.md`
 - Load testing: `docs/load-testing.md`
-- History for Phases 1 to 20: `docs/history/tasks-phases-1-20.md`
 
 Start coding agents from the workspace root. Commands below assume that location.
 
@@ -266,7 +265,6 @@ Rules:
 - A tracked change lives in `openspec/changes/<name>/`.
 - Do not edit `openspec/specs/` by hand. `openspec archive` writes it, and the
   `openspec-sync-specs` workflow can write it before archive when a change lands in parts.
-- Do not edit checkboxes in `docs/history/tasks-phases-1-20.md`; it is history.
 - Verify implementation against the change's spec deltas and then `ARCHITECTURE.md`.
 - In proposal.md, design.md and changes/ write only stuff explicitly agreed on - do not
   infer requirements that seem implicit - in such case ask whether your suspicion is correct.
