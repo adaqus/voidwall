@@ -904,7 +904,7 @@ max_tokens = 16
 labels = ["PROMPT_INJECTION"]
 threads = 1
 
-[forward_proxy]
+[http_api]
 enabled = true
 "#,
             model = model_path.display(),

@@ -124,7 +124,7 @@ Setup: same 10 KB clean payload, `scan = true`, concurrency 50.
 | Mode | Notes |
 |------|-------|
 | Reverse proxy | Route to echo server |
-| Forward proxy | Forward to echo server |
+| Forward proxy | Not built yet. Forward to echo server once it is |
 | REST API | `POST /v1/scan` (no upstream forwarding) |
 
 REST API should be fastest (no upstream hop). Forward proxy may be slightly

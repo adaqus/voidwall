@@ -30,9 +30,11 @@ Each item needs an OpenSpec proposal first.
 
 ### 1.2 Forward proxy mode — history § 9.1, § 9.2
 
-`crates/voidwall/src/forward_proxy.rs` is empty. `main.rs:122` logs
-`forward proxy mode is enabled but not yet implemented`. `ForwardProxyConfig`
-(`config.rs:311`) parses and validates.
+`crates/voidwall/src/forward_proxy.rs` is empty. `ForwardProxyConfig` parses, and
+validation rejects `forward_proxy.enabled = true` (`AppConfig::validate_forward_proxy_disabled`).
+
+- Remove the rejection, and count the forward proxy again in the at-least-one-mode and
+  port-conflict checks.
 
 Handler:
 

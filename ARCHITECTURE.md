@@ -73,7 +73,9 @@ The detection library is a separate crate and can be used on its own.
   └─────────────────────────────────────────────────────────┘
 ```
 
-One binary. Four modes, each enabled on its own. They share one detection engine.
+One binary. Two traffic modes, each enabled on its own, plus the admin server, which always
+runs. They share one detection engine. The forward proxy is not built, and validation rejects
+it.
 
 ### Why the ports are separate
 
@@ -473,7 +475,7 @@ These appear in the config schema or the module list. None of them runs.
 
 | Item | State | Why it waits |
 |---|---|---|
-| Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses and validates. The proxy logs one warning when the mode is enabled. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
+| Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses, and validation rejects `forward_proxy.enabled = true`. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
 | TLS termination | `tls.rs` is empty. `TlsConfig` parses, and validation rejects `tls.enabled = true`. | Deployments terminate TLS at the ingress or the load balancer. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |

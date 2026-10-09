@@ -102,12 +102,15 @@ Treat Clippy warnings as errors. The workspace uses Rust edition 2024.
 
 ## Architecture
 
-One binary provides four independently enabled modes that share one detection engine:
+One binary provides two independently enabled modes that share one detection engine, plus
+an admin server that always runs:
 
 - Reverse proxy on `:8082`
-- Forward proxy on `:8084`
 - REST API on `:8083`
 - Admin server on `:9090`
+
+The forward proxy (`:8084`) is not built. `forward_proxy.rs` is empty, and validation
+rejects `forward_proxy.enabled = true`.
 
 Configuration is TOML loaded with `--config` or `VOIDWALL_CONFIG`.
 

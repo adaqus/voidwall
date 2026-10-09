@@ -214,6 +214,20 @@ upstream = "http://localhost:9000"
     }
 
     #[test]
+    fn forward_proxy_enabled_is_semantic_and_names_the_key() {
+        let f = write_tmp(&format!(
+            "{}\n[forward_proxy]\nenabled = true\n",
+            valid_toml()
+        ));
+        let err = validate_config_file(f.path()).expect_err("the forward proxy is not built");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(
+            err.to_string().contains("forward_proxy.enabled"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn tls_enabled_is_semantic_and_names_the_key() {
         let f = write_tmp(&format!(
             "{}\n[reverse_proxy.tls]\nenabled = true\n",

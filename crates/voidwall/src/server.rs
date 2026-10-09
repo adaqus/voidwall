@@ -103,11 +103,6 @@ where
         tracing::info!("reverse proxy task spawned");
     }
 
-    // Forward proxy (if enabled) — not yet implemented
-    if config.forward_proxy.enabled {
-        tracing::warn!("forward proxy mode is enabled but not yet implemented");
-    }
-
     // HTTP API (if enabled)
     if config.http_api.enabled {
         let config = config.clone();

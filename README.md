@@ -15,9 +15,12 @@ docker/ctl start
 `docker/ctl start` fetches ONNX Runtime, runs the license gate, writes the notices, builds
 the release binaries on the host, fetches the model files, and starts the containers with
 Docker Compose. The config is `docker/voidwall.toml`. It runs the PII guard and a
-`prompt_injection` model guard on Wolf Defender Prompt-Injection Detector Small v2. The
-image ships no model: `docker/ctl fetch_models` downloads it into `models/` (about 600 MB
-on first run, no Hugging Face token), and the compose file mounts it.
+`prompt_injection` model guard on Wolf Defender Prompt-Injection Detector Small v2.
+
+The released image will carry the default models, so an operator does not supply them.
+The image does not carry them yet. For now, `docker/ctl fetch_models` downloads them into
+`models/` (about 600 MB on first run, no Hugging Face token), and the compose file mounts
+that directory. A model other than the defaults is always mounted as a volume.
 
 ### Ports
 
@@ -30,7 +33,7 @@ on first run, no Hugging Face token), and the compose file mounts it.
 | Prometheus | `http://localhost:9091` | Scrapes the admin server |
 | Grafana | `http://localhost:3000` | Dashboards are set up. No login |
 
-The forward proxy uses port 8084. The dev config does not turn it on.
+The forward proxy is not built yet. A config that enables it does not start.
 
 ### Try It
 
@@ -120,6 +123,16 @@ cargo install --locked --features cli cargo-about
 | `protoc` | Regenerating `src/onnx_proto.rs` with `crates/voidwall-ml/scripts/gen-onnx-proto.sh`. Normal builds do not need it |
 | `qemu-user` (`qemu-x86_64`) | Manual check of the CPU floor: run the binary with `-cpu Nehalem` and see it exit 1 |
 | [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (Node.js) | Proposing, validating, and archiving changes under `openspec/` |
+
+## Project Status
+
+Voidwall is in early development and has no stable release. The configuration format, the
+REST API, and the metrics can change in any commit, without a deprecation period.
+
+## Contributing and Security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute. Report a vulnerability in private,
+as [SECURITY.md](SECURITY.md) describes. Do not open a public issue for it.
 
 ## License
 

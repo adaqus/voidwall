@@ -839,6 +839,7 @@ pub fn available_cpus() -> usize {
 
 impl AppConfig {
     pub fn validate(&self) -> Result<(), Error> {
+        self.validate_forward_proxy_disabled()?;
         self.validate_at_least_one_mode()?;
         self.validate_no_port_conflicts()?;
         self.validate_tls_disabled()?;
@@ -860,11 +861,23 @@ impl AppConfig {
         names
     }
 
-    fn validate_at_least_one_mode(&self) -> Result<(), Error> {
-        if !self.reverse_proxy.enabled && !self.forward_proxy.enabled && !self.http_api.enabled {
+    /// The forward proxy is not built. Enabling it would start a proxy that
+    /// lacks the mode the config asks for. It runs before the mode check, so a
+    /// config that enables only the forward proxy hears the real cause.
+    fn validate_forward_proxy_disabled(&self) -> Result<(), Error> {
+        if self.forward_proxy.enabled {
             return Err(Error::Config(
-                "at least one mode must be enabled (reverse_proxy, forward_proxy, or http_api)"
+                "forward_proxy.enabled = true is not supported: the forward proxy is not built"
                     .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_at_least_one_mode(&self) -> Result<(), Error> {
+        if !self.reverse_proxy.enabled && !self.http_api.enabled {
+            return Err(Error::Config(
+                "at least one mode must be enabled (reverse_proxy or http_api)".into(),
             ));
         }
         Ok(())
@@ -875,9 +888,6 @@ impl AppConfig {
         listeners.push(("admin", &self.admin.listen));
         if self.reverse_proxy.enabled {
             listeners.push(("reverse_proxy", &self.reverse_proxy.listen));
-        }
-        if self.forward_proxy.enabled {
-            listeners.push(("forward_proxy", &self.forward_proxy.listen));
         }
         if self.http_api.enabled {
             listeners.push(("http_api", &self.http_api.listen));
@@ -1210,15 +1220,9 @@ mod tests {
 countries = ["Us"]
 languages = ["En"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
-
-[forward_proxy.request]
-scan = true
-
-[forward_proxy.response]
-scan = true
+listen = "0.0.0.0:8083"
 "#
         .into()
     }
@@ -1256,10 +1260,6 @@ scan = true
 [[reverse_proxy.routes]]
 path_prefix = "/api"
 upstream = "http://localhost:8080"
-
-[forward_proxy]
-enabled = true
-listen = "0.0.0.0:8084"
 
 [http_api]
 enabled = true
@@ -1308,9 +1308,9 @@ on_error = "fail_open"
 [builtin_guards.pii]
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         assert_eq!(config.max_body_size, 2048);
@@ -1327,9 +1327,9 @@ listen = "0.0.0.0:8084"
 countries = ["Us"]
 max_body_size = 2048
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -1396,9 +1396,9 @@ countries = ["Us"]
 [builtin_guards.pii.surface]
 body = false
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         let surface = &config.builtin_guards.pii.as_ref().unwrap().surface;
@@ -1420,9 +1420,9 @@ countries = ["Us"]
 [builtin_guards.pii.surface]
 headers = ["x-forwarded-for"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -1439,9 +1439,9 @@ countries = ["Us"]
 [builtin_guards.pii.surface]
 headers = false
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         let surface = &config.builtin_guards.pii.as_ref().unwrap().surface;
@@ -1494,9 +1494,9 @@ upstream = "http://localhost:8080"
 enabled = false
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         assert!(!config.builtin_guards.pii.as_ref().unwrap().enabled);
@@ -1507,9 +1507,9 @@ listen = "0.0.0.0:8084"
     #[test]
     fn an_absent_guard_section_builds_no_guard() {
         let toml = r#"
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         assert!(config.builtin_guards.pii.is_none());
@@ -1525,9 +1525,9 @@ listen = "0.0.0.0:8084"
 type = "regex"
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -1545,9 +1545,9 @@ listen = "0.0.0.0:8084"
             r#"
 {section}
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#
         );
         let err = parse(&toml).unwrap_err();
@@ -1651,9 +1651,9 @@ scanner_threads = 4
 [builtin_guards.pii]
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -1681,7 +1681,7 @@ countries = ["Us"]
 [builtin_guards.pii]
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
 listen = "0.0.0.0:9090"
 
@@ -1692,10 +1692,63 @@ listen = "0.0.0.0:9090"
         assert!(err.to_string().contains("port conflict"));
     }
 
+    // --- Invalid: the forward proxy is enabled ---
+
+    #[test_case("[http_api]\nenabled = true\n" ; "with another mode")]
+    #[test_case("" ; "as the only mode")]
+    fn forward_proxy_enabled_fails_and_names_the_key(other_mode: &str) {
+        let toml = format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+{other_mode}
+[forward_proxy]
+enabled = true
+"#
+        );
+        let err = parse(&toml).expect_err("the forward proxy is not built");
+        let msg = err.to_string();
+        assert!(msg.contains("forward_proxy.enabled"), "got: {msg}");
+        assert!(!msg.contains("at least one mode"), "got: {msg}");
+        // `Error::Config` is what `validate.rs` categorises as `semantic`.
+        assert!(matches!(err, Error::Config(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn forward_proxy_disabled_table_passes() {
+        let toml = format!(
+            "{}{}",
+            minimal_toml(),
+            r#"
+[forward_proxy]
+enabled = false
+listen = "0.0.0.0:8084"
+
+[forward_proxy.request]
+scan = true
+
+[forward_proxy.response]
+scan = false
+"#
+        );
+        parse(&toml).expect("a disabled forward proxy table is valid");
+    }
+
+    #[test]
+    fn forward_proxy_schema_rules_still_apply() {
+        let toml = format!(
+            "{}{}",
+            minimal_toml(),
+            "\n[forward_proxy.request]\nscan = true\nactions = [\"block\"]\n"
+        );
+        let err = parse(&toml).expect_err("an unknown key fails even though the mode does not run");
+        assert!(err.to_string().contains("unknown field"), "got: {err}");
+    }
+
     // --- Invalid: TLS is enabled ---
 
     #[test_case("reverse_proxy", true ; "reverse proxy, mode enabled")]
-    #[test_case("forward_proxy", true ; "forward proxy, mode enabled")]
     #[test_case("forward_proxy", false ; "forward proxy, mode disabled")]
     fn tls_enabled_fails_and_names_the_key(mode: &str, mode_enabled: bool) {
         let toml = format!(
@@ -1756,9 +1809,9 @@ countries = ["Us"]
 [builtin_guards.jailbreak]
 threshold = 0.5
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -1824,9 +1877,9 @@ guards = ["{guard}"]
 countries = ["Us"]
 scanner_threads = 0
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("scanner_threads"));
@@ -1842,9 +1895,9 @@ countries = ["Us"]
 detect = ["Email"]
 ignore = ["IpAddress"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
@@ -1917,9 +1970,9 @@ on_error = "{written}"
 [builtin_guards.pii]
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#
         );
         assert_eq!(parse(&toml).unwrap().on_error, expected);
@@ -1987,9 +2040,9 @@ shutdown_timeout_secs_typo = 30
 [builtin_guards.pii]
 countries = ["Us"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -2090,10 +2143,6 @@ path_prefix = "/static"
 upstream = "http://cdn:8080"
 guards = []
 
-[forward_proxy]
-enabled = true
-listen = "0.0.0.0:8084"
-
 [http_api]
 enabled = true
 listen = "0.0.0.0:8083"
@@ -2103,7 +2152,6 @@ listen = "127.0.0.1:9090"
 "#;
         let config = parse(toml).unwrap();
         assert!(config.reverse_proxy.enabled);
-        assert!(config.forward_proxy.enabled);
         assert!(config.http_api.enabled);
         assert_eq!(config.reverse_proxy.routes.len(), 3);
         assert_eq!(config.max_body_size, 2_097_152);
@@ -2122,9 +2170,9 @@ listen = "127.0.0.1:9090"
 countries = ["Us"]
 detect = ["Email", "UsSsn"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         let pii = config.builtin_guards.pii.as_ref().unwrap();
@@ -2138,9 +2186,9 @@ listen = "0.0.0.0:8084"
 countries = ["Us"]
 ignore = ["IpAddress"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let config = parse(toml).unwrap();
         let pii = config.builtin_guards.pii.as_ref().unwrap();
@@ -2156,9 +2204,9 @@ listen = "0.0.0.0:8084"
 countries = ["Us", "International"]
 {body}
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#
         )
     }
@@ -2273,9 +2321,9 @@ pattern = 'foo@bar'
 label = "EMPLOYEE_ID"
 pattern = 'EMP-\d{6}'
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#;
         let err = parse(toml).unwrap_err();
         let msg = err.to_string();
@@ -2292,9 +2340,9 @@ listen = "0.0.0.0:8084"
 countries = ["Us"]
 {field} = ["Custom"]
 
-[forward_proxy]
+[http_api]
 enabled = true
-listen = "0.0.0.0:8084"
+listen = "0.0.0.0:8083"
 "#
         );
         let err = parse(&toml).unwrap_err();
@@ -2316,7 +2364,7 @@ countries = ["Us"]
 
 {section}
 
-[forward_proxy]
+[http_api]
 enabled = true
 "#
         )
@@ -2705,7 +2753,7 @@ query_params = false
 body = false
 headers = false
 
-[forward_proxy]
+[http_api]
 enabled = true
 "#;
         let err = parse(toml).expect_err("a guard that can never be called must fail");
