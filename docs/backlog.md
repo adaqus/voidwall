@@ -124,8 +124,8 @@ Cleanup:
 
 ## 4. Documentation
 
-- Evaluation documentation, once the roadmap's Model Evaluation Framework phase
-  ships a replacement for the retired AI4Privacy harness.
+- Evaluation documentation, once a replacement for the retired AI4Privacy harness
+  ships.
   History § 18.4.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
   normalization, and frequency handling. History § 20.12.

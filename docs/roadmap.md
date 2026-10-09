@@ -1,23 +1,17 @@
-- [x] Landing Extraction
-- [x] Identity and Framing
-- [x] Analytics Retirement
-- [x] Engine and Guard Contract
-- [x] Action Layer Removal
-- [x] Configurable Guard Design
-- [ ] Policy Design
-- [ ] LiteLLM Guardrail API Decoder
-- [ ] Policy, Errors, and Deadlines
-- [x] Guard API
-- [ ] Model Evaluation Framework
-- [x] Model Guard Configuration
-- [ ] ONNX Runtime and Model Profiles
-- [ ] Configurable Graph Optimization Level for Guards
-- [ ] Supported Safety Profiles
-- [ ] Open-Core Release
+# Roadmap
+
+The order of items doesn't determine order of implementation.
+
+- [ ] Forward proxy
+- [ ] TLS
+- [ ] GPU support
+- [ ] LiteLLM integration
+- [ ] OpenAI and Anthropic API format support
+- [ ] Streaming support (SSE)
+- [ ] Verdict cache
+- [ ] Distributed verdict cache
+- [ ] Allowlists
+- [ ] n8n node
+- [ ] Configurable Graph Optimization Level for Guard
 - [ ] ML PII Guard
-- [ ] ONNX Hardware Acceleration
-- [ ] Documentation and Release Review
-- [ ] Detection Cache
-- [ ] Ecosystem Integrations
-- [ ] Custom Classifier Adapters
-- [ ] OpenAI and Anthropic API Decoders
+- [ ] Documentation

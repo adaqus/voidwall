@@ -35,7 +35,7 @@ python3 benches/generate_payloads.py
 
 ```bash
 # Terminal 1: echo server
-cargo run --release --bin echo-server
+cargo run --release --manifest-path tools/echo-server/Cargo.toml
 
 # Terminal 2: proxy
 cargo run --release -- --config benches/configs/reverse_proxy_scan_on.toml

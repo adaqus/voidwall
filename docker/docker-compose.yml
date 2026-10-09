@@ -24,8 +24,7 @@ services:
 
   echo-server:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.voidwall
+      context: ../tools/echo-server
     entrypoint: ["echo-server", "--listen", "0.0.0.0:8090"]
     ports:
       - "8090:8090"

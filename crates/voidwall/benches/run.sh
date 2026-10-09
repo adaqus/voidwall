@@ -12,7 +12,7 @@
 #   concurrency_scaling, scanner_thread_scaling, structured_scanning,
 #   http_api
 #
-# 1. Builds release binaries
+# 1. Builds release binaries, including the echo server in tools/echo-server
 # 2. Starts echo server, waits for healthcheck
 # 3. For each selected scenario config + k6 script:
 #    a. Starts proxy with the scenario's config
@@ -170,12 +170,13 @@ run_scenario() {
 # --- Build ---
 
 "$PROJECT_DIR/docker/ctl" compile
+cargo build --release --manifest-path "$PROJECT_DIR/tools/echo-server/Cargo.toml"
 
 # --- Start echo server ---
 
 echo ""
 echo "Starting echo server on $ECHO_ADDR..."
-"$PROJECT_DIR/target/release/echo-server" --listen "$ECHO_ADDR" &
+"$PROJECT_DIR/tools/echo-server/target/release/echo-server" --listen "$ECHO_ADDR" &
 ECHO_PID=$!
 wait_for_port "$ECHO_ADDR" "echo-server"
 echo "Echo server ready."

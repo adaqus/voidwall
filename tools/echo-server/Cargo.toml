@@ -1,0 +1,18 @@
+[package]
+name = "echo-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "Minimal echo upstream for the dev stack and load tests. Never part of the Voidwall image."
+
+# A workspace of its own: the Voidwall workspace never builds this binary, so
+# `target/release/` of the Voidwall build cannot hold it.
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+hyper = "1"
+http-body-util = "0.1"
+clap = { version = "4", features = ["derive"] }

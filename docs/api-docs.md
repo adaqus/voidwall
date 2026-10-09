@@ -31,8 +31,8 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 
 The build step is required because `docker/Dockerfile.voidwall` copies the
-`target/release/voidwall` and `target/release/echo-server` binaries into the
-image.
+`target/release/voidwall` binary into the image. The echo server image builds
+from source in `tools/echo-server/`.
 
 Services exposed on the host:
 

@@ -222,9 +222,8 @@ action, and nothing anywhere rewrites a message.
 for one direction; both default to true. Detection and blocked metrics increment whenever
 the corresponding event occurs.
 
-Actions return in the roadmap's *Policy, Errors, and Deadlines* phase, defined against
-guards and finding kinds rather than directions. Do not reintroduce a per-direction
-action list.
+If actions return, define them against guards and finding kinds rather than directions.
+Do not reintroduce a per-direction action list.
 
 ## OpenSpec
 

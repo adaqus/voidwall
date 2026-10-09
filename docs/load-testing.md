@@ -12,8 +12,9 @@ should be reproducible and comparable across commits.
 
 ### Upstream Echo Server
 
-A minimal axum server included in the repo (`benches/echo_server.rs` or a
-dedicated `tests/echo-server` binary). It should:
+A minimal axum server in `tools/echo-server/`, a crate outside the Cargo
+workspace with its own `Cargo.lock` and `Dockerfile`, so the Voidwall build and
+image never contain it. It should:
 
 - Accept any method on any path
 - Return the request body as-is with 200
@@ -169,7 +170,7 @@ Monitor via admin `/metrics` endpoint:
 
 ```bash
 # Terminal 1: echo server
-cargo run --release --bin echo-server
+cargo run --release --manifest-path tools/echo-server/Cargo.toml
 
 # Terminal 2: proxy under test
 cargo run --release --bin voidwall -- --config benches/configs/reverse_proxy_scan_off.toml
