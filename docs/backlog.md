@@ -21,9 +21,10 @@ Each item needs an OpenSpec proposal first.
 
 ### 1.1 Reverse proxy TLS termination — history § 5.2
 
-`crates/voidwall/src/tls.rs` is empty. `TlsConfig` (`config.rs:426`) parses and validates,
-then nothing reads it.
+`crates/voidwall/src/tls.rs` is empty. `TlsConfig` parses, and validation rejects
+`tls.enabled = true` in both proxy modes (`AppConfig::validate_tls_disabled`).
 
+- Remove the rejection for `reverse_proxy.tls.enabled`.
 - Build a `tokio_rustls::TlsAcceptor` from the configured certificate and key paths.
 - Wrap the TCP listener with the acceptor when `reverse_proxy.tls.enabled` is true.
 

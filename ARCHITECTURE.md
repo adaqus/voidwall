@@ -474,7 +474,7 @@ These appear in the config schema or the module list. None of them runs.
 | Item | State | Why it waits |
 |---|---|---|
 | Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses and validates. The proxy logs one warning when the mode is enabled. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
-| TLS termination | `tls.rs` is empty. `TlsConfig` parses and validates. | Deployments terminate TLS at the ingress or the load balancer. |
+| TLS termination | `tls.rs` is empty. `TlsConfig` parses, and validation rejects `tls.enabled = true`. | Deployments terminate TLS at the ingress or the load balancer. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
 | Checksum validation toggle | Not started. `PiiGuardConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |

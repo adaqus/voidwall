@@ -29,7 +29,7 @@ Diagnostic categories:
 | `[file]` | Config file could not be read from disk, or a `[guards.*]` `model_path` / `tokenizer_path` names no file. The message carries the path that was expected. |
 | `[toml parse]` | File is not well-formed TOML. |
 | `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). An `adapter` the build does not ship lands here: the build fixes the set of adapter names, so the schema states it. |
-| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in). Every model guard rule lands here too — see below. |
+| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in, `reverse_proxy.tls.enabled` or `forward_proxy.tls.enabled` set to true while TLS is not built). Every model guard rule lands here too — see below. |
 | `[scanner build]` | Regex or vectorscan compilation failed. For `[[builtin_guards.pii.custom]]` entries the message cites the offending `label`. |
 
 ## Model guard rules
@@ -117,7 +117,6 @@ Environment-specific preconditions are intentionally excluded — they depend
 on the machine running the proxy, not on the config itself:
 
 - Listen-address availability (a port being free right now)
-- TLS cert/key file *contents* (only that the path field is present)
 - Model and tokenizer artifact *contents* (only that a file is at the path)
 - Upstream reachability
 - Filesystem permissions on metric/log sinks

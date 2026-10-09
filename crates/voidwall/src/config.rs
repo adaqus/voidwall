@@ -841,6 +841,7 @@ impl AppConfig {
     pub fn validate(&self) -> Result<(), Error> {
         self.validate_at_least_one_mode()?;
         self.validate_no_port_conflicts()?;
+        self.validate_tls_disabled()?;
         self.validate_builtin_guard_names()?;
         self.validate_scanner_threads()?;
         self.validate_pii_kinds_exclusivity()?;
@@ -891,6 +892,22 @@ impl AppConfig {
                     )));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// TLS is not built. A `tls` table that asks for it would start a proxy
+    /// that serves plaintext, so it fails whether or not its mode is enabled.
+    fn validate_tls_disabled(&self) -> Result<(), Error> {
+        let tables = [
+            ("reverse_proxy", &self.reverse_proxy.tls),
+            ("forward_proxy", &self.forward_proxy.tls),
+        ];
+        if let Some((mode, _)) = tables.iter().find(|(_, tls)| tls.enabled) {
+            return Err(Error::Config(format!(
+                "{mode}.tls.enabled = true is not supported: TLS is not built; \
+                 terminate TLS in front of the proxy"
+            )));
         }
         Ok(())
     }
@@ -1673,6 +1690,59 @@ listen = "0.0.0.0:9090"
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("port conflict"));
+    }
+
+    // --- Invalid: TLS is enabled ---
+
+    #[test_case("reverse_proxy", true ; "reverse proxy, mode enabled")]
+    #[test_case("forward_proxy", true ; "forward proxy, mode enabled")]
+    #[test_case("forward_proxy", false ; "forward proxy, mode disabled")]
+    fn tls_enabled_fails_and_names_the_key(mode: &str, mode_enabled: bool) {
+        let toml = format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[http_api]
+enabled = true
+
+[{mode}]
+enabled = {mode_enabled}
+listen = "0.0.0.0:18080"
+
+[{mode}.tls]
+enabled = true
+cert_path = "/etc/voidwall/cert.pem"
+key_path = "/etc/voidwall/key.pem"
+"#
+        );
+        let err = parse(&toml).expect_err("TLS is not built");
+        assert!(
+            err.to_string().contains(&format!("{mode}.tls.enabled")),
+            "got: {err}"
+        );
+        // `Error::Config` is what `validate.rs` categorises as `semantic`.
+        assert!(matches!(err, Error::Config(_)), "got: {err:?}");
+    }
+
+    #[test_case("reverse_proxy" ; "reverse proxy")]
+    #[test_case("forward_proxy" ; "forward proxy")]
+    fn tls_disabled_with_paths_passes(mode: &str) {
+        let toml = format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[http_api]
+enabled = true
+
+[{mode}.tls]
+enabled = false
+cert_path = "/etc/voidwall/cert.pem"
+key_path = "/etc/voidwall/key.pem"
+"#
+        );
+        parse(&toml).expect("a disabled TLS table is valid");
     }
 
     // --- Invalid: unknown built-in guard (2.1) ---

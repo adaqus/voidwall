@@ -214,6 +214,20 @@ upstream = "http://localhost:9000"
     }
 
     #[test]
+    fn tls_enabled_is_semantic_and_names_the_key() {
+        let f = write_tmp(&format!(
+            "{}\n[reverse_proxy.tls]\nenabled = true\n",
+            valid_toml()
+        ));
+        let err = validate_config_file(f.path()).expect_err("TLS is not built");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(
+            err.to_string().contains("reverse_proxy.tls.enabled"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn semantic_error_categorised_as_semantic() {
         // Well-formed and well-typed, but two routes claim the same prefix.
         // This is the surviving semantic rule on the reverse proxy.
