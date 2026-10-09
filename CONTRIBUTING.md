@@ -13,7 +13,7 @@ deprecation period.
 ## Development Setup
 
 Only Linux on x86-64 is supported, with a CPU of x86-64-v3 or later. Install the tools in
-[Development Requirements](README.md#development-requirements), then run from the
+[Requirements](DEVELOPMENT.md#requirements), then run from the
 workspace root:
 
 ```bash
