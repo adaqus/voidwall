@@ -38,7 +38,7 @@ For multi-step work, state a brief plan with a verification check for each step.
 
 Start coding agents from the workspace root. Commands below assume that location.
 
-The Cargo workspace has three members:
+The Cargo workspace has four members:
 
 - `crates/voidwall/`: binary package `voidwall`. Integration tests, k6 load tests, and
   benchmark scripts live under `crates/voidwall/tests/` and `crates/voidwall/benches/`.
@@ -46,6 +46,10 @@ The Cargo workspace has three members:
   under this crate.
 - `crates/voidwall-ml/`: ONNX Runtime integration and model adapters. It cannot depend on
   `voidwall`.
+- `crates/voidwall-eval/`: binary `ai4privacy-eval`, which scores `voidwall-pii` against the
+  AI4Privacy dataset, and binary `piimb-spans`, which writes its spans for the PII Masking
+  Benchmark. It depends on `voidwall-pii` only and is not in the image. Run them with
+  `docker/ctl ai4p-eval` and `docker/ctl piimb-eval`.
 
 Proxy documentation lives under `docs/`.
 

@@ -121,8 +121,6 @@ Cleanup:
 
 ## 4. Documentation
 
-- Evaluation documentation, once a replacement for the retired AI4Privacy harness
-  ships.
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
   normalization, and frequency handling.
 

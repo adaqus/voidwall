@@ -1,7 +1,7 @@
 /target
 /tools/echo-server/target/
 /benches/results/*
-# Auto-fetched AI4Privacy eval datasets (docker/ctl eval) — never committed.
+# Auto-fetched AI4Privacy eval datasets (docker/ctl ai4p-eval) — never committed.
 /.cache/
 
 # ONNX Runtime archive verified by docker/fetch-ort.sh — never committed.

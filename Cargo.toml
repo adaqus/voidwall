@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/voidwall-pii", "crates/voidwall-ml", "crates/voidwall"]
+members = ["crates/voidwall-pii", "crates/voidwall-ml", "crates/voidwall", "crates/voidwall-eval"]
 
 [workspace.package]
 license = "Apache-2.0"

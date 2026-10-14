@@ -384,6 +384,7 @@ Today:
 | `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
 | `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError`, stoppable through a `Cancel`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
+| `crates/voidwall-eval` | `ai4privacy-eval`: scores `voidwall-pii` against AI4Privacy openpii300k, through `docker/ctl ai4p-eval`. `piimb-spans`: writes its spans for the PII Masking Benchmark, which `docker/ctl piimb-eval` scores with the benchmark's own metric code. Depends on `voidwall-pii` only; not in the image |
 
 Read `crates/voidwall-pii/AGENTS.md` before editing the library. Vectorscan, the detector
 chain, the keyword patterns, and the overlap policy all have rules there.
