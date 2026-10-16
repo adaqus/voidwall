@@ -44,6 +44,10 @@ pub enum Error {
 
     /// Request content type is not in the scannable allow-list.
     UnsupportedContentType,
+
+    /// The body parses, but holds content Voidwall cannot inspect, such as a
+    /// content part of an unknown type. The body never names the content.
+    UnscannableContent,
 }
 
 impl std::fmt::Display for Error {
@@ -69,6 +73,7 @@ impl std::fmt::Display for Error {
             Error::BodyTooLarge => write!(f, "request body too large"),
             Error::BodyParse => write!(f, "body parse failed"),
             Error::UnsupportedContentType => write!(f, "unsupported content type"),
+            Error::UnscannableContent => write!(f, "{UNSCANNABLE_CONTENT}"),
         }
     }
 }
@@ -83,12 +88,14 @@ impl std::error::Error for Error {
 }
 
 impl Error {
-    /// The `reason` label of `voidwall_errors_total` for a guard error. A
-    /// variant no guard-specific reason covers counts as a scanner failure.
+    /// The `reason` label of `voidwall_errors_total` for an error that
+    /// follows `on_error`. A variant no specific reason covers counts as a
+    /// scanner failure.
     pub fn scan_reason(&self) -> &'static str {
         match self {
             Error::Inference { .. } => "inference_failure",
             Error::WindowLimit { .. } => "window_limit",
+            Error::UnscannableContent => "unscannable_content",
             _ => "scanner_failure",
         }
     }
@@ -141,6 +148,9 @@ pub const UPSTREAM_TIMEOUT: &str = "upstream timeout";
 /// counts go to the log only.
 pub const WINDOW_LIMIT_ERROR: &str = "tokenized content too long to scan";
 
+/// The fixed `error` text of a 422. It never names what could not be scanned.
+pub const UNSCANNABLE_CONTENT: &str = "unscannable content";
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
@@ -164,6 +174,10 @@ impl IntoResponse for Error {
             Error::UnsupportedContentType => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "unsupported content type".to_string(),
+            ),
+            Error::UnscannableContent => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                UNSCANNABLE_CONTENT.to_string(),
             ),
         };
 
@@ -263,6 +277,16 @@ mod tests {
         assert_eq!(response.status(), expected_status);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(bytes, expected_body.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn unscannable_content_answers_422_with_a_fixed_body() {
+        let err = Error::UnscannableContent;
+        assert_eq!(err.scan_reason(), "unscannable_content");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"unscannable content"}"#);
     }
 
     fn inference_error() -> Error {

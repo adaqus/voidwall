@@ -1,0 +1,49 @@
+{
+  "input_type": "request",
+  "litellm_call_id": "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f",
+  "litellm_trace_id": "0e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b",
+  "structured_messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What colour is this pixel?"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            "detail": "low"
+          }
+        }
+      ]
+    }
+  ],
+  "images": [
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+  ],
+  "tools": null,
+  "texts": [
+    "What colour is this pixel?"
+  ],
+  "request_data": {
+    "user_api_key_hash": "88dc28d0f030c55ed4ab77ed8faf098196cb1c05df778539800c9f1243fe6b4b",
+    "user_api_key_alias": "support-bot",
+    "user_api_key_user_id": "user-0001",
+    "user_api_key_user_email": "caller@example.com",
+    "user_api_key_team_id": "team-0001",
+    "user_api_key_team_alias": "support",
+    "user_api_key_end_user_id": null,
+    "user_api_key_org_id": null
+  },
+  "request_headers": {
+    "content-type": "application/json",
+    "user-agent": "OpenAI/Python 1.109.1",
+    "x-request-id": "[present]"
+  },
+  "litellm_version": "1.105.1",
+  "additional_provider_specific_params": {},
+  "tool_calls": null,
+  "model": "gpt-4o-mini"
+}

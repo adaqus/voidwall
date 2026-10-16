@@ -460,6 +460,38 @@ upstream = "http://localhost:9000"
 }
 
 // ---------------------------------------------------------------------------
+// HTTP API route switches
+// ---------------------------------------------------------------------------
+
+#[test]
+fn http_api_with_every_route_off_exits_non_zero_and_names_both_switches() {
+    let bad = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[http_api]
+enabled = true
+listen = "127.0.0.1:18083"
+
+[http_api.scan]
+enabled = false
+
+[http_api.litellm]
+enabled = false
+"#;
+    let cfg = write_cfg(bad);
+    let out = run_validate(cfg.path());
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("[semantic]"), "stderr: {stderr}");
+    assert!(stderr.contains("http_api.scan.enabled"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("http_api.litellm.enabled"),
+        "stderr: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // The old configuration format
 // ---------------------------------------------------------------------------
 

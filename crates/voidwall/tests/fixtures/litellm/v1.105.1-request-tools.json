@@ -1,0 +1,87 @@
+{
+  "input_type": "request",
+  "litellm_call_id": "2c0f6a4e-8b1d-4f3a-9e57-1d2b3c4d5e6f",
+  "litellm_trace_id": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+  "structured_messages": [
+    {
+      "role": "system",
+      "content": "You are a support agent for an online shop. Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Where is my order 4471?"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_Qm3vX8kZ1",
+          "type": "function",
+          "function": {
+            "name": "get_order_status",
+            "arguments": "{\"order_id\": \"4471\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_Qm3vX8kZ1",
+      "content": "{\"order_id\": \"4471\", \"status\": \"shipped\"}"
+    }
+  ],
+  "images": null,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_order_status",
+        "description": "Look up the shipping status of an order.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "order_id": {
+              "type": "string",
+              "description": "The order number."
+            }
+          },
+          "required": ["order_id"]
+        }
+      }
+    }
+  ],
+  "texts": [
+    "You are a support agent for an online shop. Answer briefly.",
+    "Where is my order 4471?",
+    "{\"order_id\": \"4471\", \"status\": \"shipped\"}"
+  ],
+  "request_data": {
+    "user_api_key_hash": "88dc28d0f030c55ed4ab77ed8faf098196cb1c05df778539800c9f1243fe6b4b",
+    "user_api_key_alias": "support-bot",
+    "user_api_key_user_id": "user-0001",
+    "user_api_key_user_email": "caller@example.com",
+    "user_api_key_team_id": "team-0001",
+    "user_api_key_team_alias": "support",
+    "user_api_key_end_user_id": null,
+    "user_api_key_org_id": null
+  },
+  "request_headers": {
+    "content-type": "application/json",
+    "user-agent": "OpenAI/Python 1.109.1",
+    "x-request-id": "[present]"
+  },
+  "litellm_version": "1.105.1",
+  "additional_provider_specific_params": {},
+  "tool_calls": [
+    {
+      "id": "call_Qm3vX8kZ1",
+      "type": "function",
+      "function": {
+        "name": "get_order_status",
+        "arguments": "{\"order_id\": \"4471\"}"
+      }
+    }
+  ],
+  "model": "gpt-4o-mini"
+}

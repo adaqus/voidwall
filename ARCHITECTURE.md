@@ -87,6 +87,21 @@ directly for its probes, so that works with no external exposure. An operator mo
 to `0.0.0.0` only when Prometheus scrapes from another pod, and then restricts it with
 a NetworkPolicy.
 
+### HTTP API routes
+
+The HTTP API listener serves two routes, each behind its own switch:
+
+- `POST /v1/scan` (`http_api.scan.enabled`): the raw body is the content, parsed by its
+  `Content-Type`.
+- `POST /beta/litellm_basic_guardrail_api` (`http_api.litellm.enabled`): LiteLLM's
+  Generic Guardrail API. `structured::litellm` decodes the payload, and
+  `structured::chat_completions` selects the fields of the Chat Completions messages,
+  tools, and tool calls to scan. Each top-level entry becomes one body unit.
+
+Both default to true. `http_api.enabled` starts the listener, and enabling it with every
+route off fails validation. A route that is off does not exist, so it answers 404. Both
+routes report and never block, and they share the metric and error helpers.
+
 ### Modules
 
 `config`, `engine`, `scanner`, `reverse_proxy`, `forward_proxy`, `http_api`,

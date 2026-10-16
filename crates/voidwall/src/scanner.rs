@@ -45,6 +45,13 @@ pub fn classify_body(raw: Bytes, content_type: &str) -> Result<UnitContent, Erro
     Ok(UnitContent::PlainText(raw))
 }
 
+/// True when a `Content-Type` header value names a JSON document, whatever its
+/// case and parameters.
+pub fn is_json_content_type(content_type: &str) -> bool {
+    let media_type = content_type.split(';').next().unwrap_or(content_type);
+    is_json_media_type(&media_type.trim().to_ascii_lowercase())
+}
+
 /// True when `media_type` (already lowercased and parameter-stripped) names a
 /// JSON document. Covers `application/json`, the legacy `text/json`, and any
 /// `application/*+json` structured-suffix type per RFC 6839 (e.g.
@@ -306,6 +313,15 @@ mod tests {
         let raw = Bytes::from_static(b"not json");
         let content = classify_body(raw, media_type).expect("classify ok");
         assert!(matches!(content, UnitContent::PlainText(_)));
+    }
+
+    #[test_case("application/json", true ; "canonical")]
+    #[test_case("Application/JSON; charset=utf-8", true ; "case and parameter")]
+    #[test_case("application/vnd.api+json", true ; "suffix")]
+    #[test_case("text/plain", false ; "plain text")]
+    #[test_case("", false ; "empty")]
+    fn is_json_content_type_reads_the_header_value(content_type: &str, expected: bool) {
+        assert_eq!(is_json_content_type(content_type), expected);
     }
 
     #[test]

@@ -13,13 +13,17 @@ use tracing::warn;
 use utoipa::ToSchema;
 
 use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError};
-use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, Units};
+use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, UnitContent, Units};
 use crate::error::Error;
-use crate::metrics;
-use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body};
+use crate::metrics::{self, UnscannedReason};
+use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body, is_json_content_type};
+use crate::structured::litellm::{self, GuardrailRequest};
 
 const MODE: &str = "http_api";
 const ROUTE: &str = "global";
+
+const SCAN_PATH: &str = "/v1/scan";
+const LITELLM_PATH: &str = "/beta/litellm_basic_guardrail_api";
 
 // ---------------------------------------------------------------------------
 // Shared state
@@ -34,6 +38,8 @@ pub struct ApiState {
     content_types: Arc<Vec<String>>,
     max_body_size: usize,
     on_error: OnError,
+    scan_route: bool,
+    litellm_route: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -48,13 +54,23 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ApiState {
         content_types: Arc::new(config.content_types.clone()),
         max_body_size: config.max_body_size,
         on_error: config.on_error,
+        scan_route: config.http_api.scan.enabled,
+        litellm_route: config.http_api.litellm.enabled,
     }
 }
 
+/// A route whose switch is off is not added, so axum's fallback answers it
+/// with 404 like any other unknown path.
 pub fn router(state: ApiState) -> Router {
     let max_body = state.max_body_size;
-    Router::new()
-        .route("/v1/scan", post(scan_handler))
+    let mut router = Router::new();
+    if state.scan_route {
+        router = router.route(SCAN_PATH, post(scan_handler));
+    }
+    if state.litellm_route {
+        router = router.route(LITELLM_PATH, post(litellm_handler));
+    }
+    router
         .layer(DefaultBodyLimit::max(max_body))
         .with_state(state)
 }
@@ -107,6 +123,27 @@ struct ErrorResponse {
     error: String,
 }
 
+/// The answer to LiteLLM. There is no `GUARDRAIL_INTERVENED` variant, because
+/// Voidwall never rewrites a message.
+#[derive(Serialize, ToSchema)]
+#[serde(tag = "action", rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(example = json!({
+    "action": "BLOCKED",
+    "blocked_reason": "Voidwall blocked the message. Kinds: EMAIL, US_SSN",
+}))]
+enum GuardrailResponse {
+    /// No guard reported a finding.
+    None,
+    /// A guard reported a finding.
+    Blocked {
+        /// `Voidwall blocked the message. Kinds: ` and the sorted kinds,
+        /// joined by `, `. Never contains a detected value.
+        blocked_reason: String,
+    },
+}
+
+const BLOCKED_REASON: &str = "Voidwall blocked the message. Kinds: ";
+
 // utoipa is a procedural macro and its arguments must be string literals
 // (it cannot expand `const` references), so the macros below use a single
 // `text/plain` placeholder for the body Content-Type. At spec-generation
@@ -147,6 +184,45 @@ async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: B
     process(state, headers, body).await
 }
 
+/// LiteLLM Generic Guardrail API
+///
+/// Scans one LiteLLM guardrail payload and answers `NONE` or `BLOCKED`. On the
+/// request side it reads `structured_messages`, `tools`, and `tool_calls`, and
+/// `texts` only when `structured_messages` is missing. On the response side it
+/// reads `texts` and `tool_calls`. It never reads `request_data` or
+/// `request_headers`, and never scans base64 data.
+#[utoipa::path(
+    post,
+    path = "/beta/litellm_basic_guardrail_api",
+    tag = "litellm",
+    operation_id = "litellmGuardrail",
+    request_body(
+        description = "A LiteLLM Generic Guardrail API payload.",
+        content_type = "application/json",
+        content = GuardrailRequest,
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Scan completed: `NONE`, or `BLOCKED` with the kinds found",
+            body = GuardrailResponse,
+            content_type = "application/json",
+        ),
+        (status = 400, description = "Body is not a JSON object with an `input_type` of `request` or `response`", body = ErrorResponse, content_type = "application/json"),
+        (status = 413, description = "Body exceeds configured `max_body_size`, or, with `on_error = fail_close`, a model guard needs more windows than its limit", body = ErrorResponse, content_type = "application/json"),
+        (status = 415, description = "`Content-Type` is not JSON", body = ErrorResponse, content_type = "application/json"),
+        (status = 422, description = "A content part has a type Voidwall cannot scan and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
+        (status = 500, description = "A guard failed (scanner or model inference) and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
+    ),
+)]
+async fn litellm_handler(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    process_litellm(state, headers, body).await
+}
+
 // The OpenAPI document is a checked-in repository artefact
 // (`docs/openapi.json`), not a served route, so the generator below is reached
 // only from the freshness test that keeps the file in step with the handler.
@@ -159,15 +235,18 @@ use utoipa::OpenApi;
     info(
         title = "Voidwall HTTP API",
         description = "Detect PII in arbitrary text, JSON, CSV, and TSV \
-            bodies with `POST /v1/scan`, the one route this listener serves. \
-            The body itself is the content to scan — there is no JSON \
-            envelope. The `Content-Type` header drives parsing.",
+            bodies with `POST /v1/scan`. The body itself is the content to \
+            scan — there is no JSON envelope. The `Content-Type` header \
+            drives parsing. `POST /beta/litellm_basic_guardrail_api` serves \
+            LiteLLM's Generic Guardrail API. `http_api.scan.enabled` and \
+            `http_api.litellm.enabled` turn each route on or off.",
         version = env!("CARGO_PKG_VERSION"),
     ),
-    paths(scan_handler),
-    components(schemas(ScanResponse, ErrorResponse)),
+    paths(scan_handler, litellm_handler),
+    components(schemas(ScanResponse, ErrorResponse, GuardrailRequest, GuardrailResponse)),
     tags(
         (name = "pii", description = "PII detection endpoints"),
+        (name = "litellm", description = "LiteLLM Generic Guardrail API"),
     ),
 )]
 struct ApiDoc;
@@ -216,7 +295,7 @@ fn inject_known_pii_kinds(spec: &mut serde_json::Value) {
 /// from the placeholder, so all entries share the same shape.
 #[cfg(test)]
 fn expand_supported_content_types(spec: &mut serde_json::Value) {
-    let pointer = format!("/paths/{}/post", encode_pointer_segment("/v1/scan"));
+    let pointer = format!("/paths/{}/post", encode_pointer_segment(SCAN_PATH));
     let Some(post) = spec.pointer_mut(&pointer) else {
         return;
     };
@@ -255,14 +334,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
         .to_string();
 
     if !is_content_type_allowed(&content_type, &state.content_types) {
-        let resp = (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            [("content-type", "application/json")],
-            r#"{"error":"unsupported content type"}"#,
-        )
-            .into_response();
-        record_request(resp.status());
-        return resp;
+        return unsupported_content_type();
     }
 
     // Parse the body according to its declared content type. Malformed
@@ -271,17 +343,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
     // (openspec/specs/http-api/spec.md). This rule overrides on_error.
     let body_format = match classify_body(body.clone(), &content_type) {
         Ok(bf) => bf,
-        Err(_) => {
-            metrics::inc_error("blocked", "body_parse_failed");
-            let resp = (
-                StatusCode::BAD_REQUEST,
-                [("content-type", "application/json")],
-                r#"{"error":"malformed body for declared content type"}"#,
-            )
-                .into_response();
-            record_request(resp.status());
-            return resp;
-        }
+        Err(_) => return malformed_body(),
     };
 
     // The API scans the body and nothing else, so the message is one unit —
@@ -305,29 +367,136 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
 
     let kinds = scan_result.kinds();
 
-    // Always increment detection metrics when PII is detected — also when a
-    // guard error turns the answer into a 500. The PII family counts the
-    // `pii` guard's kinds only.
-    for kind in &scan_result.kinds_of(BUILTIN_PII_GUARD_NAME) {
-        metrics::inc_detection(kind, MODE, ROUTE, "request");
-    }
-    for guard in scan_result.guards() {
-        metrics::inc_guard_detection(&guard, MODE, ROUTE, "request");
-    }
-
-    // A guard error does not discard the findings of the guards that
-    // succeeded: fail_open reports them, fail_close answers 500.
-    if let Some(e) = scan_result.take_error() {
-        if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
-            warn!(dropped, error = %e, "scanner error in http api");
-        }
-        if let Some(resp) = handle_scanner_failure(e, state.on_error) {
-            return resp;
-        }
+    record_detections(&scan_result, "request");
+    if let Some(resp) = handle_guard_error(&mut scan_result, state.on_error) {
+        return resp;
     }
 
     let resp = build_scan_response(&scan_result, &kinds);
 
+    record_request(resp.status());
+    resp
+}
+
+async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
+    // JSON only: the `content_types` allowlist governs `/v1/scan`, not this
+    // route, whose payload is JSON by definition.
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !is_json_content_type(content_type) {
+        return unsupported_content_type();
+    }
+
+    // A payload that does not decode is the caller's fault, whatever
+    // `on_error` says, as on `/v1/scan`.
+    let decoded = match litellm::decode(&body) {
+        Ok(decoded) => decoded,
+        Err(_) => return malformed_body(),
+    };
+    drop(body);
+    let direction = decoded.input_type.direction();
+
+    // An unknown content part is unscannable: fail_close answers 422 before
+    // any guard runs, fail_open scans the rest. The decoder never put the
+    // part into a unit.
+    if decoded.unknown_parts > 0
+        && let Some(resp) = handle_scanner_failure(Error::UnscannableContent, state.on_error)
+    {
+        return resp;
+    }
+
+    // Counted only once the payload goes on to be scanned, so a 400 or a 422
+    // counts nothing as skipped.
+    if decoded.encoded_values > 0 {
+        metrics::inc_unscanned(
+            MODE,
+            ROUTE,
+            direction,
+            UnscannedReason::EncodedData,
+            decoded.encoded_values as u64,
+        );
+    }
+
+    // One body unit per top-level entry. The route reports rather than
+    // blocks, so the engine never short-circuits.
+    let mut units = Units::new();
+    for fragments in decoded.units {
+        units.push_body(UnitContent::Structured { fragments });
+    }
+    let mut scan_result = state
+        .engine
+        .guard(
+            units.into_shared(),
+            &state.selection,
+            BlockPolicy::Never,
+            state.on_error,
+        )
+        .await;
+
+    record_detections(&scan_result, direction);
+    if let Some(resp) = handle_guard_error(&mut scan_result, state.on_error) {
+        return resp;
+    }
+
+    let payload = if scan_result.detected() {
+        GuardrailResponse::Blocked {
+            blocked_reason: format!("{BLOCKED_REASON}{}", scan_result.kinds().join(", ")),
+        }
+    } else {
+        GuardrailResponse::None
+    };
+    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    let resp = (StatusCode::OK, [("content-type", "application/json")], body).into_response();
+    record_request(resp.status());
+    resp
+}
+
+/// Increment the detection families. This runs also when a guard error turns
+/// the answer into a 500. The PII family counts the `pii` guard's kinds only.
+fn record_detections(scan_result: &ScanResult, direction: &str) {
+    for kind in &scan_result.kinds_of(BUILTIN_PII_GUARD_NAME) {
+        metrics::inc_detection(kind, MODE, ROUTE, direction);
+    }
+    for guard in scan_result.guards() {
+        metrics::inc_guard_detection(&guard, MODE, ROUTE, direction);
+    }
+}
+
+/// A guard error does not discard the findings of the guards that succeeded:
+/// `fail_open` reports them and this returns `None`, `fail_close` answers the
+/// error's fixed response.
+fn handle_guard_error(scan_result: &mut ScanResult, on_error: OnError) -> Option<Response> {
+    let e = scan_result.take_error()?;
+    if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+        warn!(dropped, error = %e, "scanner error in http api");
+    }
+    handle_scanner_failure(e, on_error)
+}
+
+fn unsupported_content_type() -> Response {
+    let resp = (
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        [("content-type", "application/json")],
+        r#"{"error":"unsupported content type"}"#,
+    )
+        .into_response();
+    record_request(resp.status());
+    resp
+}
+
+/// A body that does not parse as its declared type is always 400 — the caller
+/// declared the type, so silently falling back would mask their bug
+/// (openspec/specs/http-api/spec.md). This rule overrides `on_error`.
+fn malformed_body() -> Response {
+    metrics::inc_error("blocked", "body_parse_failed");
+    let resp = (
+        StatusCode::BAD_REQUEST,
+        [("content-type", "application/json")],
+        r#"{"error":"malformed body for declared content type"}"#,
+    )
+        .into_response();
     record_request(resp.status());
     resp
 }
@@ -460,6 +629,28 @@ mod tests {
 
         let err_schema = &spec["components"]["schemas"]["ErrorResponse"];
         assert!(err_schema["example"]["error"].is_string());
+    }
+
+    #[test]
+    fn openapi_spec_describes_the_litellm_route() {
+        let spec: serde_json::Value = serde_json::from_str(&build_openapi_spec()).unwrap();
+
+        let post = &spec["paths"][LITELLM_PATH]["post"];
+        assert!(post.is_object(), "the document has no LiteLLM route");
+        let request = &post["requestBody"]["content"]["application/json"]["schema"]["$ref"];
+        assert_eq!(request, "#/components/schemas/GuardrailRequest");
+        for status in ["200", "400", "413", "415", "422", "500"] {
+            assert!(post["responses"][status].is_object(), "no {status}");
+        }
+
+        let actions: Vec<&serde_json::Value> =
+            spec["components"]["schemas"]["GuardrailResponse"]["oneOf"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|shape| &shape["properties"]["action"]["enum"][0])
+                .collect();
+        assert_eq!(actions, ["NONE", "BLOCKED"]);
     }
 
     // --- A guard error does not discard the other guards' findings ---
@@ -636,5 +827,280 @@ mod tests {
         assert_eq!(guard_detections("api_gm_b"), 1);
         assert_eq!(guard_detections("api_gm_quiet"), 0);
         assert_eq!(api_blocks(), 0, "/v1/scan reports and blocks nothing");
+    }
+
+    // --- The LiteLLM route ---
+
+    use crate::config::{HttpApiConfig, RouteSwitch};
+    use crate::engine::test_guard::GuardProbe;
+
+    fn json_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers
+    }
+
+    fn litellm_state(guards: Vec<Box<dyn crate::engine::Guard>>, on_error: OnError) -> ApiState {
+        let config = AppConfig {
+            on_error,
+            ..AppConfig::default()
+        };
+        build_state(&config, Arc::new(Engine::with_guards(guards)))
+    }
+
+    async fn post_litellm(state: ApiState, payload: serde_json::Value) -> Response {
+        let body = Bytes::from(serde_json::to_vec(&payload).unwrap());
+        process_litellm(state, json_headers(), body).await
+    }
+
+    async fn body_of(resp: Response) -> Vec<u8> {
+        resp.into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec()
+    }
+
+    fn user_text(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "input_type": "request",
+            "structured_messages": [{"role": "user", "content": text}],
+        })
+    }
+
+    #[tokio::test]
+    async fn litellm_answers_none_when_no_guard_finds_anything() {
+        let state = litellm_state(
+            vec![Box::new(TestGuard::new("lt_quiet", "LT_UNUSED").silent())],
+            OnError::FailClose,
+        );
+        let resp = post_litellm(state, user_text("hello")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(body_of(resp).await, br#"{"action":"NONE"}"#);
+    }
+
+    #[tokio::test]
+    async fn litellm_answers_blocked_with_the_sorted_kinds() {
+        let state = litellm_state(
+            vec![
+                Box::new(TestGuard::new("lt_b", "LT_KIND_B")),
+                Box::new(TestGuard::new("lt_a", "LT_KIND_A")),
+            ],
+            OnError::FailClose,
+        );
+        let resp = post_litellm(state, user_text("hello")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(&body_of(resp).await).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "action": "BLOCKED",
+                "blocked_reason": "Voidwall blocked the message. Kinds: LT_KIND_A, LT_KIND_B",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn litellm_rejects_a_non_json_content_type_even_when_the_allowlist_has_it() {
+        let config = AppConfig {
+            content_types: vec!["text/plain".into()],
+            ..AppConfig::default()
+        };
+        let state = build_state(&config, Arc::new(Engine::with_guards(vec![])));
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+        let resp = process_litellm(state, headers, Bytes::from_static(b"{}")).await;
+        assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(
+            body_of(resp).await,
+            br#"{"error":"unsupported content type"}"#
+        );
+    }
+
+    #[test_case(OnError::FailClose ; "fail close")]
+    #[test_case(OnError::FailOpen ; "fail open")]
+    #[tokio::test]
+    async fn litellm_answers_400_to_a_payload_without_input_type(on_error: OnError) {
+        let state = litellm_state(vec![], on_error);
+        let resp = post_litellm(state, serde_json::json!({"texts": ["hello"]})).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body_of(resp).await,
+            br#"{"error":"malformed body for declared content type"}"#
+        );
+    }
+
+    fn hologram_payload() -> serde_json::Value {
+        serde_json::json!({
+            "input_type": "request",
+            "structured_messages": [{"role": "user", "content": [
+                {"type": "hologram", "data": "?"},
+                {"type": "text", "text": "hello"},
+            ]}],
+        })
+    }
+
+    fn probed(name: &str, kind: &'static str) -> (Box<dyn crate::engine::Guard>, GuardProbe) {
+        let guard = TestGuard::new(name, kind);
+        let probe = guard.probe();
+        (Box::new(guard), probe)
+    }
+
+    #[tokio::test]
+    async fn litellm_answers_422_to_an_unknown_part_under_fail_close_and_runs_no_guard() {
+        let before = errors("blocked", "unscannable_content");
+        let (guard, probe) = probed("lt_422", "LT_422");
+        let state = litellm_state(vec![guard], OnError::FailClose);
+
+        let resp = post_litellm(state, hologram_payload()).await;
+
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_of(resp).await;
+        assert_eq!(body, br#"{"error":"unscannable content"}"#);
+        assert_eq!(probe.calls(), 0, "no guard runs");
+        assert!(errors("blocked", "unscannable_content") > before);
+    }
+
+    #[tokio::test]
+    async fn litellm_skips_an_unknown_part_under_fail_open_and_scans_the_rest() {
+        let before = errors("passed", "unscannable_content");
+        let (guard, probe) = probed("lt_skip", "LT_SKIP");
+        let state = litellm_state(vec![guard], OnError::FailOpen);
+
+        let resp = post_litellm(state, hologram_payload()).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(&body_of(resp).await).unwrap();
+        assert_eq!(body["action"], "BLOCKED");
+        // One unit: the message, holding the text part only.
+        assert_eq!(probe.seen().len(), 1);
+        assert!(errors("passed", "unscannable_content") > before);
+    }
+
+    #[tokio::test]
+    async fn litellm_guard_failure_under_fail_close_answers_500() {
+        let state = litellm_state(
+            vec![
+                Box::new(TestGuard::new("lt_fail", "LT_UNUSED").failing()),
+                Box::new(TestGuard::new("lt_fc", "LT_FC")),
+            ],
+            OnError::FailClose,
+        );
+        let resp = post_litellm(state, user_text("hello")).await;
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body_of(resp).await, br#"{"error":"internal error"}"#);
+    }
+
+    #[test_case(false, serde_json::json!({"action": "NONE"}) ; "no other finding")]
+    #[test_case(true, serde_json::json!({"action": "BLOCKED", "blocked_reason": "Voidwall blocked the message. Kinds: LT_FO"}) ; "another finding")]
+    #[tokio::test]
+    async fn litellm_guard_failure_under_fail_open_answers_from_the_other_guards(
+        finds: bool,
+        expected: serde_json::Value,
+    ) {
+        let other = TestGuard::new("lt_fo", "LT_FO");
+        let other = if finds { other } else { other.silent() };
+        let state = litellm_state(
+            vec![
+                Box::new(TestGuard::new("lt_fail", "LT_UNUSED").failing()),
+                Box::new(other),
+            ],
+            OnError::FailOpen,
+        );
+        let resp = post_litellm(state, user_text("hello")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(&body_of(resp).await).unwrap();
+        assert_eq!(body, expected);
+    }
+
+    #[tokio::test]
+    async fn litellm_counts_detections_under_the_response_direction_and_blocks_nothing() {
+        let state = litellm_state(
+            vec![Box::new(TestGuard::new("lt_resp", "LT_RESP"))],
+            OnError::FailClose,
+        );
+        let blocked_before = MESSAGES_BLOCKED_TOTAL
+            .with_label_values(&[MODE, ROUTE, "response"])
+            .get();
+        let payload = serde_json::json!({"input_type": "response", "texts": ["hello"]});
+
+        let resp = post_litellm(state, payload).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let detections = GUARD_DETECTIONS_TOTAL
+            .with_label_values(&["lt_resp", MODE, ROUTE, "response"])
+            .get();
+        assert_eq!(detections, 1);
+        assert_eq!(
+            MESSAGES_BLOCKED_TOTAL
+                .with_label_values(&[MODE, ROUTE, "response"])
+                .get(),
+            blocked_before,
+            "BLOCKED is not a block"
+        );
+    }
+
+    // --- Route switches ---
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    fn switched_router(scan: bool, litellm: bool) -> Router {
+        let config = AppConfig {
+            http_api: HttpApiConfig {
+                enabled: true,
+                scan: RouteSwitch { enabled: scan },
+                litellm: RouteSwitch { enabled: litellm },
+                ..HttpApiConfig::default()
+            },
+            ..AppConfig::default()
+        };
+        let engine = Arc::new(Engine::with_guards(vec![Box::new(
+            TestGuard::new("lt_switch", "LT_SWITCH").silent(),
+        )]));
+        router(build_state(&config, engine))
+    }
+
+    async fn status_of(
+        router: &Router,
+        path: &str,
+        content_type: &str,
+        body: &'static str,
+    ) -> StatusCode {
+        let request = Request::post(path)
+            .header("content-type", content_type)
+            .body(Body::from(body))
+            .unwrap();
+        router.clone().oneshot(request).await.unwrap().status()
+    }
+
+    const LITELLM_BODY: &str = r#"{"input_type":"request","texts":["hello"]}"#;
+
+    #[tokio::test]
+    async fn the_litellm_route_is_absent_when_its_switch_is_off() {
+        let router = switched_router(true, false);
+        assert_eq!(
+            status_of(&router, LITELLM_PATH, "application/json", LITELLM_BODY).await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status_of(&router, SCAN_PATH, "text/plain", "hello").await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn the_scan_route_is_absent_when_its_switch_is_off() {
+        let router = switched_router(false, true);
+        assert_eq!(
+            status_of(&router, SCAN_PATH, "text/plain", "hello").await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status_of(&router, LITELLM_PATH, "application/json", LITELLM_BODY).await,
+            StatusCode::OK
+        );
     }
 }

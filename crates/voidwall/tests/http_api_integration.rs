@@ -26,6 +26,8 @@ fn default_pii_config() -> PiiGuardConfig {
 struct Ingest {
     max_body_size: usize,
     on_error: OnError,
+    content_types: Vec<String>,
+    scan_route: bool,
 }
 
 impl Default for Ingest {
@@ -33,6 +35,8 @@ impl Default for Ingest {
         Self {
             max_body_size: 1_048_576,
             on_error: OnError::FailClose,
+            content_types: AppConfig::default().content_types,
+            scan_route: true,
         }
     }
 }
@@ -77,16 +81,19 @@ impl TestApi {
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let config = AppConfig {
+        let mut config = AppConfig {
             max_body_size: ingest.max_body_size,
             on_error: ingest.on_error,
+            content_types: ingest.content_types,
             builtin_guards: BuiltinGuards::with_pii(pii_config),
             http_api: HttpApiConfig {
                 enabled: true,
                 listen: addr.to_string(),
+                ..HttpApiConfig::default()
             },
             ..AppConfig::default()
         };
+        config.http_api.scan.enabled = ingest.scan_route;
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
@@ -591,4 +598,61 @@ async fn content_type_with_charset_param_accepted() {
     assert_eq!(resp.status(), 200);
     let json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(json["detected"], true);
+}
+
+// ---------------------------------------------------------------------------
+// The LiteLLM route
+// ---------------------------------------------------------------------------
+
+const LITELLM_PATH: &str = "/beta/litellm_basic_guardrail_api";
+const LITELLM_PAYLOAD: &str = r#"{"input_type":"request","structured_messages":[{"role":"user","content":"contact me at user@example.com"}]}"#;
+
+async fn post_litellm(api: &TestApi) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(api.url(LITELLM_PATH))
+        .header("content-type", "application/json")
+        .body(LITELLM_PAYLOAD)
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn litellm_route_is_served_by_default() {
+    let api = TestApi::start().await;
+    let resp = post_litellm(&api).await;
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["action"], "BLOCKED");
+}
+
+#[tokio::test]
+async fn scan_route_off_returns_404_and_litellm_is_still_served() {
+    let ingest = Ingest {
+        scan_route: false,
+        ..Ingest::default()
+    };
+    let api = TestApi::start_with(ingest).await;
+    let scan = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", "text/plain")
+        .body("hello")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scan.status(), 404);
+    assert_eq!(post_litellm(&api).await.status(), 200);
+}
+
+/// `content_types` governs `/v1/scan` only: JSON outside it is refused there
+/// and admitted on the LiteLLM route.
+#[tokio::test]
+async fn content_types_does_not_apply_to_the_litellm_route() {
+    let ingest = Ingest {
+        content_types: vec!["text/plain".into()],
+        ..Ingest::default()
+    };
+    let api = TestApi::start_with(ingest).await;
+    assert_eq!(post_json(&api, "/v1/scan").await.status(), 415);
+    assert_eq!(post_litellm(&api).await.status(), 200);
 }

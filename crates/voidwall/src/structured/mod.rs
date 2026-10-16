@@ -11,10 +11,15 @@
 //! Submodules:
 //! - [`json`] — `application/json` flattener
 //! - [`csv`] — `text/csv` and `text/tab-separated-values` parser
+//! - [`chat_completions`] — the fields of Chat Completions messages and tools
+//!   to scan, selected from the [`json`] fragments
+//! - [`litellm`] — the LiteLLM Generic Guardrail API payload
 //! - (future) per-format dispatch keyed off Content-Type
 
+pub mod chat_completions;
 pub mod csv;
 pub mod json;
+pub mod litellm;
 
 /// One context/value/offset triple emitted by a structured-body parser. Owned
 /// so the raw body buffer can be released before the scanner runs.

@@ -192,8 +192,8 @@ its own workers and awaits the reply. Keep it that way.
   `fail_open` or `fail_close`. `fail_close` is the default, so an operator who writes no
   `on_error` gets blocking.
 - A blocking error answers the status that names the party at fault: 413 for an oversize
-  body, 400 for a body that does not parse as its declared content type, 500 for a scanner
-  failure. 502 is reserved for a failure of the upstream itself, and 504 for an upstream
+  body, 400 for a body that does not parse as its declared content type, 422 for content
+  that parses but that Voidwall cannot inspect, 500 for a scanner failure. 502 is reserved for a failure of the upstream itself, and 504 for an upstream
   exchange that outlives `upstream_timeout_secs`.
 - A 500 body is fixed and never carries failure details. Write the details to the log.
 - Always increment `voidwall_errors_total` with the outcome.

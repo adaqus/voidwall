@@ -62,6 +62,16 @@ lazy_static! {
     )
     .unwrap();
 
+    /// Values a decoder skipped on purpose without a scan, by reason.
+    pub static ref UNSCANNED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "voidwall_unscanned_total",
+            "Total values skipped without a scan, by reason"
+        ),
+        &["mode", "route", "direction", "reason"]
+    )
+    .unwrap();
+
     // --- Process metrics ---
 
     pub static ref PROCESS_RSS_BYTES: Gauge = register_gauge!(
@@ -140,6 +150,35 @@ pub fn observe_duration(mode: &str, route: &str, duration_secs: f64) {
 /// Record an error with its outcome (passed/blocked) and reason.
 pub fn inc_error(outcome: &str, reason: &str) {
     ERRORS_TOTAL.with_label_values(&[outcome, reason]).inc();
+}
+
+/// Why a decoder skipped a value without a scan. The `reason` label of
+/// `voidwall_unscanned_total` comes from this fixed set only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnscannedReason {
+    /// A base64 value: an inline image, audio, or file.
+    EncodedData,
+}
+
+impl UnscannedReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UnscannedReason::EncodedData => "encoded_data",
+        }
+    }
+}
+
+/// Record `count` values skipped without a scan.
+pub fn inc_unscanned(
+    mode: &str,
+    route: &str,
+    direction: &str,
+    reason: UnscannedReason,
+    count: u64,
+) {
+    UNSCANNED_TOTAL
+        .with_label_values(&[mode, route, direction, reason.as_str()])
+        .inc_by(count);
 }
 
 /// Update process metrics from /proc/self. Called on each /metrics scrape.
@@ -253,6 +292,20 @@ mod tests {
         inc_error(outcome, reason);
         let after = ERRORS_TOTAL.with_label_values(&[outcome, reason]).get();
         assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn inc_unscanned_increments_with_four_labels() {
+        let labels = ["http_api", "/test-unscanned", "request", "encoded_data"];
+        let before = UNSCANNED_TOTAL.with_label_values(&labels).get();
+        inc_unscanned(
+            "http_api",
+            "/test-unscanned",
+            "request",
+            UnscannedReason::EncodedData,
+            2,
+        );
+        assert_eq!(UNSCANNED_TOTAL.with_label_values(&labels).get(), before + 2);
     }
 
     #[test]

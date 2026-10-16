@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Voidwall HTTP API",
-    "description": "Detect PII in arbitrary text, JSON, CSV, and TSV bodies with `POST /v1/scan`, the one route this listener serves. The body itself is the content to scan — there is no JSON envelope. The `Content-Type` header drives parsing.",
+    "description": "Detect PII in arbitrary text, JSON, CSV, and TSV bodies with `POST /v1/scan`. The body itself is the content to scan — there is no JSON envelope. The `Content-Type` header drives parsing. `POST /beta/litellm_basic_guardrail_api` serves LiteLLM's Generic Guardrail API. `http_api.scan.enabled` and `http_api.litellm.enabled` turn each route on or off.",
     "license": {
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
@@ -10,6 +10,89 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/beta/litellm_basic_guardrail_api": {
+      "post": {
+        "tags": [
+          "litellm"
+        ],
+        "summary": "LiteLLM Generic Guardrail API",
+        "description": "Scans one LiteLLM guardrail payload and answers `NONE` or `BLOCKED`. On the\nrequest side it reads `structured_messages`, `tools`, and `tool_calls`, and\n`texts` only when `structured_messages` is missing. On the response side it\nreads `texts` and `tool_calls`. It never reads `request_data` or\n`request_headers`, and never scans base64 data.",
+        "operationId": "litellmGuardrail",
+        "requestBody": {
+          "description": "A LiteLLM Generic Guardrail API payload.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scan completed: `NONE`, or `BLOCKED` with the kinds found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body is not a JSON object with an `input_type` of `request` or `response`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured `max_body_size`, or, with `on_error = fail_close`, a model guard needs more windows than its limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`Content-Type` is not JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A content part has a type Voidwall cannot scan and `on_error = fail_close`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A guard failed (scanner or model inference) and `on_error = fail_close`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/scan": {
       "post": {
         "tags": [
@@ -116,6 +199,135 @@
           "error": "malformed body for declared content type"
         }
       },
+      "GuardrailRequest": {
+        "type": "object",
+        "description": "A LiteLLM Generic Guardrail API payload. Only the fields Voidwall reads are\nlisted; any other field, including `request_data` and `request_headers`, is\naccepted and ignored.",
+        "required": [
+          "input_type"
+        ],
+        "properties": {
+          "images": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Image URLs. Never scanned; each `data:` URL is counted in\n`voidwall_unscanned_total`. Request side: read only when\n`structured_messages` is missing."
+          },
+          "input_type": {
+            "$ref": "#/components/schemas/InputType",
+            "description": "Which side of the call the payload carries."
+          },
+          "structured_messages": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "Request side: the call's messages in OpenAI Chat Completions format."
+          },
+          "texts": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Response side: the model's text. Request side: read only when\n`structured_messages` is missing."
+          },
+          "tool_calls": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "Both sides: tool calls in OpenAI Chat Completions format."
+          },
+          "tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "Request side: tool definitions in OpenAI Chat Completions format."
+          }
+        },
+        "example": {
+          "input_type": "request",
+          "structured_messages": [
+            {
+              "role": "system",
+              "content": "You are a support agent."
+            },
+            {
+              "role": "user",
+              "content": "My email is jane@example.com"
+            }
+          ],
+          "litellm_call_id": "a1b2c3d4"
+        }
+      },
+      "GuardrailResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "No guard reported a finding.",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "NONE"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A guard reported a finding.",
+            "required": [
+              "blocked_reason",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "BLOCKED"
+                ]
+              },
+              "blocked_reason": {
+                "type": "string",
+                "description": "`Voidwall blocked the message. Kinds: ` and the sorted kinds,\njoined by `, `. Never contains a detected value."
+              }
+            }
+          }
+        ],
+        "description": "The answer to LiteLLM. There is no `GUARDRAIL_INTERVENED` variant, because\nVoidwall never rewrites a message.",
+        "example": {
+          "action": "BLOCKED",
+          "blocked_reason": "Voidwall blocked the message. Kinds: EMAIL, US_SSN"
+        }
+      },
+      "InputType": {
+        "type": "string",
+        "description": "The side of the call LiteLLM is guarding.",
+        "enum": [
+          "request",
+          "response"
+        ]
+      },
       "ScanResponse": {
         "type": "object",
         "required": [
@@ -156,6 +368,10 @@
     {
       "name": "pii",
       "description": "PII detection endpoints"
+    },
+    {
+      "name": "litellm",
+      "description": "LiteLLM Generic Guardrail API"
     }
   ]
 }

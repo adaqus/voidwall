@@ -690,10 +690,35 @@ pub struct HttpApiConfig {
 
     #[serde(default = "default_http_api_listen")]
     pub listen: String,
+
+    /// `POST /v1/scan`.
+    #[serde(default)]
+    pub scan: RouteSwitch,
+
+    /// `POST /beta/litellm_basic_guardrail_api`.
+    #[serde(default)]
+    pub litellm: RouteSwitch,
 }
 
 fn default_http_api_listen() -> String {
     "0.0.0.0:8083".into()
+}
+
+/// Turns one HTTP API route on or off. `http_api.enabled` starts the
+/// listener; this table decides whether the route exists on it.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RouteSwitch {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+/// Written by hand: `HttpApiConfig` derives `Default`, and a derived default
+/// here would turn every route off.
+impl Default for RouteSwitch {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +866,7 @@ impl AppConfig {
     pub fn validate(&self) -> Result<(), Error> {
         self.validate_forward_proxy_disabled()?;
         self.validate_at_least_one_mode()?;
+        self.validate_at_least_one_http_api_route()?;
         self.validate_no_port_conflicts()?;
         self.validate_tls_disabled()?;
         self.validate_builtin_guard_names()?;
@@ -878,6 +904,21 @@ impl AppConfig {
         if !self.reverse_proxy.enabled && !self.http_api.enabled {
             return Err(Error::Config(
                 "at least one mode must be enabled (reverse_proxy or http_api)".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// An enabled HTTP API with every route off would bind a listener that
+    /// answers 404 to everything. While the listener is off, the switches
+    /// have no effect and any value is valid.
+    fn validate_at_least_one_http_api_route(&self) -> Result<(), Error> {
+        let api = &self.http_api;
+        if api.enabled && !api.scan.enabled && !api.litellm.enabled {
+            return Err(Error::Config(
+                "http_api.enabled = true needs at least one route: \
+                 http_api.scan.enabled and http_api.litellm.enabled are both false"
+                    .into(),
             ));
         }
         Ok(())
@@ -1671,6 +1712,67 @@ countries = ["Us"]
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("at least one mode"));
+    }
+
+    // --- HTTP API route switches ---
+
+    #[test_case("", true, true ; "both tables absent")]
+    #[test_case("[http_api.scan]\nenabled = false\n", false, true ; "only the litellm route")]
+    #[test_case("[http_api.litellm]\nenabled = false\n", true, false ; "only the scan route")]
+    #[test_case("[http_api.scan]\n[http_api.litellm]\n", true, true ; "empty tables")]
+    fn route_switches_parse_and_validate(tables: &str, scan: bool, litellm: bool) {
+        let cfg = parse(&format!("{}\n{tables}", minimal_toml())).expect("valid");
+        assert_eq!(cfg.http_api.scan.enabled, scan);
+        assert_eq!(cfg.http_api.litellm.enabled, litellm);
+    }
+
+    #[test]
+    fn every_http_api_route_off_fails_and_names_both_switches() {
+        let toml = format!(
+            "{}\n[http_api.scan]\nenabled = false\n[http_api.litellm]\nenabled = false\n",
+            minimal_toml()
+        );
+        let err = parse(&toml).expect_err("an enabled HTTP API needs a route");
+        let msg = err.to_string();
+        assert!(msg.contains("http_api.scan.enabled"), "got: {msg}");
+        assert!(msg.contains("http_api.litellm.enabled"), "got: {msg}");
+        // `Error::Config` is what `validate.rs` categorises as `semantic`.
+        assert!(matches!(err, Error::Config(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn every_route_off_is_valid_while_the_http_api_is_disabled() {
+        let toml = r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[http_api]
+enabled = false
+
+[http_api.scan]
+enabled = false
+
+[http_api.litellm]
+enabled = false
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://localhost:8080"
+"#;
+        let cfg = parse(toml).expect("the switches have no effect while the listener is off");
+        assert!(!cfg.http_api.enabled);
+    }
+
+    #[test]
+    fn an_unknown_key_in_a_route_table_is_rejected_by_name() {
+        let toml = format!("{}\n[http_api.litellm]\npath = \"/x\"\n", minimal_toml());
+        let msg = parse(&toml).unwrap_err().to_string();
+        assert!(msg.contains("unknown field"), "got: {msg}");
+        assert!(msg.contains("path"), "got: {msg}");
     }
 
     // --- Invalid: port conflicts ---

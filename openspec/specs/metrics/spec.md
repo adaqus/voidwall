@@ -5,7 +5,7 @@ errors, and process health. The admin listener serves them.
 
 ## Requirements
 
-### Requirement: The proxy publishes seven application metrics
+### Requirement: The proxy publishes eight application metrics
 
 The proxy SHALL register these metric families:
 
@@ -19,6 +19,8 @@ The proxy SHALL register these metric families:
   `status`.
 - `voidwall_request_duration_seconds`, a histogram labelled `mode` and `route`.
 - `voidwall_errors_total`, a counter labelled `outcome` and `reason`.
+- `voidwall_unscanned_total`, a counter labelled `mode`, `route`, `direction`, and
+  `reason`.
 
 A family that names a detection tier SHALL carry that tier in its name. A family that
 describes the engine as a whole SHALL NOT name a tier.
@@ -26,7 +28,7 @@ describes the engine as a whole SHALL NOT name a tier.
 #### Scenario: Prometheus scrapes a running proxy
 
 - **WHEN** a client scrapes the admin metrics endpoint
-- **THEN** the response carries these seven families with these label sets
+- **THEN** the response carries these eight families with these label sets
 
 #### Scenario: A retired family is absent
 
@@ -332,3 +334,21 @@ response scan SHALL increment it with `outcome="blocked"` and
   than `max_body_size`
 - **THEN** `voidwall_errors_total` increments with `outcome="blocked"` and
   `reason="response_too_large"`
+
+### Requirement: Values skipped without a scan are counted by reason
+
+`voidwall_unscanned_total` SHALL increment once for each value a decoder skips on
+purpose without a scan. Its `reason` label SHALL be drawn from a fixed set. The only
+value SHALL be `encoded_data`, for a base64 value. The `mode`, `route`, and `direction`
+labels SHALL follow the rules of "Metric label values are drawn from fixed sets".
+
+#### Scenario: Two inline images
+
+- **WHEN** the LiteLLM route skips two base64 images in one request payload
+- **THEN** `voidwall_unscanned_total` increments by two with `mode="http_api"`,
+  `route="global"`, `direction="request"`, and `reason="encoded_data"`
+
+#### Scenario: Nothing is skipped
+
+- **WHEN** a payload holds no base64 value
+- **THEN** `voidwall_unscanned_total` does not increment

@@ -75,6 +75,31 @@ fn scan_string_positions(raw: &[u8]) -> Result<Vec<(usize, usize)>, Error> {
     Ok(out)
 }
 
+/// One step of a key path: an object key or an array index.
+#[derive(Debug, Clone, Copy)]
+pub enum PathSegment<'a> {
+    Key(&'a str),
+    Index(usize),
+}
+
+/// Append one segment to a key path: `.key` (no dot at the start) or `[i]`.
+///
+/// Every key path is built here, by the flattener and by any decoder that
+/// selects fragments by path, so two builders cannot format a path apart.
+pub fn push_path_segment(path: &mut String, segment: PathSegment<'_>) {
+    match segment {
+        PathSegment::Key(key) => {
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str(key);
+        }
+        PathSegment::Index(i) => {
+            write!(path, "[{i}]").expect("write to String never fails");
+        }
+    }
+}
+
 fn walk(
     value: &Value,
     raw: &[u8],
@@ -90,10 +115,7 @@ fn walk(
                 // recurses into the value.
                 *cursor += 1;
                 let saved = path.len();
-                if !path.is_empty() {
-                    path.push('.');
-                }
-                path.push_str(key);
+                push_path_segment(path, PathSegment::Key(key));
                 walk(child, raw, positions, cursor, path, frags)?;
                 path.truncate(saved);
             }
@@ -101,7 +123,7 @@ fn walk(
         Value::Array(arr) => {
             for (i, child) in arr.iter().enumerate() {
                 let saved = path.len();
-                write!(path, "[{i}]").expect("write to String never fails");
+                push_path_segment(path, PathSegment::Index(i));
                 walk(child, raw, positions, cursor, path, frags)?;
                 path.truncate(saved);
             }

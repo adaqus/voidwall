@@ -214,6 +214,32 @@ upstream = "http://localhost:9000"
     }
 
     #[test]
+    fn a_non_boolean_route_switch_is_schema() {
+        let f = write_tmp(&format!(
+            "{}\n[http_api.litellm]\nenabled = \"yes\"\n",
+            valid_toml()
+        ));
+        let err = validate_config_file(f.path()).expect_err("`enabled` is a boolean");
+        assert_eq!(err.category, Category::Schema);
+    }
+
+    #[test]
+    fn every_http_api_route_off_is_semantic_and_names_both_switches() {
+        let f = write_tmp(&format!(
+            "{}\n[http_api]\nenabled = true\nlisten = \"0.0.0.0:18083\"\n\
+             [http_api.scan]\nenabled = false\n[http_api.litellm]\nenabled = false\n",
+            valid_toml()
+        ));
+        let err = validate_config_file(f.path()).expect_err("an enabled HTTP API needs a route");
+        assert_eq!(err.category, Category::Semantic);
+        assert!(err.message.contains("http_api.scan.enabled"), "got: {err}");
+        assert!(
+            err.message.contains("http_api.litellm.enabled"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn forward_proxy_enabled_is_semantic_and_names_the_key() {
         let f = write_tmp(&format!(
             "{}\n[forward_proxy]\nenabled = true\n",
