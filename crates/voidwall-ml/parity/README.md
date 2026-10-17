@@ -21,6 +21,18 @@ The test passes when, for every model:
 
 ## Run
 
+For wolf-small, the model the dev stack runs, one command does every step below with
+pinned model files and a new reference:
+
+```bash
+docker/ctl parity
+```
+
+`PARITY_MAX_TOKENS` and `PARITY_OVERLAP` change the window (default 2048 and 64, the
+values in `docker/voidwall.toml`). See `DEVELOPMENT.md`.
+
+For any other model, such as PIGuard, do the steps by hand:
+
 1. Make a Python environment with `requirements.txt`.
 2. Lay out one directory per model. `model.onnx` is the fp32 ONNX export, and
    `tokenizer.json` is the file the guard will use:
