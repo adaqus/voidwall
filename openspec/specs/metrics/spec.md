@@ -213,10 +213,13 @@ NOT increment for it.
 ### Requirement: The blocked counter increments once per message the reverse proxy stops
 
 The reverse proxy SHALL increment `voidwall_blocked_total` once for each message it
-stops. A message is stopped when the proxy answers 403 for a detection, or when an
-`on_error = "fail_close"` error answers instead of forwarding: 413 for an oversize body
-or a window limit, 400 for a body that does not parse as its declared content type, or
-500 for a scanner failure. The counter SHALL carry the message's `mode`, `route`, and
+stops. A message is stopped when the proxy answers a detection with the route's block
+(403, or 400 on a route with `format = "openai-chat"`), or when an error answers instead
+of forwarding: under `on_error = "fail_close"`, 413 for an oversize body or a window
+limit, 400 for a body that does not parse as its declared content type, 422 for
+unscannable content or an unscannable stream, or 500 for a scanner failure; and, on an
+`openai-chat` route, 400 for a request that is not a Chat Completions request, under
+either `on_error`. The counter SHALL carry the message's `mode`, `route`, and
 `direction`.
 
 The counter SHALL increment once for a message however many guards reported findings
@@ -225,7 +228,7 @@ in it, and when a guard error and a detection come together.
 A message that passes under `on_error = "fail_open"`, a 502 for an upstream failure, and
 every answer of `/v1/scan` SHALL NOT increment the counter.
 
-`voidwall_pii_blocked_total` SHALL count only a 403 for a detection in which the `pii`
+`voidwall_pii_blocked_total` SHALL count only a block for a detection in which the `pii`
 guard reported a finding.
 
 #### Scenario: A detection blocks a request
@@ -233,6 +236,12 @@ guard reported a finding.
 - **WHEN** a PII detection blocks a request on the reverse proxy
 - **THEN** `voidwall_blocked_total` and `voidwall_pii_blocked_total` each increment by
   one with `direction="request"`
+
+#### Scenario: A detection blocks a request on an openai-chat route
+
+- **WHEN** a PII detection on a route with `format = "openai-chat"` answers 400
+- **THEN** `voidwall_blocked_total` and `voidwall_pii_blocked_total` each increment by
+  one
 
 #### Scenario: Only a model guard detects
 
@@ -263,6 +272,13 @@ guard reported a finding.
   `fail_close`
 - **THEN** the proxy answers 400, and `voidwall_blocked_total` increments by one with
   `direction="response"`
+
+#### Scenario: A stream under fail_close
+
+- **WHEN** a request with `"stream": true` reaches a route with
+  `format = "openai-chat"`, response scan is on, and `on_error` is `fail_close`
+- **THEN** the proxy answers 422 and `voidwall_blocked_total` increments by one with
+  `direction="request"`
 
 #### Scenario: A scanner failure under fail_close
 
@@ -352,3 +368,26 @@ labels SHALL follow the rules of "Metric label values are drawn from fixed sets"
 
 - **WHEN** a payload holds no base64 value
 - **THEN** `voidwall_unscanned_total` does not increment
+
+### Requirement: Unscannable content and streams carry their own reasons
+
+When a decoder meets content it cannot inspect, `voidwall_errors_total` SHALL increment
+with `reason="unscannable_content"`. When the reverse proxy meets a stream it cannot
+inspect, `voidwall_errors_total` SHALL increment with `reason="unscannable_stream"`. A
+message SHALL increment the counter once for an unscannable stream, whatever direction
+the stream is found in. The `outcome` label SHALL follow the rules of "Errors record the
+fail-open or fail-close outcome".
+
+#### Scenario: An unknown content part
+
+- **WHEN** a decoder meets a content part of an unknown type and `on_error` is
+  `fail_close`
+- **THEN** `voidwall_errors_total` increments with `outcome="blocked"` and
+  `reason="unscannable_content"`
+
+#### Scenario: A stream passes under fail_open
+
+- **WHEN** a client sends `"stream": true` to an `openai-chat` route with response scan
+  on, `on_error` is `fail_open`, and the upstream answers `text/event-stream`
+- **THEN** `voidwall_errors_total` increments once with `outcome="passed"` and
+  `reason="unscannable_stream"`

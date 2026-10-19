@@ -54,7 +54,7 @@ The detection library is a separate crate and can be used on its own.
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
-  │          │ Block or pass  │  detected ⇒ fixed 403       │
+  │          │ Block or pass  │  detected ⇒ 403, or 400     │
   │          └───────┬────────┘                             │
   │                  │                                      │
   │          ┌───────▼────────┐                             │
@@ -102,6 +102,24 @@ Both default to true. `http_api.enabled` starts the listener, and enabling it wi
 route off fails validation. A route that is off does not exist, so it answers 404. Both
 routes report and never block, and they share the metric and error helpers.
 
+### Reverse proxy route formats
+
+A route without `format` scans each body by its content type, as § 3 states. A route with
+`format = "openai-chat"` decodes OpenAI Chat Completions instead: `structured::openai_chat`
+parses the request and the response, and `structured::chat_completions` holds every field
+rule. Each message, tool, choice, and kept top-level field becomes one body unit, and a
+top-level key the tables do not list is scanned. The route ignores `content_types`.
+
+The format also decides the shape of every answer on the route. `reverse_proxy` builds
+each answer through one `answer` and one `block` function, so no path can answer the
+route in the flat shape. A detection answers 400 in the OpenAI error shape, and each error
+keeps its status with an OpenAI-shaped body. The 404 for an unmatched path is outside every
+route and stays plain.
+
+The response content type is read before the body. A `text/event-stream`, or another body
+that is not JSON, is unscannable and follows `on_error`; under `fail_open` it streams through
+unbuffered. Upstreams are reached over plain HTTP only (§ 7).
+
 ### Modules
 
 `config`, `engine`, `scanner`, `reverse_proxy`, `forward_proxy`, `http_api`,
@@ -120,7 +138,8 @@ whatever it needs to detect — the regex PII guard owns the scanner pool.
 1. The listener accepts the request and matches a route by the longest path prefix.
 2. The handler buffers the body, up to the configured limit.
 3. The body is classified by content type. JSON, CSV, and TSV are parsed into
-   context-value fragments. Everything else stays flat text.
+   context-value fragments. Everything else stays flat text. On a route with
+   `format = "openai-chat"` the body is decoded as Chat Completions instead (§ 2).
 4. The handler builds the units — one for the body, one for the URL path, one for the
    query string, one per scanned header — and hands them to the detection engine.
 5. The engine calls every guard whose declared interest matches a selected unit, awaits
@@ -128,7 +147,7 @@ whatever it needs to detect — the regex PII guard owns the scanner pool.
 6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
    raw matches with `pii::resolve_overlaps` before returning them as findings.
 7. A detection counts its kinds, counts the block, and answers 403 with those kind
-   names. Nothing anywhere on this path rewrites a message.
+   names, or 400 in the OpenAI error shape on an `openai-chat` route. Nothing anywhere on this path rewrites a message.
 8. With no detection, the proxy forwards to the upstream unchanged.
 9. The response travels the same path in the other direction, when `response.scan` is
    true.
@@ -250,6 +269,13 @@ Fragment offsets are document-absolute, so a span from one fragment is directly
 comparable with a span from another. Overlap resolution and the resolved match count
 are defined over those spans, so fragment-local offsets would make two unrelated values
 look like they overlap.
+
+A decoder that keeps some fields and skips others, such as the Chat Completions one
+behind `format = "openai-chat"` and the LiteLLM route, walks the parsed document and
+records one decision per string leaf. It pairs the decisions with the flattener's
+fragments by position, not by key path. A key path does not escape `.` or `[` inside a
+key, so matching by path could take one key for another and drop a value unscanned. A
+leaf count that differs between the two walks is a scanner failure.
 
 ### 4.5 Names need a dictionary, not a pattern
 
@@ -492,6 +518,7 @@ These appear in the config schema or the module list. None of them runs.
 |---|---|---|
 | Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses, and validation rejects `forward_proxy.enabled = true`. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
 | TLS termination | `tls.rs` is empty. `TlsConfig` parses, and validation rejects `tls.enabled = true`. | Deployments terminate TLS at the ingress or the load balancer. |
+| Upstream TLS | Every upstream client is `build_http()`. An `https://` upstream passes validation and fails with 502. | The `format = "openai-chat"` route was scoped to plain-HTTP servers such as vLLM and Ollama. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
 | Checksum validation toggle | Not started. `PiiGuardConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |

@@ -64,6 +64,31 @@ evaluation against fabricated ground truth. It inflates false positives.
 - Emit one `warn!` line at startup when the value is false.
 - Unit-test both directions: a Luhn-failing card matches when the flag is off.
 
+### 1.4 Reverse proxy upstream TLS
+
+Every upstream client is `build_http()`, so an `https://` upstream passes validation and
+fails at run time with 502. OpenAI, Azure OpenAI, and OpenRouter are not reachable, with
+or without `format = "openai-chat"`.
+
+- Build the upstream clients with a connector that originates TLS.
+
+### 1.5 Duplicate JSON keys shift the flattened fragments
+
+`structured::json::flatten_json` records the offset of every quoted string in the raw
+bytes, then walks the parsed `Value`. A duplicate key keeps its first position in the
+`Value` and takes the last value, so the raw bytes hold two strings more than the walk
+consumes. Every fragment from the duplicate on reads the wrong bytes, and a value after
+it can pass unscanned. An upstream that keeps the last value then sees what Voidwall
+skipped. It affects every JSON body: `/v1/scan`, generic reverse proxy routes, the LiteLLM
+route, and `format = "openai-chat"`. The leaf-count check of the Chat Completions decoder
+does not catch it, because both walks count the same deduplicated `Value`.
+
+The fix changes what a body with a duplicate key answers, so it needs a proposal. Two
+ways:
+
+- Reject a duplicate key as a body that does not parse.
+- Recover offsets from a parser that sees every key, duplicates included.
+
 ---
 
 ## 2. Test gaps

@@ -213,6 +213,25 @@ upstream = "http://localhost:9000"
         );
     }
 
+    // `valid_toml` ends inside its only reverse proxy route, so a line
+    // appended to it is a key of that route.
+    #[test_case::test_case("" ; "format is absent")]
+    #[test_case::test_case("format = \"openai-chat\"" ; "format is openai-chat")]
+    fn a_route_format_passes(line: &str) {
+        let f = write_tmp(&format!("{}{line}\n", valid_toml()));
+        validate_config_file(f.path()).expect("a valid format passes");
+    }
+
+    #[test_case::test_case("format = \"anthropic-messages\"" ; "an unknown format")]
+    #[test_case::test_case("format = \"generic\"" ; "the default is not writable")]
+    #[test_case::test_case("format = true" ; "format is not a string")]
+    fn a_bad_route_format_is_schema(line: &str) {
+        let f = write_tmp(&format!("{}{line}\n", valid_toml()));
+        let err = validate_config_file(f.path()).expect_err("a bad format must fail");
+        assert_eq!(err.category, Category::Schema);
+        assert!(err.message.contains("format"), "got: {}", err.message);
+    }
+
     #[test]
     fn a_non_boolean_route_switch_is_schema() {
         let f = write_tmp(&format!(

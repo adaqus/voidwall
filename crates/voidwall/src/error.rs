@@ -48,6 +48,11 @@ pub enum Error {
     /// The body parses, but holds content Voidwall cannot inspect, such as a
     /// content part of an unknown type. The body never names the content.
     UnscannableContent,
+
+    /// A stream Voidwall cannot inspect: a `stream: true` request or a
+    /// `text/event-stream` response. It answers the same body as
+    /// [`Error::UnscannableContent`] and counts its own reason.
+    UnscannableStream,
 }
 
 impl std::fmt::Display for Error {
@@ -74,6 +79,7 @@ impl std::fmt::Display for Error {
             Error::BodyParse => write!(f, "body parse failed"),
             Error::UnsupportedContentType => write!(f, "unsupported content type"),
             Error::UnscannableContent => write!(f, "{UNSCANNABLE_CONTENT}"),
+            Error::UnscannableStream => write!(f, "unscannable stream"),
         }
     }
 }
@@ -96,6 +102,7 @@ impl Error {
             Error::Inference { .. } => "inference_failure",
             Error::WindowLimit { .. } => "window_limit",
             Error::UnscannableContent => "unscannable_content",
+            Error::UnscannableStream => "unscannable_stream",
             _ => "scanner_failure",
         }
     }
@@ -151,36 +158,74 @@ pub const WINDOW_LIMIT_ERROR: &str = "tokenized content too long to scan";
 /// The fixed `error` text of a 422. It never names what could not be scanned.
 pub const UNSCANNABLE_CONTENT: &str = "unscannable content";
 
+const BODY_TOO_LARGE: &str = "request body too large";
+const BODY_PARSE_FAILED: &str = "body parse failed";
+const UNSUPPORTED_CONTENT_TYPE: &str = "unsupported content type";
+
+impl Error {
+    /// The status and the fixed message of the answer this error makes. Both
+    /// answer shapes read it, so their text cannot drift apart.
+    fn status_and_message(&self) -> (StatusCode, &'static str) {
+        match self {
+            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR)
+            }
+            Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
+                (StatusCode::BAD_GATEWAY, UPSTREAM_ERROR)
+            }
+            Error::UpstreamTimeout => (StatusCode::GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT),
+            Error::BodyTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, BODY_TOO_LARGE),
+            Error::WindowLimit { .. } => (StatusCode::PAYLOAD_TOO_LARGE, WINDOW_LIMIT_ERROR),
+            Error::BodyParse => (StatusCode::BAD_REQUEST, BODY_PARSE_FAILED),
+            Error::UnsupportedContentType => {
+                (StatusCode::UNSUPPORTED_MEDIA_TYPE, UNSUPPORTED_CONTENT_TYPE)
+            }
+            Error::UnscannableContent | Error::UnscannableStream => {
+                (StatusCode::UNPROCESSABLE_ENTITY, UNSCANNABLE_CONTENT)
+            }
+        }
+    }
+
+    /// The answer in the OpenAI error shape, for a route with
+    /// `format = "openai-chat"`: the status and message of
+    /// [`IntoResponse::into_response`], under `error` with a `type`, a null
+    /// `param`, and a `code`. It never carries a detail of the failure.
+    pub fn into_openai_response(self) -> Response {
+        let (status, message) = self.status_and_message();
+        let (kind, code) = match &self {
+            Error::BodyParse => (INVALID_REQUEST, "malformed_body"),
+            Error::BodyTooLarge => (INVALID_REQUEST, "body_too_large"),
+            Error::WindowLimit { .. } => (INVALID_REQUEST, "content_too_long"),
+            Error::UnscannableContent | Error::UnscannableStream => {
+                (INVALID_REQUEST, "unscannable_content")
+            }
+            // The reverse proxy never answers it; listed so the match stays
+            // exhaustive.
+            Error::UnsupportedContentType => (INVALID_REQUEST, "unsupported_content_type"),
+            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => {
+                (SERVER_ERROR, "internal_error")
+            }
+            Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
+                (SERVER_ERROR, "upstream_error")
+            }
+            Error::UpstreamTimeout => (SERVER_ERROR, "upstream_timeout"),
+        };
+        let body = json!({
+            "error": { "message": message, "type": kind, "param": null, "code": code }
+        });
+        (status, axum::Json(body)).into_response()
+    }
+}
+
+/// The OpenAI `error.type` of an answer the client caused.
+pub const INVALID_REQUEST: &str = "invalid_request_error";
+
+/// The OpenAI `error.type` of an answer Voidwall or the upstream caused.
+const SERVER_ERROR: &str = "server_error";
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                INTERNAL_ERROR.to_string(),
-            ),
-            Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
-                (StatusCode::BAD_GATEWAY, UPSTREAM_ERROR.to_string())
-            }
-            Error::UpstreamTimeout => (StatusCode::GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT.to_string()),
-            Error::BodyTooLarge => (
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "request body too large".to_string(),
-            ),
-            Error::WindowLimit { .. } => (
-                StatusCode::PAYLOAD_TOO_LARGE,
-                WINDOW_LIMIT_ERROR.to_string(),
-            ),
-            Error::BodyParse => (StatusCode::BAD_REQUEST, "body parse failed".to_string()),
-            Error::UnsupportedContentType => (
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "unsupported content type".to_string(),
-            ),
-            Error::UnscannableContent => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                UNSCANNABLE_CONTENT.to_string(),
-            ),
-        };
-
+        let (status, message) = self.status_and_message();
         let body = json!({ "error": message });
         (status, axum::Json(body)).into_response()
     }
@@ -287,6 +332,51 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&bytes[..], br#"{"error":"unscannable content"}"#);
+    }
+
+    #[tokio::test]
+    async fn unscannable_stream_answers_the_unscannable_content_body() {
+        let err = Error::UnscannableStream;
+        assert_eq!(err.scan_reason(), "unscannable_stream");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"unscannable content"}"#);
+    }
+
+    // --- The OpenAI error shape: one case per row of the spec's table ---
+
+    #[test_case(Error::BodyParse, StatusCode::BAD_REQUEST, "body parse failed", "invalid_request_error", "malformed_body" ; "malformed body")]
+    #[test_case(Error::BodyTooLarge, StatusCode::PAYLOAD_TOO_LARGE, "request body too large", "invalid_request_error", "body_too_large" ; "oversize body")]
+    #[test_case(window_limit_error(), StatusCode::PAYLOAD_TOO_LARGE, "tokenized content too long to scan", "invalid_request_error", "content_too_long" ; "window limit")]
+    #[test_case(Error::UnscannableContent, StatusCode::UNPROCESSABLE_ENTITY, "unscannable content", "invalid_request_error", "unscannable_content" ; "unscannable content")]
+    #[test_case(Error::UnscannableStream, StatusCode::UNPROCESSABLE_ENTITY, "unscannable content", "invalid_request_error", "unscannable_content" ; "unscannable stream")]
+    #[test_case(Error::Scanner("pool dead".into()), StatusCode::INTERNAL_SERVER_ERROR, "internal error", "server_error", "internal_error" ; "scanner failure")]
+    #[test_case(inference_error(), StatusCode::INTERNAL_SERVER_ERROR, "internal error", "server_error", "internal_error" ; "inference failure")]
+    #[test_case(Error::Proxy("refused".into()), StatusCode::BAD_GATEWAY, "upstream error", "server_error", "upstream_error" ; "upstream failure")]
+    #[test_case(Error::ResponseTooLarge, StatusCode::BAD_GATEWAY, "upstream error", "server_error", "upstream_error" ; "oversize response")]
+    #[test_case(Error::UpstreamTimeout, StatusCode::GATEWAY_TIMEOUT, "upstream timeout", "server_error", "upstream_timeout" ; "upstream timeout")]
+    #[tokio::test]
+    async fn the_openai_shape_answers_the_table_row(
+        err: Error,
+        status: StatusCode,
+        message: &str,
+        kind: &str,
+        code: &str,
+    ) {
+        let response = err.into_openai_response();
+        assert_eq!(response.status(), status);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            json,
+            json!({"error": {"message": message, "type": kind, "param": null, "code": code}}),
+            "exactly four keys under `error`, and no other top-level key"
+        );
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        for detail in ["pool dead", "refused", "injection", "Gemm", "2746"] {
+            assert!(!text.contains(detail), "body leaks {detail}: {text}");
+        }
     }
 
     fn inference_error() -> Error {

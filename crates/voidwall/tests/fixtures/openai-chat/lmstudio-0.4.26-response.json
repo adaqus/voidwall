@@ -1,0 +1,29 @@
+{
+  "id": "chatcmpl-g3ve2ggf0dh728mndns4ly",
+  "object": "chat.completion",
+  "created": 1792254850,
+  "model": "google/gemma-4-26b-a4b-qat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "*   User Question: \"Where is my order 4471?\"\n    *   Role: Support agent for an online shop.\n    *   Constraint: Answer in one sentence.\n\n    *   As a support agent, I don't have real-time access to a specific user's order database (since this is a simulated interaction), but I need to respond as if I were an agent.\n    *   Usually, a support agent would need to look up the order or ask for more details (though they provided the order number).\n    *   Common responses:\n        *   \"I'm looking into your order 4471 right now and will provide an update shortly.\"\n        *   \"Please allow me a moment to check the status of order 4471 for you.\"\n        *   \"I am currently checking the status of order 4471 and will let you know as soon",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 41,
+    "completion_tokens": 200,
+    "total_tokens": 241,
+    "completion_tokens_details": {
+      "reasoning_tokens": 197
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "google/gemma-4-26b-a4b-qat"
+}

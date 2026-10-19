@@ -16,11 +16,10 @@
 //! so no code path can scan them, and another top-level field is ignored.
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use utoipa::ToSchema;
 
-use super::OwnedContextFragment;
-use super::chat_completions::Selection;
+use super::chat_completions::{Decoded, Selection};
 use super::json::flatten_json;
 use crate::error::Error;
 
@@ -48,6 +47,11 @@ impl InputType {
 /// listed; any other field, including `request_data` and `request_headers`, is
 /// accepted and ignored.
 #[derive(Deserialize, ToSchema)]
+#[expect(
+    dead_code,
+    reason = "the fields check the shape of the envelope and document it; \
+              classification reads the raw document in order"
+)]
 #[schema(example = json!({
     "input_type": "request",
     "structured_messages": [
@@ -79,64 +83,40 @@ pub struct GuardrailRequest {
     images: Option<Vec<Value>>,
 }
 
-/// A decoded payload: one fragment group per scanned entry, and what was left
-/// out. `Debug` is not derived, because the fragments hold the scanned text.
-pub struct Decoded {
-    pub input_type: InputType,
-    /// One group per top-level entry that has a kept fragment. Each group
-    /// becomes one body unit.
-    pub units: Vec<Vec<OwnedContextFragment>>,
-    /// Content parts of an unknown type. They are not in `units`.
-    pub unknown_parts: usize,
-    /// Base64 values left out without a scan.
-    pub encoded_values: usize,
-}
-
 /// Decode a LiteLLM payload. A body that is not a JSON object with an
-/// `input_type` of `request` or `response` is [`Error::BodyParse`].
-pub fn decode(raw: &[u8]) -> Result<Decoded, Error> {
+/// `input_type` of `request` or `response` is [`Error::BodyParse`]. A
+/// classification that does not line up with the flattened fragments is
+/// [`Error::Scanner`].
+pub fn decode(raw: &[u8]) -> Result<(InputType, Decoded), Error> {
     let payload: GuardrailRequest = serde_json::from_slice(raw).map_err(|_| Error::BodyParse)?;
-    let selection = classify(&payload);
-    let (unknown_parts, encoded_values) = (selection.unknown_parts(), selection.encoded_values());
+    let document: Map<String, Value> = serde_json::from_slice(raw).map_err(|_| Error::BodyParse)?;
+    let selection = classify(&payload, &document);
     let fragments = flatten_json(raw).map_err(|_| Error::BodyParse)?;
-    Ok(Decoded {
-        input_type: payload.input_type,
-        units: selection.into_unit_fragments(fragments),
-        unknown_parts,
-        encoded_values,
-    })
+    Ok((payload.input_type, selection.into_decoded(fragments)?))
 }
 
-fn classify(payload: &GuardrailRequest) -> Selection {
+/// Classify the top-level keys of `document` in document order. The typed
+/// `payload` has validated the envelope, so each field it names is an array
+/// or null; every other key is skipped.
+fn classify(payload: &GuardrailRequest, document: &Map<String, Value>) -> Selection {
     let request = payload.input_type == InputType::Request;
-    let mut selection = Selection::new();
-
-    if request {
-        for (i, message) in entries(&payload.structured_messages) {
-            selection.message("structured_messages", i, message);
-        }
-        for (i, tool) in entries(&payload.tools) {
-            selection.tool("tools", i, tool);
-        }
-    }
     // LiteLLM fills `texts` and `images` from the messages, so with the
     // messages present they would only repeat them.
-    if !request || payload.structured_messages.is_none() {
-        for (i, text) in entries(&payload.texts) {
-            selection.text("texts", i, text);
+    let texts = !request || payload.structured_messages.is_none();
+    let mut selection = Selection::new();
+
+    for (key, value) in document {
+        let items = value.as_array().into_iter().flatten();
+        match key.as_str() {
+            "structured_messages" if request => items.for_each(|m| selection.message(m)),
+            "tools" if request => items.for_each(|t| selection.tool(t)),
+            "texts" if texts => items.for_each(|t| selection.text(t)),
+            "images" if texts => items.for_each(|i| selection.image_url(i)),
+            "tool_calls" => items.for_each(|c| selection.tool_call(c)),
+            _ => selection.skip(value),
         }
-        for (_, image) in entries(&payload.images) {
-            selection.image_url(image);
-        }
-    }
-    for (i, call) in entries(&payload.tool_calls) {
-        selection.tool_call("tool_calls", i, call);
     }
     selection
-}
-
-fn entries(field: &Option<Vec<Value>>) -> impl Iterator<Item = (usize, &Value)> {
-    field.iter().flatten().enumerate()
 }
 
 #[cfg(test)]
@@ -146,7 +126,9 @@ mod tests {
     use test_case::test_case;
 
     fn decode_json(payload: Value) -> Decoded {
-        decode(&serde_json::to_vec(&payload).unwrap()).expect("decodes")
+        decode(&serde_json::to_vec(&payload).unwrap())
+            .expect("decodes")
+            .1
     }
 
     /// Every kept fragment path, in unit order.
@@ -183,9 +165,10 @@ mod tests {
     #[test_case("request", InputType::Request, "request")]
     #[test_case("response", InputType::Response, "response")]
     fn input_type_maps_to_the_direction(raw: &str, expected: InputType, direction: &str) {
-        let decoded = decode_json(json!({"input_type": raw}));
-        assert_eq!(decoded.input_type, expected);
-        assert_eq!(decoded.input_type.direction(), direction);
+        let payload = serde_json::to_vec(&json!({"input_type": raw})).unwrap();
+        let (input_type, _) = decode(&payload).expect("decodes");
+        assert_eq!(input_type, expected);
+        assert_eq!(input_type.direction(), direction);
     }
 
     /// Payloads in the shape LiteLLM v1.105.1 posts. The integration tests
@@ -290,7 +273,7 @@ mod tests {
     #[test]
     fn each_top_level_entry_is_one_unit_with_absolute_offsets() {
         let raw = br#"{"input_type":"request","structured_messages":[{"role":"system","content":"aa"},{"role":"user","content":[{"type":"text","text":"bb"},{"type":"text","text":"cc"}]},{"role":"assistant"}],"tools":[{"type":"function","function":{"name":"dd"}}]}"#;
-        let decoded = decode(raw).unwrap();
+        let (_, decoded) = decode(raw).unwrap();
 
         // The assistant message keeps nothing, so it is no unit.
         assert_eq!(decoded.units.len(), 3);

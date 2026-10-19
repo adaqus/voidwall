@@ -391,12 +391,19 @@ async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Re
 
     // A payload that does not decode is the caller's fault, whatever
     // `on_error` says, as on `/v1/scan`.
-    let decoded = match litellm::decode(&body) {
+    let (input_type, decoded) = match litellm::decode(&body) {
         Ok(decoded) => decoded,
-        Err(_) => return malformed_body(),
+        Err(Error::BodyParse) => return malformed_body(),
+        // The decoder could not pair its decisions with the fragments: a
+        // scanner failure. fail_open scans nothing, so it reports no finding.
+        Err(e) => {
+            warn!(error = %e, "litellm payload decode failed");
+            return handle_scanner_failure(e, state.on_error)
+                .unwrap_or_else(|| guardrail_response(&GuardrailResponse::None));
+        }
     };
     drop(body);
-    let direction = decoded.input_type.direction();
+    let direction = input_type.direction();
 
     // An unknown content part is unscannable: fail_close answers 422 before
     // any guard runs, fail_open scans the rest. The decoder never put the
@@ -447,7 +454,12 @@ async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Re
     } else {
         GuardrailResponse::None
     };
-    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    guardrail_response(&payload)
+}
+
+/// A 200 carrying the LiteLLM verdict.
+fn guardrail_response(payload: &GuardrailResponse) -> Response {
+    let body = serde_json::to_vec(payload).unwrap_or_else(|_| b"{}".to_vec());
     let resp = (StatusCode::OK, [("content-type", "application/json")], body).into_response();
     record_request(resp.status());
     resp

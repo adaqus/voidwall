@@ -1,0 +1,1 @@
+{"error":"'messages' array must only contain objects with a 'role' field that is in [user, assistant, system, tool]. Got 'narrator'."}

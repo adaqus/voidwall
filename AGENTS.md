@@ -194,7 +194,8 @@ its own workers and awaits the reply. Keep it that way.
 - A blocking error answers the status that names the party at fault: 413 for an oversize
   body, 400 for a body that does not parse as its declared content type, 422 for content
   that parses but that Voidwall cannot inspect, 500 for a scanner failure. 502 is reserved for a failure of the upstream itself, and 504 for an upstream
-  exchange that outlives `upstream_timeout_secs`.
+  exchange that outlives `upstream_timeout_secs`. One exception: a response-side block on
+  an `openai-chat` route answers 400, although the upstream sent the content.
 - A 500 body is fixed and never carries failure details. Write the details to the log.
 - Always increment `voidwall_errors_total` with the outcome.
 - Propagate proxy and I/O errors with context instead of turning all failures into generic
@@ -216,9 +217,11 @@ its own workers and awaits the reply. Keep it that way.
 
 ## Outcomes
 
-A detection blocks. The proxy answers a fixed 403 carrying an `error` field and a sorted
-`kinds` array, and short-circuits forwarding. The status, the body, and the response
-headers are not configurable. There is no redact action, no header action, and no `warn`
+A detection blocks. Unless explicitly stated otherwise, the proxy answers a fixed 403
+carrying an `error` field and a sorted `kinds` array, and short-circuits forwarding. A
+reverse proxy route with `format = "openai-chat"` answers a fixed 400 in the OpenAI error
+shape instead, with `code` `content_filter` and the same `kinds`, in both directions. The
+status, the body, and the response headers are not configurable. There is no redact action, no header action, and no `warn`
 action, and nothing anywhere rewrites a message.
 
 `reverse_proxy.request.scan` and `reverse_proxy.response.scan` turn inspection on or off

@@ -28,8 +28,8 @@ Diagnostic categories:
 |-----|-------------------|
 | `[file]` | Config file could not be read from disk, or a `[guards.*]` `model_path` / `tokenizer_path` names no file. The message carries the path that was expected. |
 | `[toml parse]` | File is not well-formed TOML. |
-| `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). An `adapter` the build does not ship lands here: the build fixes the set of adapter names, so the schema states it. |
-| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in, `reverse_proxy.tls.enabled` or `forward_proxy.tls.enabled` set to true while TLS is not built, `forward_proxy.enabled` set to true while the forward proxy is not built). Every model guard rule lands here too — see below. |
+| `[schema]` | TOML parses but does not match the expected shape (missing field, unknown enum variant, wrong type). An `adapter` the build does not ship lands here: the build fixes the set of adapter names, so the schema states it. So does a reverse proxy route `format` other than `format = "openai-chat"`, or one that is not a string. |
+| `[semantic]` | `AppConfig::validate` rejected the config (e.g. duplicate `path_prefix`, invalid upstream URL, custom label collides with a built-in, `reverse_proxy.tls.enabled` or `forward_proxy.tls.enabled` set to true while TLS is not built, `forward_proxy.enabled` set to true while the forward proxy is not built). Every model guard rule lands here too — see below. An `https://` upstream passes: `https://` upstreams are not supported yet, because the proxy does not originate TLS, so one fails at run time with 502. |
 | `[scanner build]` | Regex or vectorscan compilation failed. For `[[builtin_guards.pii.custom]]` entries the message cites the offending `label`. |
 
 ## Model guard rules

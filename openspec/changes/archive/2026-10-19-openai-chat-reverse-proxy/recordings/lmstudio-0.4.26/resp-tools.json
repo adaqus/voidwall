@@ -1,0 +1,38 @@
+{
+  "id": "chatcmpl-v38fjfbgs3nn7b5nlhcewr",
+  "object": "chat.completion",
+  "created": 1792254859,
+  "model": "google/gemma-4-26b-a4b-qat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "The user is asking for the status of a specific order (order 4471) and explicitly instructs to \"Use the tool\".\nThe available tool `get_order_status` takes `order_id` as a parameter.\nI should call `get_order_status` with `order_id=\"4471\"`.",
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "Pae1bKBR2mzvWq8SSLqW8FrmcStGjPYR",
+            "function": {
+              "name": "get_order_status",
+              "arguments": "{\"order_id\":\"4471\"}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 93,
+    "completion_tokens": 98,
+    "total_tokens": 191,
+    "completion_tokens_details": {
+      "reasoning_tokens": 72
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "google/gemma-4-26b-a4b-qat"
+}

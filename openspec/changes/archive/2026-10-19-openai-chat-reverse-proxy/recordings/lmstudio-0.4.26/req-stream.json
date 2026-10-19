@@ -1,0 +1,1 @@
+{"model":"google/gemma-4-26b-a4b-qat","messages":[{"role":"system","content":"You are a support agent for an online shop. Answer in one sentence."},{"role":"user","content":"Where is my order 4471?"}],"max_tokens":40,"stream":true,"metadata":{"ticket":"T-1"},"user":"u-42"}

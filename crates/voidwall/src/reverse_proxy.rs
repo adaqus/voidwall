@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderName, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
@@ -15,12 +15,14 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError};
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError, RouteFormat};
 use crate::engine::{BlockPolicy, Engine, GuardSelection, UnitContent, UnitKind, Units};
-use crate::error::Error;
-use crate::metrics;
+use crate::error::{Error, INVALID_REQUEST};
+use crate::metrics::{self, UnscannedReason};
 use crate::scanner::SCANNER_ERROR_LIMITER;
-use crate::scanner::classify_body;
+use crate::scanner::{classify_body, is_json_content_type};
+use crate::structured::chat_completions::Decoded;
+use crate::structured::openai_chat;
 
 // ---------------------------------------------------------------------------
 // Hop-by-hop headers to strip when proxying
@@ -58,6 +60,8 @@ struct ResolvedRoute {
     /// The header names this route exposes to detection, in both directions.
     /// A header not named here is never decoded into a unit.
     headers: Vec<String>,
+    /// How the route's bodies are decoded and its answers shaped.
+    format: RouteFormat,
 }
 
 /// How a message is admitted and decoded, before any guard sees it. Shared by
@@ -118,6 +122,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
                 None => engine.select(None),
             },
             headers: r.headers.clone(),
+            format: r.format,
         })
         .collect();
 
@@ -213,11 +218,13 @@ async fn handle_proxied_request(
 ) -> Response {
     let ingest = &state.ingest;
     let selection = &route.selection;
+    let shape = AnswerShape::from(route.format);
     let plan = ScanPlan {
         engine: &state.engine,
         ingest,
         selection,
         headers: &route.headers,
+        shape,
     };
     let method = req.method().clone();
     let uri = req.uri().clone();
@@ -229,6 +236,7 @@ async fn handle_proxied_request(
         ingest.max_body_size,
         ingest.on_error,
         &route.path_prefix,
+        shape,
     )
     .await
     {
@@ -244,24 +252,30 @@ async fn handle_proxied_request(
         };
 
         // The body is decoded only when a guard selected for this route wants
-        // it, its content type is admitted, and there is something to read.
-        let should_scan_body = selection.wants(UnitKind::Body)
-            && !body_bytes.is_empty()
-            && is_content_type_allowed(&headers, &ingest.content_types);
+        // it and there is something to read. A generic route also needs an
+        // admitted content type; an `openai-chat` route admits JSON only.
+        let body = if selection.wants(UnitKind::Body) && !body_bytes.is_empty() {
+            match route.format {
+                RouteFormat::Generic
+                    if is_content_type_allowed(&headers, &ingest.content_types) =>
+                {
+                    classify_scan_body(&body_bytes, &headers, ingest.on_error, shape)
+                        .map(|content| vec![content])
+                }
+                RouteFormat::Generic => Ok(Vec::new()),
+                RouteFormat::OpenAiChat => {
+                    decode_openai_request(&plan, &ctx, &headers, &body_bytes, state.response_scan)
+                }
+            }
+        } else {
+            Ok(Vec::new())
+        };
 
-        match scan_and_act(
-            &plan,
-            &ctx,
-            &uri,
-            &headers,
-            if should_scan_body {
-                Some(&body_bytes)
-            } else {
-                None
-            },
-        )
-        .await
-        {
+        let result = match body {
+            Ok(body) => scan_and_act(&plan, &ctx, &uri, &headers, body).await,
+            Err(stop) => *stop,
+        };
+        match result {
             PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
                 metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
                 return resp;
@@ -276,7 +290,7 @@ async fn handle_proxied_request(
         Some(c) => c,
         None => {
             error!(upstream = %route.upstream, "no client for upstream");
-            return Error::Proxy("no client for upstream".into()).into_response();
+            return answer(shape, Error::Proxy("no client for upstream".into()));
         }
     };
 
@@ -290,7 +304,7 @@ async fn handle_proxied_request(
     }
 
     let upstream_req = match hyper::Request::builder()
-        .method(method)
+        .method(method.clone())
         .uri(&upstream_uri)
         .body(Body::from(body_bytes))
     {
@@ -300,7 +314,10 @@ async fn handle_proxied_request(
         }
         Err(e) => {
             error!(error = %e, "failed to build upstream request");
-            return Error::Proxy(format!("failed to build upstream request: {e}")).into_response();
+            return answer(
+                shape,
+                Error::Proxy(format!("failed to build upstream request: {e}")),
+            );
         }
     };
 
@@ -312,9 +329,9 @@ async fn handle_proxied_request(
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
             error!(error = %e, upstream = %route.upstream, "upstream request failed");
-            return Error::Proxy(format!("upstream error: {e}")).into_response();
+            return answer(shape, Error::Proxy(format!("upstream error: {e}")));
         }
-        Err(_) => return upstream_timeout(&route.upstream),
+        Err(_) => return answer(shape, upstream_timeout(&route.upstream)),
     };
 
     let resp_status = upstream_resp.status();
@@ -322,6 +339,35 @@ async fn handle_proxied_request(
 
     // --- Response scanning ---
     if state.response_scan {
+        let ctx = MetricContext {
+            route: &route.path_prefix,
+            direction: "response",
+        };
+
+        // An `openai-chat` route reads the content type before the body, so a
+        // stream it cannot scan is never buffered. A message that passes
+        // under `fail_open` streams through as with response scan off; its
+        // headers are still scanned.
+        let unscannable = match route.format {
+            RouteFormat::Generic => None,
+            RouteFormat::OpenAiChat => unscannable_response(&method, resp_status, &resp_headers),
+        };
+        if let Some(err) = unscannable {
+            let result = match handle_scan_error(err, ingest.on_error, shape) {
+                PipelineResult::Pass => {
+                    scan_and_act_response(&plan, &ctx, &resp_headers, Vec::new()).await
+                }
+                stop => stop,
+            };
+            return match result {
+                PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
+                    metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                    resp
+                }
+                PipelineResult::Pass => stream_through(upstream_resp),
+            };
+        }
+
         let limited = Limited::new(upstream_resp.into_body(), ingest.max_body_size);
         let resp_body = match tokio::time::timeout_at(deadline, limited.collect()).await {
             Ok(Ok(collected)) => collected.to_bytes(),
@@ -332,37 +378,38 @@ async fn handle_proxied_request(
                     "upstream response body too large"
                 );
                 metrics::inc_error("blocked", "response_too_large");
-                return Error::ResponseTooLarge.into_response();
+                return answer(shape, Error::ResponseTooLarge);
             }
             Ok(Err(e)) => {
                 error!(error = %e, "failed to read upstream response body");
-                return Error::Proxy(format!("failed to read upstream response: {e}"))
-                    .into_response();
+                return answer(
+                    shape,
+                    Error::Proxy(format!("failed to read upstream response: {e}")),
+                );
             }
-            Err(_) => return upstream_timeout(&route.upstream),
+            Err(_) => return answer(shape, upstream_timeout(&route.upstream)),
         };
 
-        let ctx = MetricContext {
-            route: &route.path_prefix,
-            direction: "response",
+        let body = if selection.wants(UnitKind::Body) && !resp_body.is_empty() {
+            match route.format {
+                RouteFormat::Generic
+                    if is_content_type_allowed(&resp_headers, &ingest.content_types) =>
+                {
+                    classify_scan_body(&resp_body, &resp_headers, ingest.on_error, shape)
+                        .map(|content| vec![content])
+                }
+                RouteFormat::Generic => Ok(Vec::new()),
+                RouteFormat::OpenAiChat => decode_openai_response(&plan, &ctx, &resp_body),
+            }
+        } else {
+            Ok(Vec::new())
         };
 
-        let should_scan_body = selection.wants(UnitKind::Body)
-            && !resp_body.is_empty()
-            && is_content_type_allowed(&resp_headers, &ingest.content_types);
-
-        match scan_and_act_response(
-            &plan,
-            &ctx,
-            &resp_headers,
-            if should_scan_body {
-                Some(&resp_body)
-            } else {
-                None
-            },
-        )
-        .await
-        {
+        let result = match body {
+            Ok(body) => scan_and_act_response(&plan, &ctx, &resp_headers, body).await,
+            Err(stop) => *stop,
+        };
+        match result {
             PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
                 metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
                 return resp;
@@ -375,10 +422,55 @@ async fn handle_proxied_request(
     }
 
     // No response scanning — stream through, stripping hop-by-hop.
-    let final_headers = strip_hop_by_hop(&resp_headers);
+    stream_through(upstream_resp)
+}
+
+/// Forward the upstream response unread, stripping hop-by-hop headers.
+fn stream_through(upstream_resp: hyper::Response<hyper::body::Incoming>) -> Response {
+    let final_headers = strip_hop_by_hop(upstream_resp.headers());
     let mut resp = upstream_resp.map(Body::new);
     *resp.headers_mut() = final_headers;
     resp
+}
+
+// ---------------------------------------------------------------------------
+// Answer shape
+// ---------------------------------------------------------------------------
+
+/// The shape of every answer Voidwall makes on a matched route, decided once
+/// from the route's format. The 404 for an unmatched path is outside every
+/// route and stays plain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnswerShape {
+    /// The flat `{"error": ...}` body, and the fixed 403 for a block.
+    Plain,
+    /// The OpenAI error shape, and the 400 for a block.
+    OpenAi,
+}
+
+impl From<RouteFormat> for AnswerShape {
+    fn from(format: RouteFormat) -> Self {
+        match format {
+            RouteFormat::Generic => AnswerShape::Plain,
+            RouteFormat::OpenAiChat => AnswerShape::OpenAi,
+        }
+    }
+}
+
+/// The answer to `err` in the route's shape.
+fn answer(shape: AnswerShape, err: Error) -> Response {
+    match shape {
+        AnswerShape::Plain => err.into_response(),
+        AnswerShape::OpenAi => err.into_openai_response(),
+    }
+}
+
+/// The answer to a detection in the route's shape.
+fn block(shape: AnswerShape, kinds: &[String]) -> Response {
+    match shape {
+        AnswerShape::Plain => block_response(kinds),
+        AnswerShape::OpenAi => openai_block_response(kinds),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +478,7 @@ async fn handle_proxied_request(
 // ---------------------------------------------------------------------------
 
 enum PipelineResult {
-    /// A detection stopped the message: the fixed 403.
+    /// A detection stopped the message: the route's block.
     Block(Response),
     Pass,
     /// A `fail_close` error stopped the message. Only a stopped message is
@@ -402,34 +494,31 @@ struct MetricContext<'a> {
 }
 
 /// Everything detection needs for one message: the engine, the shared ingest
-/// settings, and the two things the matched route decides — which guards run,
-/// and which headers become units.
+/// settings, and what the matched route decides — which guards run, which
+/// headers become units, and the shape of its answers.
 struct ScanPlan<'a> {
     engine: &'a Engine,
     ingest: &'a Ingest,
     selection: &'a GuardSelection,
     headers: &'a [String],
+    shape: AnswerShape,
 }
 
 // ---------------------------------------------------------------------------
 // Scan + action helpers
 // ---------------------------------------------------------------------------
 
-/// Scan the request direction and decide what happens to it.
+/// Scan the request direction, with its decoded body units, and decide what
+/// happens to it.
 async fn scan_and_act(
     plan: &ScanPlan<'_>,
     ctx: &MetricContext<'_>,
     uri: &Uri,
     headers: &HeaderMap,
-    body: Option<&Bytes>,
+    body: Vec<UnitContent>,
 ) -> PipelineResult {
-    let scan_body = match classify_scan_body(body, headers, plan.ingest.on_error) {
-        Ok(b) => b,
-        Err(resp) => return *resp,
-    };
-
     let mut units = Units::new();
-    if let Some(content) = scan_body {
+    for content in body {
         units.push_body(content);
     }
 
@@ -456,20 +545,16 @@ async fn scan_and_act(
     run_engine(plan, units, ctx, "scanner error").await
 }
 
-/// Scan the response direction and decide what happens to it.
+/// Scan the response direction, with its decoded body units, and decide what
+/// happens to it.
 async fn scan_and_act_response(
     plan: &ScanPlan<'_>,
     ctx: &MetricContext<'_>,
     headers: &HeaderMap,
-    body: Option<&Bytes>,
+    body: Vec<UnitContent>,
 ) -> PipelineResult {
-    let scan_body = match classify_scan_body(body, headers, plan.ingest.on_error) {
-        Ok(b) => b,
-        Err(resp) => return *resp,
-    };
-
     let mut units = Units::new();
-    if let Some(content) = scan_body {
+    for content in body {
         units.push_body(content);
     }
     if plan.selection.wants(UnitKind::HeaderValue) {
@@ -518,7 +603,7 @@ async fn run_engine(
 
     if !scan_result.detected() {
         return match error {
-            Some(e) => handle_scan_error(e, plan.ingest.on_error),
+            Some(e) => handle_scan_error(e, plan.ingest.on_error, plan.shape),
             None => PipelineResult::Pass,
         };
     }
@@ -539,14 +624,14 @@ async fn run_engine(
     for guard in scan_result.guards() {
         metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction);
     }
-    // The PII family counts only a 403 the `pii` guard took part in. The
+    // The PII family counts only a block the `pii` guard took part in. The
     // engine-wide family counts every stopped message and moves where the
     // pipeline result is known.
     if !pii_kinds.is_empty() {
         metrics::inc_blocked(MODE, ctx.route, ctx.direction);
     }
 
-    PipelineResult::Block(block_response(&kinds))
+    PipelineResult::Block(block(plan.shape, &kinds))
 }
 
 /// The fixed response a detection produces: 403, JSON, and the kind names that
@@ -554,51 +639,216 @@ async fn run_engine(
 /// can cause the block. It never carries matched text — see
 /// `openspec/specs/security/spec.md`.
 fn block_response(kinds: &[String]) -> Response {
-    let payload = serde_json::json!({ "error": "content blocked", "kinds": kinds });
-    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
-    (
-        StatusCode::FORBIDDEN,
-        [("content-type", "application/json")],
-        body,
-    )
-        .into_response()
+    let payload = serde_json::json!({ "error": BLOCKED, "kinds": kinds });
+    json_response(StatusCode::FORBIDDEN, &payload)
 }
 
-/// Classify the body bytes into a `BodyFormat` based on Content-Type, applying
-/// the `on_error` policy on parse failure: `fail_open` falls back to plain text
-/// scanning, `fail_close` short-circuits with a `PipelineResult::Error` block
-/// response. Returns `Ok(None)` when there is no body to scan.
+/// The fixed text of a block. It names no class of finding.
+const BLOCKED: &str = "content blocked";
+
+/// The block on a route with `format = "openai-chat"`: 400 in the OpenAI error
+/// shape, so an OpenAI client handles it without a change. `code` names the
+/// real cause. Like the 403, it lists kinds and never matched text.
+fn openai_block_response(kinds: &[String]) -> Response {
+    let payload = serde_json::json!({
+        "error": {
+            "message": format!("{BLOCKED}. Kinds: {}", kinds.join(", ")),
+            "type": INVALID_REQUEST,
+            "param": null,
+            "code": "content_filter",
+            "kinds": kinds,
+        }
+    });
+    json_response(StatusCode::BAD_REQUEST, &payload)
+}
+
+fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response {
+    let body = serde_json::to_vec(payload).unwrap_or_else(|_| b"{}".to_vec());
+    (status, [("content-type", "application/json")], body).into_response()
+}
+
+/// Classify the body bytes into a `BodyFormat` based on Content-Type. A body
+/// that does not parse follows [`parse_failure`].
 ///
 /// `Err` is boxed so the `Result` stays small on the stack; the error path
 /// only fires on parse failure under `fail_close`, so the heap allocation is
 /// off the hot path while the success path pays no extra size.
 fn classify_scan_body(
-    body: Option<&Bytes>,
+    bytes: &Bytes,
     headers: &HeaderMap,
     on_error: OnError,
-) -> Result<Option<UnitContent>, Box<PipelineResult>> {
-    let Some(bytes) = body else {
-        return Ok(None);
-    };
+    shape: AnswerShape,
+) -> Result<UnitContent, Box<PipelineResult>> {
     let content_type = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    match classify_body(bytes.clone(), content_type) {
-        Ok(format) => Ok(Some(format)),
-        Err(_) => match on_error {
-            OnError::FailOpen => {
-                metrics::inc_error("passed", "body_parse_failed");
-                Ok(Some(UnitContent::PlainText(bytes.clone())))
-            }
-            OnError::FailClose => {
-                metrics::inc_error("blocked", "body_parse_failed");
-                Err(Box::new(PipelineResult::Error(
-                    Error::BodyParse.into_response(),
-                )))
-            }
-        },
+    classify_body(bytes.clone(), content_type).or_else(|_| parse_failure(bytes, on_error, shape))
+}
+
+/// The `on_error` rule for a body that does not parse as its declared type:
+/// `fail_open` falls back to plain text scanning, `fail_close` short-circuits
+/// with a `PipelineResult::Error` 400.
+fn parse_failure(
+    bytes: &Bytes,
+    on_error: OnError,
+    shape: AnswerShape,
+) -> Result<UnitContent, Box<PipelineResult>> {
+    match on_error {
+        OnError::FailOpen => {
+            metrics::inc_error("passed", "body_parse_failed");
+            Ok(UnitContent::PlainText(bytes.clone()))
+        }
+        OnError::FailClose => {
+            metrics::inc_error("blocked", "body_parse_failed");
+            Err(Box::new(PipelineResult::Error(answer(
+                shape,
+                Error::BodyParse,
+            ))))
+        }
     }
+}
+
+/// Decode a request body on an `openai-chat` route into its body units, in
+/// this order:
+///
+/// 1. a body that is not a JSON Chat Completions request answers 400 under
+///    both `on_error` settings;
+/// 2. a `stream: true` request with response scan on is stopped with 422
+///    under `fail_close` before any guard runs; under `fail_open` the
+///    response side counts it;
+/// 3. unknown content parts and base64 data, as [`decoded_units`] states.
+fn decode_openai_request(
+    plan: &ScanPlan<'_>,
+    ctx: &MetricContext<'_>,
+    headers: &HeaderMap,
+    body: &Bytes,
+    response_scan: bool,
+) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let decoded = if is_json_content_type(content_type) {
+        openai_chat::decode_request(body)
+    } else {
+        Err(Error::BodyParse)
+    };
+    let request = match decoded {
+        Ok(request) => request,
+        Err(Error::BodyParse) => {
+            metrics::inc_error("blocked", "body_parse_failed");
+            return Err(Box::new(PipelineResult::Error(answer(
+                plan.shape,
+                Error::BodyParse,
+            ))));
+        }
+        Err(e) => return decode_failure(plan, e),
+    };
+
+    if request.stream && response_scan && plan.ingest.on_error == OnError::FailClose {
+        return Err(Box::new(handle_scan_error(
+            Error::UnscannableStream,
+            OnError::FailClose,
+            plan.shape,
+        )));
+    }
+
+    decoded_units(plan, ctx, request.decoded)
+}
+
+/// Decode a JSON response body on an `openai-chat` route into its body units.
+/// A body that does not parse follows the parse-failure rule of the generic
+/// scan.
+fn decode_openai_response(
+    plan: &ScanPlan<'_>,
+    ctx: &MetricContext<'_>,
+    body: &Bytes,
+) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
+    match openai_chat::decode_response(body) {
+        Ok(decoded) => decoded_units(plan, ctx, decoded),
+        Err(Error::BodyParse) => {
+            parse_failure(body, plan.ingest.on_error, plan.shape).map(|content| vec![content])
+        }
+        Err(e) => decode_failure(plan, e),
+    }
+}
+
+/// Apply `on_error` to a decoder that could not pair its decisions with the
+/// fragments. `fail_open` scans the message without its body.
+fn decode_failure(
+    plan: &ScanPlan<'_>,
+    err: Error,
+) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
+    if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+        warn!(dropped, error = %err, "openai-chat body decode failed");
+    }
+    match handle_scan_error(err, plan.ingest.on_error, plan.shape) {
+        PipelineResult::Pass => Ok(Vec::new()),
+        stop => Err(Box::new(stop)),
+    }
+}
+
+/// The body units of a decoded `openai-chat` body. An unknown content part
+/// follows `on_error`: `fail_close` stops the message with 422 before any
+/// guard runs, `fail_open` scans the rest. Base64 values are counted only for
+/// a message that goes on to be scanned.
+fn decoded_units(
+    plan: &ScanPlan<'_>,
+    ctx: &MetricContext<'_>,
+    decoded: Decoded,
+) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
+    if decoded.unknown_parts > 0 {
+        match handle_scan_error(Error::UnscannableContent, plan.ingest.on_error, plan.shape) {
+            PipelineResult::Pass => {}
+            stop => return Err(Box::new(stop)),
+        }
+    }
+    if decoded.encoded_values > 0 {
+        metrics::inc_unscanned(
+            MODE,
+            ctx.route,
+            ctx.direction,
+            UnscannedReason::EncodedData,
+            decoded.encoded_values as u64,
+        );
+    }
+    Ok(decoded
+        .units
+        .into_iter()
+        .map(|fragments| UnitContent::Structured { fragments })
+        .collect())
+}
+
+/// Why an upstream response on an `openai-chat` route cannot be scanned,
+/// read from its headers before the body: a `text/event-stream` is a stream,
+/// and any other type that is not JSON is unscannable content when the
+/// response has a body. `None` when the response can be scanned.
+fn unscannable_response(method: &Method, status: StatusCode, headers: &HeaderMap) -> Option<Error> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let media_type = content_type.split(';').next().unwrap_or("").trim();
+    if media_type.eq_ignore_ascii_case("text/event-stream") {
+        Some(Error::UnscannableStream)
+    } else if is_json_content_type(content_type) || has_no_body(method, status, headers) {
+        None
+    } else {
+        Some(Error::UnscannableContent)
+    }
+}
+
+/// True when the response headers say there is no body: a 204 or 304, an
+/// answer to `HEAD`, or `Content-Length: 0`.
+fn has_no_body(method: &Method, status: StatusCode, headers: &HeaderMap) -> bool {
+    status == StatusCode::NO_CONTENT
+        || status == StatusCode::NOT_MODIFIED
+        || method == Method::HEAD
+        || headers
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim() == "0")
 }
 
 /// Append one unit per header the route names, when it is present and
@@ -616,8 +866,9 @@ fn push_scan_headers(units: &mut Units, scanned_headers: &[String], headers: &He
 }
 
 /// Apply `on_error` to a guard error no detection overruled. The error names
-/// its own reason and, under `fail_close`, its own status and fixed body.
-fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
+/// its own reason and, under `fail_close`, its own status and fixed body in
+/// the route's shape.
+fn handle_scan_error(err: Error, on_error: OnError, shape: AnswerShape) -> PipelineResult {
     match on_error {
         OnError::FailOpen => {
             metrics::inc_error("passed", err.scan_reason());
@@ -625,7 +876,7 @@ fn handle_scan_error(err: Error, on_error: OnError) -> PipelineResult {
         }
         OnError::FailClose => {
             metrics::inc_error("blocked", err.scan_reason());
-            PipelineResult::Error(err.into_response())
+            PipelineResult::Error(answer(shape, err))
         }
     }
 }
@@ -642,10 +893,14 @@ async fn buffer_body(
     max_size: usize,
     on_error: OnError,
     route: &str,
+    shape: AnswerShape,
 ) -> Result<Bytes, Box<Response>> {
     let collected = req.into_body().collect().await.map_err(|e| {
         error!(error = %e, "failed to read request body");
-        Box::new(Error::Proxy(format!("failed to read request body: {e}")).into_response())
+        Box::new(answer(
+            shape,
+            Error::Proxy(format!("failed to read request body: {e}")),
+        ))
     })?;
     let bytes = collected.to_bytes();
 
@@ -658,7 +913,7 @@ async fn buffer_body(
             OnError::FailClose => {
                 metrics::inc_error("blocked", "body_too_large");
                 metrics::inc_message_blocked(MODE, route, "request");
-                Err(Box::new(Error::BodyTooLarge.into_response()))
+                Err(Box::new(answer(shape, Error::BodyTooLarge)))
             }
         }
     } else {
@@ -683,11 +938,12 @@ fn is_content_type_allowed(headers: &HeaderMap, allowed: &[String]) -> bool {
     allowed.iter().any(|a| a.eq_ignore_ascii_case(media_type))
 }
 
-/// The answer to an upstream exchange that outlived `upstream_timeout_secs`.
-fn upstream_timeout(upstream: &str) -> Response {
+/// The error for an upstream exchange that outlived `upstream_timeout_secs`,
+/// logged and counted.
+fn upstream_timeout(upstream: &str) -> Error {
     error!(upstream = %upstream, "upstream exchange timed out");
     metrics::inc_error("blocked", "upstream_timeout");
-    Error::UpstreamTimeout.into_response()
+    Error::UpstreamTimeout
 }
 
 fn strip_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
@@ -744,6 +1000,7 @@ mod tests {
                 upstream: format!("http://upstream{p}"),
                 selection: default_selection(),
                 headers: Vec::new(),
+                format: RouteFormat::Generic,
             })
             .collect()
     }
@@ -826,7 +1083,14 @@ mod tests {
     #[tokio::test]
     async fn buffer_body_within_limit() {
         let req = Request::builder().body(Body::from("hello")).unwrap();
-        let result = buffer_body(req, 1024, OnError::FailClose, "/buffer-body-test").await;
+        let result = buffer_body(
+            req,
+            1024,
+            OnError::FailClose,
+            "/buffer-body-test",
+            AnswerShape::Plain,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello"));
     }
@@ -834,14 +1098,28 @@ mod tests {
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_close() {
         let req = Request::builder().body(Body::from("hello world")).unwrap();
-        let result = buffer_body(req, 5, OnError::FailClose, "/buffer-body-test").await;
+        let result = buffer_body(
+            req,
+            5,
+            OnError::FailClose,
+            "/buffer-body-test",
+            AnswerShape::Plain,
+        )
+        .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn buffer_body_exceeds_limit_fail_open() {
         let req = Request::builder().body(Body::from("hello world")).unwrap();
-        let result = buffer_body(req, 5, OnError::FailOpen, "/buffer-body-test").await;
+        let result = buffer_body(
+            req,
+            5,
+            OnError::FailOpen,
+            "/buffer-body-test",
+            AnswerShape::Plain,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
     }
@@ -875,6 +1153,38 @@ mod tests {
         let kinds = ["EMAIL".to_string(), "IBAN_CODE".to_string()];
         let first = read_body(block_response(&kinds)).await;
         let second = read_body(block_response(&kinds)).await;
+        assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn the_openai_block_is_a_400_naming_the_kinds() {
+        let kinds = ["EMAIL".to_string(), "IBAN_CODE".to_string()];
+        let resp = openai_block_response(&kinds);
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+        let body = read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"error": {
+                "message": "content blocked. Kinds: EMAIL, IBAN_CODE",
+                "type": "invalid_request_error",
+                "param": null,
+                "code": "content_filter",
+                "kinds": ["EMAIL", "IBAN_CODE"],
+            }})
+        );
+        assert!(!String::from_utf8_lossy(&body).contains("@"));
+    }
+
+    #[tokio::test]
+    async fn the_same_kinds_produce_a_byte_identical_openai_block() {
+        let kinds = ["EMAIL".to_string(), "IBAN_CODE".to_string()];
+        let first = read_body(openai_block_response(&kinds)).await;
+        let second = read_body(openai_block_response(&kinds)).await;
         assert_eq!(first, second);
     }
 
@@ -1009,6 +1319,7 @@ mod tests {
             ingest: &ingest,
             selection: &selection,
             headers: &[],
+            shape: AnswerShape::Plain,
         };
         let ctx = MetricContext {
             route,
@@ -1335,6 +1646,7 @@ mod tests {
                     upstream: "http://127.0.0.1:9".to_string(),
                     guards: None,
                     headers: Vec::new(),
+                    format: RouteFormat::Generic,
                 }],
                 ..ReverseProxyConfig::default()
             },
@@ -1379,5 +1691,555 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
         assert_eq!(blocked(route), 1);
+    }
+
+    // --- The openai-chat route ---
+
+    use crate::config::{DirectionConfig, UpstreamTimeout};
+    use crate::metrics::UNSCANNED_TOTAL;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Serialises the tests that assert no change of the route-less
+    /// `unscannable_stream` error samples.
+    static STREAM_ERRORS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// An upstream that answers every request with `status`, `content_type`
+    /// (none when empty), and `body`, and counts the requests it got.
+    async fn stub_upstream(
+        status: u16,
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (String, Arc<AtomicUsize>) {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&hits);
+        let app = Router::new().fallback(move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut resp = Response::new(Body::from(body));
+                *resp.status_mut() = StatusCode::from_u16(status).unwrap();
+                if !content_type.is_empty() {
+                    resp.headers_mut()
+                        .insert("content-type", content_type.parse().unwrap());
+                }
+                resp
+            }
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), hits)
+    }
+
+    /// An upstream that reads a request and never answers.
+    async fn silent_upstream() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((socket, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    drop(socket);
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// One route with `format = "openai-chat"` and the settings a test varies.
+    struct Chat {
+        route: &'static str,
+        upstream: String,
+        request_scan: bool,
+        response_scan: bool,
+        on_error: OnError,
+        max_body_size: usize,
+        content_types: Vec<String>,
+        timeout_secs: u64,
+    }
+
+    impl Chat {
+        fn new(route: &'static str, upstream: &str) -> Self {
+            Self {
+                route,
+                upstream: upstream.to_string(),
+                request_scan: true,
+                response_scan: true,
+                on_error: OnError::FailClose,
+                max_body_size: 1024,
+                content_types: vec!["application/json".to_string()],
+                timeout_secs: 30,
+            }
+        }
+
+        async fn send(&self, guards: Vec<TestGuard>, req: Request) -> Response {
+            let engine = Arc::new(Engine::with_guards(
+                guards.into_iter().map(|g| Box::new(g) as _).collect(),
+            ));
+            let config = AppConfig {
+                max_body_size: self.max_body_size,
+                on_error: self.on_error,
+                content_types: self.content_types.clone(),
+                upstream_timeout_secs: UpstreamTimeout::try_from(self.timeout_secs).unwrap(),
+                reverse_proxy: ReverseProxyConfig {
+                    request: DirectionConfig {
+                        scan: self.request_scan,
+                    },
+                    response: DirectionConfig {
+                        scan: self.response_scan,
+                    },
+                    routes: vec![Route {
+                        path_prefix: self.route.to_string(),
+                        upstream: self.upstream.clone(),
+                        guards: None,
+                        headers: Vec::new(),
+                        format: RouteFormat::OpenAiChat,
+                    }],
+                    ..ReverseProxyConfig::default()
+                },
+                ..AppConfig::default()
+            };
+            proxy_handler(State(build_state(&config, engine)), req).await
+        }
+
+        async fn post(&self, guards: Vec<TestGuard>, body: serde_json::Value) -> Response {
+            let req = Request::builder()
+                .method("POST")
+                .uri(self.route)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            self.send(guards, req).await
+        }
+    }
+
+    fn chat_request() -> serde_json::Value {
+        serde_json::json!({"model": "m", "messages": [{"role": "user", "content": "hello"}]})
+    }
+
+    fn quiet() -> Vec<TestGuard> {
+        vec![TestGuard::new("chat_quiet", "RP_UNUSED").silent()]
+    }
+
+    /// The OpenAI `error` object of `resp`, asserting its status.
+    async fn openai_error(resp: Response, status: StatusCode) -> serde_json::Value {
+        assert_eq!(resp.status(), status);
+        let body: serde_json::Value = serde_json::from_slice(&read_body(resp).await).unwrap();
+        body["error"].clone()
+    }
+
+    fn stopped(route: &str, direction: &str) -> u64 {
+        MESSAGES_BLOCKED_TOTAL
+            .with_label_values(&[MODE, route, direction])
+            .get()
+    }
+
+    const CLEAN_JSON: &str = r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}]}"#;
+
+    // 4.1 — every answer of the route is in the OpenAI shape
+
+    #[tokio::test]
+    async fn an_oversize_request_answers_413_in_the_openai_shape() {
+        let chat = Chat {
+            max_body_size: 8,
+            ..Chat::new("/chat-413", "http://127.0.0.1:9")
+        };
+        let error = openai_error(
+            chat.post(quiet(), chat_request()).await,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        )
+        .await;
+        assert_eq!(error["code"], "body_too_large");
+    }
+
+    #[tokio::test]
+    async fn a_scanner_failure_answers_500_in_the_openai_shape() {
+        let chat = Chat::new("/chat-500", "http://127.0.0.1:9");
+        let guards = vec![TestGuard::new("chat_failing", "RP_UNUSED").failing()];
+        let error = openai_error(
+            chat.post(guards, chat_request()).await,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .await;
+        assert_eq!(
+            error,
+            serde_json::json!({"message": "internal error", "type": "server_error", "param": null, "code": "internal_error"})
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_upstream_answers_502_in_the_openai_shape() {
+        let chat = Chat::new("/chat-502", "http://127.0.0.1:9");
+        let error = openai_error(
+            chat.post(quiet(), chat_request()).await,
+            StatusCode::BAD_GATEWAY,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_error");
+    }
+
+    #[tokio::test]
+    async fn an_upstream_timeout_answers_504_in_the_openai_shape() {
+        let chat = Chat {
+            timeout_secs: 1,
+            ..Chat::new("/chat-504", &silent_upstream().await)
+        };
+        let error = openai_error(
+            chat.post(quiet(), chat_request()).await,
+            StatusCode::GATEWAY_TIMEOUT,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_timeout");
+    }
+
+    #[tokio::test]
+    async fn a_detection_answers_the_openai_400_block() {
+        let chat = Chat::new("/chat-block", "http://127.0.0.1:9");
+        let guards = vec![TestGuard::new("chat_detecting", "RP_CHAT_KIND")];
+        let error = openai_error(
+            chat.post(guards, chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["code"], "content_filter");
+        assert_eq!(error["kinds"], serde_json::json!(["RP_CHAT_KIND"]));
+        assert_eq!(stopped("/chat-block", "request"), 1);
+    }
+
+    // 4.2 — the request side, in the D6 order
+
+    #[test_case(OnError::FailOpen ; "fail_open")]
+    #[test_case(OnError::FailClose ; "fail_close")]
+    #[tokio::test]
+    async fn a_body_that_is_not_json_answers_400_under_both_policies(on_error: OnError) {
+        let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat {
+            on_error,
+            ..Chat::new("/chat-not-json", &upstream)
+        };
+        let req = Request::builder()
+            .method("POST")
+            .uri(chat.route)
+            .header("content-type", "text/plain")
+            .body(Body::from("hello"))
+            .unwrap();
+        let error = openai_error(chat.send(quiet(), req).await, StatusCode::BAD_REQUEST).await;
+        assert_eq!(error["code"], "malformed_body");
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "not forwarded");
+    }
+
+    #[tokio::test]
+    async fn a_request_without_messages_answers_400() {
+        let chat = Chat::new("/chat-no-messages", "http://127.0.0.1:9");
+        let body = serde_json::json!({"model": "m", "input": "hello"});
+        let error = openai_error(chat.post(quiet(), body).await, StatusCode::BAD_REQUEST).await;
+        assert_eq!(error["code"], "malformed_body");
+    }
+
+    #[tokio::test]
+    async fn a_stream_under_fail_close_answers_422_and_runs_no_guard() {
+        let _lock = STREAM_ERRORS.lock().await;
+        let before = errors("blocked", "unscannable_stream");
+        let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat::new("/chat-stream-close", &upstream);
+        let guard = TestGuard::new("chat_stream_probe", "RP_UNUSED").silent();
+        let probe = guard.probe();
+        let mut body = chat_request();
+        body["stream"] = serde_json::json!(true);
+
+        let error = openai_error(
+            chat.post(vec![guard], body).await,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+        assert_eq!(error["code"], "unscannable_content");
+        assert_eq!(probe.calls(), 0, "no guard ran");
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "not forwarded");
+        assert_eq!(errors("blocked", "unscannable_stream"), before + 1);
+        assert_eq!(stopped("/chat-stream-close", "request"), 1);
+    }
+
+    #[test_case(OnError::FailOpen, true ; "fail_open")]
+    #[test_case(OnError::FailClose, false ; "response scan off")]
+    #[tokio::test]
+    async fn a_stream_is_forwarded_and_not_counted_on_the_request_side(
+        on_error: OnError,
+        response_scan: bool,
+    ) {
+        let _lock = STREAM_ERRORS.lock().await;
+        let before = (
+            errors("passed", "unscannable_stream"),
+            errors("blocked", "unscannable_stream"),
+        );
+        let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat {
+            on_error,
+            response_scan,
+            ..Chat::new("/chat-stream-forwarded", &upstream)
+        };
+        let mut body = chat_request();
+        body["stream"] = serde_json::json!(true);
+
+        let resp = chat.post(quiet(), body).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            (
+                errors("passed", "unscannable_stream"),
+                errors("blocked", "unscannable_stream")
+            ),
+            before
+        );
+    }
+
+    fn hologram_request() -> serde_json::Value {
+        serde_json::json!({"messages": [{"role": "user", "content": [
+            {"type": "hologram"},
+            {"type": "text", "text": "hello"},
+        ]}]})
+    }
+
+    #[tokio::test]
+    async fn an_unknown_part_under_fail_close_answers_422_and_runs_no_guard() {
+        let chat = Chat::new("/chat-hologram-close", "http://127.0.0.1:9");
+        let guard = TestGuard::new("chat_hologram_probe", "RP_UNUSED").silent();
+        let probe = guard.probe();
+        let error = openai_error(
+            chat.post(vec![guard], hologram_request()).await,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+        assert_eq!(error["code"], "unscannable_content");
+        assert_eq!(probe.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_part_under_fail_open_scans_the_rest() {
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            ..Chat::new("/chat-hologram-open", "http://127.0.0.1:9")
+        };
+        let guards = vec![TestGuard::new("chat_hologram_detect", "RP_HOLOGRAM_KIND")];
+        let error = openai_error(
+            chat.post(guards, hologram_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["kinds"], serde_json::json!(["RP_HOLOGRAM_KIND"]));
+    }
+
+    #[tokio::test]
+    async fn the_route_ignores_the_content_type_allowlist() {
+        let chat = Chat {
+            content_types: vec!["text/plain".to_string()],
+            ..Chat::new("/chat-allowlist", "http://127.0.0.1:9")
+        };
+        // Body units only, so a block proves the body was decoded.
+        let guards = vec![
+            TestGuard::new("chat_body_only", "RP_BODY_KIND")
+                .with_interest(Interest::in_kinds([UnitKind::Body])),
+        ];
+        let error = openai_error(
+            chat.post(guards, chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["kinds"], serde_json::json!(["RP_BODY_KIND"]));
+    }
+
+    #[tokio::test]
+    async fn an_empty_get_is_forwarded() {
+        let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat::new("/chat-get", &upstream);
+        let req = Request::builder()
+            .uri(chat.route)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(chat.send(quiet(), req).await.status(), StatusCode::OK);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    // 4.3 — the response side reads the content type first
+
+    #[tokio::test]
+    async fn an_event_stream_under_fail_close_answers_422() {
+        let _lock = STREAM_ERRORS.lock().await;
+        let before = errors("blocked", "unscannable_stream");
+        let (upstream, _) = stub_upstream(200, "text/event-stream", "data: hello\n\n").await;
+        let chat = Chat::new("/chat-sse-close", &upstream);
+        let error = openai_error(
+            chat.post(quiet(), chat_request()).await,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+        assert_eq!(error["code"], "unscannable_content");
+        assert_eq!(errors("blocked", "unscannable_stream"), before + 1);
+        assert_eq!(stopped("/chat-sse-close", "response"), 1);
+    }
+
+    #[tokio::test]
+    async fn an_event_stream_under_fail_open_streams_through() {
+        let _lock = STREAM_ERRORS.lock().await;
+        let before = errors("passed", "unscannable_stream");
+        let (upstream, _) = stub_upstream(200, "text/event-stream", "data: hello\n\n").await;
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            max_body_size: 4,
+            ..Chat::new("/chat-sse-open", &upstream)
+        };
+        let resp = chat.post(quiet(), chat_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            &read_body(resp).await[..],
+            b"data: hello\n\n",
+            "no size limit"
+        );
+        assert_eq!(errors("passed", "unscannable_stream"), before + 1);
+    }
+
+    #[test_case(OnError::FailClose, StatusCode::UNPROCESSABLE_ENTITY, "blocked" ; "fail_close")]
+    #[test_case(OnError::FailOpen, StatusCode::BAD_GATEWAY, "passed" ; "fail_open")]
+    #[tokio::test]
+    async fn an_html_page_follows_on_error(on_error: OnError, status: StatusCode, outcome: &str) {
+        let before = errors(outcome, "unscannable_content");
+        let (upstream, _) = stub_upstream(502, "text/html", "<html>bad gateway</html>").await;
+        let chat = Chat {
+            on_error,
+            ..Chat::new("/chat-html", &upstream)
+        };
+        let resp = chat.post(quiet(), chat_request()).await;
+        assert_eq!(resp.status(), status);
+        if on_error == OnError::FailOpen {
+            assert_eq!(&read_body(resp).await[..], b"<html>bad gateway</html>");
+        }
+        assert!(errors(outcome, "unscannable_content") > before);
+    }
+
+    #[tokio::test]
+    async fn an_empty_html_204_is_forwarded() {
+        let (upstream, _) = stub_upstream(204, "text/html", "").await;
+        let chat = Chat::new("/chat-204", &upstream);
+        let resp = chat.post(quiet(), chat_request()).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn a_detection_in_a_json_response_answers_400() {
+        let route = "/chat-response-block";
+        let (upstream, _) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat {
+            request_scan: false,
+            ..Chat::new(route, &upstream)
+        };
+        let guards = vec![TestGuard::new("chat_response_detect", "RP_RESPONSE_KIND")];
+        let error = openai_error(
+            chat.post(guards, chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["code"], "content_filter");
+        assert_eq!(stopped(route, "response"), 1);
+    }
+
+    // A decoder that cannot pair its decisions with the fragments follows
+    // on_error as a scanner failure.
+
+    fn decode_failure_with(on_error: OnError) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
+        let engine = Engine::with_guards(Vec::new());
+        let selection = engine.select(None);
+        let ingest = Ingest {
+            max_body_size: 1024,
+            content_types: Vec::new(),
+            on_error,
+        };
+        let plan = ScanPlan {
+            engine: &engine,
+            ingest: &ingest,
+            selection: &selection,
+            headers: &[],
+            shape: AnswerShape::OpenAi,
+        };
+        let mismatch = Error::Scanner("classified 2 string leaves, the flattener found 1".into());
+        decode_failure(&plan, mismatch)
+    }
+
+    #[tokio::test]
+    async fn a_leaf_count_mismatch_under_fail_close_answers_500_in_the_openai_shape() {
+        let before = blocked_scanner_failures();
+        let Err(stop) = decode_failure_with(OnError::FailClose) else {
+            panic!("expected the message to stop");
+        };
+        let PipelineResult::Error(resp) = *stop else {
+            panic!("expected an error answer");
+        };
+        let error = openai_error(resp, StatusCode::INTERNAL_SERVER_ERROR).await;
+        assert_eq!(error["code"], "internal_error");
+        assert!(blocked_scanner_failures() > before);
+    }
+
+    #[test]
+    fn a_leaf_count_mismatch_under_fail_open_scans_without_the_body() {
+        let before = errors("passed", "scanner_failure");
+        let Ok(units) = decode_failure_with(OnError::FailOpen) else {
+            panic!("expected the message to pass");
+        };
+        assert!(units.is_empty(), "no body unit");
+        assert!(errors("passed", "scanner_failure") > before);
+    }
+
+    // 4.4 — base64 data is counted with the route and the direction
+
+    fn encoded(route: &str, direction: &str) -> u64 {
+        UNSCANNED_TOTAL
+            .with_label_values(&[MODE, route, direction, "encoded_data"])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn an_inline_image_in_a_request_is_counted_once() {
+        let route = "/chat-encoded-request";
+        let (upstream, _) = stub_upstream(200, "application/json", CLEAN_JSON).await;
+        let chat = Chat::new(route, &upstream);
+        let body = serde_json::json!({"messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            {"type": "text", "text": "hello"},
+        ]}]});
+        assert_eq!(chat.post(quiet(), body).await.status(), StatusCode::OK);
+        assert_eq!(encoded(route, "request"), 1);
+        assert_eq!(encoded(route, "response"), 0);
+    }
+
+    #[tokio::test]
+    async fn audio_data_in_a_response_is_counted_once() {
+        let route = "/chat-encoded-response";
+        let (upstream, _) = stub_upstream(
+            200,
+            "application/json",
+            r#"{"choices":[{"message":{"role":"assistant","audio":{"id":"a","data":"AAAA"}}}]}"#,
+        )
+        .await;
+        let chat = Chat::new(route, &upstream);
+        assert_eq!(
+            chat.post(quiet(), chat_request()).await.status(),
+            StatusCode::OK
+        );
+        assert_eq!(encoded(route, "response"), 1);
+        assert_eq!(encoded(route, "request"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_stopped_request_counts_no_encoded_data() {
+        let route = "/chat-encoded-stopped";
+        let chat = Chat::new(route, "http://127.0.0.1:9");
+        let body = serde_json::json!({"messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            {"type": "hologram"},
+        ]}]});
+        let resp = chat.post(quiet(), body).await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(encoded(route, "request"), 0);
     }
 }

@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
     AppConfig, BuiltinGuards, DirectionConfig, OnError, PiiGuardConfig, ReverseProxyConfig, Route,
-    UpstreamTimeout,
+    RouteFormat, UpstreamTimeout,
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
@@ -267,6 +267,7 @@ impl TestProxy {
                 upstream: format!("http://{upstream_addr}{upstream_path}"),
                 guards: None,
                 headers: scanned_headers.clone(),
+                format: RouteFormat::Generic,
             })
             .collect();
 
@@ -1092,6 +1093,7 @@ async fn start_proxy_with_route_guards(
                     upstream: format!("http://{upstream}"),
                     guards,
                     headers: Vec::new(),
+                    format: RouteFormat::Generic,
                 })
                 .collect(),
             ..Default::default()

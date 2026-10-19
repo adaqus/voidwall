@@ -1,61 +1,94 @@
 schema: spec-driven
 
 context: |
-  Voidwall — an HTTP proxy and REST API that detects PII in HTTP traffic. A
-  detection blocks the message with a fixed 403 naming the kinds found. There is
-  no action to choose and nothing rewrites a message.
+  Voidwall — an AI guardrails engine: an HTTP proxy and REST API that inspects
+  traffic and acts on what it finds. A guard reports findings; the engine merges
+  them. A detection blocks the message. PII is the class of finding it detects
+  today, and each further class arrives as another guard.
 
   Language: Rust, edition 2024. Platform: Linux only. Never add code for another OS.
+  The minimum CPU is x86-64-v3. The binary checks it from `.preinit_array` in
+  `crates/voidwall/src/main.rs`; keep that check in the binary crate.
 
-  Workspace, three crates:
+  Workspace, four crates:
   - `crates/voidwall/` — the binary, package `voidwall`. Integration tests in
     `crates/voidwall/tests/`. Load tests and benches in `crates/voidwall/benches/`.
-  - `crates/voidwall-pii/` — the detection library. Read `crates/voidwall-pii/AGENTS.md` before you
-    edit anything under it.
+  - `crates/voidwall-pii/` — the detection library. Read `crates/voidwall-pii/AGENTS.md`
+    before you edit anything under it.
   - `crates/voidwall-ml/` — ONNX Runtime integration and model adapters. It cannot
-    depend on `voidwall`. Run `docker/fetch-ort.sh` once before the first build.
+    depend on `voidwall`.
+  - `crates/voidwall-eval/` — the `ai4privacy-eval` and `piimb-spans` binaries. It
+    depends on `voidwall-pii` only and is not in the image.
 
-  Four modes share one `ScannerPool`: reverse proxy :8082, forward proxy :8084,
-  REST API :8083, admin :9090. Config is TOML, loaded with `--config` or
-  `VOIDWALL_CONFIG`.
+  Two modes, each enabled on its own, share one detection engine: reverse proxy
+  :8082 and REST API :8083. The admin server :9090 always runs. The forward proxy
+  (:8084) is not built, and validation rejects `forward_proxy.enabled = true`.
+  Config is TOML, loaded with `--config` or `VOIDWALL_CONFIG`.
 
-  Build and verify:
+  Distribution: a Docker image with the config and the default models. Any other
+  model is mounted as a volume. A pull request never adds model artifacts to the image.
+
+  Build and verify. Run `docker/fetch-ort.sh` once before the first build.
     cargo check --workspace
     cargo test --workspace
     cargo clippy --workspace --all-targets   # treat a warning as an error
+    cargo deny check licenses
 
-  PII safety rules. These are non-negotiable:
-  - Never log a PII value. Log the kind name and the match count only.
-  - Never put a PII value in a metric. Labels carry kind names, never values.
-  - Never put a PII value in an error response. A 403 lists kinds, not matched text.
-  - Drop the body buffer as soon as the scan ends.
+  Detection engine. A handler decodes a message into units — one per body, URL
+  path, query string, and scanned header value — and calls `Engine::guard`. A
+  `Guard` has `name`, `interest`, and `detect`. It returns findings and does nothing
+  else: it never blocks, changes a message, or writes a metric. Add a detector by
+  adding a guard, never by branching inside a handler. A guard name comes from
+  configuration, never from request content. The engine short-circuits for a block
+  only.
 
-  Threading. The scanner is CPU-bound and must never run on the tokio runtime.
-  `ScannerPool` spawns dedicated OS threads. Each thread owns one `voidwall_pii::Scanner`.
-  A bounded channel carries the request. A `tokio::sync::oneshot` carries the reply.
+  Detection safety rules. These are non-negotiable, for every detected value,
+  whatever its class:
+  - Never log a detected value. Log the kind name and the match count only.
+  - Never put a detected value in a metric. Labels carry kind names, never values.
+  - Never put a detected value in an error response. A block lists kinds, not
+    matched text.
+  - Drop request and response body buffers promptly after scanning.
 
-  Match resolution. `execute_scan` runs every scanner result through
-  `voidwall_pii::resolve_overlaps` before it counts or reports. The proxy works on
-  the resolved set only. The policy lives in `crates/voidwall-pii/src/overlap.rs`.
+  Threading. The PII scanner is CPU-bound and must never run on the tokio runtime.
+  `ScannerPool`, inside the regex PII guard, spawns dedicated OS threads. Each thread
+  owns one `voidwall_pii::Scanner`. A bounded channel carries the request. A
+  `tokio::sync::oneshot` carries the reply. A guard's `detect` hands units to its
+  workers and awaits the reply; it does almost no work of its own.
 
-  Outcome: a detection blocks with a fixed 403 and short-circuits forwarding. The
+  Match resolution. The regex PII guard runs every scanner result through
+  `voidwall_pii::resolve_overlaps`, once per unit, before it returns a finding. The
+  proxy works on the resolved set only. The policy lives in
+  `crates/voidwall-pii/src/overlap.rs`. Resolution runs once: when a second producer
+  of the same kind vocabulary appears, move it to the engine over the union and
+  delete the per-guard pass. Never run both.
+
+  Outcome: a detection blocks with a fixed 403 and short-circuits forwarding, unless
+  explicitly stated otherwise. A reverse proxy route with `format = "openai-chat"`
+  answers a fixed 400 in the OpenAI error shape instead, in both directions. The
   status, body, and headers are not configurable. There is no redact, header, or
-  `warn` action. `reverse_proxy.request.scan` and `.response.scan` turn inspection
-  on or off per direction.
+  `warn` action, and nothing rewrites a message. `reverse_proxy.request.scan` and
+  `.response.scan` turn inspection on or off per direction.
 
   Errors. Use the `Error` enum in `error.rs`. Scanner failures and limit violations
   follow the `on_error` policy, `fail_open` or `fail_close`. `fail_close` is the default.
   A blocking error answers the status that names the party at fault: 413 oversize, 400
-  unparseable body, 500 scanner failure. 502 is for the upstream only. Always increment
-  `voidwall_errors_total`.
+  unparseable body, 422 content that parses but cannot be inspected, 500 scanner
+  failure. 502 is for the upstream only, and 504 for an upstream exchange that
+  outlives `upstream_timeout_secs`. One exception: a response-side block on an
+  `openai-chat` route answers 400. A 500 body is fixed; failure details go to the
+  log. Always increment `voidwall_errors_total`.
 
   Config. Validation runs at startup and the proxy refuses to start on bad config.
-  A per-route override fully replaces the default. It never merges.
+  A per-route override fully replaces the default. It never merges. A new field needs
+  validation and unit tests for valid and invalid values.
 
   Testing. Unit tests sit in the same file, in `#[cfg(test)] mod tests`. Use
-  `#[test_case()]` where it fits, to cut duplicated test code.
+  `#[test_case()]` where it fits, to cut duplicated test code. Integration tests start
+  real servers and make real HTTP requests.
 
-  Architecture and rationale: `ARCHITECTURE.md`. Unbuilt work: `docs/backlog.md`.
+  Architecture and rationale: `ARCHITECTURE.md`. Built behavior: `openspec/specs/`.
+  Unbuilt work: `docs/backlog.md`.
 
 rules:
   specs:

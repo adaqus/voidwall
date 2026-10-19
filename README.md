@@ -56,7 +56,9 @@ Guards that exist today:
 
 - Reverse proxy: longest-prefix routing to upstreams, separate scanning of requests and
   responses, a route-level header list and guard selection, an upstream timeout, and a
-  body size limit.
+  body size limit. A route with `format = "openai-chat"` decodes OpenAI Chat Completions
+  field by field and answers in the OpenAI error shape. See
+  [Use With OpenAI-Compatible Servers](#use-with-openai-compatible-servers).
 - REST API: `POST /v1/scan` reports what was found and forwards nothing. See
   [docs/api-docs.md](docs/api-docs.md) and [docs/openapi.json](docs/openapi.json).
 - LiteLLM guardrail: `POST /beta/litellm_basic_guardrail_api` on the REST API speaks
@@ -144,6 +146,50 @@ guardrails:
 On a detection Voidwall answers `BLOCKED`, and LiteLLM rejects the call. The route is on
 while `http_api.enabled` and `http_api.litellm.enabled` are true. Set
 `http_api.scan.enabled = false` to serve the LiteLLM route without `/v1/scan`.
+
+### Use With OpenAI-Compatible Servers
+
+A reverse proxy route with `format = "openai-chat"` decodes Chat Completions bodies field
+by field: one unit per message, tool, and choice, and one per other free-text field. A
+top-level key Voidwall does not know is scanned. Base64 images, audio, and files are
+skipped and counted in `voidwall_unscanned_total`. A detection answers 400 in the OpenAI
+error shape, so an OpenAI SDK raises its usual error with no change:
+
+```json
+{"error":{"message":"content blocked. Kinds: EMAIL","type":"invalid_request_error","param":null,"code":"content_filter","kinds":["EMAIL"]}}
+```
+
+Put the format on the Chat Completions path only, and keep a generic route for the rest
+of the API. With the format on a broad prefix such as `/v1`, `/v1/embeddings` and every
+other call that is not Chat Completions answers 400:
+
+```toml
+[[reverse_proxy.routes]]
+path_prefix = "/v1/chat/completions"
+upstream = "http://vllm:8000"
+format = "openai-chat"
+
+[[reverse_proxy.routes]]
+path_prefix = "/v1"
+upstream = "http://vllm:8000"
+```
+
+- **HTTP upstreams only.** The proxy does not originate TLS yet, so `https://` upstreams
+  are not supported yet: one passes validation and then fails with 502. Use a server on
+  plain HTTP, such as vLLM, Ollama, or LM Studio. OpenAI, Azure OpenAI, and OpenRouter
+  are not reachable yet.
+- **Streaming.** A stream cannot be scanned yet. With `reverse_proxy.response.scan` on and
+  `on_error = "fail_close"`, a `"stream": true` request answers 422 before it reaches the
+  upstream, and a `text/event-stream` response answers 422. Under `fail_open` the stream
+  passes unscanned. Either way `voidwall_errors_total{reason="unscannable_stream"}` counts
+  it. With response scan off, a stream passes as on any route. Another response that is
+  not JSON, such as an HTML error page, follows `on_error` the same way.
+- **SDK retries.** OpenAI SDKs retry 500, 502, and 504 by default, so a scanner failure
+  under `fail_close` can reach Voidwall up to three times. A 400 or a 422 is not retried.
+
+Every other answer on the route uses the same shape and keeps its status: 400, 413, 422,
+500, 502, and 504. The route ignores the `content_types` allowlist and takes a JSON request
+body only.
 
 ## Evaluation
 

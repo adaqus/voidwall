@@ -623,6 +623,26 @@ pub struct Route {
     /// decides which kinds of unit it wants.
     #[serde(default)]
     pub headers: Vec<String>,
+
+    /// How the route decodes its bodies and shapes its answers. Absent, the
+    /// route scans bodies generically.
+    #[serde(default)]
+    pub format: RouteFormat,
+}
+
+/// The body format of a reverse proxy route. The only value a config can
+/// write is `openai-chat`; `Generic` is what an absent key means.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum RouteFormat {
+    /// Bodies are scanned by content type, and a detection answers the fixed
+    /// 403.
+    #[default]
+    #[serde(skip_deserializing)]
+    Generic,
+    /// Bodies are decoded as OpenAI Chat Completions, and every answer uses
+    /// the OpenAI error shape.
+    #[serde(rename = "openai-chat")]
+    OpenAiChat,
 }
 
 impl Route {
@@ -1516,6 +1536,18 @@ upstream = "http://localhost:8080"
             routes[1].headers.is_empty(),
             "a route that names none reads no header"
         );
+    }
+
+    #[test_case("", RouteFormat::Generic ; "format is absent")]
+    #[test_case("format = \"openai-chat\"", RouteFormat::OpenAiChat ; "format is openai-chat")]
+    fn a_route_reads_its_format(line: &str, expected: RouteFormat) {
+        let toml = format!(
+            "{}\n[reverse_proxy]\nenabled = true\n\n[[reverse_proxy.routes]]\n\
+             path_prefix = \"/v1\"\nupstream = \"http://localhost:8080\"\n{line}\n",
+            minimal_toml()
+        );
+        let config = parse(&toml).unwrap();
+        assert_eq!(config.reverse_proxy.routes[0].format, expected);
     }
 
     // --- Built-in guard section (1.3) ---

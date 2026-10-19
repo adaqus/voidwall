@@ -1,0 +1,82 @@
+{
+  "model": "gpt-5-mini",
+  "messages": [
+    {"role": "developer", "content": "Answer as a support agent for an online shop."},
+    {"role": "system", "content": [{"type": "text", "text": "Keep every answer to one sentence."}]},
+    {
+      "role": "user",
+      "name": "customer",
+      "content": [
+        {"type": "text", "text": "Where is my order 4471? A photo of the label is attached."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "detail": "low"}},
+        {"type": "file", "file": {"file_id": "file-abc123", "filename": "label.pdf"}}
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "refusal": null,
+      "audio": {"id": "audio_abc123"},
+      "tool_calls": [
+        {"id": "call_abc123", "type": "function", "function": {"name": "get_order_status", "arguments": "{\"order_id\":\"4471\"}"}}
+      ]
+    },
+    {"role": "tool", "tool_call_id": "call_abc123", "content": "Order 4471 shipped yesterday."},
+    {"role": "assistant", "function_call": {"name": "get_order_status", "arguments": "{\"order_id\":\"4471\"}"}},
+    {"role": "function", "name": "get_order_status", "content": "shipped"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_order_status",
+        "description": "Look up the shipping status of an order.",
+        "parameters": {"type": "object", "properties": {"order_id": {"type": "string", "description": "The order number."}}, "required": ["order_id"]},
+        "strict": true
+      }
+    },
+    {
+      "type": "custom",
+      "custom": {"name": "order_query", "description": "Query orders in a small grammar.", "format": {"type": "grammar", "grammar": {"definition": "start: \"status\" NUMBER", "syntax": "lark"}}}
+    }
+  ],
+  "functions": [
+    {"name": "get_order_status", "description": "Look up the shipping status of an order.", "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}}}
+  ],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {"name": "order_answer", "description": "One answer about an order.", "schema": {"type": "object", "properties": {"answer": {"type": "string", "description": "The answer in one sentence."}}}, "strict": true}
+  },
+  "prediction": {"type": "content", "content": [{"type": "text", "text": "Your order 4471 shipped yesterday."}]},
+  "metadata": {"ticket": "T-1", "channel": "chat"},
+  "safety_identifier": "sid-7f3a9c",
+  "user": "u-42",
+  "prompt_cache_key": "support-agent-v1",
+  "web_search_options": {"search_context_size": "low", "user_location": {"type": "approximate", "approximate": {"city": "Springfield", "region": "Oregon", "country": "US", "timezone": "America/Los_Angeles"}}},
+  "stop": ["\n\n"],
+  "tool_choice": "auto",
+  "function_call": "auto",
+  "modalities": ["text"],
+  "audio": {"voice": "alloy", "format": "mp3"},
+  "stream": false,
+  "stream_options": {"include_usage": true},
+  "temperature": 0.2,
+  "top_p": 1,
+  "n": 1,
+  "seed": 7,
+  "max_tokens": 200,
+  "max_completion_tokens": 200,
+  "logit_bias": {"50256": -100},
+  "logprobs": false,
+  "top_logprobs": 0,
+  "frequency_penalty": 0,
+  "presence_penalty": 0,
+  "parallel_tool_calls": true,
+  "reasoning_effort": "low",
+  "verbosity": "low",
+  "service_tier": "auto",
+  "store": false,
+  "moderation": {"model": "omni-moderation-latest", "policy": {"input": {"mode": "block"}, "output": {"mode": "score"}}},
+  "prompt_cache_options": {"mode": "implicit"},
+  "prompt_cache_retention": "in_memory"
+}

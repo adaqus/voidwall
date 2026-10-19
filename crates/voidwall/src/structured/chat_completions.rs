@@ -1,10 +1,12 @@
-//! Chat Completions message shapes: which fields of a message, a content part,
-//! a tool, and a tool call are scanned.
+//! Chat Completions shapes: which fields of a request, a response, a message,
+//! a content part, a tool, and a tool call are scanned.
 //!
-//! The classifier walks a parsed entry and records the key paths to keep. It
-//! never copies a value: the fragments come from [`flatten_json`] over the same
-//! bytes, so offsets and key paths match `/v1/scan`, and [`Selection`] picks the
-//! kept ones out. Both sides build a path with [`push_path_segment`].
+//! The classifier walks a parsed document in document order and records one
+//! decision per string leaf: the entry it belongs to, or skip. It never copies
+//! a value: the fragments come from [`flatten_json`] over the same bytes, in the
+//! same order, so offsets and key paths match `/v1/scan`, and [`Selection`]
+//! pairs each fragment with its decision by position. No key path is matched,
+//! so a key that holds `.` or `[` cannot be taken for another key.
 //!
 //! Every field rule is in the tables below. A key a table does not list is
 //! unknown, and every string under it is scanned, so nothing unknown passes
@@ -12,12 +14,10 @@
 //!
 //! [`flatten_json`]: super::json::flatten_json
 
-use std::collections::HashMap;
-
 use serde_json::{Map, Value};
 
 use super::OwnedContextFragment;
-use super::json::{PathSegment, push_path_segment};
+use crate::error::Error;
 
 /// What the classifier does with one field.
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +31,9 @@ enum Rule {
     Object(&'static [Field]),
     /// An array of known objects. A value that is not an array is scanned.
     Each(&'static [Field]),
+    /// A message: its field rules when its `role` is known, else every string
+    /// in it is scanned. A value that is not an object is scanned.
+    Message(&'static [Field]),
     /// A message's `content`: an array of content parts, or anything else
     /// (a string) scanned whole.
     Content,
@@ -40,6 +43,10 @@ enum Rule {
     /// An `image_url.url`: a `data:` URL is base64 data, any other URL is
     /// skipped, because the bytes are not in the payload.
     ImageUrl,
+    /// A top-level array cut into one entry per item, each classified by the
+    /// rule. A value that is not an array is one entry, scanned. Used only in
+    /// [`REQUEST`] and [`RESPONSE`].
+    Entries(&'static Rule),
 }
 
 type Field = (&'static str, Rule);
@@ -55,6 +62,74 @@ const KNOWN_ROLES: &[&str] = &[
     "function",
 ];
 
+/// The top-level fields of a request. `messages`, `tools`, and `functions`
+/// are one entry per item; every other kept key is one entry.
+const REQUEST: &[Field] = &[
+    ("messages", Rule::Entries(&Rule::Message(MESSAGE))),
+    ("tools", Rule::Entries(&Rule::Object(TOOL))),
+    ("functions", Rule::Entries(&Rule::Object(FUNCTION))),
+    (
+        "response_format",
+        Rule::Object(&[("type", Rule::Skip), ("json_schema", Rule::Scan)]),
+    ),
+    ("prediction", Rule::Object(&[("content", Rule::Content)])),
+    ("metadata", Rule::Scan),
+    ("safety_identifier", Rule::Scan),
+    ("user", Rule::Scan),
+    ("prompt_cache_key", Rule::Scan),
+    (
+        "web_search_options",
+        Rule::Object(&[("user_location", Rule::Scan)]),
+    ),
+    ("model", Rule::Skip),
+    ("stop", Rule::Skip),
+    ("tool_choice", Rule::Skip),
+    ("function_call", Rule::Skip),
+    ("modalities", Rule::Skip),
+    ("audio", Rule::Skip),
+    ("stream", Rule::Skip),
+    ("stream_options", Rule::Skip),
+    ("temperature", Rule::Skip),
+    ("top_p", Rule::Skip),
+    ("n", Rule::Skip),
+    ("seed", Rule::Skip),
+    ("max_tokens", Rule::Skip),
+    ("max_completion_tokens", Rule::Skip),
+    ("logit_bias", Rule::Skip),
+    ("logprobs", Rule::Skip),
+    ("top_logprobs", Rule::Skip),
+    ("frequency_penalty", Rule::Skip),
+    ("presence_penalty", Rule::Skip),
+    ("parallel_tool_calls", Rule::Skip),
+    ("reasoning_effort", Rule::Skip),
+    ("verbosity", Rule::Skip),
+    ("service_tier", Rule::Skip),
+    ("store", Rule::Skip),
+    ("moderation", Rule::Skip),
+    ("prompt_cache_options", Rule::Skip),
+    ("prompt_cache_retention", Rule::Skip),
+];
+
+/// The top-level fields of a response. `choices` is one entry per choice;
+/// every other kept key, such as an `error` object, is one entry.
+const RESPONSE: &[Field] = &[
+    ("choices", Rule::Entries(&Rule::Object(CHOICE))),
+    ("id", Rule::Skip),
+    ("object", Rule::Skip),
+    ("created", Rule::Skip),
+    ("model", Rule::Skip),
+    ("system_fingerprint", Rule::Skip),
+    ("service_tier", Rule::Skip),
+    ("usage", Rule::Skip),
+];
+
+const CHOICE: &[Field] = &[
+    ("index", Rule::Skip),
+    ("finish_reason", Rule::Skip),
+    ("logprobs", Rule::Skip),
+    ("message", Rule::Message(RESPONSE_MESSAGE)),
+];
+
 const MESSAGE: &[Field] = &[
     ("role", Rule::Skip),
     ("content", Rule::Content),
@@ -66,7 +141,36 @@ const MESSAGE: &[Field] = &[
     ("audio", Rule::Object(&[("id", Rule::Skip)])),
 ];
 
+/// [`MESSAGE`], with the fields only a response message carries:
+/// `annotations`, and the audio output.
+const RESPONSE_MESSAGE: &[Field] = &[
+    ("role", Rule::Skip),
+    ("content", Rule::Content),
+    ("name", Rule::Scan),
+    ("refusal", Rule::Scan),
+    ("tool_calls", Rule::Each(TOOL_CALL)),
+    ("function_call", Rule::Object(FUNCTION_CALL)),
+    ("tool_call_id", Rule::Skip),
+    ("annotations", Rule::Scan),
+    (
+        "audio",
+        Rule::Object(&[
+            ("id", Rule::Skip),
+            ("expires_at", Rule::Skip),
+            ("data", Rule::Encoded),
+            ("transcript", Rule::Scan),
+        ]),
+    ),
+];
+
 const FUNCTION_CALL: &[Field] = &[("name", Rule::Scan), ("arguments", Rule::Scan)];
+
+/// One entry of the deprecated `functions` array.
+const FUNCTION: &[Field] = &[
+    ("name", Rule::Scan),
+    ("description", Rule::Scan),
+    ("parameters", Rule::Scan),
+];
 
 const TOOL_CALL: &[Field] = &[
     ("id", Rule::Skip),
@@ -149,18 +253,32 @@ const PARTS: &[(&str, &[Field])] = &[
     ),
 ];
 
-/// One top-level entry with something kept: its root path, such as
-/// `structured_messages[2]`, and the paths under it to keep.
-#[derive(Debug)]
-struct Entry {
-    root: String,
-    kept: Vec<String>,
+/// A decoded body: one fragment group per scanned entry, and what was left
+/// out. `Debug` is not derived, because the fragments hold the scanned text.
+pub struct Decoded {
+    /// One group per entry that has a kept fragment. Each group becomes one
+    /// body unit.
+    pub units: Vec<Vec<OwnedContextFragment>>,
+    /// Content parts of an unknown type. They are not in `units`.
+    pub unknown_parts: usize,
+    /// Base64 values left out without a scan.
+    pub encoded_values: usize,
 }
 
-/// The key paths to scan, entry by entry, and what was left out.
+/// One decision per string leaf of the classified document, in document
+/// order, and what was left out.
+///
+/// A caller classifies the whole document, top-level key by top-level key in
+/// document order, and hands every key it does not read to [`Selection::skip`],
+/// so the decisions line up with the fragments of [`flatten_json`].
+///
+/// [`flatten_json`]: super::json::flatten_json
 #[derive(Debug, Default)]
 pub struct Selection {
-    entries: Vec<Entry>,
+    /// The entry each string leaf belongs to, or `None` when it is skipped.
+    leaves: Vec<Option<usize>>,
+    /// Entries opened so far. An entry that keeps no leaf yields no unit.
+    entries: usize,
     unknown_parts: usize,
     encoded_values: usize,
 }
@@ -170,38 +288,49 @@ impl Selection {
         Self::default()
     }
 
-    /// Classify `array[index]` as a message.
-    pub fn message(&mut self, array: &str, index: usize, message: &Value) {
-        let role = message.get("role").and_then(Value::as_str);
-        let rule = if role.is_some_and(|r| KNOWN_ROLES.contains(&r)) {
-            Rule::Object(MESSAGE)
-        } else {
-            Rule::Scan
-        };
-        self.entry(array, index, rule, message);
+    /// Classify a Chat Completions request object.
+    pub fn request(&mut self, request: &Map<String, Value>) {
+        self.top_level(REQUEST, request);
     }
 
-    /// Classify `array[index]` as a tool definition.
-    pub fn tool(&mut self, array: &str, index: usize, tool: &Value) {
-        self.entry(array, index, Rule::Object(TOOL), tool);
+    /// Classify a Chat Completions response object.
+    pub fn response(&mut self, response: &Map<String, Value>) {
+        self.top_level(RESPONSE, response);
     }
 
-    /// Classify `array[index]` as a tool call.
-    pub fn tool_call(&mut self, array: &str, index: usize, call: &Value) {
-        self.entry(array, index, Rule::Object(TOOL_CALL), call);
+    /// Classify one message as a new entry.
+    pub fn message(&mut self, message: &Value) {
+        self.entry(Rule::Message(MESSAGE), message);
     }
 
-    /// Keep every string of `array[index]`.
-    pub fn text(&mut self, array: &str, index: usize, text: &Value) {
-        self.entry(array, index, Rule::Scan, text);
+    /// Classify one tool definition as a new entry.
+    pub fn tool(&mut self, tool: &Value) {
+        self.entry(Rule::Object(TOOL), tool);
+    }
+
+    /// Classify one tool call as a new entry.
+    pub fn tool_call(&mut self, call: &Value) {
+        self.entry(Rule::Object(TOOL_CALL), call);
+    }
+
+    /// Keep every string of `text`, as a new entry.
+    pub fn text(&mut self, text: &Value) {
+        self.entry(Rule::Scan, text);
     }
 
     /// Count an image URL as base64 data when it is a `data:` URL. Any other
-    /// URL is skipped, because the bytes are not in the payload.
+    /// URL is skipped, because the bytes are not in the payload. Nothing is
+    /// kept.
     pub fn image_url(&mut self, url: &Value) {
         if url.as_str().is_some_and(is_data_url) {
             self.encoded_values += 1;
         }
+        self.skip(url);
+    }
+
+    /// Keep no string of `value`.
+    pub fn skip(&mut self, value: &Value) {
+        self.mark(None, value);
     }
 
     /// Content parts whose type is not known. They are never kept.
@@ -216,115 +345,142 @@ impl Selection {
 
     /// Keep the selected fragments, grouped by entry in classification order.
     /// An entry with no kept fragment yields no group.
+    ///
+    /// The fragments must be the [`flatten_json`] output of the document this
+    /// selection classified. A fragment count that differs from the number of
+    /// string leaves classified is [`Error::Scanner`]: the pairing would be
+    /// wrong, so nothing is kept.
+    ///
+    /// [`flatten_json`]: super::json::flatten_json
     pub fn into_unit_fragments(
         self,
         fragments: Vec<OwnedContextFragment>,
-    ) -> Vec<Vec<OwnedContextFragment>> {
-        let index: HashMap<&str, usize> = self
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.root.as_str(), i))
-            .collect();
-        let mut units = vec![Vec::new(); self.entries.len()];
-        for fragment in fragments {
-            let Some(&i) = entry_root(&fragment.context).and_then(|r| index.get(r)) else {
-                continue;
-            };
-            if self.entries[i]
-                .kept
-                .iter()
-                .any(|kept| is_at_or_under(&fragment.context, kept))
-            {
-                units[i].push(fragment);
+    ) -> Result<Vec<Vec<OwnedContextFragment>>, Error> {
+        if fragments.len() != self.leaves.len() {
+            return Err(Error::Scanner(format!(
+                "classified {} string leaves, the flattener found {}",
+                self.leaves.len(),
+                fragments.len()
+            )));
+        }
+        let mut units = vec![Vec::new(); self.entries];
+        for (fragment, leaf) in fragments.into_iter().zip(self.leaves) {
+            if let Some(entry) = leaf {
+                units[entry].push(fragment);
             }
         }
         units.retain(|u| !u.is_empty());
-        units
+        Ok(units)
     }
 
-    fn entry(&mut self, array: &str, index: usize, rule: Rule, value: &Value) {
-        let mut root = String::new();
-        push_path_segment(&mut root, PathSegment::Key(array));
-        push_path_segment(&mut root, PathSegment::Index(index));
-        let mut kept = Vec::new();
-        self.apply(&mut kept, root.clone(), rule, value);
-        if !kept.is_empty() {
-            self.entries.push(Entry { root, kept });
+    /// [`Selection::into_unit_fragments`], with the counts of what was left
+    /// out.
+    pub fn into_decoded(self, fragments: Vec<OwnedContextFragment>) -> Result<Decoded, Error> {
+        let (unknown_parts, encoded_values) = (self.unknown_parts, self.encoded_values);
+        Ok(Decoded {
+            units: self.into_unit_fragments(fragments)?,
+            unknown_parts,
+            encoded_values,
+        })
+    }
+
+    fn top_level(&mut self, fields: &[Field], map: &Map<String, Value>) {
+        for (key, value) in map {
+            match (rule_for(fields, key), value) {
+                (Rule::Skip, _) => self.skip(value),
+                (Rule::Entries(rule), Value::Array(items)) => {
+                    for item in items {
+                        self.entry(*rule, item);
+                    }
+                }
+                (rule, _) => self.entry(rule, value),
+            }
         }
     }
 
-    fn apply(&mut self, kept: &mut Vec<String>, path: String, rule: Rule, value: &Value) {
+    fn entry(&mut self, rule: Rule, value: &Value) {
+        let entry = self.entries;
+        self.entries += 1;
+        self.apply(entry, rule, value);
+    }
+
+    fn apply(&mut self, entry: usize, rule: Rule, value: &Value) {
         match (rule, value) {
-            (Rule::Skip, _) => {}
-            (Rule::Object(fields), Value::Object(map)) => self.fields(kept, &path, fields, map),
+            (Rule::Skip, _) => self.skip(value),
+            (Rule::Object(fields), Value::Object(map)) => self.fields(entry, fields, map),
+            (Rule::Message(fields), Value::Object(map)) if has_known_role(map) => {
+                self.fields(entry, fields, map)
+            }
             (Rule::Each(fields), Value::Array(items)) => {
-                for (i, item) in items.iter().enumerate() {
-                    let child = child(&path, PathSegment::Index(i));
-                    self.apply(kept, child, Rule::Object(fields), item);
+                for item in items {
+                    self.apply(entry, Rule::Object(fields), item);
                 }
             }
             (Rule::Content, Value::Array(parts)) => {
-                for (i, part) in parts.iter().enumerate() {
-                    self.part(kept, child(&path, PathSegment::Index(i)), part);
+                for part in parts {
+                    self.part(entry, part);
                 }
             }
-            (Rule::Encoded, Value::String(_)) => self.encoded_values += 1,
+            (Rule::Encoded, Value::String(_)) => {
+                self.encoded_values += 1;
+                self.leaves.push(None);
+            }
             (Rule::ImageUrl, Value::String(url)) => {
                 if is_data_url(url) {
                     self.encoded_values += 1;
                 }
+                self.leaves.push(None);
             }
             // `Scan`, and any value whose shape its rule does not expect.
-            _ => kept.push(path),
+            _ => self.mark(Some(entry), value),
         }
     }
 
-    fn fields(
-        &mut self,
-        kept: &mut Vec<String>,
-        path: &str,
-        fields: &[Field],
-        map: &Map<String, Value>,
-    ) {
+    fn fields(&mut self, entry: usize, fields: &[Field], map: &Map<String, Value>) {
         for (key, value) in map {
-            let rule = fields
-                .iter()
-                .find(|(name, _)| name == key)
-                .map_or(Rule::Scan, |&(_, rule)| rule);
-            self.apply(kept, child(path, PathSegment::Key(key)), rule, value);
+            self.apply(entry, rule_for(fields, key), value);
         }
     }
 
-    fn part(&mut self, kept: &mut Vec<String>, path: String, part: &Value) {
+    fn part(&mut self, entry: usize, part: &Value) {
         let fields = part
             .get("type")
             .and_then(Value::as_str)
             .and_then(|t| PARTS.iter().find(|(name, _)| *name == t))
             .map(|&(_, fields)| fields);
         match (fields, part) {
-            (Some(fields), Value::Object(map)) => self.fields(kept, &path, fields, map),
-            _ => self.unknown_parts += 1,
+            (Some(fields), Value::Object(map)) => self.fields(entry, fields, map),
+            _ => {
+                self.unknown_parts += 1;
+                self.skip(part);
+            }
+        }
+    }
+
+    /// Record `leaf` for every string at or under `value`, in document order.
+    fn mark(&mut self, leaf: Option<usize>, value: &Value) {
+        match value {
+            Value::String(_) => self.leaves.push(leaf),
+            Value::Array(items) => items.iter().for_each(|item| self.mark(leaf, item)),
+            Value::Object(map) => map.values().for_each(|item| self.mark(leaf, item)),
+            _ => {}
         }
     }
 }
 
-fn child(path: &str, segment: PathSegment<'_>) -> String {
-    let mut child = path.to_owned();
-    push_path_segment(&mut child, segment);
-    child
+/// The rule a table gives `key`. A key the table does not list is scanned.
+fn rule_for(fields: &[Field], key: &str) -> Rule {
+    fields
+        .iter()
+        .find(|(name, _)| *name == key)
+        .map_or(Rule::Scan, |&(_, rule)| rule)
 }
 
-/// The top-level entry a fragment path belongs to: everything up to the first
-/// array index, such as `tools[3]`.
-fn entry_root(path: &str) -> Option<&str> {
-    path.find(']').map(|end| &path[..=end])
-}
-
-/// True when `path` is `prefix` or a path below it.
-fn is_at_or_under(path: &str, prefix: &str) -> bool {
-    path.strip_prefix(prefix)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '[']))
+fn has_known_role(message: &Map<String, Value>) -> bool {
+    message
+        .get("role")
+        .and_then(Value::as_str)
+        .is_some_and(|r| KNOWN_ROLES.contains(&r))
 }
 
 fn is_data_url(url: &str) -> bool {
@@ -354,13 +510,14 @@ mod tests {
         let raw = serde_json::to_vec(&doc).unwrap();
         let mut selection = Selection::new();
         match shape {
-            Shape::Message => selection.message(array, 0, &entry),
-            Shape::Tool => selection.tool(array, 0, &entry),
-            Shape::ToolCall => selection.tool_call(array, 0, &entry),
+            Shape::Message => selection.message(&entry),
+            Shape::Tool => selection.tool(&entry),
+            Shape::ToolCall => selection.tool_call(&entry),
         }
         let (unknown, encoded) = (selection.unknown_parts(), selection.encoded_values());
         let paths = selection
             .into_unit_fragments(flatten_json(&raw).unwrap())
+            .unwrap()
             .into_iter()
             .flatten()
             .map(|f| f.context)
@@ -473,14 +630,237 @@ mod tests {
         assert_eq!(encoded, 0);
     }
 
-    // --- Path matching ---
+    // --- Leaf-order pairing ---
 
-    #[test_case("a[0].b", "a[0].b", true ; "equal")]
-    #[test_case("a[0].b.c", "a[0].b", true ; "child key")]
-    #[test_case("a[0].b[1]", "a[0].b", true ; "child index")]
-    #[test_case("a[0].bc", "a[0].b", false ; "sibling with a longer name")]
-    #[test_case("a[0]", "a[0].b", false ; "parent")]
-    fn is_at_or_under_respects_segment_boundaries(path: &str, prefix: &str, expected: bool) {
-        assert_eq!(is_at_or_under(path, prefix), expected);
+    /// Classify `doc` as a request or a response and return the kept
+    /// `(path, value)` pairs of each unit, with the unknown-part and
+    /// encoded-data counts.
+    fn top(doc: &Value, response: bool) -> (Vec<Vec<(String, String)>>, usize, usize) {
+        let raw = serde_json::to_vec(doc).unwrap();
+        let mut selection = Selection::new();
+        let map = doc.as_object().unwrap();
+        if response {
+            selection.response(map);
+        } else {
+            selection.request(map);
+        }
+        let (unknown, encoded) = (selection.unknown_parts(), selection.encoded_values());
+        let units = selection
+            .into_unit_fragments(flatten_json(&raw).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|u| u.into_iter().map(|f| (f.context, f.value)).collect())
+            .collect();
+        (units, unknown, encoded)
+    }
+
+    fn paths(units: &[Vec<(String, String)>]) -> Vec<&str> {
+        units.iter().flatten().map(|(p, _)| p.as_str()).collect()
+    }
+
+    #[test]
+    fn a_top_level_key_and_a_message_are_two_units() {
+        let doc = json!({
+            "messages": [{"role": "user", "content": "a"}],
+            "metadata": {"k": "b"},
+        });
+        let (units, _, _) = top(&doc, false);
+        assert_eq!(
+            units,
+            vec![
+                vec![("messages[0].content".to_string(), "a".to_string())],
+                vec![("metadata.k".to_string(), "b".to_string())],
+            ]
+        );
+    }
+
+    #[test]
+    fn a_top_level_key_that_holds_a_dot_or_a_bracket_is_scanned() {
+        let doc = json!({
+            "messages": [],
+            "a.b": "first",
+            "x[0].y": {"z": "second"},
+        });
+        let (units, _, _) = top(&doc, false);
+        let values: Vec<&str> = units.iter().flatten().map(|(_, v)| v.as_str()).collect();
+        assert_eq!(values, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn a_leaf_count_that_differs_from_the_fragments_is_a_scanner_error() {
+        let mut selection = Selection::new();
+        selection.text(&json!("x"));
+        assert!(matches!(
+            selection.into_unit_fragments(Vec::new()),
+            Err(Error::Scanner(_))
+        ));
+    }
+
+    // --- The request: each listed field is scanned ---
+
+    /// A request with a skipped `model` first and one clean message, then
+    /// `key` set to `value`.
+    fn request_with(key: &str, value: Value) -> Value {
+        let mut doc = json!({"model": "m", "messages": [{"role": "user", "content": "hi"}]});
+        doc[key] = value;
+        doc
+    }
+
+    #[test_case("messages", json!([{"role": "system", "content": "x"}]), &["messages[0].content"] ; "system message")]
+    #[test_case("messages", json!([{"role": "assistant", "tool_calls": [{"id": "c", "type": "function", "function": {"arguments": "x"}}]}]), &["messages[0].tool_calls[0].function.arguments"] ; "replayed tool call")]
+    #[test_case("tools", json!([{"type": "function", "function": {"parameters": {"properties": {"a": {"description": "x"}}}}}]), &["tools[0].function.parameters.properties.a.description"] ; "tool parameter schema")]
+    #[test_case("functions", json!([{"name": "x", "description": "y", "parameters": {"properties": {"a": {"description": "z"}}}}]), &["functions[0].name", "functions[0].description", "functions[0].parameters.properties.a.description"] ; "deprecated functions")]
+    #[test_case("response_format", json!({"type": "json_schema", "json_schema": {"name": "x", "schema": {"description": "y"}}}), &["response_format.json_schema.name", "response_format.json_schema.schema.description"] ; "response format schema")]
+    #[test_case("prediction", json!({"content": "x"}), &["prediction.content"] ; "prediction content string")]
+    #[test_case("prediction", json!({"content": [{"type": "text", "text": "x"}]}), &["prediction.content[0].text"] ; "prediction content parts")]
+    #[test_case("metadata", json!({"k": "x"}), &["metadata.k"] ; "metadata")]
+    #[test_case("safety_identifier", json!("x"), &["safety_identifier"] ; "safety identifier")]
+    #[test_case("user", json!("x"), &["user"] ; "user")]
+    #[test_case("prompt_cache_key", json!("x"), &["prompt_cache_key"] ; "prompt cache key")]
+    #[test_case("web_search_options", json!({"user_location": {"approximate": {"city": "x"}}}), &["web_search_options.user_location.approximate.city"] ; "user location")]
+    #[test_case("chat_template_kwargs", json!({"k": "x"}), &["chat_template_kwargs.k"] ; "unknown top level key")]
+    fn a_listed_request_field_is_scanned(key: &str, value: Value, expected: &[&str]) {
+        let (units, _, _) = top(&request_with(key, value), false);
+        let mut want = vec!["messages[0].content"];
+        if key == "messages" {
+            want.clear();
+        }
+        want.extend_from_slice(expected);
+        assert_eq!(paths(&units), want);
+    }
+
+    #[test_case("model", json!("x") ; "model")]
+    #[test_case("stop", json!(["x"]) ; "stop")]
+    #[test_case("tool_choice", json!({"type": "function", "function": {"name": "x"}}) ; "tool choice")]
+    #[test_case("function_call", json!({"name": "x"}) ; "top level function call")]
+    #[test_case("modalities", json!(["text"]) ; "modalities")]
+    #[test_case("audio", json!({"voice": "x", "format": "wav"}) ; "audio")]
+    #[test_case("stream", json!("x") ; "stream")]
+    #[test_case("stream_options", json!({"include_usage": "x"}) ; "stream options")]
+    #[test_case("response_format", json!({"type": "json_object"}) ; "response format type")]
+    #[test_case("temperature", json!("x") ; "temperature")]
+    #[test_case("top_p", json!("x") ; "top p")]
+    #[test_case("n", json!("x") ; "n")]
+    #[test_case("seed", json!("x") ; "seed")]
+    #[test_case("max_tokens", json!("x") ; "max tokens")]
+    #[test_case("max_completion_tokens", json!("x") ; "max completion tokens")]
+    #[test_case("logit_bias", json!({"50256": "x"}) ; "logit bias")]
+    #[test_case("logprobs", json!("x") ; "logprobs")]
+    #[test_case("top_logprobs", json!("x") ; "top logprobs")]
+    #[test_case("frequency_penalty", json!("x") ; "frequency penalty")]
+    #[test_case("presence_penalty", json!("x") ; "presence penalty")]
+    #[test_case("parallel_tool_calls", json!("x") ; "parallel tool calls")]
+    #[test_case("reasoning_effort", json!("x") ; "reasoning effort")]
+    #[test_case("verbosity", json!("x") ; "verbosity")]
+    #[test_case("service_tier", json!("x") ; "service tier")]
+    #[test_case("store", json!("x") ; "store")]
+    #[test_case("moderation", json!("x") ; "moderation")]
+    #[test_case("prompt_cache_options", json!({"k": "x"}) ; "prompt cache options")]
+    #[test_case("prompt_cache_retention", json!("x") ; "prompt cache retention")]
+    fn a_skipped_request_field_is_left_out(key: &str, value: Value) {
+        let (units, _, _) = top(&request_with(key, value), false);
+        assert_eq!(paths(&units), vec!["messages[0].content"]);
+    }
+
+    #[test]
+    fn an_unknown_part_in_prediction_is_counted_and_never_kept() {
+        let doc = request_with(
+            "prediction",
+            json!({"content": [{"type": "hologram", "text": "x"}, {"type": "text", "text": "y"}]}),
+        );
+        let (units, unknown, _) = top(&doc, false);
+        assert_eq!(unknown, 1);
+        assert_eq!(
+            paths(&units),
+            vec!["messages[0].content", "prediction.content[1].text"]
+        );
+    }
+
+    // --- The response ---
+
+    fn response_with(message: Value) -> Value {
+        json!({
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "m",
+            "system_fingerprint": "fp",
+            "service_tier": "default",
+            "choices": [{"index": 0, "finish_reason": "stop", "message": message}],
+            "usage": {"prompt_tokens": 1, "note": "x"},
+        })
+    }
+
+    #[test_case(json!({"role": "assistant", "content": "x"}), "choices[0].message.content" ; "content")]
+    #[test_case(json!({"role": "assistant", "tool_calls": [{"id": "c", "type": "function", "function": {"arguments": "x"}}]}), "choices[0].message.tool_calls[0].function.arguments" ; "tool calls")]
+    #[test_case(json!({"role": "assistant", "function_call": {"arguments": "x"}}), "choices[0].message.function_call.arguments" ; "function call")]
+    #[test_case(json!({"role": "assistant", "refusal": "x"}), "choices[0].message.refusal" ; "refusal")]
+    #[test_case(json!({"role": "assistant", "annotations": [{"url_citation": {"title": "x"}}]}), "choices[0].message.annotations[0].url_citation.title" ; "annotations")]
+    #[test_case(json!({"role": "assistant", "audio": {"id": "a", "expires_at": 1, "transcript": "x"}}), "choices[0].message.audio.transcript" ; "audio transcript")]
+    #[test_case(json!({"role": "assistant", "reasoning_content": "x"}), "choices[0].message.reasoning_content" ; "reasoning trace")]
+    fn a_listed_response_field_is_scanned(message: Value, path: &str) {
+        let (units, _, _) = top(&response_with(message), true);
+        assert_eq!(paths(&units), vec![path]);
+    }
+
+    #[test]
+    fn audio_data_in_a_response_is_counted_and_never_kept() {
+        let message = json!({"role": "assistant", "audio": {"id": "a", "data": "AAAA"}});
+        let (units, unknown, encoded) = top(&response_with(message), true);
+        assert_eq!((paths(&units).len(), unknown, encoded), (0, 0, 1));
+    }
+
+    #[test]
+    fn logprobs_and_the_metadata_fields_are_left_out() {
+        let mut doc =
+            response_with(json!({"role": "assistant", "audio": {"id": "a", "expires_at": "x"}}));
+        doc["choices"][0]["logprobs"] = json!({"content": [{"token": "x", "top_logprobs": []}]});
+        doc["usage"] = json!({"note": "x"});
+        let (units, _, _) = top(&doc, true);
+        assert!(units.is_empty(), "kept: {:?}", paths(&units));
+    }
+
+    #[test_case(json!({"error": {"message": "x", "type": "invalid_request"}}), &["error.message", "error.type"] ; "an error object")]
+    #[test_case(json!({"error": "x"}), &["error"] ; "a flat error string")]
+    #[test_case(json!({"choices": [], "stats": {"note": "x"}}), &["stats.note"] ; "a vendor key")]
+    fn an_unknown_top_level_response_key_is_scanned(doc: Value, expected: &[&str]) {
+        let (units, _, _) = top(&doc, true);
+        assert_eq!(paths(&units), expected);
+    }
+
+    #[test]
+    fn a_response_message_with_an_unknown_role_is_scanned_whole() {
+        let message = json!({"role": "narrator", "content": "x", "tool_call_id": "y"});
+        let (units, _, _) = top(&response_with(message), true);
+        assert_eq!(
+            paths(&units),
+            vec![
+                "choices[0].message.role",
+                "choices[0].message.content",
+                "choices[0].message.tool_call_id"
+            ]
+        );
+    }
+
+    #[test]
+    fn each_choice_is_one_unit() {
+        let doc = json!({"choices": [
+            {"message": {"role": "assistant", "content": "a"}},
+            {"message": {"role": "assistant", "content": "b"}},
+        ]});
+        let (units, _, _) = top(&doc, true);
+        assert_eq!(units.len(), 2);
+    }
+
+    /// The response message table extends the request one: every field rule
+    /// of a request message also holds in a response message.
+    #[test]
+    fn the_response_message_table_holds_every_message_field() {
+        for (key, _) in MESSAGE {
+            assert!(
+                RESPONSE_MESSAGE.iter().any(|(k, _)| k == key),
+                "{key} is missing from RESPONSE_MESSAGE"
+            );
+        }
     }
 }

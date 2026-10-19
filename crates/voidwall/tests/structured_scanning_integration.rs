@@ -18,6 +18,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
     AppConfig, BuiltinGuards, DirectionConfig, OnError, PiiGuardConfig, ReverseProxyConfig, Route,
+    RouteFormat,
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
@@ -111,6 +112,7 @@ impl TestProxy {
                     upstream: format!("http://{upstream}"),
                     guards: None,
                     headers: Vec::new(),
+                    format: RouteFormat::Generic,
                 }],
                 ..Default::default()
             },
