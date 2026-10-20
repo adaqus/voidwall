@@ -65,7 +65,9 @@ pub(crate) fn nino_check(s: &str) -> bool {
     if matches!(second, 'D' | 'F' | 'I' | 'O' | 'Q' | 'U' | 'V') {
         return false;
     }
-    let prefix = &upper[..2];
+    let Some(prefix) = upper.get(..2) else {
+        return false;
+    };
     if matches!(prefix, "BG" | "GB" | "NK" | "KN" | "TN" | "NT" | "ZZ") {
         return false;
     }
@@ -77,7 +79,10 @@ pub(crate) fn iban_check(s: &str) -> bool {
     if compact.len() < 15 || compact.len() > 34 {
         return false;
     }
-    let rearranged = format!("{}{}", &compact[4..], &compact[..4]);
+    let Some((head, tail)) = compact.split_at_checked(4) else {
+        return false;
+    };
+    let rearranged = format!("{tail}{head}");
     let mut numeric = String::new();
     for c in rearranged.chars() {
         if c.is_ascii_digit() {
@@ -154,7 +159,7 @@ pub(crate) fn ppsn_check(s: &str) -> bool {
     let upper = s.to_uppercase();
     let bytes = upper.as_bytes();
     let digit_count = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
-    if digit_count != 7 {
+    if digit_count != 7 || bytes.len() < 8 {
         return false;
     }
     // Old format: 7 digits + 1 check letter (+ optional 'W')
@@ -185,6 +190,9 @@ pub(crate) fn uk_dl_check(s: &str) -> bool {
         return false;
     }
     let bytes = s.as_bytes();
+    if !bytes[6..10].iter().all(u8::is_ascii_digit) {
+        return false;
+    }
     let month: u32 = ((bytes[6] - b'0') as u32) * 10 + (bytes[7] - b'0') as u32;
     if !((1..=12).contains(&month) || (51..=62).contains(&month)) {
         return false;
@@ -478,7 +486,10 @@ pub(crate) fn swift_bic_check(s: &str) -> bool {
     if len != 8 && len != 11 {
         return false;
     }
-    let country = &s[4..6].to_uppercase();
+    let Some(country) = s.get(4..6) else {
+        return false;
+    };
+    let country = country.to_uppercase();
     ISO_3166_ALPHA2.binary_search(&country.as_str()).is_ok()
 }
 
@@ -497,7 +508,10 @@ const VALID_EIN_PREFIXES: &[u32] = &[
 ];
 
 pub(crate) fn ein_check(s: &str) -> bool {
-    let prefix: u32 = match s[..2].parse() {
+    let Some(prefix) = s.get(..2) else {
+        return false;
+    };
+    let prefix: u32 = match prefix.parse() {
         Ok(v) => v,
         Err(_) => return false,
     };
@@ -580,8 +594,10 @@ pub(crate) fn geolocation_check(s: &str) -> bool {
 }
 
 pub(crate) fn a_number_check(s: &str) -> bool {
-    let first = s.as_bytes()[0].to_ascii_uppercase();
-    if first != b'A' {
+    let Some(first) = s.as_bytes().first() else {
+        return false;
+    };
+    if !first.eq_ignore_ascii_case(&b'A') {
         return false;
     }
     let digits = &s[1..];
@@ -597,7 +613,10 @@ pub(crate) fn uscis_receipt_check(s: &str) -> bool {
     if s.len() != 13 {
         return false;
     }
-    let prefix = s[..3].to_uppercase();
+    let Some(prefix) = s.get(..3) else {
+        return false;
+    };
+    let prefix = prefix.to_uppercase();
     USCIS_CENTER_CODES.binary_search(&prefix.as_str()).is_ok()
 }
 
@@ -1020,7 +1039,8 @@ pub(crate) fn nir_check(s: &str) -> bool {
         .filter(|c| !matches!(c, ' ' | '.' | '-'))
         .collect();
 
-    if clean.len() != 15 {
+    // Only ASCII digits can pass, and the slices below assume one byte per char.
+    if clean.len() != 15 || !clean.is_ascii() {
         return false;
     }
 
@@ -2941,5 +2961,95 @@ mod tests {
     #[test_case("12345/67/89A1", false ; "invalid letter")]
     fn pl_dl(input: &str, expected: bool) {
         assert_eq!(pl_dl_check(input), expected);
+    }
+
+    // --- every validator, on input no pattern produces ---
+
+    type Validator = fn(&str) -> bool;
+
+    // A validator added to this file must be added here too.
+    #[rustfmt::skip]
+    const ALL_VALIDATORS: &[(&str, Validator)] = &[
+        ("always_valid", always_valid), ("luhn_check", luhn_check), ("ssn_check", ssn_check),
+        ("nino_check", nino_check), ("iban_check", iban_check), ("ip_check", ip_check),
+        ("itin_check", itin_check), ("sin_check", sin_check), ("ppsn_check", ppsn_check),
+        ("uk_dl_check", uk_dl_check), ("vin_check", vin_check), ("tfn_check", tfn_check),
+        ("ird_check", ird_check), ("nhs_check", nhs_check), ("medicare_check", medicare_check),
+        ("phone_check", phone_check), ("e164_check", e164_check),
+        ("passport_check", passport_check), ("passport_new_check", passport_new_check),
+        ("swift_bic_check", swift_bic_check), ("ein_check", ein_check),
+        ("imei_check", imei_check), ("utr_check", utr_check), ("aba_check", aba_check),
+        ("geolocation_check", geolocation_check), ("a_number_check", a_number_check),
+        ("uscis_receipt_check", uscis_receipt_check), ("za_luhn13_check", za_luhn13_check),
+        ("za_postal_check", za_postal_check), ("us_zip_check", us_zip_check),
+        ("us_za_postal_check", us_za_postal_check), ("ie_eircode_check", ie_eircode_check),
+        ("us_dl_check", us_dl_check), ("us_dl_numeric_check", us_dl_numeric_check),
+        ("sort_code_check", sort_code_check), ("nhi_check", nhi_check),
+        ("nz_dl_check", nz_dl_check), ("ie_driver_check", ie_driver_check),
+        ("ca_dl_check", ca_dl_check), ("za_trn_check", za_trn_check), ("dob_check", dob_check),
+        ("siren_luhn_check", siren_luhn_check), ("siret_luhn_check", siret_luhn_check),
+        ("nir_check", nir_check), ("fr_postal_check", fr_postal_check),
+        ("fr_nif_check", fr_nif_check), ("de_steuer_id_check", de_steuer_id_check),
+        ("de_personalausweis_check", de_personalausweis_check),
+        ("de_passport_check", de_passport_check), ("de_postal_check", de_postal_check),
+        ("at_svnr_check", at_svnr_check), ("at_postal_check", at_postal_check),
+        ("ch_ahv_check", ch_ahv_check), ("ch_postal_check", ch_postal_check),
+        ("ohip_check", ohip_check), ("de_at_address_check", de_at_address_check),
+        ("de_at_postfach_check", de_at_postfach_check),
+        ("de_packstation_check", de_packstation_check), ("gb_address_check", gb_address_check),
+        ("fr_ch_address_check", fr_ch_address_check),
+        ("fr_ch_boite_postale_check", fr_ch_boite_postale_check),
+        ("au_dl_check", au_dl_check), ("au_abn_check", au_abn_check),
+        ("person_name_check", person_name_check), ("bsn_check", bsn_check),
+        ("nl_btw_check", nl_btw_check), ("nl_postal_check", nl_postal_check),
+        ("nl_passport_check", nl_passport_check), ("nl_dl_check", nl_dl_check),
+        ("it_codice_fiscale_check", it_codice_fiscale_check),
+        ("it_partita_iva_check", it_partita_iva_check), ("it_postal_check", it_postal_check),
+        ("it_passport_check", it_passport_check), ("it_dl_check", it_dl_check),
+        ("es_dni_check", es_dni_check), ("es_nie_check", es_nie_check),
+        ("es_cif_check", es_cif_check), ("es_nuss_check", es_nuss_check),
+        ("es_passport_check", es_passport_check), ("es_postal_check", es_postal_check),
+        ("pl_pesel_check", pl_pesel_check), ("pl_nip_check", pl_nip_check),
+        ("pl_regon_check", pl_regon_check), ("pl_id_card_check", pl_id_card_check),
+        ("pl_passport_check", pl_passport_check), ("pl_postal_check", pl_postal_check),
+        ("pl_dl_check", pl_dl_check),
+    ];
+
+    /// Runs of one character, up to 40 long, and the same runs with one
+    /// character swapped for a 2-, 3- or 4-byte one at every position: short
+    /// input, input with no digits, and multi-byte characters at every offset
+    /// a validator could slice at.
+    fn odd_inputs() -> Vec<String> {
+        let mut inputs = Vec::new();
+        for len in 0..=40 {
+            for base in ["9", "A", " ", "-"] {
+                inputs.push(base.repeat(len));
+                for at in 0..len {
+                    for wide in ["é", "€", "𝟘"] {
+                        let mut input = base.repeat(len);
+                        input.replace_range(at..at + 1, wide);
+                        inputs.push(input);
+                    }
+                }
+            }
+        }
+        inputs
+    }
+
+    /// A model guard validates spans whose shape no pattern guarantees, so a
+    /// validator answers `false` for input it cannot read, never panics.
+    #[test]
+    fn no_validator_panics_on_odd_input() {
+        let inputs = odd_inputs();
+        let panicking: Vec<&str> = ALL_VALIDATORS
+            .iter()
+            .filter(|(_, validator)| {
+                inputs
+                    .iter()
+                    .any(|input| std::panic::catch_unwind(|| validator(input)).is_err())
+            })
+            .map(|(name, _)| *name)
+            .collect();
+        assert!(panicking.is_empty(), "validators that panic: {panicking:?}");
     }
 }
