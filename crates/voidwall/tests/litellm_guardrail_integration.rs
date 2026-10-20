@@ -259,7 +259,7 @@ async fn another_content_type_answers_415() {
 
 #[tokio::test]
 async fn an_oversize_body_answers_as_v1_scan_does() {
-    let server = Server::start("max_body_size = 64").await;
+    let server = Server::start("max_body_size = 64\nstream_holdback_bytes = 64\nstream_context_bytes = 64\nstream_scan_bytes = 64").await;
     let litellm = server.post_litellm(&fixture(REQUEST_TOOLS)).await;
     let scan = server
         .post("/v1/scan", "application/json", REQUEST_TOOLS)

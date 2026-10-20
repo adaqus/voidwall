@@ -11,17 +11,10 @@ use super::chat_completions::{Decoded, Selection};
 use super::json::flatten_json;
 use crate::error::Error;
 
-/// A decoded request, and whether it asks for a stream.
-pub struct Request {
-    pub decoded: Decoded,
-    /// True only when `stream` is the JSON value `true`.
-    pub stream: bool,
-}
-
 /// Decode a Chat Completions request. A body that is not a JSON object with a
 /// `messages` array is [`Error::BodyParse`]. A classification that does not
 /// line up with the flattened fragments is [`Error::Scanner`].
-pub fn decode_request(raw: &[u8]) -> Result<Request, Error> {
+pub fn decode_request(raw: &[u8]) -> Result<Decoded, Error> {
     let document: Value = serde_json::from_slice(raw).map_err(|_| Error::BodyParse)?;
     let Value::Object(request) = &document else {
         return Err(Error::BodyParse);
@@ -29,15 +22,10 @@ pub fn decode_request(raw: &[u8]) -> Result<Request, Error> {
     if !request.get("messages").is_some_and(Value::is_array) {
         return Err(Error::BodyParse);
     }
-    let stream = request.get("stream") == Some(&Value::Bool(true));
-
     let mut selection = Selection::new();
     selection.request(request);
     let fragments = flatten_json(raw).map_err(|_| Error::BodyParse)?;
-    Ok(Request {
-        decoded: selection.into_decoded(fragments)?,
-        stream,
-    })
+    selection.into_decoded(fragments)
 }
 
 /// Decode a Chat Completions response. A JSON value that is not an object is
@@ -67,18 +55,10 @@ mod tests {
         assert!(matches!(decode_request(raw), Err(Error::BodyParse)));
     }
 
-    #[test_case(br#"{"messages": [], "stream": true}"#, true ; "boolean true")]
-    #[test_case(br#"{"messages": [], "stream": "true"}"#, false ; "string true")]
-    #[test_case(br#"{"messages": [], "stream": false}"#, false ; "boolean false")]
-    #[test_case(br#"{"messages": []}"#, false ; "absent")]
-    fn only_the_boolean_true_asks_for_a_stream(raw: &[u8], expected: bool) {
-        assert_eq!(decode_request(raw).unwrap().stream, expected);
-    }
-
     #[test]
     fn a_request_is_cut_into_its_units() {
         let raw = br#"{"model":"m","messages":[{"role":"user","content":"a"}],"user":"b"}"#;
-        let decoded = decode_request(raw).unwrap().decoded;
+        let decoded = decode_request(raw).unwrap();
         let values: Vec<Vec<&str>> = decoded
             .units
             .iter()
@@ -119,10 +99,9 @@ mod tests {
         let raw = include_bytes!(
             "../../tests/fixtures/openai-chat/openai-python-3.5.0-request-full.json"
         );
-        let request = decode_request(raw).expect("fixture decodes");
-        assert!(!request.stream);
-        assert_eq!(request.decoded.unknown_parts, 0);
-        assert_eq!(request.decoded.encoded_values, 1, "the one inline image");
+        let decoded = decode_request(raw).expect("fixture decodes");
+        assert_eq!(decoded.unknown_parts, 0);
+        assert_eq!(decoded.encoded_values, 1, "the one inline image");
     }
 
     /// Responses as LM Studio 0.4.26 sent them. The integration tests serve

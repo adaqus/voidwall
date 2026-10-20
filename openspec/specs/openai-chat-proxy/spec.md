@@ -253,53 +253,6 @@ scan the rest. Either way `voidwall_errors_total` SHALL increment with
 - **AND** `voidwall_errors_total` increments with `outcome="passed"` and
   `reason="unscannable_content"`
 
-### Requirement: A stream is unscannable
-
-When response scan is on, a request whose `stream` is `true` SHALL be unscannable. Under
-`fail_close` the proxy SHALL answer 422 before any guard runs and before the upstream
-call, and SHALL increment `voidwall_errors_total` with `outcome="blocked"` and
-`reason="unscannable_stream"`. Under `fail_open` the proxy SHALL scan and forward the
-request as it would without `stream`.
-
-When response scan is on, an upstream response with the content type
-`text/event-stream` SHALL be unscannable. Under `fail_close` the proxy SHALL answer 422,
-and no part of the upstream body SHALL reach the client. Under `fail_open` the proxy SHALL
-forward the response unscanned, as it does with response scan off: the body streams to
-the client, and neither `max_body_size` nor the time limit on the body read applies.
-Either way `voidwall_errors_total` SHALL increment with
-`reason="unscannable_stream"` and the `outcome` the message took.
-
-When response scan is off, `stream` SHALL NOT be checked, and a stream SHALL pass as on
-any route.
-
-#### Scenario: stream true under fail_close
-
-- **WHEN** response scan is on, `on_error` is `fail_close`, and a client posts a request
-  with `"stream": true`
-- **THEN** the proxy answers 422 and does not reach the upstream
-- **AND** `voidwall_errors_total` increments with `outcome="blocked"` and
-  `reason="unscannable_stream"`
-
-#### Scenario: stream true under fail_open
-
-- **WHEN** response scan is on, `on_error` is `fail_open`, a client posts a clean request
-  with `"stream": true`, and the upstream answers `text/event-stream`
-- **THEN** the client receives the upstream stream
-- **AND** `voidwall_errors_total` increments once with `outcome="passed"` and
-  `reason="unscannable_stream"`
-
-#### Scenario: A stream with request scan off
-
-- **WHEN** request scan is off, response scan is on, `on_error` is `fail_close`, and the
-  upstream answers `text/event-stream`
-- **THEN** the proxy answers 422 and no part of the stream reaches the client
-
-#### Scenario: A stream with response scan off
-
-- **WHEN** response scan is off and a client posts a clean request with `"stream": true`
-- **THEN** the proxy forwards the request and the client receives the upstream stream
-- **AND** `voidwall_errors_total` does not increment
-
 ### Requirement: A response that is not JSON is unscannable
 
 When response scan is on, a non-empty upstream response body whose content type is not
@@ -371,13 +324,14 @@ and `code`. `param` SHALL be `null`. The other keys SHALL be:
 | 400 | Malformed body | `body parse failed` | `invalid_request_error` | `malformed_body` |
 | 413 | Oversize body | `request body too large` | `invalid_request_error` | `body_too_large` |
 | 413 | Window limit | `tokenized content too long to scan` | `invalid_request_error` | `content_too_long` |
-| 422 | Unscannable content or stream | `unscannable content` | `invalid_request_error` | `unscannable_content` |
+| 422 | Unscannable content | `unscannable content` | `invalid_request_error` | `unscannable_content` |
 | 500 | Scanner or inference failure | `internal error` | `server_error` | `internal_error` |
-| 502 | Upstream failure or oversize response | `upstream error` | `server_error` | `upstream_error` |
-| 504 | Upstream timeout | `upstream timeout` | `server_error` | `upstream_timeout` |
+| 502 | Upstream failure, oversize response, or oversize stream | `upstream error` | `server_error` | `upstream_error` |
+| 504 | Upstream timeout or idle stream | `upstream timeout` | `server_error` | `upstream_timeout` |
 
 No body SHALL carry a detail of the failure, a matched value, or a fragment of the
-scanned message. A 422 SHALL NOT say whether a stream or a content part caused it.
+scanned message. After the first byte of a stream, the same body SHALL go in the error
+event that the `openai-chat-streaming` capability states.
 
 A response the upstream sends and the proxy forwards SHALL reach the client unchanged.
 

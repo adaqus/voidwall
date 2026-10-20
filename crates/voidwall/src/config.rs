@@ -89,9 +89,31 @@ pub struct AppConfig {
 
     /// Seconds one upstream exchange may take: from sending the request until
     /// the response headers arrive, and the body read when response scan
-    /// buffers it. The type rejects a value outside its range at parse.
+    /// buffers it. A stream on an `openai-chat` route is limited by
+    /// `stream_idle_timeout_secs` instead once its headers arrive. The type
+    /// rejects a value outside its range at parse.
     #[serde(default)]
     pub upstream_timeout_secs: UpstreamTimeout,
+
+    /// Seconds a stream on an `openai-chat` route may go without a byte from
+    /// the upstream.
+    #[serde(default)]
+    pub stream_idle_timeout_secs: StreamIdleTimeout,
+
+    /// Bytes of joined stream text held back behind the newest text, at most
+    /// `max_body_size`.
+    #[serde(default)]
+    pub stream_holdback_bytes: StreamHoldback,
+
+    /// Bytes of already-sent stream text each scan covers before the text not
+    /// yet sent, at most `max_body_size`.
+    #[serde(default)]
+    pub stream_context_bytes: StreamContext,
+
+    /// Bytes of new stream text that start the next scan, at most
+    /// `stream_holdback_bytes`.
+    #[serde(default)]
+    pub stream_scan_bytes: StreamScan,
 }
 
 impl Default for AppConfig {
@@ -108,6 +130,10 @@ impl Default for AppConfig {
             admin: AdminConfig::default(),
             shutdown_timeout_secs: default_shutdown_timeout_secs(),
             upstream_timeout_secs: UpstreamTimeout::default(),
+            stream_idle_timeout_secs: StreamIdleTimeout::default(),
+            stream_holdback_bytes: StreamHoldback::default(),
+            stream_context_bytes: StreamContext::default(),
+            stream_scan_bytes: StreamScan::default(),
         }
     }
 }
@@ -151,6 +177,95 @@ impl TryFrom<u64> for UpstreamTimeout {
         }
     }
 }
+
+/// The longest gap between two reads of a stream, in whole seconds from 1 to
+/// [`StreamIdleTimeout::MAX_SECS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "u64")]
+pub struct StreamIdleTimeout(u64);
+
+impl StreamIdleTimeout {
+    pub const MAX_SECS: u64 = 3600;
+
+    pub fn as_duration(self) -> Duration {
+        Duration::from_secs(self.0)
+    }
+}
+
+impl Default for StreamIdleTimeout {
+    fn default() -> Self {
+        Self(60)
+    }
+}
+
+impl TryFrom<u64> for StreamIdleTimeout {
+    type Error = String;
+
+    fn try_from(secs: u64) -> Result<Self, Self::Error> {
+        if (1..=Self::MAX_SECS).contains(&secs) {
+            Ok(Self(secs))
+        } else {
+            Err(format!(
+                "stream_idle_timeout_secs must be from 1 to {}, got {secs}",
+                Self::MAX_SECS
+            ))
+        }
+    }
+}
+
+/// A stream window size in bytes, at least 1. The type rejects zero at parse;
+/// the bound another key sets is a rule in validation.
+macro_rules! stream_bytes_key {
+    ($(#[$doc:meta])* $name:ident, $key:literal, $default:literal) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+        #[serde(try_from = "usize")]
+        pub struct $name(usize);
+
+        impl $name {
+            pub fn get(self) -> usize {
+                self.0
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self($default)
+            }
+        }
+
+        impl TryFrom<usize> for $name {
+            type Error = String;
+
+            fn try_from(bytes: usize) -> Result<Self, Self::Error> {
+                if bytes >= 1 {
+                    Ok(Self(bytes))
+                } else {
+                    Err(format!("{} must be at least 1, got {bytes}", $key))
+                }
+            }
+        }
+    };
+}
+
+stream_bytes_key!(
+    /// `stream_holdback_bytes`: text kept back behind the newest text.
+    StreamHoldback,
+    "stream_holdback_bytes",
+    512
+);
+stream_bytes_key!(
+    /// `stream_context_bytes`: already-sent text a scan covers.
+    StreamContext,
+    "stream_context_bytes",
+    512
+);
+stream_bytes_key!(
+    /// `stream_scan_bytes`: new text that starts the next scan.
+    StreamScan,
+    "stream_scan_bytes",
+    256
+);
 
 // ---------------------------------------------------------------------------
 // Guards
@@ -625,27 +740,65 @@ pub struct Route {
     pub headers: Vec<String>,
 
     /// How the route decodes its bodies and shapes its answers. Absent, the
-    /// route scans bodies generically.
+    /// route scans bodies generically. Read it through [`Route::resolved_format`].
     #[serde(default)]
-    pub format: RouteFormat,
+    pub format: RouteFormatKey,
+
+    /// How a route with `format = "openai-chat"` scans a stream. Validation
+    /// rejects it on any other route. Read it through
+    /// [`Route::resolved_format`].
+    #[serde(default)]
+    pub stream: Option<StreamMode>,
 }
 
-/// The body format of a reverse proxy route. The only value a config can
-/// write is `openai-chat`; `Generic` is what an absent key means.
+/// The `format` key of a reverse proxy route as written. The only value a
+/// config can write is `openai-chat`; `Generic` is what an absent key means.
 #[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
-pub enum RouteFormat {
-    /// Bodies are scanned by content type, and a detection answers the fixed
-    /// 403.
+pub enum RouteFormatKey {
     #[default]
     #[serde(skip_deserializing)]
     Generic,
-    /// Bodies are decoded as OpenAI Chat Completions, and every answer uses
-    /// the OpenAI error shape.
     #[serde(rename = "openai-chat")]
     OpenAiChat,
 }
 
+/// The `stream` key of a reverse proxy route.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamMode {
+    /// Forward each event once a scan shows no match can overlap it.
+    #[default]
+    Holdback,
+    /// Read the whole stream, scan it once, then send it or block it.
+    Buffer,
+}
+
+/// The body format of a reverse proxy route, resolved from `format` and
+/// `stream`. Only an `openai-chat` route carries a stream mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteFormat {
+    /// Bodies are scanned by content type, and a detection answers the fixed
+    /// 403.
+    Generic,
+    /// Bodies are decoded as OpenAI Chat Completions, and every answer uses
+    /// the OpenAI error shape. A `text/event-stream` response is scanned in
+    /// the stream mode.
+    OpenAiChat { stream: StreamMode },
+}
+
 impl Route {
+    /// The route's format with its stream mode. A `stream` key on a route
+    /// without `format = "openai-chat"` fails validation, so it is never read
+    /// here.
+    pub fn resolved_format(&self) -> RouteFormat {
+        match self.format {
+            RouteFormatKey::Generic => RouteFormat::Generic,
+            RouteFormatKey::OpenAiChat => RouteFormat::OpenAiChat {
+                stream: self.stream.unwrap_or_default(),
+            },
+        }
+    }
+
     /// The guards that run for this route.
     ///
     /// A route that names none takes every enabled guard; one that names an
@@ -815,7 +968,54 @@ impl AppConfig {
         config.validate_model_guard_artifacts()?;
         config.warn_on_empty_guard_set();
         config.warn_on_model_thread_total();
+        config.warn_on_unbounded_custom_patterns();
         Ok(config)
+    }
+
+    /// Warn once when a hold-back stream can meet a custom pattern without
+    /// keywords. Such a pattern has no bound on its match length, so a match
+    /// longer than the hold-back can reach the client in part before it is
+    /// found. Buffer mode has no such gap.
+    pub fn warn_on_unbounded_custom_patterns(&self) {
+        if let Some((labels, routes)) = self.unbounded_custom_patterns() {
+            tracing::warn!(
+                labels = %labels.join(", "),
+                routes = %routes.join(", "),
+                "custom PII patterns without keywords have no match length bound; \
+                 a hold-back stream can send part of a long match before it is found",
+            );
+        }
+    }
+
+    /// The custom labels without keywords and the prefixes of the hold-back
+    /// `openai-chat` routes that select the `pii` guard, when there are both.
+    fn unbounded_custom_patterns(&self) -> Option<(Vec<&str>, Vec<&str>)> {
+        if !self.reverse_proxy.enabled {
+            return None;
+        }
+        let pii = self.builtin_guards.enabled_pii()?;
+        let labels: Vec<&str> = pii
+            .custom
+            .iter()
+            .filter(|c| c.keywords.is_empty())
+            .map(|c| c.label.as_str())
+            .collect();
+        let enabled = self.builtin_guards.enabled_names();
+        let routes: Vec<&str> = self
+            .reverse_proxy
+            .routes
+            .iter()
+            .filter(|r| {
+                r.resolved_format()
+                    == RouteFormat::OpenAiChat {
+                        stream: StreamMode::Holdback,
+                    }
+                    && r.selected_guards(&enabled)
+                        .contains(&BUILTIN_PII_GUARD_NAME)
+            })
+            .map(|r| r.path_prefix.as_str())
+            .collect();
+        (!labels.is_empty() && !routes.is_empty()).then_some((labels, routes))
     }
 
     /// Warn once when configuration enables no guard.
@@ -896,6 +1096,40 @@ impl AppConfig {
         self.validate_guard_surfaces()?;
         self.validate_model_guards()?;
         self.validate_reverse_proxy()?;
+        self.validate_stream_keys()?;
+        Ok(())
+    }
+
+    /// The stream keys whose upper bound is another key.
+    fn validate_stream_keys(&self) -> Result<(), Error> {
+        let holdback = self.stream_holdback_bytes.get();
+        let bounds = [
+            (
+                "stream_holdback_bytes",
+                holdback,
+                "max_body_size",
+                self.max_body_size,
+            ),
+            (
+                "stream_context_bytes",
+                self.stream_context_bytes.get(),
+                "max_body_size",
+                self.max_body_size,
+            ),
+            (
+                "stream_scan_bytes",
+                self.stream_scan_bytes.get(),
+                "stream_holdback_bytes",
+                holdback,
+            ),
+        ];
+        for (key, value, bound_key, bound) in bounds {
+            if value > bound {
+                return Err(Error::Config(format!(
+                    "{key} is {value}; it must not be larger than {bound_key} ({bound})",
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -1239,6 +1473,13 @@ impl AppConfig {
                 }
             }
 
+            if route.stream.is_some() && route.format != RouteFormatKey::OpenAiChat {
+                return Err(Error::Config(format!(
+                    "reverse_proxy: route '{}' sets stream without format = \"openai-chat\"",
+                    route.path_prefix,
+                )));
+            }
+
             if !prefixes.insert(&route.path_prefix) {
                 return Err(Error::Config(format!(
                     "reverse_proxy: duplicate path_prefix '{}'",
@@ -1538,16 +1779,178 @@ upstream = "http://localhost:8080"
         );
     }
 
-    #[test_case("", RouteFormat::Generic ; "format is absent")]
-    #[test_case("format = \"openai-chat\"", RouteFormat::OpenAiChat ; "format is openai-chat")]
-    fn a_route_reads_its_format(line: &str, expected: RouteFormat) {
-        let toml = format!(
+    /// The minimal config with one reverse proxy route that carries `lines`.
+    fn route_toml(lines: &str) -> String {
+        format!(
             "{}\n[reverse_proxy]\nenabled = true\n\n[[reverse_proxy.routes]]\n\
-             path_prefix = \"/v1\"\nupstream = \"http://localhost:8080\"\n{line}\n",
+             path_prefix = \"/v1\"\nupstream = \"http://localhost:8080\"\n{lines}\n",
+            minimal_toml()
+        )
+    }
+
+    /// The validation category a config fails with, as `validate.rs` assigns
+    /// it: `schema` for a failure to load, `semantic` for a failed rule.
+    fn failure_category(toml_str: &str) -> (&'static str, String) {
+        match toml::from_str::<AppConfig>(toml_str) {
+            Err(e) => ("schema", e.to_string()),
+            Ok(config) => (
+                "semantic",
+                config
+                    .validate()
+                    .expect_err("expected a failure")
+                    .to_string(),
+            ),
+        }
+    }
+
+    #[test_case("", RouteFormat::Generic ; "format is absent")]
+    #[test_case("format = \"openai-chat\"", RouteFormat::OpenAiChat { stream: StreamMode::Holdback } ; "format is openai-chat")]
+    fn a_route_reads_its_format(line: &str, expected: RouteFormat) {
+        let config = parse(&route_toml(line)).unwrap();
+        assert_eq!(config.reverse_proxy.routes[0].resolved_format(), expected);
+    }
+
+    // --- A reverse proxy route's stream mode is validated ---
+
+    #[test_case("format = \"openai-chat\"", StreamMode::Holdback ; "stream is absent on an openai-chat route")]
+    #[test_case("format = \"openai-chat\"\nstream = \"holdback\"", StreamMode::Holdback ; "stream is holdback")]
+    #[test_case("format = \"openai-chat\"\nstream = \"buffer\"", StreamMode::Buffer ; "stream is buffer")]
+    fn a_valid_stream_mode_resolves_into_the_format(lines: &str, stream: StreamMode) {
+        let config = parse(&route_toml(lines)).unwrap();
+        assert_eq!(
+            config.reverse_proxy.routes[0].resolved_format(),
+            RouteFormat::OpenAiChat { stream }
+        );
+    }
+
+    #[test_case("format = \"openai-chat\"\nstream = \"chunked\"", "schema" ; "an unknown stream mode")]
+    #[test_case("format = \"openai-chat\"\nstream = true", "schema" ; "stream is not a string")]
+    #[test_case("stream = \"buffer\"", "semantic" ; "stream without the openai-chat format")]
+    fn an_invalid_stream_mode_fails(lines: &str, category: &str) {
+        let (got, msg) = failure_category(&route_toml(lines));
+        assert_eq!(got, category, "got: {msg}");
+        assert!(msg.contains("stream"), "got: {msg}");
+        if category == "semantic" {
+            assert!(msg.contains("/v1"), "names the route: {msg}");
+        }
+    }
+
+    // --- The stream keys are top-level keys ---
+
+    #[test]
+    fn the_stream_keys_default_when_absent() {
+        let config = parse(&minimal_toml()).unwrap();
+        assert_eq!(
+            config.stream_idle_timeout_secs.as_duration(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(config.stream_holdback_bytes.get(), 512);
+        assert_eq!(config.stream_context_bytes.get(), 512);
+        assert_eq!(config.stream_scan_bytes.get(), 256);
+    }
+
+    #[test]
+    fn the_stream_keys_are_read_from_the_top_level() {
+        let toml = format!(
+            "stream_idle_timeout_secs = 30\nstream_holdback_bytes = 1024\n\
+             stream_context_bytes = 768\nstream_scan_bytes = 128\n{}",
             minimal_toml()
         );
         let config = parse(&toml).unwrap();
-        assert_eq!(config.reverse_proxy.routes[0].format, expected);
+        assert_eq!(
+            config.stream_idle_timeout_secs.as_duration(),
+            Duration::from_secs(30)
+        );
+        assert_eq!(config.stream_holdback_bytes.get(), 1024);
+        assert_eq!(config.stream_context_bytes.get(), 768);
+        assert_eq!(config.stream_scan_bytes.get(), 128);
+    }
+
+    #[test_case("stream_idle_timeout_secs = 1", 1 ; "idle timeout at the lower bound")]
+    #[test_case("stream_idle_timeout_secs = 3600", 3600 ; "idle timeout at the upper bound")]
+    fn the_idle_timeout_inside_its_range_is_read(line: &str, secs: u64) {
+        let config = parse(&format!("{line}\n{}", minimal_toml())).unwrap();
+        assert_eq!(
+            config.stream_idle_timeout_secs.as_duration(),
+            Duration::from_secs(secs)
+        );
+    }
+
+    #[test_case("stream_idle_timeout_secs = 0", "stream_idle_timeout_secs" ; "idle timeout is zero")]
+    #[test_case("stream_idle_timeout_secs = 3601", "stream_idle_timeout_secs" ; "idle timeout above the upper bound")]
+    #[test_case("stream_idle_timeout_secs = \"60\"", "stream_idle_timeout_secs" ; "idle timeout of the wrong type")]
+    #[test_case("stream_holdback_bytes = 0", "stream_holdback_bytes" ; "holdback is zero")]
+    #[test_case("stream_context_bytes = 0", "stream_context_bytes" ; "context is zero")]
+    #[test_case("stream_scan_bytes = 0", "stream_scan_bytes" ; "scan step is zero")]
+    #[test_case("stream_scan_bytes = -1", "stream_scan_bytes" ; "scan step is negative")]
+    fn a_stream_key_outside_its_fixed_range_fails_with_schema(line: &str, key: &str) {
+        let (category, msg) = failure_category(&format!("{line}\n{}", minimal_toml()));
+        assert_eq!(category, "schema", "got: {msg}");
+        assert!(msg.contains(key), "got: {msg}");
+    }
+
+    #[test_case("max_body_size = 2048\nstream_holdback_bytes = 4096", "stream_holdback_bytes" ; "holdback larger than max_body_size")]
+    #[test_case("max_body_size = 2048\nstream_context_bytes = 4096", "stream_context_bytes" ; "context larger than max_body_size")]
+    #[test_case("stream_holdback_bytes = 256\nstream_scan_bytes = 512", "stream_scan_bytes" ; "scan step larger than the holdback")]
+    fn a_stream_key_above_another_key_fails_with_semantic(lines: &str, key: &str) {
+        let (category, msg) = failure_category(&format!("{lines}\n{}", minimal_toml()));
+        assert_eq!(category, "semantic", "got: {msg}");
+        assert!(msg.contains(key), "got: {msg}");
+    }
+
+    #[test_case("stream_holdback_bytes = 256\nstream_scan_bytes = 256" ; "scan step equals the holdback")]
+    #[test_case("max_body_size = 2048\nstream_holdback_bytes = 2048\nstream_context_bytes = 2048" ; "holdback and context equal max_body_size")]
+    fn a_stream_key_at_another_keys_bound_passes(lines: &str) {
+        parse(&format!("{lines}\n{}", minimal_toml())).unwrap();
+    }
+
+    // --- Startup warns about custom patterns without a bound ---
+
+    fn custom_route_toml(stream: &str) -> String {
+        format!(
+            r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[[builtin_guards.pii.custom]]
+label = "TICKET"
+pattern = "TCK-[0-9]+"
+
+[[builtin_guards.pii.custom]]
+label = "BADGE"
+pattern = "[0-9]{{6}}"
+keywords = ["badge"]
+
+[reverse_proxy]
+enabled = true
+
+[[reverse_proxy.routes]]
+path_prefix = "/v1/chat"
+upstream = "http://localhost:8080"
+format = "openai-chat"
+{stream}
+
+[[reverse_proxy.routes]]
+path_prefix = "/plain"
+upstream = "http://localhost:8080"
+"#
+        )
+    }
+
+    #[test]
+    fn a_custom_pattern_without_keywords_on_a_holdback_route_warns() {
+        let config = parse(&custom_route_toml("")).unwrap();
+        assert_eq!(
+            config.unbounded_custom_patterns(),
+            Some((vec!["TICKET"], vec!["/v1/chat"]))
+        );
+    }
+
+    #[test_case("stream = \"buffer\"" ; "buffer mode")]
+    #[test_case("guards = []" ; "the route selects no guard")]
+    fn a_route_that_cannot_leak_a_long_match_does_not_warn(line: &str) {
+        let config = parse(&custom_route_toml(line)).unwrap();
+        assert_eq!(config.unbounded_custom_patterns(), None);
     }
 
     // --- Built-in guard section (1.3) ---

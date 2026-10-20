@@ -116,9 +116,35 @@ route in the flat shape. A detection answers 400 in the OpenAI error shape, and 
 keeps its status with an OpenAI-shaped body. The 404 for an unmatched path is outside every
 route and stays plain.
 
-The response content type is read before the body. A `text/event-stream`, or another body
-that is not JSON, is unscannable and follows `on_error`; under `fail_open` it streams through
-unbuffered. Upstreams are reached over plain HTTP only (§ 7).
+The response content type is read before the body. A body that is neither JSON nor a
+`text/event-stream` is unscannable and follows `on_error`; under `fail_open` it streams
+through unbuffered. Upstreams are reached over plain HTTP only (§ 7).
+
+A `text/event-stream` response is scanned as a stream, whatever the request said about
+`stream`. `structured::sse` frames the events and keeps each one's raw bytes;
+`structured::openai_chat_stream` joins the text of each choice and field, keyed by the path
+the field has under `choices[].message`, and reads it by the same field rules. The route's
+`stream` key picks the mode:
+
+- `holdback` (the default): the window in `reverse_proxy::holdback` keeps
+  `stream_holdback_bytes` of each joined text back, scans every `stream_scan_bytes` of new
+  text with `stream_context_bytes` of sent text before it, and releases whole upstream
+  events, unchanged and in order, once a scan clears them. A finding that ends in the last
+  2 bytes waits for more text; a finding without a span waits one scan. A text closes when
+  its choice sends text for another field or tool call, or sends `finish_reason`: it is
+  scanned as at the end and released whole, and it opens again if more text comes. The
+  status and headers wait for the first release, so a stop before it answers as a
+  buffered response does. After it, a stop sends one `data:` event with the same error
+  body and closes, without `[DONE]`.
+- `buffer`: the whole stream is read, scanned once, and then sent as the exact upstream
+  bytes or answered with the 400.
+
+The proxy does not decompress. A stream with a `Content-Encoding` other than `identity`
+is unscannable in both modes and follows `on_error`.
+
+For a stream, `upstream_timeout_secs` bounds only the wait for the headers. Each read of
+the body runs under `stream_idle_timeout_secs`, and the body counts against
+`max_body_size`; both stop the stream whatever `on_error` says.
 
 ### Modules
 
@@ -150,7 +176,8 @@ whatever it needs to detect — the regex PII guard owns the scanner pool.
    names, or 400 in the OpenAI error shape on an `openai-chat` route. Nothing anywhere on this path rewrites a message.
 8. With no detection, the proxy forwards to the upstream unchanged.
 9. The response travels the same path in the other direction, when `response.scan` is
-   true.
+   true. A `text/event-stream` on an `openai-chat` route is scanned as it arrives instead
+   of buffered whole, in hold-back or buffer mode (§ 2).
 
 Each stage has one job, and the boundary between stages is a plain data type. That is
 why a stage can change without touching the rest.

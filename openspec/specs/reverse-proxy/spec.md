@@ -370,8 +370,9 @@ neither logged nor counted.
 The reverse proxy SHALL limit the upstream exchange to `upstream_timeout_secs` seconds.
 The limit SHALL start when the proxy sends the request to the upstream. It SHALL cover the
 wait for the response headers. When response scan is on, it SHALL also cover the read of
-the response body. When response scan is off, the body streams to the client and the
-limit SHALL NOT apply to it.
+the response body, except for a stream on a route with `format = "openai-chat"`, whose
+body the idle timeout of the `openai-chat-streaming` capability limits instead. When
+response scan is off, the body streams to the client and the limit SHALL NOT apply to it.
 
 When the limit expires, the proxy SHALL answer 504, whatever `on_error` says. On a route
 without `format` the body SHALL be exactly `{"error":"upstream timeout"}`. On a route
@@ -391,6 +392,13 @@ with `format = "openai-chat"` the body SHALL be the OpenAI error shape that the
   finish the body within `upstream_timeout_secs` of the request
 - **THEN** the proxy answers 504 and no part of the upstream body reaches the client
 
+#### Scenario: A stream outlives the upstream timeout
+
+- **WHEN** response scan is on, the route has `format = "openai-chat"`, and the upstream
+  sends a clean `text/event-stream` body that lasts longer than `upstream_timeout_secs`,
+  with no gap longer than `stream_idle_timeout_secs`
+- **THEN** the client receives the whole stream
+
 #### Scenario: on_error does not change the timeout answer
 
 - **WHEN** the upstream exchange times out and `on_error` is `fail_open`
@@ -407,8 +415,10 @@ When response scan is on, the reverse proxy SHALL read at most `max_body_size` b
 the upstream response body. When the body is larger, the proxy SHALL stop the read and
 answer 502, whatever `on_error` says. On a route without `format` the body SHALL be
 exactly `{"error":"upstream error"}`. On a route with `format = "openai-chat"` the body
-SHALL be the OpenAI error shape that the `openai-chat-proxy` capability states. When
-response scan is off, the proxy SHALL NOT limit the size of the response body.
+SHALL be the OpenAI error shape that the `openai-chat-proxy` capability states. A stream
+on a route with `format = "openai-chat"` SHALL follow the size limit of the
+`openai-chat-streaming` capability instead. When response scan is off, the proxy SHALL
+NOT limit the size of the response body.
 
 #### Scenario: The upstream response is too large under response scan
 

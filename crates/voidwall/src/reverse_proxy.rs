@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,22 +8,32 @@ use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use tokio::net::TcpListener;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError, RouteFormat};
-use crate::engine::{BlockPolicy, Engine, GuardSelection, UnitContent, UnitKind, Units};
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError, RouteFormat, StreamMode};
+use crate::engine::{
+    BlockPolicy, Engine, Finding, GuardSelection, ScanResult, UnitContent, UnitKind, Units,
+};
 use crate::error::{Error, INVALID_REQUEST};
-use crate::metrics::{self, UnscannedReason};
+use crate::metrics::{self, CutReason, UnscannedReason};
 use crate::scanner::SCANNER_ERROR_LIMITER;
 use crate::scanner::{classify_body, is_json_content_type};
+use crate::structured::OwnedContextFragment;
 use crate::structured::chat_completions::Decoded;
 use crate::structured::openai_chat;
+use crate::structured::openai_chat_stream::{self, Joined, Piece};
+use crate::structured::sse::{self, SseEvent, SseFramer};
+
+mod holdback;
+
+use holdback::{Holdback, TextId, WindowSizes};
 
 // ---------------------------------------------------------------------------
 // Hop-by-hop headers to strip when proxying
@@ -87,6 +98,8 @@ pub struct ReverseProxyState {
     /// The limit on one upstream exchange: the wait for the response headers,
     /// and the body read when response scan buffers the body.
     upstream_timeout: Duration,
+    /// The limits and the window of a stream on an `openai-chat` route.
+    stream: StreamSettings,
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +135,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
                 None => engine.select(None),
             },
             headers: r.headers.clone(),
-            format: r.format,
+            format: r.resolved_format(),
         })
         .collect();
 
@@ -138,6 +151,14 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         request_scan: rp.request.scan,
         response_scan: rp.response.scan,
         upstream_timeout: config.upstream_timeout_secs.as_duration(),
+        stream: StreamSettings {
+            idle: config.stream_idle_timeout_secs.as_duration(),
+            sizes: WindowSizes {
+                holdback: config.stream_holdback_bytes.get(),
+                context: config.stream_context_bytes.get(),
+                step: config.stream_scan_bytes.get(),
+            },
+        },
     }
 }
 
@@ -263,8 +284,8 @@ async fn handle_proxied_request(
                         .map(|content| vec![content])
                 }
                 RouteFormat::Generic => Ok(Vec::new()),
-                RouteFormat::OpenAiChat => {
-                    decode_openai_request(&plan, &ctx, &headers, &body_bytes, state.response_scan)
+                RouteFormat::OpenAiChat { .. } => {
+                    decode_openai_request(&plan, &ctx, &headers, &body_bytes)
                 }
             }
         } else {
@@ -329,6 +350,7 @@ async fn handle_proxied_request(
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
             error!(error = %e, upstream = %route.upstream, "upstream request failed");
+            metrics::inc_error("blocked", "upstream_error");
             return answer(shape, Error::Proxy(format!("upstream error: {e}")));
         }
         Err(_) => return answer(shape, upstream_timeout(&route.upstream)),
@@ -344,13 +366,43 @@ async fn handle_proxied_request(
             direction: "response",
         };
 
+        // A stream on an `openai-chat` route is found by its content type,
+        // whatever the request said. Its headers bound only the wait for the
+        // response headers; the stream limits bound the body. A compressed
+        // stream goes on to the check below, which finds it unscannable.
+        if let RouteFormat::OpenAiChat { stream } = route.format
+            && is_event_stream(&resp_headers)
+            && !is_encoded(&resp_headers)
+        {
+            return match stream {
+                StreamMode::Holdback => {
+                    let task = StreamTask::new(state, route);
+                    holdback_stream(task, resp_status, resp_headers, upstream_resp).await
+                }
+                StreamMode::Buffer => {
+                    buffer_stream(
+                        &plan,
+                        &ctx,
+                        state,
+                        route,
+                        resp_status,
+                        resp_headers,
+                        upstream_resp,
+                    )
+                    .await
+                }
+            };
+        }
+
         // An `openai-chat` route reads the content type before the body, so a
-        // stream it cannot scan is never buffered. A message that passes
+        // response it cannot scan is never buffered. A message that passes
         // under `fail_open` streams through as with response scan off; its
         // headers are still scanned.
         let unscannable = match route.format {
             RouteFormat::Generic => None,
-            RouteFormat::OpenAiChat => unscannable_response(&method, resp_status, &resp_headers),
+            RouteFormat::OpenAiChat { .. } => {
+                unscannable_response(&method, resp_status, &resp_headers)
+            }
         };
         if let Some(err) = unscannable {
             let result = match handle_scan_error(err, ingest.on_error, shape) {
@@ -382,6 +434,7 @@ async fn handle_proxied_request(
             }
             Ok(Err(e)) => {
                 error!(error = %e, "failed to read upstream response body");
+                metrics::inc_error("blocked", "upstream_error");
                 return answer(
                     shape,
                     Error::Proxy(format!("failed to read upstream response: {e}")),
@@ -399,7 +452,7 @@ async fn handle_proxied_request(
                         .map(|content| vec![content])
                 }
                 RouteFormat::Generic => Ok(Vec::new()),
-                RouteFormat::OpenAiChat => decode_openai_response(&plan, &ctx, &resp_body),
+                RouteFormat::OpenAiChat { .. } => decode_openai_response(&plan, &ctx, &resp_body),
             }
         } else {
             Ok(Vec::new())
@@ -434,6 +487,810 @@ fn stream_through(upstream_resp: hyper::Response<hyper::body::Incoming>) -> Resp
 }
 
 // ---------------------------------------------------------------------------
+// Streams on an openai-chat route
+// ---------------------------------------------------------------------------
+
+/// The limits and the window of a stream on an `openai-chat` route.
+#[derive(Debug, Clone, Copy)]
+struct StreamSettings {
+    /// The longest gap between two reads of the upstream body.
+    idle: Duration,
+    sizes: WindowSizes,
+}
+
+/// Released events in flight to the client, per stream. A slow client makes
+/// the driver wait here rather than buffer.
+const STREAM_CHANNEL: usize = 16;
+
+/// True when the response is a `text/event-stream`.
+fn is_event_stream(headers: &HeaderMap) -> bool {
+    headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ct| ct.split(';').next())
+        .is_some_and(|media| media.trim().eq_ignore_ascii_case("text/event-stream"))
+}
+
+/// True when the body has a `Content-Encoding` other than `identity`. The
+/// proxy does not decompress, so it cannot read such a body.
+fn is_encoded(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("content-encoding")
+        .iter()
+        .any(|value| match value.to_str() {
+            Ok(codings) => codings
+                .split(',')
+                .map(str::trim)
+                .any(|c| !c.is_empty() && !c.eq_ignore_ascii_case("identity")),
+            Err(_) => true,
+        })
+}
+
+/// Why a stream stops.
+enum StreamStop {
+    /// Settled findings: the route's block, with its kinds.
+    Detection(Vec<String>),
+    /// An error, and the reason it counts under once the stream has sent a
+    /// byte.
+    Error(Error, CutReason),
+}
+
+impl StreamStop {
+    /// Whether the stop counts as a stopped message: a detection, or an error
+    /// under `fail_close`. The stream limits and an upstream failure do not.
+    fn is_block(&self) -> bool {
+        matches!(
+            self,
+            StreamStop::Detection(_)
+                | StreamStop::Error(
+                    _,
+                    CutReason::ScanError | CutReason::MalformedBody | CutReason::UnscannableContent
+                )
+        )
+    }
+
+    fn reason(&self) -> CutReason {
+        match self {
+            StreamStop::Detection(_) => CutReason::Detection,
+            StreamStop::Error(_, reason) => *reason,
+        }
+    }
+
+    /// The answer before the first byte: what the route answers for a
+    /// buffered response.
+    fn into_response(self) -> Response {
+        match self {
+            StreamStop::Detection(kinds) => block(AnswerShape::OpenAi, &kinds),
+            StreamStop::Error(err, _) => answer(AnswerShape::OpenAi, err),
+        }
+    }
+
+    /// The body of that answer, for the error event after the first byte.
+    fn body(&self) -> serde_json::Value {
+        match self {
+            StreamStop::Detection(kinds) => openai_block_body(kinds),
+            StreamStop::Error(err, _) => err.openai_body(),
+        }
+    }
+}
+
+/// The one event that ends a stream stopped after its first byte:
+/// `data: <body>` and a blank line, where `body` is the JSON body the route
+/// answers for the same cause before the first byte. Both official OpenAI
+/// SDKs raise on an event whose data holds an `error` key. No `[DONE]`
+/// follows it.
+fn stop_event(body: &serde_json::Value) -> Bytes {
+    let mut event = b"data: ".to_vec();
+    event.extend(serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec()));
+    event.extend_from_slice(b"\n\n");
+    Bytes::from(event)
+}
+
+/// Reads a stream body frame by frame, under the idle timeout and the size
+/// limit. Neither limit follows `on_error`.
+struct StreamReader {
+    body: hyper::body::Incoming,
+    idle: Duration,
+    limit: usize,
+    read: usize,
+    upstream: String,
+}
+
+impl StreamReader {
+    fn new(body: hyper::body::Incoming, idle: Duration, limit: usize, upstream: &str) -> Self {
+        Self {
+            body,
+            idle,
+            limit,
+            read: 0,
+            upstream: upstream.to_string(),
+        }
+    }
+
+    /// The next bytes of the body, or `None` at its clean end. Each read
+    /// waits at most the idle timeout, so any byte resets it.
+    async fn next(&mut self) -> Result<Option<Bytes>, StreamStop> {
+        loop {
+            let frame = match tokio::time::timeout(self.idle, self.body.frame()).await {
+                Err(_) => {
+                    error!(upstream = %self.upstream, "upstream stream went idle");
+                    metrics::inc_error("blocked", "upstream_timeout");
+                    return Err(StreamStop::Error(
+                        Error::UpstreamTimeout,
+                        CutReason::IdleTimeout,
+                    ));
+                }
+                Ok(None) => return Ok(None),
+                Ok(Some(Err(e))) => {
+                    error!(error = %e, upstream = %self.upstream, "upstream stream failed");
+                    metrics::inc_error("blocked", "upstream_error");
+                    return Err(StreamStop::Error(
+                        Error::Proxy(format!("upstream stream failed: {e}")),
+                        CutReason::UpstreamError,
+                    ));
+                }
+                Ok(Some(Ok(frame))) => frame,
+            };
+            // Trailers carry no body byte.
+            let Ok(data) = frame.into_data() else {
+                continue;
+            };
+            self.read += data.len();
+            if self.read > self.limit {
+                error!(
+                    upstream = %self.upstream,
+                    limit = self.limit,
+                    "upstream stream too large"
+                );
+                metrics::inc_error("blocked", "response_too_large");
+                return Err(StreamStop::Error(
+                    Error::ResponseTooLarge,
+                    CutReason::TooLarge,
+                ));
+            }
+            return Ok(Some(data));
+        }
+    }
+}
+
+/// What one event adds to a stream scan.
+struct EventUnits {
+    /// Pieces of the joined texts.
+    pieces: Vec<Piece>,
+    /// The units scanned once, with this event.
+    units: Vec<UnitContent>,
+    /// The choices that sent `finish_reason`.
+    finished: Vec<u64>,
+}
+
+/// Decode the `data:` payload of one event other than `[DONE]`.
+///
+/// A payload that is not JSON follows the parse-failure rule of the generic
+/// scan: `fail_close` stops the stream with `malformed_body`, `fail_open`
+/// scans the payload as plain text. An unknown content part and a decoder
+/// failure follow `on_error`, as on a buffered response.
+fn decode_stream_event(
+    data: &str,
+    on_error: OnError,
+    ctx: &MetricContext<'_>,
+) -> Result<EventUnits, StreamStop> {
+    let chunk = match openai_chat_stream::decode_chunk(data) {
+        Ok(chunk) => chunk,
+        Err(Error::BodyParse) => {
+            return match on_error {
+                OnError::FailOpen => {
+                    metrics::inc_error("passed", "body_parse_failed");
+                    Ok(EventUnits {
+                        pieces: Vec::new(),
+                        units: vec![UnitContent::text(data.to_string())],
+                        finished: Vec::new(),
+                    })
+                }
+                OnError::FailClose => {
+                    metrics::inc_error("blocked", "body_parse_failed");
+                    Err(StreamStop::Error(
+                        Error::BodyParse,
+                        CutReason::MalformedBody,
+                    ))
+                }
+            };
+        }
+        Err(e) => {
+            if let Some(dropped) = SCANNER_ERROR_LIMITER.should_log() {
+                warn!(dropped, error = %e, "openai-chat stream chunk decode failed");
+            }
+            return match stream_error(e, on_error) {
+                Some(stop) => Err(stop),
+                None => Ok(EventUnits {
+                    pieces: Vec::new(),
+                    units: Vec::new(),
+                    finished: Vec::new(),
+                }),
+            };
+        }
+    };
+    if chunk.unknown_parts > 0
+        && let Some(stop) = stream_error(Error::UnscannableContent, on_error)
+    {
+        return Err(stop);
+    }
+    if chunk.encoded_values > 0 {
+        metrics::inc_unscanned(
+            MODE,
+            ctx.route,
+            ctx.direction,
+            UnscannedReason::EncodedData,
+            chunk.encoded_values as u64,
+        );
+    }
+    Ok(EventUnits {
+        pieces: chunk.pieces,
+        units: chunk
+            .units
+            .into_iter()
+            .map(|fragments| UnitContent::Structured { fragments })
+            .collect(),
+        finished: chunk.finished,
+    })
+}
+
+/// Apply `on_error` to an error during a stream that no detection overruled:
+/// count it, and under `fail_close` return the stop.
+fn stream_error(err: Error, on_error: OnError) -> Option<StreamStop> {
+    match on_error {
+        OnError::FailOpen => {
+            metrics::inc_error("passed", err.scan_reason());
+            None
+        }
+        OnError::FailClose => {
+            metrics::inc_error("blocked", err.scan_reason());
+            let reason = match err {
+                Error::UnscannableContent => CutReason::UnscannableContent,
+                _ => CutReason::ScanError,
+            };
+            Some(StreamStop::Error(err, reason))
+        }
+    }
+}
+
+/// One joined text as a body unit. The fragment starts at offset 0, so a
+/// finding's span is relative to the start of the text it was given.
+fn text_unit(path: String, text: String) -> UnitContent {
+    UnitContent::Structured {
+        fragments: vec![OwnedContextFragment {
+            context: path,
+            value: text,
+            offset: 0,
+        }],
+    }
+}
+
+// --- Buffer mode ---
+
+/// Read the whole stream under the stream limits, scan it once, and answer
+/// as for a buffered response: the route's block, an error, or the exact
+/// upstream bytes.
+async fn buffer_stream(
+    plan: &ScanPlan<'_>,
+    ctx: &MetricContext<'_>,
+    state: &ReverseProxyState,
+    route: &ResolvedRoute,
+    status: StatusCode,
+    headers: HeaderMap,
+    upstream_resp: hyper::Response<hyper::body::Incoming>,
+) -> Response {
+    let mut reader = StreamReader::new(
+        upstream_resp.into_body(),
+        state.stream.idle,
+        plan.ingest.max_body_size,
+        &route.upstream,
+    );
+    // The stream ends at `[DONE]`: nothing after it is read or sent.
+    let mut raw = BytesMut::new();
+    let mut framer = SseFramer::new();
+    let mut events = Vec::new();
+    'read: loop {
+        match reader.next().await {
+            Ok(Some(bytes)) => {
+                for event in framer.push(&bytes) {
+                    let done = event.data.as_deref() == Some(sse::DONE);
+                    raw.extend_from_slice(&event.raw);
+                    events.push(event);
+                    if done {
+                        break 'read;
+                    }
+                }
+            }
+            Ok(None) => {
+                if let Some(event) = framer.finish() {
+                    raw.extend_from_slice(&event.raw);
+                    events.push(event);
+                }
+                break;
+            }
+            Err(stop) => return stop.into_response(),
+        }
+    }
+    let raw = raw.freeze();
+
+    let body = if plan.selection.wants(UnitKind::Body) {
+        decode_whole_stream(&events, plan.ingest.on_error, ctx)
+    } else {
+        Ok(Vec::new())
+    };
+    let result = match body {
+        Ok(body) => scan_and_act_response(plan, ctx, &headers, body).await,
+        Err(stop) => PipelineResult::Error(stop.into_response()),
+    };
+    match result {
+        PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
+            metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+            resp
+        }
+        PipelineResult::Pass => {
+            // The body may end before the upstream's did, so the upstream
+            // length does not hold; the body's own length goes out instead.
+            let mut final_headers = strip_hop_by_hop(&headers);
+            final_headers.remove("content-length");
+            build_response(status, final_headers, raw)
+        }
+    }
+}
+
+/// The body units of a whole stream, up to its end: the units of each
+/// event, then each joined text whole.
+fn decode_whole_stream(
+    events: &[SseEvent],
+    on_error: OnError,
+    ctx: &MetricContext<'_>,
+) -> Result<Vec<UnitContent>, StreamStop> {
+    let mut joined = Joined::new();
+    let mut units = Vec::new();
+    for event in events {
+        let Some(data) = event.data.as_deref().filter(|d| *d != sse::DONE) else {
+            continue;
+        };
+        let decoded = decode_stream_event(data, on_error, ctx)?;
+        decoded.pieces.into_iter().for_each(|p| joined.push(p));
+        units.extend(decoded.units);
+    }
+    units.extend(
+        joined
+            .into_texts()
+            .into_iter()
+            .map(|(path, text)| text_unit(path, text)),
+    );
+    Ok(units)
+}
+
+// --- Hold-back mode ---
+
+/// Everything a hold-back driver needs, owned, so the driver runs on after
+/// the handler has answered with the upstream head.
+struct StreamTask {
+    engine: Arc<Engine>,
+    ingest: Arc<Ingest>,
+    selection: GuardSelection,
+    headers: Vec<String>,
+    route: String,
+    upstream: String,
+    settings: StreamSettings,
+}
+
+impl StreamTask {
+    fn new(state: &ReverseProxyState, route: &ResolvedRoute) -> Self {
+        Self {
+            engine: Arc::clone(&state.engine),
+            ingest: Arc::clone(&state.ingest),
+            selection: route.selection.clone(),
+            headers: route.headers.clone(),
+            route: route.path_prefix.clone(),
+            upstream: route.upstream.clone(),
+            settings: state.stream,
+        }
+    }
+
+    fn ctx(&self) -> MetricContext<'_> {
+        MetricContext {
+            route: &self.route,
+            direction: "response",
+        }
+    }
+}
+
+/// What the handler answers: a stop before the first byte, or the upstream
+/// head followed by the released events.
+enum Head {
+    Stop(Response),
+    Start,
+}
+
+/// The client end of a hold-back stream.
+struct ClientSide {
+    /// Taken by the first release or by a stop before it.
+    head: Option<oneshot::Sender<Head>>,
+    body: mpsc::Sender<Bytes>,
+}
+
+/// The client went away; the driver stops and drops the upstream.
+struct ClientGone;
+
+impl ClientSide {
+    /// Let the handler answer with the upstream head, once.
+    fn start(&mut self) -> Result<(), ClientGone> {
+        match self.head.take() {
+            Some(head) => head.send(Head::Start).map_err(|_| ClientGone),
+            None => Ok(()),
+        }
+    }
+
+    /// Resolves when the client is gone: the handler dropped the head
+    /// receiver, or, after the head, the body receiver.
+    async fn gone(&mut self) {
+        match &mut self.head {
+            Some(head) => head.closed().await,
+            None => self.body.closed().await,
+        }
+    }
+
+    /// Send released events, after the head.
+    async fn send(&mut self, events: Vec<Bytes>) -> Result<(), ClientGone> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        self.start()?;
+        let batch = match <[Bytes; 1]>::try_from(events) {
+            Ok([one]) => one,
+            Err(events) => events.concat().into(),
+        };
+        self.body.send(batch).await.map_err(|_| ClientGone)
+    }
+
+    /// Stop the stream. Before the first byte the handler answers as for a
+    /// buffered response; after it, the client gets the error event and the
+    /// end of the stream.
+    async fn stop(mut self, stop: StreamStop, task: &StreamTask) {
+        if stop.is_block() {
+            metrics::inc_message_blocked(MODE, &task.route, "response");
+        }
+        match self.head.take() {
+            Some(head) => {
+                let _ = head.send(Head::Stop(stop.into_response()));
+            }
+            None => {
+                metrics::inc_stream_cut(MODE, &task.route, stop.reason());
+                let _ = self.body.send(stop_event(&stop.body())).await;
+            }
+        }
+    }
+}
+
+/// Scan a stream in hold-back mode. The status and the headers wait for the
+/// first release; a stop before it answers as for a buffered response.
+async fn holdback_stream(
+    task: StreamTask,
+    status: StatusCode,
+    headers: HeaderMap,
+    upstream_resp: hyper::Response<hyper::body::Incoming>,
+) -> Response {
+    let (head_tx, head_rx) = oneshot::channel();
+    let (body_tx, body_rx) = mpsc::channel::<Bytes>(STREAM_CHANNEL);
+    let body = upstream_resp.into_body();
+    let scanned_headers = headers.clone();
+    tokio::spawn(async move {
+        let mut client = ClientSide {
+            head: Some(head_tx),
+            body: body_tx,
+        };
+        if let Err(stop) = drive_holdback(&task, &scanned_headers, body, &mut client).await {
+            client.stop(stop, &task).await;
+        }
+    });
+
+    match head_rx.await {
+        Ok(Head::Stop(resp)) => resp,
+        Ok(Head::Start) => {
+            let events = futures_util::stream::unfold(body_rx, |mut rx| async move {
+                rx.recv().await.map(|b| (Ok::<_, Infallible>(b), rx))
+            });
+            // The body may end in an error event, so the upstream length does
+            // not hold.
+            let mut final_headers = strip_hop_by_hop(&headers);
+            final_headers.remove("content-length");
+            build_streaming_response(status, final_headers, Body::from_stream(events))
+        }
+        Err(_) => {
+            error!("stream driver ended without an answer");
+            answer(
+                AnswerShape::OpenAi,
+                Error::Proxy("stream driver ended without an answer".into()),
+            )
+        }
+    }
+}
+
+/// What a stream scan decided.
+enum Verdict {
+    Go,
+    Stop(StreamStop),
+    /// A guard error under `fail_open`: the rest of the stream goes through
+    /// unscanned.
+    Unscanned,
+}
+
+/// Read, scan, and release a stream in hold-back mode. `Err` is a stop the
+/// caller hands to the client; `Ok` is a clean end, or a client gone.
+async fn drive_holdback(
+    task: &StreamTask,
+    headers: &HeaderMap,
+    body: hyper::body::Incoming,
+    client: &mut ClientSide,
+) -> Result<(), StreamStop> {
+    let mut reader = StreamReader::new(
+        body,
+        task.settings.idle,
+        task.ingest.max_body_size,
+        &task.upstream,
+    );
+    match scan_stream_headers(task, headers).await {
+        Verdict::Go => {}
+        Verdict::Stop(stop) => return Err(stop),
+        Verdict::Unscanned => {
+            return pass_through(&mut reader, client, Vec::new(), SseFramer::new()).await;
+        }
+    }
+
+    let mut framer = SseFramer::new();
+    let mut hold = Holdback::new(task.settings.sizes);
+    let mut done = false;
+    while !done {
+        let next = tokio::select! {
+            next = reader.next() => next?,
+            () = client.gone() => return Ok(()),
+        };
+        let Some(bytes) = next else {
+            break;
+        };
+        let mut event_units = Vec::new();
+        for event in framer.push(&bytes) {
+            // The stream ends at `[DONE]`; nothing after it is sent.
+            if push_event(task, &mut hold, event, &mut event_units)? {
+                done = true;
+                break;
+            }
+        }
+        if done {
+            hold.end();
+        }
+        match scan_stream(task, &mut hold, event_units).await {
+            Verdict::Go => {}
+            Verdict::Stop(stop) => return Err(stop),
+            // Nothing after `[DONE]` is sent, scanned or not.
+            Verdict::Unscanned if done => {
+                if client.start().is_ok() {
+                    let _ = client.send(hold.release_all()).await;
+                }
+                return Ok(());
+            }
+            Verdict::Unscanned => {
+                let held = hold.release_all();
+                return pass_through(&mut reader, client, held, std::mem::take(&mut framer)).await;
+            }
+        }
+        if !done && client.send(hold.release()).await.is_err() {
+            return Ok(());
+        }
+    }
+
+    if !done {
+        // A clean end without `[DONE]` ends the stream as `[DONE]` does.
+        let mut event_units = Vec::new();
+        if let Some(event) = framer.finish() {
+            push_event(task, &mut hold, event, &mut event_units)?;
+        }
+        hold.end();
+        match scan_stream(task, &mut hold, event_units).await {
+            Verdict::Go => {}
+            Verdict::Stop(stop) => return Err(stop),
+            Verdict::Unscanned => {
+                let held = hold.release_all();
+                return pass_through(&mut reader, client, held, SseFramer::new()).await;
+            }
+        }
+    }
+
+    // Settle what still waits, then send every event — and the head, for a
+    // stream without one.
+    if let Verdict::Stop(stop) = settle(task, hold.settle_rest(), None) {
+        return Err(stop);
+    }
+    if client.start().is_ok() {
+        let _ = client.send(hold.release()).await;
+    }
+    Ok(())
+}
+
+/// Hand one event to the window. Return whether it is `[DONE]`.
+fn push_event(
+    task: &StreamTask,
+    hold: &mut Holdback,
+    event: SseEvent,
+    event_units: &mut Vec<UnitContent>,
+) -> Result<bool, StreamStop> {
+    match event.data.as_deref() {
+        Some(sse::DONE) => {
+            hold.push_event(event.raw, Vec::new(), &[]);
+            Ok(true)
+        }
+        Some(data) => {
+            let decoded = decode_stream_event(data, task.ingest.on_error, &task.ctx())?;
+            event_units.extend(decoded.units);
+            hold.push_event(event.raw, decoded.pieces, &decoded.finished);
+            Ok(false)
+        }
+        None => {
+            hold.push_event(event.raw, Vec::new(), &[]);
+            Ok(false)
+        }
+    }
+}
+
+/// Forward the rest of a stream unscanned, after a guard error under
+/// `fail_open`, event by event up to `[DONE]`. `framer` holds the part of
+/// an event already read. The stream limits still hold.
+async fn pass_through(
+    reader: &mut StreamReader,
+    client: &mut ClientSide,
+    held: Vec<Bytes>,
+    mut framer: SseFramer,
+) -> Result<(), StreamStop> {
+    if client.start().is_err() || client.send(held).await.is_err() {
+        return Ok(());
+    }
+    loop {
+        let next = tokio::select! {
+            next = reader.next() => next?,
+            () = client.gone() => return Ok(()),
+        };
+        let Some(bytes) = next else {
+            break;
+        };
+        let mut events = Vec::new();
+        let mut done = false;
+        for event in framer.push(&bytes) {
+            done = event.data.as_deref() == Some(sse::DONE);
+            events.push(event.raw);
+            if done {
+                break;
+            }
+        }
+        if client.send(events).await.is_err() || done {
+            return Ok(());
+        }
+    }
+    let _ = client
+        .send(framer.finish().map(|e| e.raw).into_iter().collect())
+        .await;
+    Ok(())
+}
+
+/// Scan the headers the route names, once, before any byte of the body.
+async fn scan_stream_headers(task: &StreamTask, headers: &HeaderMap) -> Verdict {
+    if !task.selection.wants(UnitKind::HeaderValue) {
+        return Verdict::Go;
+    }
+    let mut units = Units::new();
+    push_scan_headers(&mut units, &task.headers, headers);
+    if units.is_empty() {
+        return Verdict::Go;
+    }
+    let mut result = task
+        .engine
+        .guard(
+            units.into_shared(),
+            &task.selection,
+            BlockPolicy::AnyFinding,
+            task.ingest.on_error,
+        )
+        .await;
+    let error = result.take_error();
+    log_stream_error(error.as_ref());
+    settle(task, result.findings().to_vec(), error)
+}
+
+/// Scan the units of the new events and the window of each due text in one
+/// engine call, and apply the findings to the window.
+///
+/// Every guard runs to completion: a finding that waits in the tail must not
+/// abandon a guard whose finding would be settled.
+async fn scan_stream(
+    task: &StreamTask,
+    hold: &mut Holdback,
+    event_units: Vec<UnitContent>,
+) -> Verdict {
+    let due = hold.due();
+    if !task.selection.wants(UnitKind::Body) {
+        for id in due {
+            hold.window(id);
+            hold.apply(id, Vec::new());
+        }
+        return Verdict::Go;
+    }
+    if due.is_empty() && event_units.is_empty() {
+        return Verdict::Go;
+    }
+
+    let mut units = Units::new();
+    let mut texts: Vec<Option<TextId>> = Vec::new();
+    for content in event_units {
+        units.push_body(content);
+        texts.push(None);
+    }
+    for id in due {
+        let window = hold.window(id);
+        units.push_body(text_unit(window.path, window.text));
+        texts.push(Some(id));
+    }
+    let mut result = task
+        .engine
+        .guard(
+            units.into_shared(),
+            &task.selection,
+            BlockPolicy::Never,
+            task.ingest.on_error,
+        )
+        .await;
+    let error = result.take_error();
+    log_stream_error(error.as_ref());
+
+    let mut by_unit: Vec<Vec<Finding>> = vec![Vec::new(); texts.len()];
+    for finding in result.findings() {
+        by_unit[finding.unit.index()].push(finding.clone());
+    }
+    let mut settled = Vec::new();
+    for (findings, text) in by_unit.into_iter().zip(texts) {
+        match text {
+            Some(id) => settled.extend(hold.apply(id, findings)),
+            None => settled.extend(findings),
+        }
+    }
+    settle(task, settled, error)
+}
+
+fn log_stream_error(error: Option<&Error>) {
+    if let Some(e) = error
+        && let Some(dropped) = SCANNER_ERROR_LIMITER.should_log()
+    {
+        warn!(dropped, error = %e, "scanner error on response stream");
+    }
+}
+
+/// Decide on the settled findings of a scan and the guard error that came
+/// with them. A detection wins over a guard error, whatever `on_error` says;
+/// the error is still counted, as blocked.
+fn settle(task: &StreamTask, settled: Vec<Finding>, error: Option<Error>) -> Verdict {
+    if !settled.is_empty() {
+        if let Some(e) = &error {
+            metrics::inc_error("blocked", e.scan_reason());
+        }
+        let kinds = record_detection(&ScanResult::new(settled), &task.ctx());
+        return Verdict::Stop(StreamStop::Detection(kinds));
+    }
+    match error.map(|e| stream_error(e, task.ingest.on_error)) {
+        None => Verdict::Go,
+        Some(Some(stop)) => Verdict::Stop(stop),
+        Some(None) => Verdict::Unscanned,
+    }
+}
+
+fn build_streaming_response(status: StatusCode, headers: HeaderMap, body: Body) -> Response {
+    let mut resp = Response::new(body);
+    *resp.status_mut() = status;
+    *resp.headers_mut() = headers;
+    resp
+}
+
+// ---------------------------------------------------------------------------
 // Answer shape
 // ---------------------------------------------------------------------------
 
@@ -452,7 +1309,7 @@ impl From<RouteFormat> for AnswerShape {
     fn from(format: RouteFormat) -> Self {
         match format {
             RouteFormat::Generic => AnswerShape::Plain,
-            RouteFormat::OpenAiChat => AnswerShape::OpenAi,
+            RouteFormat::OpenAiChat { .. } => AnswerShape::OpenAi,
         }
     }
 }
@@ -611,9 +1468,16 @@ async fn run_engine(
         metrics::inc_error("blocked", e.scan_reason());
     }
 
-    // The kind lists are sorted and hold each kind once, so the counter moves
-    // once per kind and the block body lists them in a stable order. The PII
-    // families count the `pii` guard's findings only.
+    let kinds = record_detection(&scan_result, ctx);
+    PipelineResult::Block(block(plan.shape, &kinds))
+}
+
+/// Count the findings of a block and return its kinds.
+///
+/// The kind lists are sorted and hold each kind once, so the counter moves
+/// once per kind and the block body lists them in a stable order. The PII
+/// families count the `pii` guard's findings only.
+fn record_detection(scan_result: &ScanResult, ctx: &MetricContext<'_>) -> Vec<String> {
     let kinds = scan_result.kinds();
     let pii_kinds = scan_result.kinds_of(BUILTIN_PII_GUARD_NAME);
     for kind in &pii_kinds {
@@ -630,8 +1494,7 @@ async fn run_engine(
     if !pii_kinds.is_empty() {
         metrics::inc_blocked(MODE, ctx.route, ctx.direction);
     }
-
-    PipelineResult::Block(block(plan.shape, &kinds))
+    kinds
 }
 
 /// The fixed response a detection produces: 403, JSON, and the kind names that
@@ -650,7 +1513,13 @@ const BLOCKED: &str = "content blocked";
 /// shape, so an OpenAI client handles it without a change. `code` names the
 /// real cause. Like the 403, it lists kinds and never matched text.
 fn openai_block_response(kinds: &[String]) -> Response {
-    let payload = serde_json::json!({
+    json_response(StatusCode::BAD_REQUEST, &openai_block_body(kinds))
+}
+
+/// The body of [`openai_block_response`]. A stream stopped after its first
+/// byte carries it in its error event.
+fn openai_block_body(kinds: &[String]) -> serde_json::Value {
+    serde_json::json!({
         "error": {
             "message": format!("{BLOCKED}. Kinds: {}", kinds.join(", ")),
             "type": INVALID_REQUEST,
@@ -658,8 +1527,7 @@ fn openai_block_response(kinds: &[String]) -> Response {
             "code": "content_filter",
             "kinds": kinds,
         }
-    });
-    json_response(StatusCode::BAD_REQUEST, &payload)
+    })
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response {
@@ -714,16 +1582,15 @@ fn parse_failure(
 ///
 /// 1. a body that is not a JSON Chat Completions request answers 400 under
 ///    both `on_error` settings;
-/// 2. a `stream: true` request with response scan on is stopped with 422
-///    under `fail_close` before any guard runs; under `fail_open` the
-///    response side counts it;
-/// 3. unknown content parts and base64 data, as [`decoded_units`] states.
+/// 2. unknown content parts and base64 data, as [`decoded_units`] states.
+///
+/// A `stream: true` request is decoded as any other: the response side finds
+/// a stream by its content type.
 fn decode_openai_request(
     plan: &ScanPlan<'_>,
     ctx: &MetricContext<'_>,
     headers: &HeaderMap,
     body: &Bytes,
-    response_scan: bool,
 ) -> Result<Vec<UnitContent>, Box<PipelineResult>> {
     let content_type = headers
         .get("content-type")
@@ -734,8 +1601,8 @@ fn decode_openai_request(
     } else {
         Err(Error::BodyParse)
     };
-    let request = match decoded {
-        Ok(request) => request,
+    let decoded = match decoded {
+        Ok(decoded) => decoded,
         Err(Error::BodyParse) => {
             metrics::inc_error("blocked", "body_parse_failed");
             return Err(Box::new(PipelineResult::Error(answer(
@@ -746,15 +1613,7 @@ fn decode_openai_request(
         Err(e) => return decode_failure(plan, e),
     };
 
-    if request.stream && response_scan && plan.ingest.on_error == OnError::FailClose {
-        return Err(Box::new(handle_scan_error(
-            Error::UnscannableStream,
-            OnError::FailClose,
-            plan.shape,
-        )));
-    }
-
-    decoded_units(plan, ctx, request.decoded)
+    decoded_units(plan, ctx, decoded)
 }
 
 /// Decode a JSON response body on an `openai-chat` route into its body units.
@@ -821,18 +1680,16 @@ fn decoded_units(
 }
 
 /// Why an upstream response on an `openai-chat` route cannot be scanned,
-/// read from its headers before the body: a `text/event-stream` is a stream,
-/// and any other type that is not JSON is unscannable content when the
-/// response has a body. `None` when the response can be scanned.
+/// read from its headers before the body: a type that is neither JSON nor a
+/// stream is unscannable content when the response has a body. `None` when
+/// the response can be scanned. A stream is scanned by its own path before
+/// this is asked, unless it is compressed: then it is unscannable here.
 fn unscannable_response(method: &Method, status: StatusCode, headers: &HeaderMap) -> Option<Error> {
     let content_type = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let media_type = content_type.split(';').next().unwrap_or("").trim();
-    if media_type.eq_ignore_ascii_case("text/event-stream") {
-        Some(Error::UnscannableStream)
-    } else if is_json_content_type(content_type) || has_no_body(method, status, headers) {
+    if is_json_content_type(content_type) || has_no_body(method, status, headers) {
         None
     } else {
         Some(Error::UnscannableContent)
@@ -1629,7 +2486,7 @@ mod tests {
 
     // --- A stopped message counts once in voidwall_blocked_total ---
 
-    use crate::config::{ReverseProxyConfig, Route};
+    use crate::config::{ReverseProxyConfig, Route, RouteFormatKey};
     use crate::metrics::MESSAGES_BLOCKED_TOTAL;
 
     /// Send one plain-text request through the whole handler, over the given
@@ -1646,7 +2503,8 @@ mod tests {
                     upstream: "http://127.0.0.1:9".to_string(),
                     guards: None,
                     headers: Vec::new(),
-                    format: RouteFormat::Generic,
+                    format: RouteFormatKey::Generic,
+                    stream: None,
                 }],
                 ..ReverseProxyConfig::default()
             },
@@ -1695,13 +2553,12 @@ mod tests {
 
     // --- The openai-chat route ---
 
-    use crate::config::{DirectionConfig, UpstreamTimeout};
+    use crate::config::{
+        DirectionConfig, StreamContext, StreamHoldback, StreamIdleTimeout, StreamScan,
+        UpstreamTimeout,
+    };
     use crate::metrics::UNSCANNED_TOTAL;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    /// Serialises the tests that assert no change of the route-less
-    /// `unscannable_stream` error samples.
-    static STREAM_ERRORS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     /// An upstream that answers every request with `status`, `content_type`
     /// (none when empty), and `body`, and counts the requests it got.
@@ -1759,6 +2616,10 @@ mod tests {
         max_body_size: usize,
         content_types: Vec<String>,
         timeout_secs: u64,
+        stream: Option<StreamMode>,
+        headers: Vec<String>,
+        idle_secs: u64,
+        sizes: WindowSizes,
     }
 
     impl Chat {
@@ -1769,9 +2630,17 @@ mod tests {
                 request_scan: true,
                 response_scan: true,
                 on_error: OnError::FailClose,
-                max_body_size: 1024,
+                max_body_size: 65_536,
                 content_types: vec!["application/json".to_string()],
                 timeout_secs: 30,
+                stream: None,
+                headers: Vec::new(),
+                idle_secs: 30,
+                sizes: WindowSizes {
+                    holdback: 512,
+                    context: 512,
+                    step: 256,
+                },
             }
         }
 
@@ -1784,6 +2653,10 @@ mod tests {
                 on_error: self.on_error,
                 content_types: self.content_types.clone(),
                 upstream_timeout_secs: UpstreamTimeout::try_from(self.timeout_secs).unwrap(),
+                stream_idle_timeout_secs: StreamIdleTimeout::try_from(self.idle_secs).unwrap(),
+                stream_holdback_bytes: StreamHoldback::try_from(self.sizes.holdback).unwrap(),
+                stream_context_bytes: StreamContext::try_from(self.sizes.context).unwrap(),
+                stream_scan_bytes: StreamScan::try_from(self.sizes.step).unwrap(),
                 reverse_proxy: ReverseProxyConfig {
                     request: DirectionConfig {
                         scan: self.request_scan,
@@ -1795,8 +2668,9 @@ mod tests {
                         path_prefix: self.route.to_string(),
                         upstream: self.upstream.clone(),
                         guards: None,
-                        headers: Vec::new(),
-                        format: RouteFormat::OpenAiChat,
+                        headers: self.headers.clone(),
+                        format: RouteFormatKey::OpenAiChat,
+                        stream: self.stream,
                     }],
                     ..ReverseProxyConfig::default()
                 },
@@ -1872,6 +2746,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreachable_upstream_answers_502_in_the_openai_shape() {
+        let before = errors("blocked", "upstream_error");
         let chat = Chat::new("/chat-502", "http://127.0.0.1:9");
         let error = openai_error(
             chat.post(quiet(), chat_request()).await,
@@ -1879,6 +2754,41 @@ mod tests {
         )
         .await;
         assert_eq!(error["code"], "upstream_error");
+        assert!(errors("blocked", "upstream_error") > before);
+    }
+
+    /// An upstream that sends the head of a JSON response and part of its
+    /// body, then closes the connection.
+    async fn failing_upstream() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut request = [0u8; 4096];
+                let _ = socket.read(&mut request).await;
+                let _ = socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                          content-length: 100\r\n\r\n{\"choices\":",
+                    )
+                    .await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn an_upstream_body_that_fails_answers_502_and_counts_its_reason() {
+        let before = errors("blocked", "upstream_error");
+        let chat = Chat::new("/chat-502-body", &failing_upstream().await);
+        let error = openai_error(
+            chat.post(quiet(), chat_request()).await,
+            StatusCode::BAD_GATEWAY,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_error");
+        assert!(errors("blocked", "upstream_error") > before);
     }
 
     #[tokio::test]
@@ -1939,60 +2849,32 @@ mod tests {
         assert_eq!(error["code"], "malformed_body");
     }
 
+    #[test_case(OnError::FailClose, true ; "fail_close")]
+    #[test_case(OnError::FailOpen, true ; "fail_open")]
+    #[test_case(OnError::FailClose, false ; "response scan off")]
     #[tokio::test]
-    async fn a_stream_under_fail_close_answers_422_and_runs_no_guard() {
-        let _lock = STREAM_ERRORS.lock().await;
-        let before = errors("blocked", "unscannable_stream");
+    async fn a_stream_request_is_scanned_and_forwarded(on_error: OnError, response_scan: bool) {
+        let route = match (on_error, response_scan) {
+            (OnError::FailClose, true) => "/chat-stream-request-close",
+            (OnError::FailOpen, _) => "/chat-stream-request-open",
+            (OnError::FailClose, false) => "/chat-stream-request-off",
+        };
         let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
-        let chat = Chat::new("/chat-stream-close", &upstream);
+        let chat = Chat {
+            on_error,
+            response_scan,
+            ..Chat::new(route, &upstream)
+        };
         let guard = TestGuard::new("chat_stream_probe", "RP_UNUSED").silent();
         let probe = guard.probe();
         let mut body = chat_request();
         body["stream"] = serde_json::json!(true);
 
-        let error = openai_error(
-            chat.post(vec![guard], body).await,
-            StatusCode::UNPROCESSABLE_ENTITY,
-        )
-        .await;
-        assert_eq!(error["code"], "unscannable_content");
-        assert_eq!(probe.calls(), 0, "no guard ran");
-        assert_eq!(hits.load(Ordering::SeqCst), 0, "not forwarded");
-        assert_eq!(errors("blocked", "unscannable_stream"), before + 1);
-        assert_eq!(stopped("/chat-stream-close", "request"), 1);
-    }
-
-    #[test_case(OnError::FailOpen, true ; "fail_open")]
-    #[test_case(OnError::FailClose, false ; "response scan off")]
-    #[tokio::test]
-    async fn a_stream_is_forwarded_and_not_counted_on_the_request_side(
-        on_error: OnError,
-        response_scan: bool,
-    ) {
-        let _lock = STREAM_ERRORS.lock().await;
-        let before = (
-            errors("passed", "unscannable_stream"),
-            errors("blocked", "unscannable_stream"),
-        );
-        let (upstream, hits) = stub_upstream(200, "application/json", CLEAN_JSON).await;
-        let chat = Chat {
-            on_error,
-            response_scan,
-            ..Chat::new("/chat-stream-forwarded", &upstream)
-        };
-        let mut body = chat_request();
-        body["stream"] = serde_json::json!(true);
-
-        let resp = chat.post(quiet(), body).await;
+        let resp = chat.post(vec![guard], body).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            (
-                errors("passed", "unscannable_stream"),
-                errors("blocked", "unscannable_stream")
-            ),
-            before
-        );
+        assert!(probe.calls() >= 1, "the request was scanned");
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "forwarded");
+        assert_eq!(stopped(route, "request"), 0);
     }
 
     fn hologram_request() -> serde_json::Value {
@@ -2065,39 +2947,30 @@ mod tests {
     // 4.3 — the response side reads the content type first
 
     #[tokio::test]
-    async fn an_event_stream_under_fail_close_answers_422() {
-        let _lock = STREAM_ERRORS.lock().await;
-        let before = errors("blocked", "unscannable_stream");
+    async fn an_event_stream_that_is_not_json_under_fail_close_answers_400() {
+        let route = "/chat-sse-close";
         let (upstream, _) = stub_upstream(200, "text/event-stream", "data: hello\n\n").await;
-        let chat = Chat::new("/chat-sse-close", &upstream);
+        let chat = Chat::new(route, &upstream);
         let error = openai_error(
             chat.post(quiet(), chat_request()).await,
-            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::BAD_REQUEST,
         )
         .await;
-        assert_eq!(error["code"], "unscannable_content");
-        assert_eq!(errors("blocked", "unscannable_stream"), before + 1);
-        assert_eq!(stopped("/chat-sse-close", "response"), 1);
+        assert_eq!(error["code"], "malformed_body");
+        assert_eq!(stopped(route, "response"), 1);
+        assert_eq!(cuts(route, "malformed_body"), 0, "before the first byte");
     }
 
     #[tokio::test]
-    async fn an_event_stream_under_fail_open_streams_through() {
-        let _lock = STREAM_ERRORS.lock().await;
-        let before = errors("passed", "unscannable_stream");
+    async fn an_event_stream_that_is_not_json_under_fail_open_is_scanned_as_text() {
         let (upstream, _) = stub_upstream(200, "text/event-stream", "data: hello\n\n").await;
         let chat = Chat {
             on_error: OnError::FailOpen,
-            max_body_size: 4,
             ..Chat::new("/chat-sse-open", &upstream)
         };
         let resp = chat.post(quiet(), chat_request()).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(
-            &read_body(resp).await[..],
-            b"data: hello\n\n",
-            "no size limit"
-        );
-        assert_eq!(errors("passed", "unscannable_stream"), before + 1);
+        assert_eq!(&read_body(resp).await[..], b"data: hello\n\n");
     }
 
     #[test_case(OnError::FailClose, StatusCode::UNPROCESSABLE_ENTITY, "blocked" ; "fail_close")]
@@ -2241,5 +3114,788 @@ mod tests {
         let resp = chat.post(quiet(), body).await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(encoded(route, "request"), 0);
+    }
+
+    // --- Streams on the openai-chat route ---
+
+    use crate::metrics::STREAMS_CUT_TOTAL;
+    use std::sync::atomic::AtomicBool;
+
+    const EMAIL: &str = "jane.doe@example.com";
+
+    fn cuts(route: &str, reason: &str) -> u64 {
+        STREAMS_CUT_TOTAL
+            .with_label_values(&[MODE, route, reason])
+            .get()
+    }
+
+    /// One `data:` event whose delta carries `content`.
+    fn chunk(content: &str) -> String {
+        let data = serde_json::json!({
+            "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": null}],
+        });
+        format!("data: {data}\n\n")
+    }
+
+    const DONE: &str = "data: [DONE]\n\n";
+
+    /// One step of a scripted stream upstream.
+    #[derive(Clone)]
+    enum Step {
+        Send(String),
+        Wait(Duration),
+        /// Cut the connection before the body ends.
+        Fail,
+    }
+
+    fn sends(parts: &[String]) -> Vec<Step> {
+        parts.iter().cloned().map(Step::Send).collect()
+    }
+
+    /// An upstream that answers `text/event-stream` with `steps`. The flag
+    /// turns true when the connection closed before the script ended.
+    async fn scripted_upstream(steps: Vec<Step>) -> (String, Arc<AtomicBool>) {
+        struct Track {
+            closed: Arc<AtomicBool>,
+            done: bool,
+        }
+        impl Track {
+            fn finish(&mut self) {
+                self.done = true;
+            }
+        }
+        impl Drop for Track {
+            fn drop(&mut self) {
+                if !self.done {
+                    self.closed.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+
+        let closed = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&closed);
+        let app = Router::new().fallback(move || {
+            let (steps, closed) = (steps.clone(), Arc::clone(&flag));
+            async move {
+                let state = (
+                    steps.into_iter(),
+                    Track {
+                        closed,
+                        done: false,
+                    },
+                );
+                let body =
+                    futures_util::stream::unfold(state, |(mut steps, mut track)| async move {
+                        loop {
+                            match steps.next() {
+                                Some(Step::Send(s)) => {
+                                    return Some((Ok(Bytes::from(s)), (steps, track)));
+                                }
+                                Some(Step::Wait(d)) => tokio::time::sleep(d).await,
+                                Some(Step::Fail) => {
+                                    return Some((
+                                        Err(std::io::Error::other("cut")),
+                                        (steps, track),
+                                    ));
+                                }
+                                None => {
+                                    track.finish();
+                                    return None;
+                                }
+                            }
+                        }
+                    });
+                let mut resp = Response::new(Body::from_stream(body));
+                resp.headers_mut()
+                    .insert("content-type", "text/event-stream".parse().unwrap());
+                resp.headers_mut()
+                    .insert("x-upstream", "lmstudio".parse().unwrap());
+                resp
+            }
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), closed)
+    }
+
+    /// A small window, so a short stream releases events before it ends.
+    const SMALL: WindowSizes = WindowSizes {
+        holdback: 16,
+        context: 16,
+        step: 8,
+    };
+
+    /// Ten clean chunks of ten bytes each: enough to pass the small window.
+    fn clean_parts() -> Vec<String> {
+        (0..10).map(|i| chunk(&format!("part {i:04}."))).collect()
+    }
+
+    fn needle() -> Vec<TestGuard> {
+        vec![TestGuard::new(BUILTIN_PII_GUARD_NAME, "EMAIL").matching(EMAIL)]
+    }
+
+    /// The body as text, and whether it ends in the error event with `code`.
+    async fn stream_body(resp: Response) -> String {
+        String::from_utf8(read_body(resp).await.to_vec()).unwrap()
+    }
+
+    fn last_event(body: &str) -> serde_json::Value {
+        let last = body
+            .trim_end()
+            .rsplit("\n\n")
+            .next()
+            .unwrap()
+            .strip_prefix("data: ")
+            .unwrap();
+        serde_json::from_str(last).unwrap()
+    }
+
+    // 2.3 — a payload that does not parse
+
+    #[test]
+    fn a_bad_payload_under_fail_close_stops_with_malformed_body() {
+        let ctx = MetricContext {
+            route: "/chat-decode-close",
+            direction: "response",
+        };
+        let Err(stop) = decode_stream_event("{not json", OnError::FailClose, &ctx) else {
+            panic!("expected a stop");
+        };
+        assert!(matches!(
+            stop,
+            StreamStop::Error(Error::BodyParse, CutReason::MalformedBody)
+        ));
+        assert_eq!(stop.body()["error"]["code"], "malformed_body");
+    }
+
+    #[test]
+    fn a_bad_payload_under_fail_open_is_scanned_as_plain_text() {
+        let ctx = MetricContext {
+            route: "/chat-decode-open",
+            direction: "response",
+        };
+        let Ok(event) = decode_stream_event("{not json", OnError::FailOpen, &ctx) else {
+            panic!("expected the event to go on");
+        };
+        assert!(event.pieces.is_empty());
+        assert!(matches!(&event.units[..], [UnitContent::PlainText(b)] if &b[..] == b"{not json"));
+    }
+
+    // 4.2 — the stop event carries the route's error body
+
+    #[tokio::test]
+    async fn the_stop_event_carries_the_400_body_byte_for_byte() {
+        let kinds = ["EMAIL".to_string(), "IBAN_CODE".to_string()];
+        let body = read_body(openai_block_response(&kinds)).await;
+        let event = stop_event(&openai_block_body(&kinds));
+        assert_eq!(event, [&b"data: "[..], &body, b"\n\n"].concat());
+    }
+
+    #[test_case(|| Error::BodyParse ; "malformed body")]
+    #[test_case(|| Error::BodyTooLarge ; "oversize body")]
+    #[test_case(|| Error::WindowLimit { guard: Arc::from("g"), windows: 3, limit: 2 } ; "window limit")]
+    #[test_case(|| Error::UnscannableContent ; "unscannable content")]
+    #[test_case(|| Error::Scanner("x".into()) ; "scanner failure")]
+    #[test_case(|| Error::Proxy("x".into()) ; "upstream failure")]
+    #[test_case(|| Error::ResponseTooLarge ; "oversize response")]
+    #[test_case(|| Error::UpstreamTimeout ; "upstream timeout")]
+    #[tokio::test]
+    async fn the_stop_event_carries_each_error_body_byte_for_byte(err: fn() -> Error) {
+        let body = read_body(err().into_openai_response()).await;
+        let event = stop_event(&err().openai_body());
+        assert_eq!(event, [&b"data: "[..], &body, b"\n\n"].concat());
+    }
+
+    // 4.3 — the hold-back driver
+
+    #[tokio::test]
+    async fn a_clean_stream_reaches_the_client_unchanged() {
+        let mut parts = clean_parts();
+        parts.push(DONE.to_string());
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-clean", &upstream)
+        };
+        let resp = chat.post(needle(), chat_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()["x-upstream"], "lmstudio");
+        assert_eq!(resp.headers()["content-type"], "text/event-stream");
+        assert_eq!(stream_body(resp).await, parts.concat());
+    }
+
+    #[tokio::test]
+    async fn a_short_reply_is_held_until_the_upstream_ends() {
+        let (upstream, _) = scripted_upstream(vec![
+            Step::Send(chunk("Hello")),
+            Step::Wait(Duration::from_millis(300)),
+            Step::Send(DONE.to_string()),
+        ])
+        .await;
+        let chat = Chat::new("/chat-stream-short", &upstream);
+        let started = std::time::Instant::now();
+        let resp = chat.post(needle(), chat_request()).await;
+        assert!(
+            started.elapsed() >= Duration::from_millis(300),
+            "the head waited"
+        );
+        assert_eq!(stream_body(resp).await, chunk("Hello") + DONE);
+    }
+
+    #[tokio::test]
+    async fn a_detection_before_the_first_byte_answers_400() {
+        let route = "/chat-stream-block-early";
+        let (upstream, _) = scripted_upstream(sends(&[chunk(EMAIL), DONE.to_string()])).await;
+        let chat = Chat::new(route, &upstream);
+        let error = openai_error(
+            chat.post(needle(), chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["code"], "content_filter");
+        assert_eq!(error["kinds"], serde_json::json!(["EMAIL"]));
+        assert_eq!(stopped(route, "response"), 1);
+        assert_eq!(cuts(route, "detection"), 0, "before the first byte");
+    }
+
+    #[tokio::test]
+    async fn a_detection_after_the_first_byte_ends_with_one_error_event() {
+        let route = "/chat-stream-block-late";
+        let mut steps = sends(&clean_parts());
+        steps.push(Step::Send(chunk(&format!("mail {EMAIL} now"))));
+        steps.push(Step::Wait(Duration::from_millis(200)));
+        steps.extend(sends(&clean_parts()));
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, closed) = scripted_upstream(steps).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let before = pii_blocks_on(route, "response");
+
+        let resp = chat.post(needle(), chat_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = stream_body(resp).await;
+        assert!(
+            body.starts_with(&clean_parts()[0]),
+            "some events reached the client"
+        );
+        assert!(!body.contains(EMAIL), "{body}");
+        assert!(!body.contains("[DONE]"));
+        let event = last_event(&body);
+        assert_eq!(event["error"]["code"], "content_filter");
+        assert_eq!(event["error"]["kinds"], serde_json::json!(["EMAIL"]));
+
+        assert_eq!(cuts(route, "detection"), 1);
+        assert_eq!(stopped(route, "response"), 1);
+        assert_eq!(pii_blocks_on(route, "response"), before + 1);
+        for _ in 0..50 {
+            if closed.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the upstream connection stayed open");
+    }
+
+    fn pii_blocks_on(route: &str, direction: &str) -> u64 {
+        BLOCKED_TOTAL
+            .with_label_values(&[MODE, route, direction])
+            .get()
+    }
+
+    #[tokio::test]
+    async fn a_detection_in_a_response_header_answers_400() {
+        let route = "/chat-stream-header";
+        let (upstream, _) = scripted_upstream(sends(&clean_parts())).await;
+        let chat = Chat {
+            headers: vec!["x-upstream".to_string()],
+            ..Chat::new(route, &upstream)
+        };
+        let guards = vec![TestGuard::new("chat_header", "RP_HEADER").matching("lmstudio")];
+        let error = openai_error(
+            chat.post(guards, chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["kinds"], serde_json::json!(["RP_HEADER"]));
+    }
+
+    #[tokio::test]
+    async fn a_clean_end_without_done_ends_the_stream() {
+        let parts = clean_parts();
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-no-done", &upstream)
+        };
+        let resp = chat.post(needle(), chat_request()).await;
+        assert_eq!(stream_body(resp).await, parts.concat());
+    }
+
+    #[tokio::test]
+    async fn a_value_at_the_end_without_done_stops_the_stream() {
+        let mut parts = clean_parts();
+        parts.push(chunk(EMAIL));
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-end-value", &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "content_filter");
+    }
+
+    #[tokio::test]
+    async fn an_idle_stream_before_the_first_byte_answers_504() {
+        let route = "/chat-stream-idle-early";
+        let (upstream, _) = scripted_upstream(vec![
+            Step::Send(chunk("Hello")),
+            Step::Wait(Duration::from_millis(1500)),
+            Step::Send(DONE.to_string()),
+        ])
+        .await;
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            idle_secs: 1,
+            ..Chat::new(route, &upstream)
+        };
+        let error = openai_error(
+            chat.post(needle(), chat_request()).await,
+            StatusCode::GATEWAY_TIMEOUT,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_timeout");
+        assert_eq!(cuts(route, "idle_timeout"), 0);
+    }
+
+    #[tokio::test]
+    async fn an_idle_stream_after_the_first_byte_ends_with_an_error_event() {
+        let route = "/chat-stream-idle-late";
+        let mut steps = sends(&clean_parts());
+        steps.push(Step::Wait(Duration::from_millis(1500)));
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            idle_secs: 1,
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "upstream_timeout");
+        assert_eq!(cuts(route, "idle_timeout"), 1);
+        assert_eq!(
+            stopped(route, "response"),
+            0,
+            "an idle stream is not a block"
+        );
+    }
+
+    #[tokio::test]
+    async fn keep_alive_comments_reset_the_idle_timeout() {
+        let mut steps = vec![Step::Send(chunk("Hello"))];
+        for _ in 0..3 {
+            steps.push(Step::Wait(Duration::from_millis(600)));
+            steps.push(Step::Send(": keep-alive\n\n".to_string()));
+        }
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            idle_secs: 1,
+            ..Chat::new("/chat-stream-keep-alive", &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert!(body.ends_with(DONE), "{body}");
+    }
+
+    #[tokio::test]
+    async fn an_oversize_stream_before_the_first_byte_answers_502() {
+        let route = "/chat-stream-too-large-early";
+        let (upstream, _) = scripted_upstream(sends(&clean_parts())).await;
+        let chat = Chat {
+            max_body_size: 300,
+            ..Chat::new(route, &upstream)
+        };
+        let error = openai_error(
+            chat.post(needle(), chat_request()).await,
+            StatusCode::BAD_GATEWAY,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_error");
+        assert_eq!(
+            stopped(route, "response"),
+            0,
+            "the size limit is not a block"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_oversize_stream_after_the_first_byte_ends_with_an_error_event() {
+        let route = "/chat-stream-too-large-late";
+        let parts = clean_parts();
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            max_body_size: parts.concat().len() - 1,
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "upstream_error");
+        assert_eq!(cuts(route, "too_large"), 1);
+    }
+
+    #[tokio::test]
+    async fn a_stream_at_the_size_limit_passes() {
+        let parts = clean_parts();
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            max_body_size: parts.concat().len(),
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-at-limit", &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(body, parts.concat());
+    }
+
+    #[tokio::test]
+    async fn an_upstream_failure_after_the_first_byte_ends_with_an_error_event() {
+        let route = "/chat-stream-upstream-cut";
+        let mut steps = sends(&clean_parts());
+        steps.push(Step::Wait(Duration::from_millis(100)));
+        steps.push(Step::Fail);
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let before = errors("blocked", "upstream_error");
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "upstream_error");
+        assert_eq!(cuts(route, "upstream_error"), 1);
+        assert!(errors("blocked", "upstream_error") > before);
+        assert_eq!(stopped(route, "response"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_bad_payload_after_the_first_byte_ends_with_malformed_body() {
+        let route = "/chat-stream-bad-late";
+        let mut parts = clean_parts();
+        parts.push("data: {not json\n\n".to_string());
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "malformed_body");
+        assert_eq!(cuts(route, "malformed_body"), 1);
+        assert_eq!(stopped(route, "response"), 1);
+    }
+
+    #[test_case(None, false ; "no encoding")]
+    #[test_case(Some("identity"), false ; "identity")]
+    #[test_case(Some("Identity"), false ; "identity in another case")]
+    #[test_case(Some("gzip"), true ; "gzip")]
+    #[test_case(Some("identity, br"), true ; "a list with a coding")]
+    fn a_body_is_encoded_by_any_coding_but_identity(value: Option<&str>, expected: bool) {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = value {
+            headers.insert("content-encoding", value.parse().unwrap());
+        }
+        assert_eq!(is_encoded(&headers), expected);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_content_part_after_the_first_byte_ends_with_unscannable_content() {
+        let route = "/chat-stream-unknown-part-late";
+        let mut parts = clean_parts();
+        parts.push(format!(
+            "data: {}\n\n",
+            serde_json::json!({"choices": [{"index": 0, "delta": {"content": [{"type": "mystery"}]}}]})
+        ));
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "unscannable_content");
+        assert_eq!(cuts(route, "unscannable_content"), 1);
+        assert_eq!(cuts(route, "scan_error"), 0);
+        assert_eq!(stopped(route, "response"), 1);
+    }
+
+    // 4.4 — a guard error during a stream follows on_error
+
+    #[tokio::test]
+    async fn a_guard_error_under_fail_close_after_the_first_byte_ends_with_internal_error() {
+        let route = "/chat-stream-error-close";
+        let mut parts = clean_parts();
+        parts.push(chunk("TRIGGER and more text"));
+        parts.extend(clean_parts());
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let guards = vec![
+            TestGuard::new("chat_flaky", "RP_UNUSED")
+                .silent()
+                .failing_on("TRIGGER"),
+        ];
+        let body = stream_body(chat.post(guards, chat_request()).await).await;
+        assert_eq!(last_event(&body)["error"]["code"], "internal_error");
+        assert_eq!(cuts(route, "scan_error"), 1);
+        assert_eq!(stopped(route, "response"), 1);
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_under_fail_open_forwards_the_rest_unscanned() {
+        let route = "/chat-stream-error-open";
+        let mut parts = clean_parts();
+        parts.push(chunk("TRIGGER and more text"));
+        parts.push(chunk(EMAIL));
+        parts.extend(clean_parts());
+        parts.push(DONE.to_string());
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            sizes: SMALL,
+            ..Chat::new(route, &upstream)
+        };
+        let before = errors("passed", "scanner_failure");
+        let guards = vec![
+            TestGuard::new("chat_flaky_open", "RP_UNUSED")
+                .silent()
+                .failing_on("TRIGGER"),
+        ];
+        let body = stream_body(chat.post(guards, chat_request()).await).await;
+        assert_eq!(body, parts.concat(), "the rest goes through unscanned");
+        assert!(errors("passed", "scanner_failure") > before);
+        assert_eq!(stopped(route, "response"), 0);
+    }
+
+    // 9.1 — the stream ends at `[DONE]` on every path
+
+    /// A clean stream, `[DONE]`, and an event after it: in the read of
+    /// `[DONE]`, and in a later one.
+    fn parts_after_done() -> (Vec<Step>, String) {
+        let parts = clean_parts();
+        let mut steps = sends(&parts);
+        steps.push(Step::Send(DONE.to_string() + &chunk("after one")));
+        steps.push(Step::Send(chunk("after two")));
+        (steps, parts.concat() + DONE)
+    }
+
+    #[test_case(None ; "hold-back")]
+    #[test_case(Some(StreamMode::Buffer) ; "buffer")]
+    #[tokio::test]
+    async fn no_byte_after_done_reaches_the_client(stream: Option<StreamMode>) {
+        let (steps, expected) = parts_after_done();
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            stream,
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-after-done", &upstream)
+        };
+        let body = stream_body(chat.post(Vec::new(), chat_request()).await).await;
+        assert_eq!(body, expected);
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_under_fail_open_after_done_sends_nothing_after_it() {
+        let mut parts = clean_parts();
+        parts.push(chunk("TRIGGER and more text"));
+        let expected = parts.concat() + DONE;
+        let mut steps = sends(&parts[..parts.len() - 1]);
+        // The failing text arrives with `[DONE]`, so the final scan fails.
+        steps.push(Step::Send(
+            parts.last().unwrap().clone() + DONE + &chunk("after"),
+        ));
+        steps.push(Step::Send(chunk("after again")));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-error-open-done", &upstream)
+        };
+        let guards = vec![
+            TestGuard::new("chat_flaky_open_done", "RP_UNUSED")
+                .silent()
+                .failing_on("TRIGGER"),
+        ];
+        let body = stream_body(chat.post(guards, chat_request()).await).await;
+        assert_eq!(body, expected);
+    }
+
+    #[tokio::test]
+    async fn a_guard_error_under_fail_open_forwards_up_to_done() {
+        let mut parts = clean_parts();
+        parts.push(chunk("TRIGGER and more text"));
+        parts.extend(clean_parts());
+        let expected = parts.concat() + DONE;
+        let mut steps = sends(&parts);
+        steps.push(Step::Wait(Duration::from_millis(50)));
+        steps.push(Step::Send(DONE.to_string() + &chunk("after")));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            on_error: OnError::FailOpen,
+            sizes: SMALL,
+            ..Chat::new("/chat-stream-error-open-pass", &upstream)
+        };
+        let guards = vec![
+            TestGuard::new("chat_flaky_open_pass", "RP_UNUSED")
+                .silent()
+                .failing_on("TRIGGER"),
+        ];
+        let body = stream_body(chat.post(guards, chat_request()).await).await;
+        assert_eq!(body, expected);
+    }
+
+    // 9.2 — the upstream length is not forwarded
+
+    /// A whole stream in one body, which the upstream sends with its length.
+    const SHORT_STREAM: &str = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n";
+
+    #[test_case(None ; "hold-back")]
+    #[test_case(Some(StreamMode::Buffer) ; "buffer")]
+    #[tokio::test]
+    async fn the_upstream_length_is_not_forwarded(stream: Option<StreamMode>) {
+        let (upstream, _) = stub_upstream(200, "text/event-stream", SHORT_STREAM).await;
+        let chat = Chat {
+            stream,
+            ..Chat::new("/chat-stream-length", &upstream)
+        };
+        let resp = chat.post(Vec::new(), chat_request()).await;
+        assert!(resp.headers().get("content-length").is_none());
+        assert_eq!(stream_body(resp).await, SHORT_STREAM);
+    }
+
+    // 9.3 — the driver stops when the client is gone
+
+    #[tokio::test]
+    async fn a_client_gone_before_the_first_byte_drops_the_upstream() {
+        // A short reply stays held, so the driver reads on without a release.
+        let mut steps = sends(&clean_parts());
+        steps.push(Step::Wait(Duration::from_millis(300)));
+        steps.push(Step::Send(chunk("more")));
+        steps.push(Step::Wait(Duration::from_secs(5)));
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, closed) = scripted_upstream(steps).await;
+        let chat = Chat::new("/chat-stream-client-gone", &upstream);
+
+        let post = chat.post(Vec::new(), chat_request());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), post)
+                .await
+                .is_err(),
+            "no answer before the client leaves"
+        );
+        for _ in 0..20 {
+            if closed.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the upstream connection is still open");
+    }
+
+    // 4.5 — buffer mode
+
+    #[tokio::test]
+    async fn a_clean_stream_in_buffer_mode_is_sent_after_the_end() {
+        let mut steps = sends(&clean_parts());
+        steps.push(Step::Wait(Duration::from_millis(300)));
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            stream: Some(StreamMode::Buffer),
+            sizes: SMALL,
+            ..Chat::new("/chat-buffer-clean", &upstream)
+        };
+        let started = std::time::Instant::now();
+        let resp = chat.post(needle(), chat_request()).await;
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(stream_body(resp).await, clean_parts().concat() + DONE);
+    }
+
+    #[tokio::test]
+    async fn a_detection_in_buffer_mode_answers_400() {
+        let route = "/chat-buffer-block";
+        let mut parts = clean_parts();
+        parts.push(chunk(EMAIL));
+        parts.push(DONE.to_string());
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            stream: Some(StreamMode::Buffer),
+            ..Chat::new(route, &upstream)
+        };
+        let error = openai_error(
+            chat.post(needle(), chat_request()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error["code"], "content_filter");
+        assert_eq!(stopped(route, "response"), 1);
+    }
+
+    #[tokio::test]
+    async fn an_idle_stream_in_buffer_mode_answers_504() {
+        let (upstream, _) = scripted_upstream(vec![
+            Step::Send(chunk("Hello")),
+            Step::Wait(Duration::from_millis(1500)),
+        ])
+        .await;
+        let chat = Chat {
+            stream: Some(StreamMode::Buffer),
+            idle_secs: 1,
+            ..Chat::new("/chat-buffer-idle", &upstream)
+        };
+        let error = openai_error(
+            chat.post(needle(), chat_request()).await,
+            StatusCode::GATEWAY_TIMEOUT,
+        )
+        .await;
+        assert_eq!(error["code"], "upstream_timeout");
+    }
+
+    // 4.6 — the upstream timeout bounds the headers only
+
+    #[tokio::test]
+    async fn a_stream_outlives_the_upstream_timeout() {
+        let mut steps = Vec::new();
+        for part in clean_parts().into_iter().take(4) {
+            steps.push(Step::Send(part));
+            steps.push(Step::Wait(Duration::from_millis(450)));
+        }
+        steps.push(Step::Send(DONE.to_string()));
+        let (upstream, _) = scripted_upstream(steps).await;
+        let chat = Chat {
+            timeout_secs: 1,
+            idle_secs: 1,
+            ..Chat::new("/chat-stream-long", &upstream)
+        };
+        let resp = chat.post(needle(), chat_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = stream_body(resp).await;
+        assert_eq!(
+            body,
+            clean_parts().into_iter().take(4).collect::<String>() + DONE
+        );
+    }
+
+    #[tokio::test]
+    async fn response_scan_off_passes_a_stream_unscanned() {
+        let parts = [chunk(EMAIL), DONE.to_string()];
+        let (upstream, _) = scripted_upstream(sends(&parts)).await;
+        let chat = Chat {
+            response_scan: false,
+            ..Chat::new("/chat-stream-off", &upstream)
+        };
+        let body = stream_body(chat.post(needle(), chat_request()).await).await;
+        assert_eq!(body, parts.concat());
     }
 }

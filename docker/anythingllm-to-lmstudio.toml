@@ -1,0 +1,70 @@
+# Proxy config for a manual test: AnythingLLM -> Voidwall -> LM Studio.
+#
+#   docker/ctl start docker/anythingllm-to-lmstudio.toml
+#
+# LM Studio runs on the host: start its server on port 1234 with "Serve on
+# Local Network" on, so the container can reach it. The compose file maps
+# host.docker.internal to the host. In AnythingLLM, choose the "Generic OpenAI"
+# LLM provider with base URL http://localhost:8082/v1, any API key, and the LM
+# Studio model id.
+
+# Ingest keys come first. TOML binds a bare key to the table above it, so one
+# written after a [section] parses as that section's field and is rejected.
+max_body_size = 1048576
+on_error = "fail_close"
+upstream_timeout_secs = 300
+# A text/event-stream on a route with format = "openai-chat". Defaults shown.
+# stream_idle_timeout_secs = 60  # longest gap between two reads of a stream
+# stream_holdback_bytes = 512    # text kept back behind the newest text; <= max_body_size
+# stream_context_bytes = 512     # sent text each scan covers; <= max_body_size
+# stream_scan_bytes = 256        # new text that starts the next scan; <= stream_holdback_bytes
+
+[builtin_guards.pii]
+countries = []
+languages = []
+scanner_threads = 6
+
+# The guard reads AnythingLLM's system prompt and retrieved context too.
+# Comment out both sections below to test PII alone.
+[guards.prompt_injection]
+adapter = "text_classifier"
+model_path = "/opt/voidwall/models/wolf-small/model.onnx"
+tokenizer_path = "/opt/voidwall/models/wolf-small/tokenizer.json"
+max_tokens = 2048
+labels = ["PROMPT_INJECTION"]   # text_classifier: one label, naming class 1
+overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
+
+[guards.prompt_injection.thresholds]
+PROMPT_INJECTION = 0.5
+
+[reverse_proxy]
+enabled = true
+listen = "0.0.0.0:8082"
+
+[reverse_proxy.request]
+scan = true
+
+# On: the model's replies, streamed or not, are scanned.
+[reverse_proxy.response]
+scan = true
+
+# Chat Completions, read as such; streams are scanned as they arrive.
+[[reverse_proxy.routes]]
+path_prefix = "/v1/chat/completions"
+upstream = "http://host.docker.internal:1234"
+format = "openai-chat"
+stream = "holdback"             # "buffer": scan the whole reply before the first byte
+
+# Everything else (/v1/models, /v1/embeddings, LM Studio's /api/...) with the
+# generic body scan. An openai-chat route would answer 400 to a body with no
+# messages array, such as an embeddings request.
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://host.docker.internal:1234"
+
+[http_api]
+enabled = true
+listen = "0.0.0.0:8083"
+
+[admin]
+listen = "0.0.0.0:9090"

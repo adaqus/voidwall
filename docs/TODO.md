@@ -9,7 +9,7 @@ The order of items doesn't determine order of implementation.
   turned on or off with `http_api.litellm.enabled`; `/v1/scan` has its own switch,
   `http_api.scan.enabled`
 - [ ] OpenAI and Anthropic API format support
-- [ ] Streaming support (SSE)
+- [x] Streaming support (SSE)
 - [ ] Verdict cache
 - [ ] Distributed verdict cache
 - [ ] Allowlists

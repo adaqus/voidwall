@@ -303,6 +303,13 @@ impl Selection {
         self.entry(Rule::Message(MESSAGE), message);
     }
 
+    /// Classify the `delta` of a stream chunk as a new entry, by the field
+    /// rules of a response message. A delta carries its role in the first
+    /// chunk only, so the role is not checked.
+    pub fn delta(&mut self, delta: &Value) {
+        self.entry(Rule::Object(RESPONSE_MESSAGE), delta);
+    }
+
     /// Classify one tool definition as a new entry.
     pub fn tool(&mut self, tool: &Value) {
         self.entry(Rule::Object(TOOL), tool);

@@ -74,7 +74,7 @@ cargo install --locked --features cli cargo-about
 |---|---|
 | `docker/ctl compile` | Fetches ONNX Runtime, runs the license gate, writes the notices, and builds the release binaries |
 | `docker/ctl fetch_models` | Downloads the dev stack's model files into `models/` and verifies their SHA-256. Skips files that already match |
-| `docker/ctl start` | Runs `compile` and `fetch_models`, then starts Voidwall, the echo server, Prometheus, and Grafana |
+| `docker/ctl start [CONFIG]` | Runs `compile` and `fetch_models`, then starts Voidwall, the echo server, Prometheus, and Grafana. Voidwall reads `CONFIG`, a path from the current directory (default `docker/voidwall.toml`) |
 | `docker/ctl stop` | Stops all containers |
 | `docker/ctl start_echo_server` | Builds and starts only the echo server, from `tools/echo-server/` |
 | `docker/ctl soak` | Runs the k6 soak test against the running stack. Set `DURATION` (default `30m`), `PEAK_VUS` (default `100`), and `CYCLES` (default `1`) |

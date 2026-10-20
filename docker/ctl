@@ -7,8 +7,9 @@
 #                                  # notices, build release binaries on the host
 #   docker/ctl fetch_models        # fetch and verify the dev stack's model files
 #                                  # into models/ (no Hugging Face token needed)
-#   docker/ctl start               # compile + fetch_models + start proxy, echo,
-#                                  # prometheus, grafana
+#   docker/ctl start [CONFIG]      # compile + fetch_models + start proxy, echo,
+#                                  # prometheus, grafana; the proxy reads CONFIG
+#                                  # (default: docker/voidwall.toml)
 #   docker/ctl stop                # stop all containers
 #   docker/ctl start_echo_server   # start only the echo server container
 #   docker/ctl soak                # run soak test against running environment
@@ -76,9 +77,22 @@ cmd_fetch_models() {
 }
 
 cmd_start() {
+    if [ "$#" -gt 1 ]; then
+        usage
+    fi
+    # Check the config before the build, and always set the variable so a
+    # value left in the shell never picks the file.
+    local config="${1:-$SCRIPT_DIR/voidwall.toml}"
+    if [ ! -f "$config" ] || [ ! -r "$config" ]; then
+        echo "Config file not found or not readable: $config" >&2
+        exit 2
+    fi
+    export VOIDWALL_CONFIG_FILE
+    VOIDWALL_CONFIG_FILE="$(realpath "$config")"
+
     cmd_compile
     cmd_fetch_models
-    echo "Starting dev environment..."
+    echo "Starting dev environment with config $VOIDWALL_CONFIG_FILE..."
     docker compose -f "$COMPOSE_FILE" up --build -d
     echo ""
     echo "Services:"
@@ -343,14 +357,14 @@ cmd_parity() {
 # ---------------------------------------------------------------------------
 
 usage() {
-    echo "Usage: $0 {compile|fetch_models|start|stop|start_echo_server|soak|ai4p-eval|piimb-eval|parity}"
+    echo "Usage: $0 {compile|fetch_models|start [CONFIG]|stop|start_echo_server|soak|ai4p-eval|piimb-eval|parity}"
     exit 1
 }
 
 case "${1:-}" in
     compile)          cmd_compile ;;
     fetch_models)     cmd_fetch_models ;;
-    start)            cmd_start ;;
+    start)            shift; cmd_start "$@" ;;
     stop)             cmd_stop ;;
     start_echo_server) cmd_start_echo_server ;;
     soak)             cmd_soak ;;

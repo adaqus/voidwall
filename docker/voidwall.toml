@@ -6,6 +6,11 @@
 max_body_size = 1048576
 on_error = "fail_close"
 upstream_timeout_secs = 300
+# A text/event-stream on a route with format = "openai-chat". Defaults shown.
+# stream_idle_timeout_secs = 60  # longest gap between two reads of a stream
+# stream_holdback_bytes = 512    # text kept back behind the newest text; <= max_body_size
+# stream_context_bytes = 512     # sent text each scan covers; <= max_body_size
+# stream_scan_bytes = 256        # new text that starts the next scan; <= stream_holdback_bytes
 
 [builtin_guards.pii]
 countries = []

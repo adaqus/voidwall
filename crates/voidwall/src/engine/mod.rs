@@ -352,6 +352,8 @@ pub(crate) mod test_guard {
         delay: Option<Duration>,
         fails: Option<TestFailure>,
         silent: bool,
+        needle: Option<&'static str>,
+        fails_on: Option<&'static str>,
         probe: GuardProbe,
     }
 
@@ -364,6 +366,8 @@ pub(crate) mod test_guard {
                 delay: None,
                 fails: None,
                 silent: false,
+                needle: None,
+                fails_on: None,
                 probe: GuardProbe::default(),
             }
         }
@@ -383,6 +387,20 @@ pub(crate) mod test_guard {
         /// Make `detect` return the given error instead of findings.
         pub(crate) fn failing_with(mut self, failure: TestFailure) -> Self {
             self.fails = Some(failure);
+            self
+        }
+
+        /// Fail only when a selected unit holds `needle`; otherwise report
+        /// as configured.
+        pub(crate) fn failing_on(mut self, needle: &'static str) -> Self {
+            self.fails_on = Some(needle);
+            self.failing()
+        }
+
+        /// Report a finding only where `needle` occurs in a unit, spanning
+        /// it, instead of one per unit.
+        pub(crate) fn matching(mut self, needle: &'static str) -> Self {
+            self.needle = Some(needle);
             self
         }
 
@@ -422,7 +440,12 @@ pub(crate) mod test_guard {
                 if let Some(delay) = self.delay {
                     tokio::time::sleep(delay).await;
                 }
-                if let Some(failure) = self.fails {
+                let triggered = self.fails_on.is_none_or(|needle| {
+                    input.selected.iter().any(|id| {
+                        !needle_spans(&input.units[id.index()].content, needle).is_empty()
+                    })
+                });
+                if let Some(failure) = self.fails.filter(|_| triggered) {
                     self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
                     let guard = Arc::clone(&self.name);
                     return Err(match failure {
@@ -438,17 +461,52 @@ pub(crate) mod test_guard {
                         },
                     });
                 }
-                let findings = input
-                    .selected
-                    .iter()
-                    .filter(|_| !self.silent)
-                    .map(|id| {
-                        Finding::spanned(*id, self.kind, Arc::clone(&self.name), Span::new(0, 1))
-                    })
-                    .collect();
+                let findings = match self.needle {
+                    Some(needle) => input
+                        .selected
+                        .iter()
+                        .flat_map(|id| {
+                            needle_spans(&input.units[id.index()].content, needle)
+                                .into_iter()
+                                .map(|span| {
+                                    Finding::spanned(*id, self.kind, Arc::clone(&self.name), span)
+                                })
+                        })
+                        .collect(),
+                    None => input
+                        .selected
+                        .iter()
+                        .filter(|_| !self.silent)
+                        .map(|id| {
+                            Finding::spanned(
+                                *id,
+                                self.kind,
+                                Arc::clone(&self.name),
+                                Span::new(0, 1),
+                            )
+                        })
+                        .collect(),
+                };
                 self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
                 Ok(findings)
             })
+        }
+    }
+
+    /// Every span of `needle` in `content`: in a structured unit, at the
+    /// fragment offset plus its place in the value.
+    fn needle_spans(content: &UnitContent, needle: &str) -> Vec<Span> {
+        let at = |text: &str, offset: usize| -> Vec<Span> {
+            text.match_indices(needle)
+                .map(|(i, m)| Span::new(offset + i, offset + i + m.len()))
+                .collect()
+        };
+        match content {
+            UnitContent::PlainText(bytes) => at(&String::from_utf8_lossy(bytes), 0),
+            UnitContent::Structured { fragments } => fragments
+                .iter()
+                .flat_map(|f| at(&f.value, f.offset))
+                .collect(),
         }
     }
 }

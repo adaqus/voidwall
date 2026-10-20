@@ -72,6 +72,17 @@ lazy_static! {
     )
     .unwrap();
 
+    /// Streams the reverse proxy stopped after a byte of the body reached the
+    /// client, by reason. The reason comes from [`CutReason`] only.
+    pub static ref STREAMS_CUT_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "voidwall_streams_cut_total",
+            "Total streams stopped after their first byte, by reason"
+        ),
+        &["mode", "route", "reason"]
+    )
+    .unwrap();
+
     // --- Process metrics ---
 
     pub static ref PROCESS_RSS_BYTES: Gauge = register_gauge!(
@@ -181,6 +192,47 @@ pub fn inc_unscanned(
         .inc_by(count);
 }
 
+/// Why a stream was stopped. The `reason` label of
+/// `voidwall_streams_cut_total` comes from this fixed set only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CutReason {
+    /// A guard reported a finding.
+    Detection,
+    /// A guard error under `fail_close`.
+    ScanError,
+    /// The idle timeout expired.
+    IdleTimeout,
+    /// The stream passed `max_body_size`.
+    TooLarge,
+    /// The upstream connection failed before the body ended.
+    UpstreamError,
+    /// A `data:` payload did not parse, under `fail_close`.
+    MalformedBody,
+    /// A content part of an unknown type, under `fail_close`.
+    UnscannableContent,
+}
+
+impl CutReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CutReason::Detection => "detection",
+            CutReason::ScanError => "scan_error",
+            CutReason::IdleTimeout => "idle_timeout",
+            CutReason::TooLarge => "too_large",
+            CutReason::UpstreamError => "upstream_error",
+            CutReason::MalformedBody => "malformed_body",
+            CutReason::UnscannableContent => "unscannable_content",
+        }
+    }
+}
+
+/// Record a stream stopped after its first byte.
+pub fn inc_stream_cut(mode: &str, route: &str, reason: CutReason) {
+    STREAMS_CUT_TOTAL
+        .with_label_values(&[mode, route, reason.as_str()])
+        .inc();
+}
+
 /// Update process metrics from /proc/self. Called on each /metrics scrape.
 pub fn update_process_metrics() {
     let page_size = procfs::page_size();
@@ -255,6 +307,25 @@ mod tests {
         inc_message_blocked(mode, route, direction);
         let after = MESSAGES_BLOCKED_TOTAL
             .with_label_values(&[mode, route, direction])
+            .get();
+        assert_eq!(after, before + 1);
+    }
+
+    #[test_case(CutReason::Detection, "detection")]
+    #[test_case(CutReason::ScanError, "scan_error")]
+    #[test_case(CutReason::IdleTimeout, "idle_timeout")]
+    #[test_case(CutReason::TooLarge, "too_large")]
+    #[test_case(CutReason::UpstreamError, "upstream_error")]
+    #[test_case(CutReason::MalformedBody, "malformed_body")]
+    #[test_case(CutReason::UnscannableContent, "unscannable_content")]
+    fn inc_stream_cut_increments_its_reason(reason: CutReason, label: &str) {
+        let route = "/metrics-stream-cut";
+        let before = STREAMS_CUT_TOTAL
+            .with_label_values(&["reverse_proxy", route, label])
+            .get();
+        inc_stream_cut("reverse_proxy", route, reason);
+        let after = STREAMS_CUT_TOTAL
+            .with_label_values(&["reverse_proxy", route, label])
             .get();
         assert_eq!(after, before + 1);
     }
