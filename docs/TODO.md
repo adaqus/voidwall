@@ -15,5 +15,5 @@ The order of items doesn't determine order of implementation.
 - [ ] Allowlists
 - [ ] n8n node
 - [ ] Configurable Graph Optimization Level for Guard
-- [ ] ML PII Guard
+- [x] ML PII Guard
 - [ ] Documentation
