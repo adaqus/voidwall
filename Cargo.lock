@@ -3096,6 +3096,7 @@ dependencies = [
  "percent-encoding",
  "procfs",
  "prometheus",
+ "proptest",
  "rcgen",
  "regex",
  "reqwest",

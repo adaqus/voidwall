@@ -17,12 +17,12 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError, RouteFormat, StreamMode};
+use crate::config::{AppConfig, OnError, RouteFormat, StreamMode};
 use crate::engine::{
     BlockPolicy, Engine, Finding, GuardSelection, ScanResult, UnitContent, UnitKind, Units,
 };
 use crate::error::{Error, INVALID_REQUEST};
-use crate::metrics::{self, CutReason, UnscannedReason};
+use crate::metrics::{self, CutReason, PiiGuards, UnscannedReason};
 use crate::scanner::SCANNER_ERROR_LIMITER;
 use crate::scanner::{classify_body, is_json_content_type};
 use crate::structured::OwnedContextFragment;
@@ -92,6 +92,7 @@ pub struct ReverseProxyState {
     routes: Arc<Vec<ResolvedRoute>>,
     clients: Arc<HashMap<String, Client<hyper_util::client::legacy::connect::HttpConnector, Body>>>,
     engine: Arc<Engine>,
+    pii_guards: Arc<PiiGuards>,
     ingest: Arc<Ingest>,
     request_scan: bool,
     response_scan: bool,
@@ -143,6 +144,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
         routes: Arc::new(routes),
         clients: Arc::new(clients),
         engine,
+        pii_guards: Arc::new(PiiGuards::from_config(config)),
         ingest: Arc::new(Ingest {
             max_body_size: config.max_body_size,
             content_types: config.content_types.clone(),
@@ -270,6 +272,7 @@ async fn handle_proxied_request(
         let ctx = MetricContext {
             route: &route.path_prefix,
             direction: "request",
+            pii_guards: &state.pii_guards,
         };
 
         // The body is decoded only when a guard selected for this route wants
@@ -364,6 +367,7 @@ async fn handle_proxied_request(
         let ctx = MetricContext {
             route: &route.path_prefix,
             direction: "response",
+            pii_guards: &state.pii_guards,
         };
 
         // A stream on an `openai-chat` route is found by its content type,
@@ -869,6 +873,7 @@ fn decode_whole_stream(
 /// the handler has answered with the upstream head.
 struct StreamTask {
     engine: Arc<Engine>,
+    pii_guards: Arc<PiiGuards>,
     ingest: Arc<Ingest>,
     selection: GuardSelection,
     headers: Vec<String>,
@@ -881,6 +886,7 @@ impl StreamTask {
     fn new(state: &ReverseProxyState, route: &ResolvedRoute) -> Self {
         Self {
             engine: Arc::clone(&state.engine),
+            pii_guards: Arc::clone(&state.pii_guards),
             ingest: Arc::clone(&state.ingest),
             selection: route.selection.clone(),
             headers: route.headers.clone(),
@@ -894,6 +900,7 @@ impl StreamTask {
         MetricContext {
             route: &self.route,
             direction: "response",
+            pii_guards: &self.pii_guards,
         }
     }
 }
@@ -1343,11 +1350,13 @@ enum PipelineResult {
     Error(Response),
 }
 
-/// The metric labels for one scanned direction. The mode is fixed, so only the
-/// route and the direction vary.
+/// The metric labels for one scanned direction, and the guards the PII
+/// families count. The mode is fixed, so only the route and the direction
+/// vary.
 struct MetricContext<'a> {
     route: &'a str,
     direction: &'a str,
+    pii_guards: &'a PiiGuards,
 }
 
 /// Everything detection needs for one message: the engine, the shared ingest
@@ -1476,10 +1485,10 @@ async fn run_engine(
 ///
 /// The kind lists are sorted and hold each kind once, so the counter moves
 /// once per kind and the block body lists them in a stable order. The PII
-/// families count the `pii` guard's findings only.
+/// families count the PII guards' findings only.
 fn record_detection(scan_result: &ScanResult, ctx: &MetricContext<'_>) -> Vec<String> {
     let kinds = scan_result.kinds();
-    let pii_kinds = scan_result.kinds_of(BUILTIN_PII_GUARD_NAME);
+    let pii_kinds = ctx.pii_guards.kinds(scan_result);
     for kind in &pii_kinds {
         metrics::inc_detection(kind, MODE, ctx.route, ctx.direction);
     }
@@ -1488,9 +1497,9 @@ fn record_detection(scan_result: &ScanResult, ctx: &MetricContext<'_>) -> Vec<St
     for guard in scan_result.guards() {
         metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction);
     }
-    // The PII family counts only a block the `pii` guard took part in. The
-    // engine-wide family counts every stopped message and moves where the
-    // pipeline result is known.
+    // The PII family counts only a block a PII guard took part in, once
+    // however many PII guards did. The engine-wide family counts every
+    // stopped message and moves where the pipeline result is known.
     if !pii_kinds.is_empty() {
         metrics::inc_blocked(MODE, ctx.route, ctx.direction);
     }
@@ -1837,7 +1846,7 @@ fn build_response(status: StatusCode, headers: HeaderMap, body: Bytes) -> Respon
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::GuardSurface;
+    use crate::config::{BUILTIN_PII_GUARD_NAME, GuardSurface};
     use crate::engine::Interest;
     use test_case::test_case;
 
@@ -2164,6 +2173,19 @@ mod tests {
         route: &str,
         unit_count: usize,
     ) -> PipelineResult {
+        let pii_guards = PiiGuards::from_config(&AppConfig::default());
+        run_pii_guards_on(guards, &pii_guards, on_error, route, unit_count).await
+    }
+
+    /// [`run_guards_on`], with `pii_guards` as the guards the PII families
+    /// count.
+    async fn run_pii_guards_on(
+        guards: Vec<TestGuard>,
+        pii_guards: &PiiGuards,
+        on_error: OnError,
+        route: &str,
+        unit_count: usize,
+    ) -> PipelineResult {
         let engine = Engine::with_guards(guards.into_iter().map(|g| Box::new(g) as _).collect());
         let selection = engine.select(None);
         let ingest = Ingest {
@@ -2181,6 +2203,7 @@ mod tests {
         let ctx = MetricContext {
             route,
             direction: "request",
+            pii_guards,
         };
         let mut units = Units::new();
         for _ in 0..unit_count {
@@ -2326,7 +2349,7 @@ mod tests {
         assert!(errors("blocked", "window_limit") > before);
     }
 
-    // --- The PII families count the `pii` guard's findings only ---
+    // --- The PII families count the PII guards' findings only ---
 
     use crate::metrics::{BLOCKED_TOTAL, DETECTIONS_TOTAL};
 
@@ -2370,7 +2393,7 @@ mod tests {
 
         let result = run_guards_on(
             vec![
-                TestGuard::new(crate::config::BUILTIN_PII_GUARD_NAME, "RP_SHARED_KIND"),
+                TestGuard::new(BUILTIN_PII_GUARD_NAME, "RP_SHARED_KIND"),
                 TestGuard::new("rp_model_shared", "RP_SHARED_KIND"),
             ],
             OnError::FailClose,
@@ -2382,12 +2405,122 @@ mod tests {
         assert!(matches!(result, PipelineResult::Block(_)));
         // The first guard to report blocks and the other may be abandoned;
         // either way the kind is counted once, and only for the `pii` guard.
-        let pii_reported = guard_detections(crate::config::BUILTIN_PII_GUARD_NAME, route) == 1;
+        let pii_reported = guard_detections(BUILTIN_PII_GUARD_NAME, route) == 1;
         assert_eq!(
             pii_detections("RP_SHARED_KIND", route),
             u64::from(pii_reported)
         );
         assert_eq!(pii_blocks(route), u64::from(pii_reported));
+    }
+
+    /// The guards the PII families count: `pii`, and `rp_pii_ml` as if it
+    /// were configured with `class = "pii"`.
+    fn with_pii_model_guard() -> PiiGuards {
+        PiiGuards::with_model_guards(&["rp_pii_ml"])
+    }
+
+    #[tokio::test]
+    async fn a_block_by_a_pii_model_guard_alone_counts_in_the_pii_families() {
+        let route = "/pii-metrics-pii-model-only";
+
+        let result = run_pii_guards_on(
+            vec![TestGuard::new("rp_pii_ml", "POSTAL_ADDRESS")],
+            &with_pii_model_guard(),
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Block(_)));
+        assert_eq!(pii_detections("POSTAL_ADDRESS", route), 1);
+        assert_eq!(pii_blocks(route), 1);
+    }
+
+    #[tokio::test]
+    async fn a_block_by_a_classless_model_guard_leaves_the_pii_families_alone() {
+        let route = "/pii-metrics-classless-model";
+
+        let result = run_pii_guards_on(
+            vec![TestGuard::new("rp_classless", "PROMPT_INJECTION")],
+            &with_pii_model_guard(),
+            OnError::FailClose,
+            route,
+            1,
+        )
+        .await;
+
+        assert!(matches!(result, PipelineResult::Block(_)));
+        assert_eq!(guard_detections("rp_classless", route), 1);
+        assert_eq!(pii_detections("PROMPT_INJECTION", route), 0);
+        assert_eq!(pii_blocks(route), 0);
+    }
+
+    fn finding_of(guard: &str, kind: &str, start: usize) -> Finding {
+        Finding::spanned(
+            crate::engine::UnitId(0),
+            kind,
+            Arc::<str>::from(guard),
+            crate::engine::Span::new(start, start + 4),
+        )
+    }
+
+    /// metrics, "A PII model guard detects": only the PII model guard reports,
+    /// two kinds, and each counts once.
+    #[test]
+    fn a_pii_model_guard_alone_counts_each_of_its_kinds_once() {
+        let route = "/pii-metrics-pii-model-two-kinds";
+        let pii_guards = with_pii_model_guard();
+        let ctx = MetricContext {
+            route,
+            direction: "request",
+            pii_guards: &pii_guards,
+        };
+        let scan_result = ScanResult::new(vec![
+            finding_of("rp_pii_ml", "RP_ML_PERSON_NAME", 0),
+            finding_of("rp_pii_ml", "RP_ML_POSTAL_ADDRESS", 10),
+            finding_of("rp_pii_ml", "RP_ML_PERSON_NAME", 20),
+        ]);
+
+        record_detection(&scan_result, &ctx);
+
+        assert_eq!(pii_detections("RP_ML_PERSON_NAME", route), 1);
+        assert_eq!(pii_detections("RP_ML_POSTAL_ADDRESS", route), 1);
+        assert_eq!(pii_blocks(route), 1);
+    }
+
+    /// Both PII guards' findings in one blocked message, as a stream settles
+    /// them: each kind counts once, and the block counts once.
+    #[test]
+    fn two_pii_guards_in_one_blocked_message_count_once() {
+        let route = "/pii-metrics-two-pii-guards";
+        let pii_guards = with_pii_model_guard();
+        let ctx = MetricContext {
+            route,
+            direction: "request",
+            pii_guards: &pii_guards,
+        };
+        let scan_result = ScanResult::new(vec![
+            finding_of(BUILTIN_PII_GUARD_NAME, "RP_TWO_PII_SHARED", 0),
+            finding_of("rp_pii_ml", "RP_TWO_PII_SHARED", 10),
+            finding_of("rp_pii_ml", "RP_TWO_PII_ML_ONLY", 20),
+            finding_of("rp_other", "RP_TWO_PII_OTHER", 30),
+        ]);
+
+        let kinds = record_detection(&scan_result, &ctx);
+
+        assert_eq!(
+            kinds,
+            [
+                "RP_TWO_PII_ML_ONLY",
+                "RP_TWO_PII_OTHER",
+                "RP_TWO_PII_SHARED"
+            ]
+        );
+        assert_eq!(pii_detections("RP_TWO_PII_SHARED", route), 1);
+        assert_eq!(pii_detections("RP_TWO_PII_ML_ONLY", route), 1);
+        assert_eq!(pii_detections("RP_TWO_PII_OTHER", route), 0);
+        assert_eq!(pii_blocks(route), 1);
     }
 
     // --- Guard detections count once per guard per message ---
@@ -3259,6 +3392,7 @@ mod tests {
         let ctx = MetricContext {
             route: "/chat-decode-close",
             direction: "response",
+            pii_guards: &PiiGuards::from_config(&AppConfig::default()),
         };
         let Err(stop) = decode_stream_event("{not json", OnError::FailClose, &ctx) else {
             panic!("expected a stop");
@@ -3275,6 +3409,7 @@ mod tests {
         let ctx = MetricContext {
             route: "/chat-decode-open",
             direction: "response",
+            pii_guards: &PiiGuards::from_config(&AppConfig::default()),
         };
         let Ok(event) = decode_stream_event("{not json", OnError::FailOpen, &ctx) else {
             panic!("expected the event to go on");

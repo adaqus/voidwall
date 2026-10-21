@@ -75,8 +75,9 @@ pub(crate) fn check_inputs(inputs: &[Outlet], max_tokens: usize) -> Result<Input
     })
 }
 
-/// Checks that the model has one `Float32` output of shape `[_, width]`.
-pub(crate) fn check_output(outputs: &[Outlet], width: i64) -> Result<(), LoadError> {
+/// Checks that the model has one `Float32` output of rank `rank` whose last
+/// dimension is `width`: `[_, width]` or `[_, _, width]`.
+pub(crate) fn check_output(outputs: &[Outlet], rank: usize, width: i64) -> Result<(), LoadError> {
     let [output] = outputs else {
         return Err(LoadError::OutputCount(outputs.len()));
     };
@@ -85,13 +86,16 @@ pub(crate) fn check_output(outputs: &[Outlet], width: i64) -> Result<(), LoadErr
     if ty != TensorElementType::Float32 {
         return Err(LoadError::OutputType(ty.to_string()));
     }
-    if shape.len() != 2 {
-        return Err(LoadError::OutputRank(shape.len()));
+    if shape.len() != rank {
+        return Err(LoadError::OutputRank {
+            found: shape.len(),
+            expected: rank,
+        });
     }
-    if shape[1] != width {
+    if shape[rank - 1] != width {
         return Err(LoadError::OutputWidth {
             expected: width,
-            found: shape[1],
+            found: shape[rank - 1],
         });
     }
     Ok(())
@@ -209,7 +213,7 @@ mod tests {
     #[test_case(Fixture { width: 3, ..Fixture::default() }, Some(&["width 2", "3"][..]) ; "wrong width")]
     #[test_case(Fixture { float16_output: true, ..Fixture::default() }, Some(&["f16"][..]) ; "half precision")]
     fn the_output_is_checked(fixture: Fixture, named: Option<&[&str]>) {
-        let result = check_output(session(&fixture).outputs(), 2);
+        let result = check_output(session(&fixture).outputs(), 2, 2);
         match named {
             None => result.unwrap(),
             Some(parts) => {

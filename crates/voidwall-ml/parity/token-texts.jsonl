@@ -1,0 +1,30 @@
+{"id": "person-name", "text": "Please send the contract to Jan Kowalski before Friday."}
+{"id": "postal-address", "text": "Ship the parcel to 221B Baker Street, London NW1 6XE, United Kingdom."}
+{"id": "date-of-birth", "text": "Patient John Doe, date of birth 01.01.1970, arrived at noon."}
+{"id": "phone-number", "text": "Call me at +1 555 0100 or at (555) 010-0199 after six."}
+{"id": "email-address", "text": "Write to john.doe@example.com or to support@example.org for details."}
+{"id": "bank-account", "text": "Transfer the fee to IBAN DE89 3704 0044 0532 0130 00 by Monday."}
+{"id": "auth-secret", "text": "The access key is AKIAIOSFODNN7EXAMPLE and the password is hunter2-placeholder."}
+{"id": "document-identifier", "text": "My passport number is X0000000 and my driving licence is AB000000."}
+{"id": "ip-address", "text": "The server at 192.0.2.10 and the host 2001:db8::1 refused the connection."}
+{"id": "payment-card", "text": "Charge the card 4111 1111 1111 1111, expiry 12/30, to the order."}
+{"id": "person-identifier", "text": "Her social security number is 123-45-6789 and her PESEL is 00000000000."}
+{"id": "geo-location", "text": "The parcel locker is at 52.2297, 21.0122, next to the station."}
+{"id": "several-types", "text": "Max Mustermann (max.mustermann@example.com, +49 30 000000) lives at Musterstraße 1, 12345 Musterstadt."}
+{"id": "polish", "text": "Zażółć gęślą jaźń: Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa."}
+{"id": "french", "text": "Mme Marie Dupont habite au 1 rue de l’Exemple, 75000 Paris; téléphone 01 00 00 00 00."}
+{"id": "cyrillic", "text": "Иван Иванов живёт по адресу: ул. Примерная, д. 1, Москва."}
+{"id": "emoji", "text": "📞 Anna Nowak 👩‍💻 — anna.nowak@example.com ✉️"}
+{"id": "edge-brackets", "text": "Ask the clerk (Jan Kowalski). Then ask [Anna Nowak]; then {John Doe}!"}
+{"id": "edge-quotes", "text": "He signed as \"Max Mustermann\", she as 'Anna Nowak', and «Marie Dupont» wrote back to “John Doe” and ‘Jan Kowalski’, „Erika Musterfrau“."}
+{"id": "edge-trailing", "text": "Names: John Doe, Anna Nowak; Jan Kowalski: Marie Dupont? Max Mustermann!"}
+{"id": "lines", "text": "Jan Kowalski\nAnna Nowak\n\nJohn Doe\n221B Baker Street\nLondon NW1 6XE"}
+{"id": "json-values", "text": "{\"name\": \"John Doe\", \"email\": \"john.doe@example.com\", \"city\": \"London\"}"}
+{"id": "benign", "text": "Explain why the Roman Empire split into an eastern and a western half."}
+{"id": "empty", "text": ""}
+{"id": "whitespace", "text": "   \n\t  "}
+{"id": "unusual-whitespace", "text": "Jan\u3000Kowalski\u0085Anna\u00a0Nowak\u001fJohn\u001cDoe, phone\u2009+48\u2009000\u2009000\u2009000."}
+{"id": "long-2-windows", "parts": [["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 20], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 20]]}
+{"id": "long-pii-in-overlap", "parts": [["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 22], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 10]]}
+{"id": "long-pii-early-and-late", "parts": [["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 30], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 25], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1]]}
+{"id": "long-4-windows", "parts": [["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 15], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 30], ["Please send the signed contract to Jan Kowalski, ul. Przykładowa 1, 00-000 Warszawa, phone +48 000 000 000. ", 1], ["The meeting notes cover the budget, the schedule, and the next steps for the team. ", 30]]}

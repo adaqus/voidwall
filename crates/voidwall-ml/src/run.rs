@@ -10,7 +10,7 @@ use ort::session::RunOptions;
 use ort::value::Tensor;
 use tokenizers::Encoding;
 
-use crate::load::{LoadError, Worker};
+use crate::load::{Head, LoadError, Worker};
 
 /// The overlap when the load request names none, unless `max_tokens / 2` is lower.
 const DEFAULT_OVERLAP: usize = 128;
@@ -87,7 +87,7 @@ pub enum RunError {
     Inference(String),
     OutputShape {
         found: Vec<i64>,
-        width: i64,
+        expected: Vec<i64>,
     },
     NonFinite,
 }
@@ -101,9 +101,9 @@ impl fmt::Display for RunError {
                 write!(f, "the unit needs {windows} windows; the limit is {limit}")
             }
             Self::Inference(reason) => write!(f, "the inference failed: {reason}"),
-            Self::OutputShape { found, width } => write!(
+            Self::OutputShape { found, expected } => write!(
                 f,
-                "the output has shape {found:?}; [1, {width}] is required"
+                "the output has shape {found:?}; {expected:?} is required"
             ),
             Self::NonFinite => {
                 f.write_str("the inference returned a non-finite output (NaN or infinity)")
@@ -235,13 +235,27 @@ impl Worker {
             }
             let ids = self.window_ids(&encoding, span)?;
             let logits = self.infer(&ids, cancel)?;
-            best = best.max((self.window_score)(&logits));
+            best = best.max((self.head.window_score)(&logits));
             #[cfg(test)]
             if self.cancel_after == Some(self.inferences) {
                 cancel.cancel();
             }
         }
         Ok(best)
+    }
+}
+
+impl<H: Head> Worker<H> {
+    /// The tokens `span` of `encoding` as one window, special tokens added.
+    /// Offsets stay those of the unit.
+    pub(crate) fn window(
+        &self,
+        encoding: &Encoding,
+        span: Range<usize>,
+    ) -> Result<Encoding, RunError> {
+        self.tokenizer
+            .post_process(chunk(encoding, span), None, true)
+            .map_err(|_| RunError::Tokenizer)
     }
 
     /// The token IDs of one window, special tokens added.
@@ -250,15 +264,13 @@ impl Worker {
         encoding: &Encoding,
         span: Range<usize>,
     ) -> Result<Vec<i64>, RunError> {
-        let window = self
-            .tokenizer
-            .post_process(chunk(encoding, span), None, true)
-            .map_err(|_| RunError::Tokenizer)?;
-        Ok(window.get_ids().iter().map(|&id| i64::from(id)).collect())
+        Ok(ids(&self.window(encoding, span)?))
     }
 
     /// One inference on one window: returns its logits once they have shape
-    /// `[1, width]` and are all finite. The load's smoke inference runs this too.
+    /// `[1, width]`, or `[1, n, width]` for a head that scores every token,
+    /// and are all finite. `n` counts the padding of a fixed-length model.
+    /// The load's smoke inference runs this too.
     /// A run error after a cancel is [`RunError::Cancelled`], whatever ONNX
     /// Runtime's message says.
     pub(crate) fn infer(&mut self, ids: &[i64], cancel: &Cancel) -> Result<Vec<f32>, RunError> {
@@ -289,10 +301,15 @@ impl Worker {
                 }
             })?;
         let (out_shape, values) = outputs[0].try_extract_tensor::<f32>().map_err(failed)?;
-        if **out_shape != [1, self.width] {
+        let expected = if H::PER_TOKEN {
+            vec![1, len as i64, self.width]
+        } else {
+            vec![1, self.width]
+        };
+        if **out_shape != *expected {
             return Err(RunError::OutputShape {
                 found: out_shape.to_vec(),
-                width: self.width,
+                expected,
             });
         }
         if !values.iter().all(|v| v.is_finite()) {
@@ -300,6 +317,11 @@ impl Worker {
         }
         Ok(values.to_vec())
     }
+}
+
+/// The IDs of an encoding, as the model's `input_ids` takes them.
+pub(crate) fn ids(encoding: &Encoding) -> Vec<i64> {
+    encoding.get_ids().iter().map(|&id| i64::from(id)).collect()
 }
 
 #[cfg(test)]
@@ -480,12 +502,13 @@ mod tests {
                 adapter: AdapterKind::TextClassifier,
                 model_path: self.model.write(dir.path()),
                 tokenizer_path: self.tokenizer.write(dir.path()),
+                config_path: None,
                 max_tokens: self.max_tokens,
                 overlap_tokens: self.overlap,
                 max_body_size: NonZeroUsize::new(self.max_body_size).unwrap(),
                 workers: NonZeroUsize::MIN,
             };
-            let mut worker = load(&settings).unwrap().pop().unwrap();
+            let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
             worker.inferences = 0; // the smoke inference is not part of a run
             worker
         }
@@ -683,7 +706,7 @@ mod tests {
             RunError::Tokenizer,
             RunError::OutputShape {
                 found: vec![1, 3],
-                width: 2,
+                expected: vec![1, 2],
             },
         ];
         for err in errors {

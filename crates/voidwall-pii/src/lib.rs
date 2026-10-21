@@ -1,6 +1,7 @@
 pub mod detector;
 pub mod dictionary_detector;
 pub mod keyword_context_detector;
+mod kind_validators;
 pub(crate) mod normalize;
 pub mod overlap;
 pub mod scanner;
@@ -9,6 +10,7 @@ pub(crate) mod validators;
 
 pub mod hyperscan_detector;
 
+pub use kind_validators::{has_validator, validate_as};
 pub use overlap::resolve_overlaps;
 pub use scanner::{Scanner, ScannerBuilder};
 pub use user_detector::UserPiiDefinition;
@@ -575,6 +577,12 @@ impl PiiKind {
         Self::ALL
     }
 
+    /// Returns the built-in kind whose `label()` is `label`. The `Custom`
+    /// marker is not parsed, since it stands for user-defined labels.
+    pub fn from_label(label: &str) -> Option<PiiKind> {
+        Self::ALL.iter().copied().find(|kind| kind.label() == label)
+    }
+
     const ALL: &[PiiKind] = &[
         PiiKind::Email,
         PiiKind::UsPhoneNumber,
@@ -774,5 +782,27 @@ impl PiiMatch {
         self.user_label
             .as_deref()
             .unwrap_or_else(|| self.kind.label())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test]
+    fn from_label_round_trips_every_kind() {
+        for kind in PiiKind::all() {
+            assert_eq!(PiiKind::from_label(kind.label()), Some(*kind));
+        }
+    }
+
+    #[test_case("NOT_A_KIND" ; "unknown name")]
+    #[test_case("credit_card" ; "label is case sensitive")]
+    #[test_case("CreditCard" ; "variant name is not a label")]
+    #[test_case("CUSTOM" ; "custom marker")]
+    #[test_case("" ; "empty")]
+    fn from_label_rejects(label: &str) {
+        assert_eq!(PiiKind::from_label(label), None);
     }
 }

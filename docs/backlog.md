@@ -142,6 +142,75 @@ Cleanup:
 - `it_codice_fiscale_check` allocates a `String` it does not need.
 - The `b.len() == 13` IT-prefix guard in `it_partita_iva_check` is redundant.
 
+False positives on benign prompts. Found on 2026-10-20 by running `Scanner::new()` over
+`databricks/databricks-dolly-15k` (revision `bdd27f4d`; numbers are line indices of
+`databricks-dolly-15k.jsonl`, from 0):
+
+- `SWIFT_BIC`: 11 of 11 hits are false. The keyword `swift` matches the singer ("Taylor
+  Swift released", where `released` passes as a BIC with country `AS`). The keyword `bic`
+  matches inside "aerobic" ("aerobic respiration", "aerobic exercise"). Prompts 304, 1173,
+  1358, 2616, 6182, 8382, 11973, 14248.
+- `ES_DNI`: 13 hits on memory sizes in one JVM GC log (`20519977K`), prompt 10834.
+- `IE_EIRCODE`: 7 of 7 false: "U19 side", "A52 road", "S26 runs", "T11 100m", "C40 went".
+  Prompts 11, 3426, 6321, 6922, 13242, 13618.
+- `GB_POSTCODE`: 4 of 4 false: FM call signs `W250AP` and `W297CO`, and "T20Is". Prompts 9839,
+  12284.
+- `IP_ADDRESS`: "e::" in "are:: 66" (prompt 4208) and the version `0.11.0.0` (prompt 4727).
+- `DE_AT_CH_ADDRESS`: one span across a tab-separated table of dates, prompt 12404.
+- `US_GB_CA_AU_NZ_IE_ZA_STREET`: "to address any possible exploit path", prompt 12081.
+- `PERSON_NAME` fires on 34% of the prompts. In a sample of 25, 11 are not people:
+  "St Louis", "Kennedy High", "Red List", "Harry Potter", "Asian Nations", "The Masters".
+
+`IP_ADDRESS` validators accept almost anything. Found on 2026-10-20 while building
+`voidwall_pii::validate_as` (stage 1 of `add-ml-pii-guard`). `IP_ADDRESS` is the only kind
+whose patterns mix a real validator with one that accepts every value:
+
+- The IPv4 pattern uses `ip_check`. It returns true for any text without a dot. With dots,
+  it checks only that each part is a number from 0 to 255, not that there are four parts.
+- The IPv6 pattern uses `Check::Any`: its expression alone decides.
+
+The regex guard is safe today, because its expressions give the shape. A model span has no
+guaranteed shape, so `validate_as([IpAddress], …)` accepts "hello", "12345", "::" and
+"1.2.3.4.5". For that reason the default `[guards.pii_ml]` sets no `validate_as` for
+`IP_ADDRESS` (see `openspec/changes/add-ml-pii-guard/design.md` D10 and Risks).
+
+- Make `ip_check` strict: exactly four dot-separated decimal octets, each 0–255.
+- Give the IPv6 pattern a real validator, for example a parse with `std::net::Ipv6Addr`.
+- A parse does not fix the Dolly false positive "e::" above: `Ipv6Addr` accepts it.
+- Both changes can change what the regex guard reports. Run the `voidwall-pii` tests and
+  the AI4Privacy eval before and after.
+- After the fix, decide whether the default `[guards.pii_ml]` validates `IP_ADDRESS` again.
+
+Luhn validators accept any text with enough digits. Found on 2026-10-20 in the same work.
+Five validators keep only the digits of their input, then check the count and the Luhn sum.
+Anything else in the text is ignored:
+
+| Validator | Kinds | Digits |
+|---|---|---|
+| `sin_check` | `CA_SIN` | 9 |
+| `imei_check` | `IMEI` | 15 |
+| `siren_luhn_check` | `FR_SIREN` | 9 |
+| `siret_luhn_check` | `FR_SIRET` | 14 |
+| `ohip_check` | `CA_OHIP` | 10 |
+
+`za_luhn13_check` and `it_partita_iva_check` already require digits only. `luhn_check`
+(`CREDIT_CARD`) was fixed on 2026-10-21, before stage 6 of `add-ml-pii-guard` shipped the
+default config: it calls `grouped_luhn` in `crates/voidwall-pii/src/validators.rs`.
+
+The regex guard is safe today, for the same reason as the IP case: its expressions give
+the shape. A model span has none, so a span with words around a valid number passes
+`validate_as` for any of the five kinds, and two numbers run together pass about one time
+in ten. The default `[guards.pii_ml]` validates none of them.
+
+- Make the five validators call `grouped_luhn`, with the separators of their kinds'
+  expressions and their digit counts, and delete their five copies of the Luhn sum.
+- The match set should not change, because every expression already gives that shape.
+  Run the `voidwall-pii` tests and the AI4Privacy eval before and after.
+- This is not the general fix. A future validator can still count only the digits. The
+  general fix checks a span against the whole pattern: its expression must match the
+  whole span, then its check must accept it. That changes the `guard-configuration` spec,
+  so it needs a proposal. Consider it if a third case appears.
+
 ---
 
 ## 4. Documentation

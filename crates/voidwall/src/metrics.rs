@@ -4,6 +4,9 @@ use prometheus::{
     register_histogram_vec, register_int_counter_vec,
 };
 
+use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, GuardClass};
+use crate::engine::ScanResult;
+
 lazy_static! {
     /// PII detections by kind, mode, route, and direction.
     pub static ref DETECTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
@@ -114,6 +117,44 @@ lazy_static! {
         "Number of OS threads in the process"
     )
     .unwrap();
+}
+
+/// The guards whose findings the `voidwall_pii_*` families count: the built-in
+/// `pii` guard and every model guard with `class = "pii"`.
+///
+/// Built once at startup from configuration, so the set cannot grow with
+/// traffic. Every increment of a PII family asks it which findings count.
+#[derive(Debug, Clone)]
+pub struct PiiGuards(Vec<String>);
+
+impl PiiGuards {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let mut names = vec![BUILTIN_PII_GUARD_NAME.to_owned()];
+        names.extend(
+            config
+                .guards
+                .iter()
+                .filter(|(_, g)| g.class == Some(GuardClass::Pii))
+                .map(|(name, _)| name.clone()),
+        );
+        Self(names)
+    }
+
+    /// The built-in `pii` guard and `names`, as if each were a model guard
+    /// with `class = "pii"`. Tests only — production sets come from
+    /// configuration.
+    #[cfg(test)]
+    pub(crate) fn with_model_guards(names: &[&str]) -> Self {
+        let mut set = Self::from_config(&AppConfig::default());
+        set.0.extend(names.iter().map(|&n| n.to_owned()));
+        set
+    }
+
+    /// The kinds the PII guards found, sorted by name and holding each kind
+    /// once however many findings, and however many PII guards, reported it.
+    pub fn kinds(&self, scan_result: &ScanResult) -> Vec<String> {
+        scan_result.kinds_where(|guard| self.0.iter().any(|name| name == guard))
+    }
 }
 
 /// Record a PII detection.
@@ -257,6 +298,76 @@ pub fn update_process_metrics() {
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    // --- The guards the PII families count ---
+
+    use std::sync::Arc;
+
+    use crate::engine::{Finding, Span, UnitId};
+
+    /// A config holding the model guard `ml` with `class_line`, and the
+    /// model guard `other` with no class.
+    fn config_with_ml_guard(class_line: &str) -> AppConfig {
+        let guard = |name: &str, extra: &str| {
+            format!(
+                r#"
+[guards.{name}]
+adapter = "token_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+config_path = "/c"
+max_tokens = 512
+labels = ["PERSON_NAME"]
+{extra}
+"#
+            )
+        };
+        let toml = format!("{}{}", guard("ml", class_line), guard("other", ""));
+        toml::from_str(&toml).expect("the test config parses")
+    }
+
+    fn scan_result(findings: &[(&str, &str)]) -> ScanResult {
+        ScanResult::new(
+            findings
+                .iter()
+                .enumerate()
+                .map(|(i, (guard, kind))| {
+                    Finding::spanned(
+                        UnitId(0),
+                        *kind,
+                        Arc::<str>::from(*guard),
+                        Span::new(i * 10, i * 10 + 4),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    #[test_case(r#"class = "pii""#, &["EMAIL", "PERSON_NAME"] ; "a pii class guard counts")]
+    #[test_case("", &["EMAIL"] ; "a classless guard does not count")]
+    fn pii_guards_hold_the_pii_guard_and_every_pii_class_guard(
+        class_line: &str,
+        expected: &[&str],
+    ) {
+        let pii_guards = PiiGuards::from_config(&config_with_ml_guard(class_line));
+        let result = scan_result(&[
+            ("pii", "EMAIL"),
+            ("ml", "PERSON_NAME"),
+            ("other", "PROMPT_INJECTION"),
+        ]);
+        assert_eq!(pii_guards.kinds(&result), expected);
+    }
+
+    #[test]
+    fn a_kind_two_pii_guards_report_is_listed_once() {
+        let pii_guards = PiiGuards::from_config(&config_with_ml_guard(r#"class = "pii""#));
+        let result = scan_result(&[
+            ("pii", "PERSON_NAME"),
+            ("ml", "PERSON_NAME"),
+            ("ml", "PERSON_NAME"),
+        ]);
+        assert_eq!(pii_guards.kinds(&result), ["PERSON_NAME"]);
+    }
 
     #[test_case("Email", "reverse_proxy", "/api", "request" ; "email on reverse proxy request")]
     #[test_case("UsPhoneNumber", "forward_proxy", "global", "response" ; "phone on forward proxy response")]

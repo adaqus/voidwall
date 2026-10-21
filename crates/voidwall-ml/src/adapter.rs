@@ -19,6 +19,9 @@ pub enum AdapterKind {
     TextClassifier,
     /// One score per label, for several labels at once.
     TextMultilabelClassifier,
+    /// One label per token, so findings carry spans. The labels come from the
+    /// model's `config.json`.
+    TokenClassifier,
 }
 
 impl AdapterKind {
@@ -27,6 +30,7 @@ impl AdapterKind {
         match self {
             Self::TextClassifier => "text_classifier",
             Self::TextMultilabelClassifier => "text_multilabel_classifier",
+            Self::TokenClassifier => "token_classifier",
         }
     }
 
@@ -34,7 +38,9 @@ impl AdapterKind {
     /// met or could never be missed, so it is rejected at startup.
     pub fn score_range(self) -> RangeInclusive<f32> {
         match self {
-            Self::TextClassifier | Self::TextMultilabelClassifier => 0.0..=1.0,
+            Self::TextClassifier | Self::TextMultilabelClassifier | Self::TokenClassifier => {
+                0.0..=1.0
+            }
         }
     }
 }
@@ -77,6 +83,7 @@ mod tests {
 
     #[test_case(AdapterKind::TextClassifier ; "text classifier")]
     #[test_case(AdapterKind::TextMultilabelClassifier ; "text multilabel classifier")]
+    #[test_case(AdapterKind::TokenClassifier ; "token classifier")]
     fn the_name_is_the_config_name(kind: AdapterKind) {
         let name: StrDeserializer<Error> = kind.name().into_deserializer();
         assert_eq!(AdapterKind::deserialize(name).unwrap(), kind);

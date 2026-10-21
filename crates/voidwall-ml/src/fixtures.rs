@@ -9,7 +9,9 @@
 //! ```
 //!
 //! Each field of [`Fixture`] bends one part of it into a bad case, or, for
-//! [`Fixture::slow`], makes a run take longer.
+//! [`Fixture::slow`], makes a run take longer. [`Fixture::tokens`] drops the
+//! `ReduceSum`, so the model is a token classifier with logits
+//! `[batch, seq, width]`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -73,6 +75,14 @@ pub struct Fixture {
     /// A 1 KiB weight of zeros whose only consumer is a `ReduceSum`, added to
     /// the logits: ONNX Runtime constant-folds it at load, from the graph.
     pub folded_weight: bool,
+    /// Logits for every token, `[batch, seq, width]`: no `ReduceSum`. With
+    /// [`Fixture::trigger`], every token but [`TRIGGER_ID`] gives logits
+    /// `[2, 0, …]`, which label 0 wins, and [`TRIGGER_ID`] gives
+    /// `[-8, 10, 0, …]`, which label 1 wins.
+    pub tokens: bool,
+    /// The output keeps at most this many tokens, so a longer window returns
+    /// too few rows.
+    pub max_output_tokens: Option<i64>,
     /// A chain of this many `MatMul` nodes over the masked embeddings, widened
     /// to [`SLOW_WIDTH`] and multiplied by an identity, summed, times 0, and
     /// added to the logits. Scores do not change; a run takes longer with each
@@ -100,6 +110,8 @@ impl Default for Fixture {
             nan_row: None,
             mask_reshaped_to: None,
             folded_weight: false,
+            tokens: false,
+            max_output_tokens: None,
             slow: None,
         }
     }
@@ -182,13 +194,15 @@ impl Fixture {
         } else {
             "embedded"
         };
-        let mut pooled = "pooled";
-        nodes.push(node(
-            "ReduceSum",
-            &[masked, "seq_axis"],
-            &[pooled],
-            vec![int_attr("keepdims", 0)],
-        ));
+        let mut pooled = if self.tokens { masked } else { "pooled" };
+        if !self.tokens {
+            nodes.push(node(
+                "ReduceSum",
+                &[masked, "seq_axis"],
+                &[pooled],
+                vec![int_attr("keepdims", 0)],
+            ));
+        }
         if self.fails_at_run {
             // [batch, HIDDEN] cannot become [-1, 3]; the symbolic batch hides that at load.
             nodes.push(node("Reshape", &[pooled, "shape_by_3"], &["by_3"], vec![]));
@@ -201,10 +215,16 @@ impl Fixture {
             pooled = "reshaped_back";
         }
         nodes.push(node("MatMul", &[pooled, "weight"], &["projected"], vec![]));
+        // The name of the logits before an optional final `Slice`.
+        let out = if self.max_output_tokens.is_some() {
+            "unsliced"
+        } else {
+            "logits"
+        };
         let logits = if self.float16_output {
             "logits_f32"
         } else {
-            "logits"
+            out
         };
         let (head, logits) = match self.slow {
             Some(_) => ("unslowed", logits),
@@ -246,8 +266,16 @@ impl Fixture {
             nodes.push(node(
                 "Cast",
                 &["logits_f32"],
-                &["logits"],
+                &[out],
                 vec![int_attr("to", 10)],
+            ));
+        }
+        if self.max_output_tokens.is_some() {
+            nodes.push(node(
+                "Slice",
+                &[out, "slice_start", "slice_end", "seq_axis"],
+                &["logits"],
+                vec![],
             ));
         }
 
@@ -256,18 +284,19 @@ impl Fixture {
         } else {
             tensor_proto::DataType::Float
         };
-        let mut outputs = vec![value_info(
-            "logits",
-            out_type,
-            &[Dim::Named("batch"), Dim::Fixed(self.width)],
-        )];
+        let out_dims = if self.tokens {
+            let out_seq = match self.max_output_tokens {
+                Some(_) => Dim::Named("kept"),
+                None => seq,
+            };
+            vec![Dim::Named("batch"), out_seq, Dim::Fixed(self.width)]
+        } else {
+            vec![Dim::Named("batch"), Dim::Fixed(self.width)]
+        };
+        let mut outputs = vec![value_info("logits", out_type, &out_dims)];
         if self.second_output {
             nodes.push(node("Identity", &["logits"], &["logits_copy"], vec![]));
-            outputs.push(value_info(
-                "logits_copy",
-                out_type,
-                &[Dim::Named("batch"), Dim::Fixed(self.width)],
-            ));
+            outputs.push(value_info("logits_copy", out_type, &out_dims));
         }
 
         let trigger_row = TRIGGER_ID as usize * HIDDEN as usize;
@@ -288,6 +317,7 @@ impl Fixture {
         };
         let bias = |i: usize| match (self.nan_bias, self.trigger) {
             (true, _) => f32::NAN,
+            (false, true) if self.tokens => [2.0, 0.0][usize::from(i > 0)],
             (false, true) => [0.5, -0.5][i % 2],
             (false, false) => 0.1,
         };
@@ -315,6 +345,10 @@ impl Fixture {
                 |i| f32::from(u8::from(i / width == i % width)),
             ));
             initializer.push(float_tensor("slow_zero", &[], |_| 0.0));
+        }
+        if let Some(n) = self.max_output_tokens {
+            initializer.push(int64_tensor("slice_start", &[1], &[0]));
+            initializer.push(int64_tensor("slice_end", &[1], &[n]));
         }
         if let Some(n) = self.mask_reshaped_to {
             initializer.push(int64_tensor("mask_shape", &[2], &[1, n]));
@@ -356,6 +390,20 @@ impl Fixture {
             .map(|t| t.name.expect("fixture initializers are named"))
             .collect()
     }
+}
+
+/// Writes a `config.json` whose `id2label` maps ID `i` to `labels[i]`, and
+/// returns its path.
+pub fn write_config(dir: &Path, labels: &[&str]) -> PathBuf {
+    let id2label: serde_json::Map<String, serde_json::Value> = labels
+        .iter()
+        .enumerate()
+        .map(|(id, label)| (id.to_string(), (*label).into()))
+        .collect();
+    let path = dir.join("config.json");
+    let json = serde_json::json!({ "id2label": id2label });
+    std::fs::write(&path, json.to_string()).expect("write fixture config");
+    path
 }
 
 /// Writes a word-level tokenizer whose highest ID is `highest_id` and returns its path.
@@ -588,12 +636,13 @@ mod tests {
             adapter: AdapterKind::TextClassifier,
             model_path: model.write(dir.path()),
             tokenizer_path: TokenizerFixture::default().write(dir.path()),
+            config_path: None,
             max_tokens: 16,
             overlap_tokens: None,
             max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
             workers: NonZeroUsize::MIN,
         };
-        load(&settings).unwrap().pop().unwrap()
+        load(&settings).unwrap().into_classifiers().pop().unwrap()
     }
 
     /// Same score as the model without the chain, and a run that takes longer.

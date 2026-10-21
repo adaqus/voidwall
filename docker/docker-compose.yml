@@ -16,6 +16,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ../models/bards-v2
+        target: /opt/voidwall/models/bards-v2
+        read_only: true
+        bind:
+          create_host_path: false
     # Lets a config name an upstream on the host, such as LM Studio.
     extra_hosts:
       - "host.docker.internal:host-gateway"

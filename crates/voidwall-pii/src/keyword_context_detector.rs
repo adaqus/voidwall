@@ -9,20 +9,19 @@ use crate::Language;
 use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
-    a_number_check, aba_check, always_valid, at_postal_check, at_svnr_check, au_abn_check,
-    au_dl_check, bsn_check, ca_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check,
+    Check, a_number_check, aba_check, at_postal_check, at_svnr_check, au_abn_check, au_dl_check,
+    bsn_check, ca_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check,
     de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
     de_postal_check, de_steuer_id_check, dob_check, ein_check, es_dni_check, es_nuss_check,
     es_passport_check, es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check,
     fr_nif_check, fr_postal_check, gb_address_check, geolocation_check, ie_driver_check,
     imei_check, ird_check, it_codice_fiscale_check, it_dl_check, it_partita_iva_check,
     it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check, nir_check,
-    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_check,
-    passport_new_check, person_name_check, phone_check, pl_dl_check, pl_id_card_check,
-    pl_nip_check, pl_passport_check, pl_pesel_check, pl_postal_check, pl_regon_check,
-    siren_luhn_check, siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
-    us_dl_numeric_check, us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check,
-    za_trn_check,
+    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_new_check,
+    person_name_check, pl_dl_check, pl_id_card_check, pl_nip_check, pl_passport_check,
+    pl_pesel_check, pl_postal_check, pl_regon_check, siren_luhn_check, siret_luhn_check,
+    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_dl_numeric_check,
+    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -38,7 +37,7 @@ static ARRAY_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[\d+\]")
 struct KeywordPattern {
     kind: PiiKind,
     value_regex: Regex,
-    validate: fn(&str) -> bool,
+    validate: Check,
 }
 
 /// Extract the capture-group content from a keyword pattern string.
@@ -109,132 +108,140 @@ pub struct KeywordContextDetector {
     patterns: Vec<KeywordPattern>,
 }
 
+/// One keyword-context pattern: its kind, keyword language, expression, and check.
+type PatternDef = (PiiKind, Language, &'static str, Check);
+
+/// Each keyword-context pattern's kind and check, over every kind and language.
+pub(crate) fn pattern_checks() -> impl Iterator<Item = (PiiKind, Check)> {
+    KeywordContextDetector::all_patterns()
+        .into_iter()
+        .map(|(kind, _, _, check)| (kind, check))
+}
+
 impl KeywordContextDetector {
-    #[allow(clippy::type_complexity)]
-    pub fn new(
-        enabled_kinds: &HashSet<PiiKind>,
-        enabled_languages: &HashSet<Language>,
-    ) -> Result<Self, PiiError> {
-        let all_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = vec![
+    /// Every keyword-context pattern, before kind and language filtering. `new`
+    /// compiles it; `pattern_checks` reads its checks.
+    fn all_patterns() -> Vec<PatternDef> {
+        vec![
             (
                 PiiKind::SecondaryAddress,
                 Language::En,
                 r"(?i)(?:secondary[\s_-]?address(?:es)?|second[\s_-]?address(?:es)?|sec[\s_-]?address(?:es)?|additional[\s_-]?address(?:es)?(?:[\s_-]?(?:details?|info(?:rmation)?))?|alternat(?:e|ive)[\s_-]?address(?:es)?|auxiliary[\s_-]?address(?:es)?|address[\s_-]?line[\s_-]?2|addr[\s_-]?line[\s_-]?2)<<C>>((?:mobile\s+home|[A-Za-z][A-Za-z.'\-]{0,14})\s#?\d{1,5}[A-Za-z]?)",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::UsGbCaAuNzIeZaStreet,
                 Language::En,
                 r"(?i)(?:streets?|street[\s_-]?names?|address(?:es)?)<<C>>(?:(?:at|on|in|to)\s+)?(?:\d{1,4}[A-Za-z]?\s+)?((?:(?:\d{1,4}(?:st|nd|rd|th)\s+|[A-Za-z][A-Za-z'\-]+\s+)(?:[A-Za-z][A-Za-z'\-]+\s+){0,4}|\d{1,4}\s+)(?:Road|Street|Lane|Avenue|Boulevard|Way|Close|Drive|Court|Place|Terrace|Crescent|Square|Walk|Row|Gardens|Grove|Mews|Parade|Trail|Fields|Yard|Park|Hill|Highway|Parkway|Circle|Rise|Green|Common|Gate|View|Vale|Croft|Meadow|Heights|Path|Alley|Pike|Line|Sideroad|Concession)(?:\s+(?:North|South|East|West|Northwest|Northeast|Southwest|Southeast|N|S|E|W|NW|NE|SW|SE))?(?:\s+\d{1,4})?|Broadway|Highway\s+\d{1,4}[A-Za-z]?)",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::AuTfn,
                 Language::En,
                 r"(?i)(?:australian[\s_-]?tax[\s_-]?file[\s_-]?numbers?|australian[\s_-]?tfn|aus[\s_-]?tfn|ato[\s_-]?tax[\s_-]?file[\s_-]?numbers?|ato[\s_-]?tfn|individual[\s_-]?tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?numbers?|tax[\s_-]?file[\s_-]?no\.?|tax[\s_-]?file[\s_-]?num|tax[\s_-]?file[\s_-]?#|tax[\s_-]?file[\s_-]?ref(?:erence)?|tax[\s_-]?file[\s_-]?identifier|applicant[\s_-]?tfn|employee[\s_-]?tfn|client[\s_-]?tfn|customer[\s_-]?tfn|my[\s_-]?tfn|your[\s_-]?tfn|tfn[\s_-]?numbers?|tfn[\s_-]?no\.?|tfn[\s_-]?num|tfn)<<C>>(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})",
-                tfn_check,
+                Check::With(tfn_check),
             ),
             (
                 PiiKind::NzIrdNumber,
                 Language::En,
                 r"(?i)(?:inland[\s_-]?revenue[\s_-]?dep(?:artmen)?t|inland[\s_-]?revenue[\s_-]?numbers?|inland[\s_-]?revenue[\s_-]?no\.?|new[\s_-]?zealand[\s_-]?ird|new[\s_-]?zealand[\s_-]?tax[\s_-]?numbers?|new[\s_-]?zealand[\s_-]?tax[\s_-]?id|nz[\s_-]?ird|nz[\s_-]?tax[\s_-]?numbers?|nz[\s_-]?tax[\s_-]?id|ird[\s_-]?numbers?[\s_-]?nz|ird[\s_-]?numbers?|ird[\s_-]?no\.?|ird[\s_-]?num|ird[\s_-]?#|ird[\s_-]?ref(?:erence)?|applicant[\s_-]?ird|employee[\s_-]?ird|client[\s_-]?ird|customer[\s_-]?ird|my[\s_-]?ird|your[\s_-]?ird|gst[\s_-]?registration|gst[\s_-]?numbers?|gst[\s_-]?no\.?|tax[\s_-]?numbers?[\s_-]?nz|ird)<<C>>(\d{2,3}-?\d{3}-?\d{3})",
-                ird_check,
+                Check::With(ird_check),
             ),
             (
                 PiiKind::GbNhsNumber,
                 Language::En,
                 r"(?i)(?:national[\s_-]?health[\s_-]?service[\s_-]?numbers?|national[\s_-]?health[\s_-]?service[\s_-]?no\.?|nhs[\s_-]?patient[\s_-]?numbers?|nhs[\s_-]?patient[\s_-]?id|nhs[\s_-]?patient[\s_-]?no\.?|nhs[\s_-]?record[\s_-]?numbers?|nhs[\s_-]?registration|nhs[\s_-]?identifier|nhs[\s_-]?numbers?|nhs[\s_-]?no\.?|nhs[\s_-]?num|nhs[\s_-]?#|nhs[\s_-]?id|nhs[\s_-]?ref(?:erence)?|nhs[\s_-]?record|health[\s_-]?service[\s_-]?numbers?|health[\s_-]?service[\s_-]?no\.?|health[\s_-]?index[\s_-]?numbers?|health[\s_-]?id|patient[\s_-]?numbers?|patient[\s_-]?no\.?|patient[\s_-]?id|my[\s_-]?nhs[\s_-]?numbers?|your[\s_-]?nhs[\s_-]?numbers?|chi[\s_-]?numbers?|h&c[\s_-]?numbers?|hc[\s_-]?numbers?|nhs)<<C>>(\d{3}\s\d{3}\s\d{4})",
-                nhs_check,
+                Check::With(nhs_check),
             ),
             (
                 PiiKind::AuMedicare,
                 Language::En,
                 r"(?i)(?:medicare[\s_-]?cards?[\s_-]?numbers?|medicare[\s_-]?cards?[\s_-]?no\.?|medicare[\s_-]?cards?|australian[\s_-]?medicare|medicare[\s_-]?enrol(?:l)?ment|medicare[\s_-]?registration|medicare[\s_-]?identifier|medicare[\s_-]?numbers?|medicare[\s_-]?no\.?|medicare[\s_-]?num|medicare[\s_-]?#|medicare[\s_-]?id|medicare[\s_-]?ref(?:erence)?|medicare[\s_-]?patient|aus[\s_-]?medicare|au[\s_-]?medicare|applicant[\s_-]?medicare|employee[\s_-]?medicare|client[\s_-]?medicare|customer[\s_-]?medicare|my[\s_-]?medicare|your[\s_-]?medicare|medicare|irn)<<C>>(\d{4}\s\d{5}\s\d)",
-                medicare_check,
+                Check::With(medicare_check),
             ),
             (
                 PiiKind::UsPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?us|phone[\s_-]?usa|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::En,
                 r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)<<C>>(\d{9}|\d{2}[A-Za-z]{2}\d{5})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::UsPassportNew,
                 Language::En,
                 r"(?i)(?:united[\s_-]?states[\s_-]?passports?|passport[\s_-]?book[\s_-]?numbers?|passport[\s_-]?book[\s_-]?no\.?|passport[\s_-]?cards?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?numbers?|us[\s_-]?passports?[\s_-]?no\.?|american[\s_-]?passports?|travel[\s_-]?document[\s_-]?numbers?|travel[\s_-]?document[\s_-]?no\.?|travel[\s_-]?doc[\s_-]?numbers?|travel[\s_-]?doc[\s_-]?no\.?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passport[\s_-]?num|passport[\s_-]?#|passport[\s_-]?id|passport[\s_-]?cards?|us[\s_-]?passports?|travel[\s_-]?doc|applicant[\s_-]?passports?|my[\s_-]?passports?|your[\s_-]?passports?|document[\s_-]?numbers?|document[\s_-]?no\.?|doc[\s_-]?numbers?|doc[\s_-]?no\.?|passports?)<<C>>([AXYZaxyz]\d{8})",
-                passport_new_check,
+                Check::With(passport_new_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::En,
                 r"(?i)(?:bank[\s_-]?identifier[\s_-]?code|bank[\s_-]?identifier|correspondent[\s_-]?(?:bank[\s_-]?)?swift|intermediary[\s_-]?swift|intermediary[\s_-]?bic|international[\s_-]?bank[\s_-]?code|beneficiary[\s_-]?swift|beneficiary[\s_-]?bic|swift/bic|swift[\s_-]?bic|bic/swift|swift[\s_-]?code|swift[\s_-]?numbers?|swift[\s_-]?no\.?|swift[\s_-]?#|swift[\s_-]?address(?:es)?|swift[\s_-]?id|bank[\s_-]?swift|bank[\s_-]?routing|bank[\s_-]?bic|bic[\s_-]?code|bic[\s_-]?numbers?|bic[\s_-]?no\.?|bic[\s_-]?#|bic[\s_-]?id|routing[\s_-]?code|clearing[\s_-]?code|my[\s_-]?swift|swift|bic)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::UsEin,
                 Language::En,
                 r"(?i)(?:employer[\s_-]?identification[\s_-]?numbers?|employer[\s_-]?identification[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?identification|employer[\s_-]?id[\s_-]?numbers?|employer[\s_-]?id[\s_-]?no\.?|federal[\s_-]?employer[\s_-]?id|federal[\s_-]?tax[\s_-]?identification|tax[\s_-]?identification[\s_-]?numbers?|federal[\s_-]?id[\s_-]?numbers?|federal[\s_-]?id[\s_-]?no\.?|federal[\s_-]?tax[\s_-]?id|federal[\s_-]?ein|tax[\s_-]?id[\s_-]?numbers?|employer[\s_-]?numbers?|employer[\s_-]?no\.?|business[\s_-]?tax[\s_-]?id|company[\s_-]?tax[\s_-]?id|company[\s_-]?ein|irs[\s_-]?employer[\s_-]?id|applicant[\s_-]?ein|ein[\s_-]?numbers?|ein[\s_-]?no\.?|ein[\s_-]?num|ein[\s_-]?#|tax[\s_-]?id|irs[\s_-]?ein|our[\s_-]?ein|my[\s_-]?ein|fein|ein)<<C>>(\d{2}-\d{7})",
-                ein_check,
+                Check::With(ein_check),
             ),
             (
                 PiiKind::Imei,
                 Language::En,
                 r"(?i)(?:international[\s_-]?mobile[\s_-]?equipment[\s_-]?identity|mobile[\s_-]?equipment[\s_-]?identity|equipment[\s_-]?identity|device[\s_-]?identifier|device[\s_-]?id[\s_-]?numbers?|device[\s_-]?serial|device[\s_-]?imei|handset[\s_-]?imei|serial[\s_-]?imei|mobile[\s_-]?imei|tablet[\s_-]?imei|equipment[\s_-]?id|phone[\s_-]?imei|imei[\s_-]?identifier|imei[\s_-]?numbers?|imei[\s_-]?no\.?|imei[\s_-]?num|imei[\s_-]?#|imei[\s_-]?code|imei[\s_-]?id|your[\s_-]?imei|my[\s_-]?imei|meid|imei)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             (
                 PiiKind::GbUtr,
                 Language::En,
                 r"(?i)(?:unique[\s_-]?taxpayer[\s_-]?ref(?:erence)?|unique[\s_-]?tax[\s_-]?ref(?:erence)?|taxpayer[\s_-]?ref(?:erence)?|tax[\s_-]?ref(?:erence)?|hmrc[\s_-]?ref(?:erence)?|hmrc[\s_-]?utr|self[\s_-]?assessment[\s_-]?ref(?:erence)?|self[\s_-]?assessment[\s_-]?utr|self[\s_-]?assessment[\s_-]?numbers?|self[\s_-]?assessment[\s_-]?no\.?|sa[\s_-]?utr|sa[\s_-]?ref(?:erence)?|sa[\s_-]?numbers?|sa[\s_-]?no\.?|corporation[\s_-]?tax[\s_-]?ref(?:erence)?|corporation[\s_-]?tax[\s_-]?utr|ct[\s_-]?utr|ct[\s_-]?ref(?:erence)?|company[\s_-]?utr|company[\s_-]?tax[\s_-]?ref(?:erence)?|partnership[\s_-]?utr|partnership[\s_-]?ref(?:erence)?|your[\s_-]?utr|my[\s_-]?utr|client[\s_-]?utr|customer[\s_-]?utr|applicant[\s_-]?utr|utr[\s_-]?numbers?|utr[\s_-]?no\.?|utr[\s_-]?num|utr[\s_-]?#|utr[\s_-]?ref(?:erence)?|utr)<<C>>(\d{10})\b",
-                utr_check,
+                Check::With(utr_check),
             ),
             (
                 PiiKind::UsAbaRouting,
                 Language::En,
                 r"(?i)(?:aba[\s_-]?routing[\s_-]?numbers?|aba[\s_-]?routing[\s_-]?no\.?|aba[\s_-]?routing|aba[\s_-]?numbers?|aba[\s_-]?no\.?|aba[\s_-]?#|routing[\s_-]?transit[\s_-]?numbers?|routing[\s_-]?transit[\s_-]?no\.?|routing[\s_-]?numbers?|routing[\s_-]?no\.?|routing[\s_-]?#|bank[\s_-]?routing[\s_-]?numbers?|bank[\s_-]?routing[\s_-]?no\.?|bank[\s_-]?routing|transit[\s_-]?numbers?|transit[\s_-]?no\.?|transit[\s_-]?#|aba[\s_-]?rtn|rtn[\s_-]?numbers?|rtn[\s_-]?no\.?|rtn[\s_-]?#|fed[\s_-]?routing|fedwire[\s_-]?routing|ach[\s_-]?routing|wire[\s_-]?routing|wire[\s_-]?transfer[\s_-]?routing|my[\s_-]?routing[\s_-]?numbers?|your[\s_-]?routing[\s_-]?numbers?|bank[\s_-]?rtn|routing[\s_-]?code|aba|rtn)<<C>>(\d{9})\b",
-                aba_check,
+                Check::With(aba_check),
             ),
             (
                 PiiKind::GbSortCode,
                 Language::En,
                 r"(?i)(?:sort[\s_-]?code|sort-code|sortcode|sort[\s_-]?code[\s_-]?numbers?|sort[\s_-]?code[\s_-]?no\.?|sort[\s_-]?code[\s_-]?#|bank[\s_-]?sort[\s_-]?code|bank[\s_-]?sort|branch[\s_-]?sort[\s_-]?code|branch[\s_-]?sort|branch[\s_-]?code|branch[\s_-]?numbers?|branch[\s_-]?no\.?|branch[\s_-]?#|bank[\s_-]?code|bank[\s_-]?numbers?|bank[\s_-]?no\.?|uk[\s_-]?sort[\s_-]?code|uk[\s_-]?sort|bacs[\s_-]?sort[\s_-]?code|bacs[\s_-]?code|my[\s_-]?sort[\s_-]?code|your[\s_-]?sort[\s_-]?code|account[\s_-]?sort[\s_-]?code|account[\s_-]?sort)<<C>>(\d{2}-?\d{2}-?\d{2})\b",
-                sort_code_check,
+                Check::With(sort_code_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::En,
                 r"(?i)(?:gps[\s_-]?coordinates|gps[\s_-]?coordinate|gps[\s_-]?coords|gps[\s_-]?location|gps[\s_-]?position|precise[\s_-]?location|precise[\s_-]?coordinates|exact[\s_-]?location|exact[\s_-]?coordinates|location[\s_-]?coordinates|map[\s_-]?coordinates|position[\s_-]?coordinates|geo[\s_-]?coordinates|geocoordinates|geo[\s_-]?coords|geocoords|latitude/longitude|latitude[\s_-]?longitude|lat/long|lat/lon|lat[\s_-]?long|lat[\s_-]?lon|latlong|latlon|lat[\s_-]?lng|latlng|geolocation|geo-location|geo[\s_-]?location|geo[\s_-]?position|geoposition|map[\s_-]?position|map[\s_-]?location|current[\s_-]?location|current[\s_-]?coordinates|current[\s_-]?position|device[\s_-]?location|device[\s_-]?coordinates|device[\s_-]?position|my[\s_-]?location|my[\s_-]?coordinates|my[\s_-]?position|coordinates|coordinate|coords|location)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::UsAlienNumber,
                 Language::En,
                 r"(?i)(?:alien[\s_-]?registration[\s_-]?numbers?|alien[\s_-]?registration[\s_-]?no\.?|alien[\s_-]?registration|alien[\s_-]?numbers?|alien[\s_-]?no\.?|alien[\s_-]?#|a-number|uscis[\s_-]?alien[\s_-]?numbers?|uscis[\s_-]?alien[\s_-]?no\.?|uscis[\s_-]?numbers?|uscis[\s_-]?no\.?|uscis[\s_-]?id|uscis[\s_-]?#|green[\s_-]?cards?[\s_-]?numbers?|green[\s_-]?cards?[\s_-]?no\.?|green[\s_-]?cards?[\s_-]?#|permanent[\s_-]?resident[\s_-]?numbers?|permanent[\s_-]?resident[\s_-]?no\.?|immigration[\s_-]?numbers?|immigration[\s_-]?no\.?|immigration[\s_-]?id|dhs[\s_-]?numbers?|dhs[\s_-]?no\.?|my[\s_-]?a-number|your[\s_-]?a-number|applicant[\s_-]?a-number)<<C>>([Aa]\d{7,9})\b",
-                a_number_check,
+                Check::With(a_number_check),
             ),
             (
                 PiiKind::UsUscisReceiptNumber,
                 Language::En,
                 r"(?i)(?:uscis[\s_-]?receipt[\s_-]?numbers?|uscis[\s_-]?receipt[\s_-]?no\.?|uscis[\s_-]?receipt|uscis[\s_-]?case[\s_-]?numbers?|uscis[\s_-]?case[\s_-]?no\.?|uscis[\s_-]?case|immigration[\s_-]?case[\s_-]?numbers?|immigration[\s_-]?case[\s_-]?no\.?|immigration[\s_-]?case|petition[\s_-]?receipt[\s_-]?numbers?|petition[\s_-]?receipt[\s_-]?no\.?|petition[\s_-]?receipt|application[\s_-]?receipt[\s_-]?numbers?|application[\s_-]?receipt[\s_-]?no\.?|application[\s_-]?receipt|i-797[\s_-]?receipt|i-797[\s_-]?numbers?|i-797[\s_-]?no\.?|receipt[\s_-]?numbers?|receipt[\s_-]?no\.?|receipt[\s_-]?#|case[\s_-]?numbers?|case[\s_-]?no\.?|case[\s_-]?#|petition[\s_-]?numbers?|petition[\s_-]?no\.?|petition[\s_-]?#|my[\s_-]?receipt[\s_-]?numbers?|your[\s_-]?receipt[\s_-]?numbers?|beneficiary[\s_-]?receipt|applicant[\s_-]?receipt)<<C>>([A-Za-z]{3}\d{10})\b",
-                uscis_receipt_check,
+                Check::With(uscis_receipt_check),
             ),
             (
                 PiiKind::ZaId,
                 Language::En,
                 r"(?i)(?:south[\s_-]?african[\s_-]?id[\s_-]?numbers?|south[\s_-]?african[\s_-]?id[\s_-]?no\.?|south[\s_-]?african[\s_-]?id|south[\s_-]?african[\s_-]?identity[\s_-]?numbers?|south[\s_-]?african[\s_-]?identity|sa[\s_-]?id[\s_-]?numbers?|sa[\s_-]?id[\s_-]?no\.?|sa[\s_-]?id|sa[\s_-]?identity[\s_-]?numbers?|sa[\s_-]?identity|national[\s_-]?id[\s_-]?numbers?|national[\s_-]?id[\s_-]?no\.?|national[\s_-]?identity[\s_-]?numbers?|national[\s_-]?identity|id[\s_-]?numbers?|id[\s_-]?no\.?|id[\s_-]?book|id[\s_-]?cards?|identity[\s_-]?numbers?|identity[\s_-]?no\.?|identity[\s_-]?document|identity[\s_-]?cards?|home[\s_-]?affairs[\s_-]?numbers?|home[\s_-]?affairs[\s_-]?no\.?|home[\s_-]?affairs[\s_-]?id|citizen[\s_-]?id|citizen[\s_-]?numbers?|applicant[\s_-]?id|my[\s_-]?id|your[\s_-]?id)<<C>>(\d{13})\b",
-                za_luhn13_check,
+                Check::With(za_luhn13_check),
             ),
             (
                 PiiKind::UsDriversLicense,
                 Language::En,
                 r"(?i)(?:driver'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*id[\s_-]*(?:number|no\.?|num|#)?|dmv[\s_-]*(?:number|no\.?|num|#)|dl[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|your[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|applicant[\s_-]*(?:driver'?s?[\s_-]*licen[cs]es?|dl)|licen[cs]es?[\s_-]*(?:number|no\.?|num|#)|dl)<<C>>([A-Za-z]{1,2}\d{3}(?:-\d{3,4}){1,3}|[A-Za-z]{1,2}\d{4,14})\b",
-                us_dl_check,
+                Check::With(us_dl_check),
             ),
             // Numeric-only US DL numbers (Georgia/Florida-style all-digit
             // formats). Gated on the *specific* DL phrases only — bare `dl`,
@@ -246,25 +253,25 @@ impl KeywordContextDetector {
                 PiiKind::UsDriversLicense,
                 Language::En,
                 r"(?i)(?:driver'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|driving[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|operator'?s?[\s_-]*licen[cs]es?[\s_-]*(?:number|no\.?|num|#)?|state[\s_-]*identification[\s_-]*(?:number|no\.?|num|#)|dmv[\s_-]*(?:number|no\.?|num|#)|my[\s_-]*driver'?s?[\s_-]*licen[cs]es?|your[\s_-]*driver'?s?[\s_-]*licen[cs]es?|applicant[\s_-]*driver'?s?[\s_-]*licen[cs]es?)<<C>>(\d{6,12})\b",
-                us_dl_numeric_check,
+                Check::With(us_dl_numeric_check),
             ),
             (
                 PiiKind::NzNhiNumber,
                 Language::En,
                 r"(?i)(?:national[\s_-]?health[\s_-]?index[\s_-]?numbers?|national[\s_-]?health[\s_-]?index[\s_-]?no\.?|national[\s_-]?health[\s_-]?index|nhi[\s_-]?numbers?|nhi[\s_-]?no\.?|nhi[\s_-]?num|nhi[\s_-]?#|nhi[\s_-]?id|nhi[\s_-]?ref(?:erence)?|nhi[\s_-]?code|my[\s_-]?nhi|your[\s_-]?nhi|patient[\s_-]?nhi|nhi)<<C>>([A-HJ-NP-Za-hj-np-z]{3}\d{4})",
-                nhi_check,
+                Check::With(nhi_check),
             ),
             (
                 PiiKind::NzDriverLicence,
                 Language::En,
                 r"(?i)(?:new[\s_-]?zealand[\s_-]?driver[\s_-]?licen[cs]es?|nz[\s_-]?driver[\s_-]?licen[cs]es?|nz[\s_-]?driving[\s_-]?licen[cs]es?|driver[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|licen[cs]es?[\s_-]?no\.?|licence[\s_-]?num|driving[\s_-]?licence)<<C>>([A-Z]{2}\d{6})\b",
-                nz_dl_check,
+                Check::With(nz_dl_check),
             ),
             (
                 PiiKind::IeDriverNumber,
                 Language::En,
                 r"(?i)(?:irish[\s_-]?driver[\s_-]?numbers?|irish[\s_-]?driving[\s_-]?licen[cs]es?|ireland[\s_-]?driver[\s_-]?numbers?|ireland[\s_-]?driving[\s_-]?licen[cs]es?|ie[\s_-]?driver[\s_-]?numbers?|ie[\s_-]?driving[\s_-]?licen[cs]es?|driver[\s_-]?numbers?|driving[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|driver[\s_-]?no\.?)<<C>>(\d{9})\b",
-                ie_driver_check,
+                Check::With(ie_driver_check),
             ),
             // Canadian driver's licence — letter-carrying provincial formats only
             // (ON/QC/NL/NS/MB). Value alternation is ordered longest-first so
@@ -278,25 +285,25 @@ impl KeywordContextDetector {
                 PiiKind::CaDriversLicense,
                 Language::En,
                 r"(?i)(?:canadian[\s_-]?driver'?s?[\s_-]?licen[cs]es?|canada[\s_-]?driver'?s?[\s_-]?licen[cs]es?|ca[\s_-]?driver'?s?[\s_-]?licen[cs]es?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?numbers?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?no\.?|driver'?s?[\s_-]?licen[cs]es?|driving[\s_-]?licen[cs]es?[\s_-]?numbers?|driving[\s_-]?licen[cs]es?[\s_-]?no\.?|driving[\s_-]?licen[cs]es?|licen[cs]es?[\s_-]?numbers?|licen[cs]es?[\s_-]?no\.?|dl[\s_-]?numbers?|dl[\s_-]?no\.?|dl)<<C>>([A-Za-z]\d{4}-?\d{5}-?\d{5}|[A-Za-z]\d{4}-?\d{6}-?\d{2}|[A-Za-z]\d{12}|[A-Za-z]{5}-?\d{9}|[A-Za-z]{2}-?[A-Za-z]{2}-?[A-Za-z]{2}-?[A-Za-z]\d{3}[A-Za-z]{2}|[A-Za-z]\d{9})\b",
-                ca_dl_check,
+                Check::With(ca_dl_check),
             ),
             (
                 PiiKind::ZaTaxReference,
                 Language::En,
                 r"(?i)(?:south[\s_-]?african[\s_-]?tax[\s_-]?ref(?:erence)?|south[\s_-]?african[\s_-]?tax[\s_-]?numbers?|sa[\s_-]?tax[\s_-]?ref(?:erence)?|sa[\s_-]?tax[\s_-]?numbers?|sars[\s_-]?ref(?:erence)?|sars[\s_-]?numbers?|sars[\s_-]?tax|tax[\s_-]?ref(?:erence)?|tax[\s_-]?numbers?|tax[\s_-]?ref|SARS)<<C>>([0-3,9]\d{9})\b",
-                za_trn_check,
+                Check::With(za_trn_check),
             ),
             (
                 PiiKind::ZaDriversLicense,
                 Language::En,
                 r"(?i)(?:south[\s_-]?african[\s_-]?driver'?s?[\s_-]?licen[cs]es?|sa[\s_-]?driver'?s?[\s_-]?licen[cs]es?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?numbers?|driver'?s?[\s_-]?licen[cs]es?[\s_-]?no\.?|driver'?s?[\s_-]?licen[cs]es?|driving[\s_-]?licen[cs]es?[\s_-]?numbers?|driving[\s_-]?licen[cs]es?[\s_-]?no\.?|driving[\s_-]?licen[cs]es?|learner'?s?[\s_-]?licen[cs]es?)<<C>>(\d{13})\b",
-                za_luhn13_check,
+                Check::With(za_luhn13_check),
             ),
             (
                 PiiKind::UsZaPostalCode,
                 Language::En,
                 r"(?i)(?:postal[\s_-]?code|post[\s_-]?code|postcode|zip[\s_-]?code|zip)<<C>>(\d{5}-\d{4}|\d{5}|\d{4})\b",
-                us_za_postal_check,
+                Check::With(us_za_postal_check),
             ),
             // Keyword-gated GB postcode: captures an outward code alone
             // (`RG2`, `S6`) or a full postcode (`RG2 7AB`). The structural
@@ -309,7 +316,7 @@ impl KeywordContextDetector {
                 PiiKind::GbPostcode,
                 Language::En,
                 r"(?i)(?:postal[\s_-]?code|post[\s_-]?code|postcode)<<C>>([A-Za-z]{1,2}[0-9][0-9A-Za-z]?(?:\s?[0-9][A-Za-z]{2})?)\b",
-                always_valid,
+                Check::Any,
             ),
             // Keyword-gated CA postal code: captures a bare Forward Sortation
             // Area (`V0N`, `S0K` — letter-digit-letter) alone. The structural
@@ -324,100 +331,100 @@ impl KeywordContextDetector {
                 PiiKind::CaPostalCode,
                 Language::En,
                 r"(?i)(?:zip[\s_-]?code|zip|postal[\s_-]?area|postal[\s_-]?region)<<C>>([A-Za-z][0-9][A-Za-z])\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::AuDriversLicense,
                 Language::En,
                 r"(?i)(?:australian[\s_-]?driver'?s?[\s_-]?licen[cs]es?|aus[\s_-]?driver'?s?[\s_-]?licen[cs]es?|nsw[\s_-]?licen[cs]es?|vic[\s_-]?licen[cs]es?|qld[\s_-]?licen[cs]es?|wa[\s_-]?licen[cs]es?|act[\s_-]?licen[cs]es?|sa[\s_-]?licen[cs]es?|tas[\s_-]?licen[cs]es?|nt[\s_-]?licen[cs]es?|australian[\s_-]?dl|aus[\s_-]?dl)<<C>>(\d{6,10}|[A-Za-z]\d{5,9})\b",
-                au_dl_check,
+                Check::With(au_dl_check),
             ),
             (
                 PiiKind::AuAbn,
                 Language::En,
                 r"(?i)(?:australian[\s_-]?business[\s_-]?numbers?|australian[\s_-]?business[\s_-]?no\.?|aus[\s_-]?business[\s_-]?numbers?|abn[\s_-]?numbers?|abn[\s_-]?no\.?|abn[\s_-]?#|abn)<<C>>(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b",
-                au_abn_check,
+                Check::With(au_abn_check),
             ),
             (
                 PiiKind::CaOhip,
                 Language::En,
                 r"(?i)(?:ontario[\s_-]?health[\s_-]?insurance[\s_-]?plan|ontario[\s_-]?health[\s_-]?cards?|ontario[\s_-]?health[\s_-]?numbers?|health[\s_-]?cards?[\s_-]?numbers?|health[\s_-]?cards?[\s_-]?no\.?|health[\s_-]?cards?|health[\s_-]?insurance[\s_-]?numbers?|health[\s_-]?insurance[\s_-]?no\.?|health[\s_-]?numbers?|carte[\s_-]?sant[eé]|OHIP[\s_-]?numbers?|OHIP[\s_-]?no\.?|OHIP[\s_-]?cards?|OHIP)<<C>>(\d{10}(?:\s?[A-Za-z]{2})?)\b",
-                ohip_check,
+                Check::With(ohip_check),
             ),
             // International phone numbers
             (
                 PiiKind::GbPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?uk|phone[\s_-]?gb|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?44[\s\-.]?|0)(?:7\d{3}[\s\-.]?\d{3}[\s\-.]?\d{3}|\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}))",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::AuPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?au|phone[\s_-]?aus|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?61[\s\-.]?|0)[2-578][\s\-.]?\d{4}[\s\-.]?\d{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::NzPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?nz|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?64[\s\-.]?|0)[2-9][\s\-.]?\d{3,4}[\s\-.]?\d{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::IePhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?ie|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?353[\s\-.]?|0)[1-9](?:[\s\-.]?\d)?[\s\-.]?\d{3,4}[\s\-.]?\d{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::ZaPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?za|phone[\s_-]?sa|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>((?:\+?27[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{4})",
-                phone_check,
+                Check::Any,
             ),
             // AWS Secret Key
             (
                 PiiKind::AwsSecretKey,
                 Language::En,
                 r"(?i)(?:aws[\s_-]?secret[\s_-]?access[\s_-]?key=?|secret[\s_-]?access[\s_-]?key[\s:.=\x22]+|aws[\s_-]?secret[\s:.=\x22]+)([A-Za-z0-9/+=]{40})",
-                always_valid,
+                Check::Any,
             ),
             // Country-specific passport numbers
             (
                 PiiKind::GbZaPassportNumber,
                 Language::En,
                 r"(?i)(?:british[\s_-]?passports?|uk[\s_-]?passports?|united[\s_-]?kingdom[\s_-]?passports?|hmpo|south[\s_-]?african[\s_-]?passports?|sa[\s_-]?passports?)<<C>>(\d{9})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::AuPassportNumber,
                 Language::En,
                 r"(?i)(?:australian[\s_-]?passports?|australia[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]\d{7})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::CaPassportNumber,
                 Language::En,
                 r"(?i)(?:canadian[\s_-]?passports?|canada[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]{2}\d{6})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::NzPassportNumber,
                 Language::En,
                 r"(?i)(?:new[\s_-]?zealand[\s_-]?passports?|nz[\s_-]?passports?|passport[\s_-]?details?|passport[\s_-]?copy|passport[\s_-]?reference|passport[\s_-]?identifier|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]{1,2}\d{6,7})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::IePassportNumber,
                 Language::En,
                 r"(?i)(?:irish[\s_-]?passports?|ireland[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([A-Za-z]{2}\d{7})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::DePassportNumber,
                 Language::En,
                 r"(?i)(?:german[\s_-]?passports?|germany[\s_-]?passports?|passport[\s_-]?numbers?|passport[\s_-]?no\.?|passports?)<<C>>([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
-                de_passport_check,
+                Check::With(de_passport_check),
             ),
             // German-keyword tuple. Substring-disjoint from the English
             // tuple above: no German keyword contains "passport", and no
@@ -429,27 +436,27 @@ impl KeywordContextDetector {
                 PiiKind::DePassportNumber,
                 Language::De,
                 r"(?i)(?:deutscher[\s_\-]reisepass|deutscher[\s_\-]pass|bundespass|reisepassnummern?|reisepass[\s_\-]nummern?|reisepass[\s_\-]nr\.?|reisepass[\s_\-]no\.?|reisepass[\s_\-]#|reisepass|passnummern?|pass[\s_\-]nummern?|pass[\s_\-]nr\.?|pass[\s_\-]no\.?|pass[\s_\-]#|passdokumentennummern?|passdokument|reisedokumentennummern?|reisedokument|amtliches[\s_\-]reisedokument|dokumentennummern?)<<C>>([CFGHJKLMNPRTVWXYZ0-9]{9})\b",
-                de_passport_check,
+                Check::With(de_passport_check),
             ),
             // Date of birth
             (
                 PiiKind::DateOfBirth,
                 Language::En,
                 r"(?i)(?:date[\s_-]?of[\s_-]?birth|birth[\s_-]?date|birthdate|dob|d\.o\.b\.?|born[\s_-]?on)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|/\d{2}))",
-                dob_check,
+                Check::With(dob_check),
             ),
             // Bank accounts
             (
                 PiiKind::AuBankAccount,
                 Language::En,
                 r"(?i)(?:bsb|bank[\s_-]?state[\s_-]?branch|bsb[\s_-]?numbers?|bsb[\s_-]?no\.?)<<C>>(\d{3}-?\d{3}(?:[\s]+\d{6,10})?)",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::CaBankAccount,
                 Language::En,
                 r"(?i)(?:transit[\s_-]?numbers?|transit[\s_-]?no\.?|institution[\s_-]?numbers?|chequing[\s_-]?account|savings[\s_-]?account|canadian[\s_-]?account|ca[\s_-]?account)<<C>>(\d{5}[-\s]\d{3}[-\s]\d{7,12}|\d{7,12})",
-                always_valid,
+                Check::Any,
             ),
             // --- UK street address ---
             // Narrower keyword list (qualified address forms only) with the GB
@@ -458,14 +465,14 @@ impl KeywordContextDetector {
                 PiiKind::GbAddress,
                 Language::En,
                 r"(?i)(?:home[\s_-]?address(?:es)?|postal[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|correspondence[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|business[\s_-]?address(?:es)?|office[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|registered[\s_-]?office|address[\s_-]?line(?:[\s_-]??[12])?|addr[\s_-]?line(?:[\s_-]??[12])?)<<C>>(\d{1,4}[A-Za-z]?\s+[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-.]+){0,6}[,\s]+(?:[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z'\-]+){0,3}[,\s]+)?[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2})",
-                gb_address_check,
+                Check::With(gb_address_check),
             ),
             // --- France-specific PII types (Language::Fr) ---
             (
                 PiiKind::FrNir,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?de[\s_-]?s[eé]curit[eé][\s_-]?sociale|n°[\s_-]?s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?de[\s_-]?s[eé]cu|num[eé]ros?[\s_-]?s[eé]cu|n°[\s_-]?s[eé]cu|s[eé]curit[eé][\s_-]?sociale|num[eé]ros?[\s_-]?SS|n°[\s_-]?SS|code[\s_-]?s[eé]cu|NIR|s[eé]cu)<<C>>(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
-                nir_check,
+                Check::With(nir_check),
             ),
             // Substring-disjoint: French stems "numéro" / "sécu" /
             // "sociale" (with trailing "e") / "n°" / "NIR" / bare "SS" do
@@ -478,13 +485,13 @@ impl KeywordContextDetector {
                 PiiKind::FrNir,
                 Language::En,
                 r"(?i)(?:french[\s_-]?social[\s_-]?security[\s_-]?numbers?|france[\s_-]?social[\s_-]?security[\s_-]?numbers?|fr[\s_-]?social[\s_-]?security[\s_-]?numbers?|french[\s_-]?ssns?|france[\s_-]?ssns?|fr[\s_-]?ssns?)<<C>>(\d[\s.]?\d{2}[\s.]?\d{2}[\s.]?[0-9AB]{2,3}[\s.]?\d{2,3}[\s.]?\d{3}[\s.]?\d{2})",
-                nir_check,
+                Check::With(nir_check),
             ),
             (
                 PiiKind::FrSiret,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?SIRET|n°[\s_-]?SIRET|[eé]tablissement[\s_-]?SIRET|SIRET)<<C>>(\d{14})\b",
-                siret_luhn_check,
+                Check::With(siret_luhn_check),
             ),
             // Substring-disjoint: every French alternation contains
             // "SIRET", which English alternations must avoid; conversely
@@ -494,13 +501,13 @@ impl KeywordContextDetector {
                 PiiKind::FrSiret,
                 Language::En,
                 r"(?i)(?:french[\s_-]?establishment[\s_-]?numbers?|france[\s_-]?establishment[\s_-]?numbers?|fr[\s_-]?establishment[\s_-]?numbers?|french[\s_-]?establishment[\s_-]?ids?|france[\s_-]?establishment[\s_-]?ids?|fr[\s_-]?establishment[\s_-]?ids?|french[\s_-]?business[\s_-]?establishment[\s_-]?numbers?|french[\s_-]?branch[\s_-]?numbers?|france[\s_-]?branch[\s_-]?numbers?)<<C>>(\d{14})\b",
-                siret_luhn_check,
+                Check::With(siret_luhn_check),
             ),
             (
                 PiiKind::FrSiren,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?SIREN|n°[\s_-]?SIREN|entreprise[\s_-]?SIREN|SIREN)<<C>>(\d{9})\b",
-                siren_luhn_check,
+                Check::With(siren_luhn_check),
             ),
             // Substring-disjoint: French alternations all contain "SIREN";
             // English alternations must avoid that token. No French
@@ -510,13 +517,13 @@ impl KeywordContextDetector {
                 PiiKind::FrSiren,
                 Language::En,
                 r"(?i)(?:french[\s_-]?company[\s_-]?numbers?|france[\s_-]?company[\s_-]?numbers?|fr[\s_-]?company[\s_-]?numbers?|french[\s_-]?business[\s_-]?numbers?|france[\s_-]?business[\s_-]?numbers?|fr[\s_-]?business[\s_-]?numbers?|french[\s_-]?company[\s_-]?registration[\s_-]?numbers?|france[\s_-]?company[\s_-]?registration[\s_-]?numbers?|french[\s_-]?business[\s_-]?registration[\s_-]?numbers?|french[\s_-]?company[\s_-]?ids?|france[\s_-]?company[\s_-]?ids?)<<C>>(\d{9})\b",
-                siren_luhn_check,
+                Check::With(siren_luhn_check),
             ),
             (
                 PiiKind::FrPassportNumber,
                 Language::Fr,
                 r"(?i)(?:passeports?[\s_-]?fran[cç]ais|passeports?[\s_-]?france|num[eé]ros?[\s_-]?de[\s_-]?passeports?)<<C>>(\d{2}[A-Za-z]{2}\d{5})\b",
-                always_valid,
+                Check::Any,
             ),
             // Substring-disjoint: French uses "passeport" (no "passport"
             // substring). The French alternation `passeport france` does
@@ -527,13 +534,13 @@ impl KeywordContextDetector {
                 PiiKind::FrPassportNumber,
                 Language::En,
                 r"(?i)(?:french[\s_-]?passport[\s_-]?numbers?|france[\s_-]?passport[\s_-]?numbers?|fr[\s_-]?passport[\s_-]?numbers?|french[\s_-]?passports?|france[\s_-]?passports?|fr[\s_-]?passports?)<<C>>(\d{2}[A-Za-z]{2}\d{5})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::FrCni,
                 Language::Fr,
                 r"(?i)(?:carte[\s_-]?nationale[\s_-]?d'identit[eé]|carte[\s_-]?d'identit[eé]|pi[eè]ce[\s_-]?d'identit[eé]|num[eé]ros?[\s_-]?CNI|CNI)<<C>>(\d{12})\b",
-                always_valid,
+                Check::Any,
             ),
             // Substring-disjoint: French uses "carte" / "d'identité" /
             // "pièce" / "CNI" — none in English here. English "identity"
@@ -544,13 +551,13 @@ impl KeywordContextDetector {
                 PiiKind::FrCni,
                 Language::En,
                 r"(?i)(?:french[\s_-]?national[\s_-]?id[\s_-]?cards?|france[\s_-]?national[\s_-]?id[\s_-]?cards?|fr[\s_-]?national[\s_-]?id[\s_-]?cards?|french[\s_-]?id[\s_-]?cards?|france[\s_-]?id[\s_-]?cards?|fr[\s_-]?id[\s_-]?cards?|french[\s_-]?identity[\s_-]?cards?|france[\s_-]?identity[\s_-]?cards?|fr[\s_-]?identity[\s_-]?cards?|french[\s_-]?national[\s_-]?ids?|france[\s_-]?national[\s_-]?ids?|fr[\s_-]?national[\s_-]?ids?)<<C>>(\d{12})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::FrDriversLicense,
                 Language::Fr,
                 r"(?i)(?:permis[\s_-]?de[\s_-]?conduire|num[eé]ros?[\s_-]?de[\s_-]?permis|n°[\s_-]?permis)<<C>>(\d{12})\b",
-                always_valid,
+                Check::Any,
             ),
             // Substring-disjoint: French uses "permis" / "conduire" /
             // "numéro" / "n°" — none in English here.
@@ -558,13 +565,13 @@ impl KeywordContextDetector {
                 PiiKind::FrDriversLicense,
                 Language::En,
                 r"(?i)(?:french[\s_-]?drivers?[\s_-]?licen[cs]es?|france[\s_-]?drivers?[\s_-]?licen[cs]es?|fr[\s_-]?drivers?[\s_-]?licen[cs]es?|french[\s_-]?driving[\s_-]?licen[cs]es?|france[\s_-]?driving[\s_-]?licen[cs]es?|fr[\s_-]?driving[\s_-]?licen[cs]es?)<<C>>(\d{12})\b",
-                always_valid,
+                Check::Any,
             ),
             (
                 PiiKind::FrPhoneNumber,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?t[eé]l[eé]phones?|num[eé]ros?[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phones?|n°[\s_-]?de[\s_-]?t[eé]l|t[eé]l[eé]phones?|portable|mobiles?|fixe|t[eé]l|tel|num[eé]ros?[\s_-]?t[eé]l|appeler|rappel|contact)<<C>>((?:\+?33[\s\-.]?|0)[1-9](?:[\s\-.]?\d{2}){4})",
-                phone_check,
+                Check::Any,
             ),
             // Substring-disjoint: French keywords include "tel" (3-char
             // ASCII), "mobile", "portable", "fixe", "contact", "rappel".
@@ -576,13 +583,13 @@ impl KeywordContextDetector {
                 PiiKind::FrPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?fr|french[\s_-]?phone[\s_-]?numbers?|france[\s_-]?phone[\s_-]?numbers?|fr[\s_-]?phone[\s_-]?numbers?|french[\s_-]?phones?|france[\s_-]?phones?|french[\s_-]?cell[\s_-]?phones?|france[\s_-]?cell[\s_-]?phones?|fr[\s_-]?cell[\s_-]?phones?)<<C>>(\+?33[\s\-.]?[1-9](?:[\s\-.]?\d{2}){4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::FrPostalCode,
                 Language::Fr,
                 r"(?i)(?:code[\s_-]?postal|CP)<<C>>(\d{5})\b",
-                fr_postal_check,
+                Check::With(fr_postal_check),
             ),
             // Substring-disjoint: French uses "code postal" (different
             // word order than English "postal code") and the bare "CP"
@@ -593,13 +600,13 @@ impl KeywordContextDetector {
                 PiiKind::FrPostalCode,
                 Language::En,
                 r"(?i)(?:french[\s_-]?postal[\s_-]?codes?|france[\s_-]?postal[\s_-]?codes?|fr[\s_-]?postal[\s_-]?codes?|french[\s_-]?zip[\s_-]?codes?|france[\s_-]?zip[\s_-]?codes?|fr[\s_-]?zip[\s_-]?codes?|french[\s_-]?postcodes?|france[\s_-]?postcodes?|fr[\s_-]?postcodes?)<<C>>(\d{5})\b",
-                fr_postal_check,
+                Check::With(fr_postal_check),
             ),
             (
                 PiiKind::FrNif,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?d'identification[\s_-]?fiscale|num[eé]ros?[\s_-]?fiscal|identifiant[\s_-]?fiscal|avis[\s_-]?d'imposition|NIF|SPI)<<C>>(\d{13})\b",
-                fr_nif_check,
+                Check::With(fr_nif_check),
             ),
             // Substring-disjoint: French stems "fiscal" / "fiscale" /
             // "identifiant" / "imposition" / "NIF" / "SPI" must not appear
@@ -610,51 +617,51 @@ impl KeywordContextDetector {
                 PiiKind::FrNif,
                 Language::En,
                 r"(?i)(?:french[\s_-]?tax[\s_-]?ids?|france[\s_-]?tax[\s_-]?ids?|fr[\s_-]?tax[\s_-]?ids?|french[\s_-]?tax[\s_-]?numbers?|france[\s_-]?tax[\s_-]?numbers?|fr[\s_-]?tax[\s_-]?numbers?|french[\s_-]?tax[\s_-]?identification[\s_-]?numbers?|france[\s_-]?tax[\s_-]?identification[\s_-]?numbers?|french[\s_-]?taxpayer[\s_-]?ids?|france[\s_-]?taxpayer[\s_-]?ids?|fr[\s_-]?taxpayer[\s_-]?ids?)<<C>>(\d{13})\b",
-                fr_nif_check,
+                Check::With(fr_nif_check),
             ),
             // --- French keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?de[\s_-]?t[eé]l[eé]phones?|num[eé]ros?[\s_-]?de[\s_-]?t[eé]l|n°[\s_-]?de[\s_-]?t[eé]l[eé]phones?|t[eé]l[eé]phones?|portable|mobiles?|fixe|t[eé]l|appeler|rappel)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::Fr,
                 r"(?i)(?:passeports?|num[eé]ros?[\s_-]?de[\s_-]?passeports?|document[\s_-]?de[\s_-]?voyage)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::Fr,
                 r"(?i)(?:date[\s_-]?de[\s_-]?naissance|n[eé]e?[\s_-]?le|DDN|d\.d\.n\.?)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:janvier|janv|fevrier|f[eé]vrier|f[eé]vr|mars|avril|avr|mai|juin|juillet|juil|aout|ao[uû]t|septembre|sept|octobre|oct|novembre|nov|decembre|d[eé]cembre|d[eé]c)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::Fr,
                 r"(?i)(?:coordonn[eé]es[\s_-]?GPS|position[\s_-]?GPS|g[eé]olocalisation|coordonn[eé]es[\s_-]?g[eé]ographiques|latitude/longitude)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::Fr,
                 r"(?i)(?:identifiant[\s_-]?bancaire)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::Fr,
                 r"(?i)(?:num[eé]ros?[\s_-]?IMEI|identifiant[\s_-]?appareil)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             // --- Germany-specific PII types (Language::De) ---
             (
                 PiiKind::DeSteuerId,
                 Language::De,
                 r"(?i)(?:Steueridentifikationsnummern?|Steuerliche[\s_-]?Identifikationsnummern?|Steuer-ID|IdNr|Steuernummern?)<<C>>(\d{11})\b",
-                de_steuer_id_check,
+                Check::With(de_steuer_id_check),
             ),
             // Substring-disjoint with the German pattern above: no German
             // keyword contains "tax" / "german" / "germany" / "de tax", and
@@ -663,13 +670,13 @@ impl KeywordContextDetector {
                 PiiKind::DeSteuerId,
                 Language::En,
                 r"(?i)(?:german[\s_-]?tax[\s_-]?ids?|germany[\s_-]?tax[\s_-]?ids?|de[\s_-]?tax[\s_-]?ids?|german[\s_-]?tax[\s_-]?numbers?|tax[\s_-]?identification[\s_-]?numbers?|tax[\s_-]?id[\s_-]?numbers?|tax[\s_-]?id[\s_-]?no\.?|tax[\s_-]?ids?)<<C>>(\d{11})\b",
-                de_steuer_id_check,
+                Check::With(de_steuer_id_check),
             ),
             (
                 PiiKind::DePersonalausweis,
                 Language::De,
                 r"(?i)(?:Personalausweisnummern?|Personalausweise?|Ausweisnummern?)<<C>>([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
-                de_personalausweis_check,
+                Check::With(de_personalausweis_check),
             ),
             // Substring-disjoint: no German keyword contains "national" /
             // "id card" / "identity card" / "german"; no English keyword
@@ -678,25 +685,25 @@ impl KeywordContextDetector {
                 PiiKind::DePersonalausweis,
                 Language::En,
                 r"(?i)(?:german[\s_-]?national[\s_-]?ids?|germany[\s_-]?national[\s_-]?ids?|de[\s_-]?national[\s_-]?ids?|german[\s_-]?id[\s_-]?cards?|germany[\s_-]?id[\s_-]?cards?|de[\s_-]?id[\s_-]?cards?|german[\s_-]?identity[\s_-]?cards?|national[\s_-]?id[\s_-]?cards?)<<C>>([A-Za-z][A-Za-z0-9]{8}[0-9])\b",
-                de_personalausweis_check,
+                Check::With(de_personalausweis_check),
             ),
             (
                 PiiKind::DePhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)<<C>>((?:\+?49[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::DePhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?de|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>(\+?49[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::DePostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)<<C>>(\d{5})\b",
-                de_postal_check,
+                Check::With(de_postal_check),
             ),
             // Substring-disjoint: no German keyword contains "postal" /
             // "zip" / "postcode" / "german"; no English keyword contains
@@ -706,14 +713,14 @@ impl KeywordContextDetector {
                 PiiKind::DePostalCode,
                 Language::En,
                 r"(?i)(?:german[\s_-]?postal[\s_-]?codes?|germany[\s_-]?postal[\s_-]?codes?|de[\s_-]?postal[\s_-]?codes?|german[\s_-]?zip[\s_-]?codes?|germany[\s_-]?zip[\s_-]?codes?|de[\s_-]?zip[\s_-]?codes?|german[\s_-]?postcodes?|germany[\s_-]?postcodes?|de[\s_-]?postcodes?)<<C>>(\d{5})\b",
-                de_postal_check,
+                Check::With(de_postal_check),
             ),
             // --- Austria-specific PII types (Language::De) ---
             (
                 PiiKind::AtSvnr,
                 Language::De,
                 r"(?i)(?:Sozialversicherungsnummern?|Versicherungsnummern?|SVNR)<<C>>(\d{4}\s?\d{6})\b",
-                at_svnr_check,
+                Check::With(at_svnr_check),
             ),
             // The bare "SVNR" alternations (and any English keyword containing
             // "svnr") are intentionally absent here — the German pattern above
@@ -725,25 +732,25 @@ impl KeywordContextDetector {
                 PiiKind::AtSvnr,
                 Language::En,
                 r"(?i)(?:austrian[\s_-]?social[\s_-]?security[\s_-]?numbers?|austria[\s_-]?social[\s_-]?security[\s_-]?numbers?|at[\s_-]?social[\s_-]?security[\s_-]?numbers?|austrian[\s_-]?insurance[\s_-]?numbers?|austria[\s_-]?insurance[\s_-]?numbers?|at[\s_-]?insurance[\s_-]?numbers?)<<C>>(\d{4}\s?\d{6})\b",
-                at_svnr_check,
+                Check::With(at_svnr_check),
             ),
             (
                 PiiKind::AtPhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)<<C>>((?:\+?43[\s\-.]?|0)[1-9]\d{0,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::AtPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?at|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>(\+?43[\s\-.]?[1-9]\d{0,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::AtPostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)<<C>>(\d{4})\b",
-                at_postal_check,
+                Check::With(at_postal_check),
             ),
             // Substring-disjoint: see DePostalCode rationale; country-
             // prefixed only.
@@ -751,14 +758,14 @@ impl KeywordContextDetector {
                 PiiKind::AtPostalCode,
                 Language::En,
                 r"(?i)(?:austrian[\s_-]?postal[\s_-]?codes?|austria[\s_-]?postal[\s_-]?codes?|at[\s_-]?postal[\s_-]?codes?|austrian[\s_-]?zip[\s_-]?codes?|austria[\s_-]?zip[\s_-]?codes?|at[\s_-]?zip[\s_-]?codes?|austrian[\s_-]?postcodes?|austria[\s_-]?postcodes?|at[\s_-]?postcodes?)<<C>>(\d{4})\b",
-                at_postal_check,
+                Check::With(at_postal_check),
             ),
             // --- Switzerland-specific PII types (Language::De) ---
             (
                 PiiKind::ChAhv,
                 Language::De,
                 r"(?i)(?:AHV-Nummern?|AHV-Nr|OASI|Versichertennummern?)<<C>>(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
-                ch_ahv_check,
+                Check::With(ch_ahv_check),
             ),
             // Substring-disjoint: no German keyword contains "swiss" /
             // "switzerland" / "social security" / "insurance"; no English
@@ -767,25 +774,25 @@ impl KeywordContextDetector {
                 PiiKind::ChAhv,
                 Language::En,
                 r"(?i)(?:swiss[\s_-]?social[\s_-]?security[\s_-]?numbers?|switzerland[\s_-]?social[\s_-]?security[\s_-]?numbers?|ch[\s_-]?social[\s_-]?security[\s_-]?numbers?|swiss[\s_-]?insurance[\s_-]?numbers?|switzerland[\s_-]?insurance[\s_-]?numbers?|ch[\s_-]?insurance[\s_-]?numbers?)<<C>>(756[\s.]?\d{4}[\s.]?\d{4}[\s.]?\d{2})\b",
-                ch_ahv_check,
+                Check::With(ch_ahv_check),
             ),
             (
                 PiiKind::ChPhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)<<C>>((?:\+?41[\s\-.]?|0)[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::ChPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?ch|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>(\+?41[\s\-.]?[1-9]\d[\s\-.]?\d{3}[\s\-.]?\d{2}[\s\-.]?\d{2})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::ChPostalCode,
                 Language::De,
                 r"(?i)(?:Postleitzahl(?:en)?|PLZ)<<C>>(\d{4})\b",
-                ch_postal_check,
+                Check::With(ch_postal_check),
             ),
             // Substring-disjoint: see DePostalCode rationale; country-
             // prefixed only.
@@ -793,70 +800,70 @@ impl KeywordContextDetector {
                 PiiKind::ChPostalCode,
                 Language::En,
                 r"(?i)(?:swiss[\s_-]?postal[\s_-]?codes?|switzerland[\s_-]?postal[\s_-]?codes?|ch[\s_-]?postal[\s_-]?codes?|swiss[\s_-]?zip[\s_-]?codes?|switzerland[\s_-]?zip[\s_-]?codes?|ch[\s_-]?zip[\s_-]?codes?|swiss[\s_-]?postcodes?|switzerland[\s_-]?postcodes?|ch[\s_-]?postcodes?)<<C>>(\d{4})\b",
-                ch_postal_check,
+                Check::With(ch_postal_check),
             ),
             // --- German keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::De,
                 r"(?i)(?:Telefonnummern?|Rufnummern?|Festnetze?|Handynummern?|Mobilnummern?|Kontaktnummern?|Anrufe?|R[uü]ckruf)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::PassportNumber,
                 Language::De,
                 r"(?i)(?:Reisepass|Passnummern?)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::De,
                 r"(?i)(?:Geburtsdatum|geboren[\s_-]?am|Geb\.?datum)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:Januar|Jan|Februar|Feb|M[aä]rz|Maerz|M[aä]r|Mrz|April|Apr|Mai|Juni|Jun|Juli|Jul|August|Aug|September|Sept|Sep|Oktober|Okt|November|Nov|Dezember|Dez)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::De,
                 r"(?i)(?:GPS-Koordinaten|Standorte?|Geokoordinaten)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::De,
                 r"(?i)(?:Bankleitzahl(?:en)?)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::De,
                 r"(?i)(?:Ger[aä]tekennung|Ger[aä]te-IMEI)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             // --- PersonName (International) ---
             (
                 PiiKind::PersonName,
                 Language::En,
                 r"(?i)(?:full[\s_-]?names?|first[\s_-]?names?|last[\s_-]?names?|given[\s_-]?names?|family[\s_-]?names?|surname|forename|maiden[\s_-]?names?|middle[\s_-]?names?|patient[\s_-]?names?|client[\s_-]?names?|customer[\s_-]?names?|employee[\s_-]?names?|applicant[\s_-]?names?|cardholder[\s_-]?names?|account[\s_-]?holder|account[\s_-]?names?|beneficiary[\s_-]?names?|recipient[\s_-]?names?|sender[\s_-]?names?|passenger[\s_-]?names?|insured[\s_-]?names?)<<C>>((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
-                person_name_check,
+                Check::With(person_name_check),
             ),
             (
                 PiiKind::PersonName,
                 Language::Fr,
                 r"(?i)(?:noms?[\s_-]?complet|noms?[\s_-]?de[\s_-]?famille|noms?[\s_-]?de[\s_-]?naissance|noms?[\s_-]?de[\s_-]?jeune[\s_-]?fille|noms?[\s_-]?d'usage|pr[eé]noms?|patronyme|titulaire|b[eé]n[eé]ficiaire|destinataire|exp[eé]diteur|passager|assur[eé])<<C>>((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
-                person_name_check,
+                Check::With(person_name_check),
             ),
             (
                 PiiKind::PersonName,
                 Language::De,
                 r"(?i)(?:vollst[aä]ndiger[\s_-]?Name|Nachname|Familienname|Vorname|Geburtsname|M[aä]dchenname|Kontoinhaber|Beg[uü]nstigter|Empf[aä]nger|Versicherter|Fahrgast|Antragsteller)<<C>>((?-i:[A-ZÀ-Ž])[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,4})",
-                person_name_check,
+                Check::With(person_name_check),
             ),
             // --- French/Swiss French physical address types (Language::Fr) ---
             (
                 PiiKind::FrChAddress,
                 Language::Fr,
                 r"(?i)(?:adresse\s+(?:postale|de\s+livraison|de\s+facturation|personnelle|du\s+domicile|de\s+r[eé]sidence|du\s+si[eè]ge)|adressen?|domicile|r[eé]sidence|si[eè]ge\s+social|habitation)<<C>>((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                fr_ch_address_check,
+                Check::With(fr_ch_address_check),
             ),
             // Substring-disjoint: French "adresse" (single d) is not a
             // substring of English "address" (double d) or vice versa.
@@ -870,13 +877,13 @@ impl KeywordContextDetector {
                 PiiKind::FrChAddress,
                 Language::En,
                 r"(?i)(?:french[\s_-]?address(?:es)?|france[\s_-]?address(?:es)?|fr[\s_-]?address(?:es)?|swiss[\s_-]?french[\s_-]?address(?:es)?|home[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|physical[\s_-]?address(?:es)?|address(?:es)?)<<C>>((?:\d{1,4}\s?(?:bis|ter)?\s*,?\s*)?(?:rue|avenue|boulevard|place|all[eé]e|impasse|chemin|route|passage|cours|quai|square|voie|sentier|mont[eé]e|traverse|r[eé]sidence|cit[eé]|lotissement|hameau|lieu-dit|promenade|parvis|rond-point|esplanade|av|bd|pl|imp|ch)\s+[A-Za-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,6}(?:\s+\d{1,4}\s?[a-z]?)?[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                fr_ch_address_check,
+                Check::With(fr_ch_address_check),
             ),
             (
                 PiiKind::FrChBoitePostale,
                 Language::Fr,
                 r"(?i)(?:bo[iî]te\s+postale|case\s+postale|BP|CP)<<C>>(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                fr_ch_boite_postale_check,
+                Check::With(fr_ch_boite_postale_check),
             ),
             // Substring-disjoint: French uses "boîte postale" / "case
             // postale" / "BP" / "CP". English alternations contain none of
@@ -888,14 +895,14 @@ impl KeywordContextDetector {
                 PiiKind::FrChBoitePostale,
                 Language::En,
                 r"(?i)(?:french[\s_-]?po[\s_-]?box(?:es)?|france[\s_-]?po[\s_-]?box(?:es)?|fr[\s_-]?po[\s_-]?box(?:es)?|swiss[\s_-]?french[\s_-]?po[\s_-]?box(?:es)?|french[\s_-]?post[\s_-]?office[\s_-]?box(?:es)?|france[\s_-]?post[\s_-]?office[\s_-]?box(?:es)?|french[\s_-]?postal[\s_-]?box(?:es)?|france[\s_-]?postal[\s_-]?box(?:es)?)<<C>>(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                fr_ch_boite_postale_check,
+                Check::With(fr_ch_boite_postale_check),
             ),
             // --- German/Austrian physical address types (Language::De) ---
             (
                 PiiKind::DeAtChAddress,
                 Language::De,
                 r"(?i)(?:Anschrift(?:en)?|Wohnadressen?|Wohnanschrift(?:en)?|Hausanschrift(?:en)?|Wohnsitz|Lieferadressen?|Rechnungsadressen?|Meldeadressen?|Zustelladressen?|Privatadressen?|Heimatadressen?|Adressen?)<<C>>([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_at_address_check,
+                Check::With(de_at_address_check),
             ),
             // Substring-disjoint: English "address" (double-d) does not
             // contain the German stem "adress" (single-d), so the bare
@@ -906,13 +913,13 @@ impl KeywordContextDetector {
                 PiiKind::DeAtChAddress,
                 Language::En,
                 r"(?i)(?:german[\s_-]?address(?:es)?|austrian[\s_-]?address(?:es)?|swiss[\s_-]?address(?:es)?|de[\s_-]?address(?:es)?|at[\s_-]?address(?:es)?|ch[\s_-]?address(?:es)?|home[\s_-]?address(?:es)?|street[\s_-]?address(?:es)?|mailing[\s_-]?address(?:es)?|delivery[\s_-]?address(?:es)?|billing[\s_-]?address(?:es)?|shipping[\s_-]?address(?:es)?|residential[\s_-]?address(?:es)?|physical[\s_-]?address(?:es)?|address(?:es)?)<<C>>([A-ZÀ-Ž][A-Za-zÀ-ž.\-]+(?:[\s\-]+[A-Za-zÀ-ž.\-]+)*\s+\d{1,4}\s?[a-zA-Z]?(?:\s?[\-/]\s?\d{1,4}\s?[a-zA-Z]?){0,3}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_at_address_check,
+                Check::With(de_at_address_check),
             ),
             (
                 PiiKind::DeAtChPostfach,
                 Language::De,
                 r"(?i)(?:Postfach|PF)<<C>>(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_at_postfach_check,
+                Check::With(de_at_postfach_check),
             ),
             // Substring-disjoint: no German keyword ("postfach", "pf")
             // contains "po box" / "post office" / "pob"; no English
@@ -921,13 +928,13 @@ impl KeywordContextDetector {
                 PiiKind::DeAtChPostfach,
                 Language::En,
                 r"(?i)(?:german[\s_-]?po[\s_-]?box(?:es)?|austrian[\s_-]?po[\s_-]?box(?:es)?|swiss[\s_-]?po[\s_-]?box(?:es)?|de[\s_-]?po[\s_-]?box(?:es)?|at[\s_-]?po[\s_-]?box(?:es)?|ch[\s_-]?po[\s_-]?box(?:es)?|post[\s_-]?office[\s_-]?box(?:es)?|postal[\s_-]?box(?:es)?|po[\s_-]?box(?:es)?|pob)<<C>>(\d{1,6}[,\s]+\d{4,5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_at_postfach_check,
+                Check::With(de_at_postfach_check),
             ),
             (
                 PiiKind::DePackstation,
                 Language::De,
                 r"(?i)(?:Packstation|Postfiliale|Paketshop)<<C>>(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_packstation_check,
+                Check::With(de_packstation_check),
             ),
             // Substring-disjoint: no German keyword contains "parcel" /
             // "locker" / "dhl"; no English keyword contains "packstation"
@@ -936,14 +943,14 @@ impl KeywordContextDetector {
                 PiiKind::DePackstation,
                 Language::En,
                 r"(?i)(?:german[\s_-]?parcel[\s_-]?lockers?|dhl[\s_-]?parcel[\s_-]?lockers?|parcel[\s_-]?lockers?)<<C>>(\d{3,4}[,\s]+\d{5}\s+[A-ZÀ-Ž][A-Za-zÀ-ž'\-]+(?:\s+[a-zÀ-ž'\-]+(?:\s+[A-Za-zÀ-ž'\-]+){0,2})?)",
-                de_packstation_check,
+                Check::With(de_packstation_check),
             ),
             // --- Netherlands-specific PII types (Language::Nl) ---
             (
                 PiiKind::NlBsn,
                 Language::Nl,
                 r"(?i)(?:burgerservicenummers?|burger[\s_-]?service[\s_-]?nummers?|burgerservice|sofinummers?|sofi[\s_-]?nummers?|persoonsnummers?|persoonlijk[\s_-]?nummers?|persoonsgebonden[\s_-]?nummers?|identiteitsnummers?|BSN[\s_-]?nummers?|BSN)<<C>>(\d{4}\.\d{2}\.\d{3}|\d{8,9})\b",
-                bsn_check,
+                Check::With(bsn_check),
             ),
             // Substring-disjoint: no Dutch keyword contains "citizen" /
             // "social" / "dutch" / "netherlands" / "nl"; no English keyword
@@ -952,13 +959,13 @@ impl KeywordContextDetector {
                 PiiKind::NlBsn,
                 Language::En,
                 r"(?i)(?:citizen[\s_-]?service[\s_-]?numbers?|dutch[\s_-]?citizen[\s_-]?service[\s_-]?numbers?|dutch[\s_-]?social[\s_-]?security[\s_-]?numbers?|netherlands[\s_-]?social[\s_-]?security[\s_-]?numbers?|nl[\s_-]?social[\s_-]?security[\s_-]?numbers?|dutch[\s_-]?citizen[\s_-]?numbers?|netherlands[\s_-]?citizen[\s_-]?numbers?|dutch[\s_-]?national[\s_-]?numbers?|netherlands[\s_-]?national[\s_-]?numbers?|dutch[\s_-]?personal[\s_-]?numbers?)<<C>>(\d{4}\.\d{2}\.\d{3}|\d{8,9})\b",
-                bsn_check,
+                Check::With(bsn_check),
             ),
             (
                 PiiKind::NlPostalCode,
                 Language::Nl,
                 r"(?i)(?:postcodes?|post[\s_-]?codes?|postcodegebieden?)<<C>>(\d{4}\s?[A-Za-z]{2})\b",
-                nl_postal_check,
+                Check::With(nl_postal_check),
             ),
             // Substring-disjoint: bare "postcode" is the Dutch keyword above;
             // the English alternations use the two-word "postal code" / "zip
@@ -968,13 +975,13 @@ impl KeywordContextDetector {
                 PiiKind::NlPostalCode,
                 Language::En,
                 r"(?i)(?:dutch[\s_-]?postal[\s_-]?codes?|netherlands[\s_-]?postal[\s_-]?codes?|nl[\s_-]?postal[\s_-]?codes?|holland[\s_-]?postal[\s_-]?codes?|dutch[\s_-]?zip[\s_-]?codes?|netherlands[\s_-]?zip[\s_-]?codes?|nl[\s_-]?zip[\s_-]?codes?)<<C>>(\d{4}\s?[A-Za-z]{2})\b",
-                nl_postal_check,
+                Check::With(nl_postal_check),
             ),
             (
                 PiiKind::NlPhoneNumber,
                 Language::Nl,
                 r"(?i)(?:telefoonnummers?|telefoonnrs?|telefoons?|mobiele?[\s_-]?nummers?|mobiel|gsm[\s_-]?nummers?|gsm|vaste?[\s_-]?nummers?|vaste[\s_-]?lijn|vastnet|belnummers?|doorkiesnummers?|contactnummers?|zakelijk[\s_-]?nummers?)<<C>>((?:\+?31[\s\-.]?|0)[1-9]\d{1,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             // Generic English phone keyword list shared with the other
             // country phone kinds. The value regex requires the +31 country
@@ -984,13 +991,13 @@ impl KeywordContextDetector {
                 PiiKind::NlPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?nl|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>(\+?31[\s\-.]?[1-9]\d{1,4}[\s\-./]?\d{3,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::NlPassportNumber,
                 Language::Nl,
                 r"(?i)(?:nederlands[\s_-]?paspoort|paspoortnummers?|paspoorten|paspoort|identiteitskaartnummers?|identiteitskaarten|identiteitskaart|documentnummers?)<<C>>([A-Za-z0-9]{9})\b",
-                nl_passport_check,
+                Check::With(nl_passport_check),
             ),
             // Substring-disjoint: Dutch "paspoort" does not contain the
             // English "passport"; the English alternations are all country-
@@ -999,13 +1006,13 @@ impl KeywordContextDetector {
                 PiiKind::NlPassportNumber,
                 Language::En,
                 r"(?i)(?:dutch[\s_-]?passports?|netherlands[\s_-]?passports?|nl[\s_-]?passports?|dutch[\s_-]?identity[\s_-]?cards?|netherlands[\s_-]?identity[\s_-]?cards?|nl[\s_-]?identity[\s_-]?cards?|dutch[\s_-]?id[\s_-]?cards?|dutch[\s_-]?travel[\s_-]?documents?)<<C>>([A-Za-z0-9]{9})\b",
-                nl_passport_check,
+                Check::With(nl_passport_check),
             ),
             (
                 PiiKind::NlDriversLicense,
                 Language::Nl,
                 r"(?i)(?:rijbewijsnummers?|rijbewijs[\s_-]?nummers?|rijbewijs[\s_-]?nrs?|rijbewijzen|rijbewijs)<<C>>(\d{10})\b",
-                nl_dl_check,
+                Check::With(nl_dl_check),
             ),
             // Substring-disjoint: Dutch "rijbewijs" contains no English stem
             // and the English alternations contain no Dutch stem.
@@ -1013,14 +1020,14 @@ impl KeywordContextDetector {
                 PiiKind::NlDriversLicense,
                 Language::En,
                 r"(?i)(?:dutch[\s_-]?drivers?[\s_-]?licen[cs]es?|netherlands[\s_-]?drivers?[\s_-]?licen[cs]es?|nl[\s_-]?drivers?[\s_-]?licen[cs]es?|dutch[\s_-]?driving[\s_-]?licen[cs]es?|netherlands[\s_-]?driving[\s_-]?licen[cs]es?|nl[\s_-]?driving[\s_-]?licen[cs]es?|dutch[\s_-]?dl|netherlands[\s_-]?dl|nl[\s_-]?dl)<<C>>(\d{10})\b",
-                nl_dl_check,
+                Check::With(nl_dl_check),
             ),
             // --- Dutch keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::Nl,
                 r"(?i)(?:telefoonnummers?|telefoonnrs?|telefoons?|mobiele?[\s_-]?nummers?|mobiel|gsm[\s_-]?nummers?|gsm|vaste?[\s_-]?nummers?|vaste[\s_-]?lijn|vastnet|belnummers?|doorkiesnummers?|contactnummers?|zakelijk[\s_-]?nummers?)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             // Complement to NlPassportNumber Nl: shares the "paspoort" keyword
             // but captures the pure-9-digit form (generic passport), while
@@ -1030,7 +1037,7 @@ impl KeywordContextDetector {
                 PiiKind::PassportNumber,
                 Language::Nl,
                 r"(?i)(?:paspoortnummers?|paspoort|reisdocumentnummers?|reisdocument|documentnummers?)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             // Note: the bare "geb. datum" abbreviation is intentionally absent —
             // the German `Geb\.?datum` pattern already matches "Gebdatum"
@@ -1039,25 +1046,25 @@ impl KeywordContextDetector {
                 PiiKind::DateOfBirth,
                 Language::Nl,
                 r"(?i)(?:geboortedatum|datum[\s_-]?van[\s_-]?geboorte|geboren[\s_-]?op|geboortedag)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:januari|jan|februari|feb|maart|mrt|april|apr|mei|juni|jun|juli|jul|augustus|aug|september|sept|sep|oktober|okt|november|nov|december|dec)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::Nl,
                 r"(?i)(?:GPS-co[öo]rdinaten|GPS-locatie|GPS-positie|geografische[\s_-]?co[öo]rdinaten|geolocatie|co[öo]rdinaten|positie|locatie)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::Nl,
                 r"(?i)(?:bankidentificatiecode|bankidentificatie)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::Nl,
                 r"(?i)(?:apparaatnummers?|toestelnummers?|toestelidentificatie|apparaatidentificatie)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             // --- Italy-specific PII types (Language::It) ---
             // Codice fiscale is detected keyword-free by HyperscanDetector, but
@@ -1070,25 +1077,25 @@ impl KeywordContextDetector {
                 PiiKind::ItCodiceFiscale,
                 Language::It,
                 r"(?i)(?:codice[\s_-]?fiscale|codici[\s_-]?fiscali|cod\.?[\s_-]?fisc\.?|c\.?f\.?|cf)<<C>>([A-Za-z]{6}\d{2}[A-Za-z]\d{2}[A-Za-z]\d{3}[A-Za-z])\b",
-                it_codice_fiscale_check,
+                Check::With(it_codice_fiscale_check),
             ),
             (
                 PiiKind::ItPartitaIva,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?partita[\s_-]?iva|partit[ae][\s_-]?i\.?v\.?a\.?|p\.?[\s_-]?iva|piva|italian[\s_-]?vat[\s_-]?numbers?|italian[\s_-]?vat|vat[\s_-]?numbers?)<<C>>((?:[Ii][Tt])?\d{11})\b",
-                it_partita_iva_check,
+                Check::With(it_partita_iva_check),
             ),
             (
                 PiiKind::ItPostalCode,
                 Language::It,
                 r"(?i)(?:codice[\s_-]?di[\s_-]?avviamento[\s_-]?postale|codici[\s_-]?di[\s_-]?avviamento[\s_-]?postale|codice[\s_-]?postale|codici[\s_-]?postali|CAP|C\.A\.P\.?|italian[\s_-]?postal[\s_-]?codes?|italy[\s_-]?postal[\s_-]?codes?)<<C>>(\d{5})\b",
-                it_postal_check,
+                Check::With(it_postal_check),
             ),
             (
                 PiiKind::ItPhoneNumber,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?telefono|numeri[\s_-]?di[\s_-]?telefono|telefon[oi]|cellular[ei]|cell|recapito[\s_-]?telefonico|recapiti[\s_-]?telefonici|fax|tel)<<C>>((?:\+?39[\s\-.]?)?(?:0\d{1,3}|3\d{2})[\s\-./]?\d{5,8})",
-                phone_check,
+                Check::Any,
             ),
             // Generic English phone keyword list shared with the other country
             // phone kinds. The value regex requires the +39 country code so a
@@ -1098,13 +1105,13 @@ impl KeywordContextDetector {
                 PiiKind::ItPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?it|phone[\s_-]?numbers?|phone[\s_-]?no\.?|phone[\s_-]?num|phone[\s_-]?#|telephone[\s_-]?numbers?|telephone[\s_-]?no\.?|telephones?|mobile[\s_-]?numbers?|mobile[\s_-]?no\.?|mobile[\s_-]?phones?|mobiles?|cell[\s_-]?phones?|cell[\s_-]?numbers?|cells?|contact[\s_-]?numbers?|contact[\s_-]?no\.?|contact[\s_-]?phones?|callback[\s_-]?numbers?|callback[\s_-]?no\.?|callbacks?|fax[\s_-]?numbers?|fax[\s_-]?no\.?|fax(?:es)?|tel[\s_-]?numbers?|tel[\s_-]?no\.?|tel|landlines?|home[\s_-]?phones?|work[\s_-]?phones?|office[\s_-]?phones?|alternate[\s_-]?phones?|alt[\s_-]?phones?|my[\s_-]?phones?|your[\s_-]?phones?|customer[\s_-]?phones?|applicant[\s_-]?phones?|phones?)<<C>>(\+?39[\s\-.]?(?:0\d{1,3}|3\d{2})[\s\-./]?\d{5,8})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::ItPassportNumber,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?passaporto|numero[\s_-]?del[\s_-]?passaporto|passaport[oi])<<C>>([A-Za-z]{2}\d{7})\b",
-                it_passport_check,
+                Check::With(it_passport_check),
             ),
             // Substring-disjoint: Italian "passaporto" does not contain the
             // English "passport"; the English alternations are country-prefixed
@@ -1114,13 +1121,13 @@ impl KeywordContextDetector {
                 PiiKind::ItPassportNumber,
                 Language::En,
                 r"(?i)(?:italian[\s_-]?passports?|italy[\s_-]?passports?|it[\s_-]?passports?)<<C>>([A-Za-z]{2}\d{7})\b",
-                it_passport_check,
+                Check::With(it_passport_check),
             ),
             (
                 PiiKind::ItDriversLicense,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?patente|numero[\s_-]?patente|patente[\s_-]?di[\s_-]?guida|patent[ei])<<C>>([A-Za-z][A-Za-z0-9]{8}[A-Za-z])\b",
-                it_dl_check,
+                Check::With(it_dl_check),
             ),
             // Substring-disjoint: Italian "patente" contains no English stem and
             // the English alternations contain no Italian stem.
@@ -1128,14 +1135,14 @@ impl KeywordContextDetector {
                 PiiKind::ItDriversLicense,
                 Language::En,
                 r"(?i)(?:italian[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?|italy[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?|it[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?)<<C>>([A-Za-z][A-Za-z0-9]{8}[A-Za-z])\b",
-                it_dl_check,
+                Check::With(it_dl_check),
             ),
             // --- Italian keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?telefono|numeri[\s_-]?di[\s_-]?telefono|telefon[oi]|cellular[ei]|cell|recapito[\s_-]?telefonico|recapiti[\s_-]?telefonici|fax|tel)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             // Complement to ItPassportNumber It: shares the "passaporto" keyword
             // but captures the pure-9-digit generic passport form, while
@@ -1145,31 +1152,31 @@ impl KeywordContextDetector {
                 PiiKind::PassportNumber,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?di[\s_-]?passaporto|passaport[oi]|documento[\s_-]?di[\s_-]?viaggio|numero[\s_-]?documento)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::It,
                 r"(?i)(?:data[\s_-]?di[\s_-]?nascita|data[\s_-]?nascita|nat[oa][\s_-]?il)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:gennaio|gen|febbraio|feb|marzo|mar|aprile|apr|maggio|mag|giugno|giu|luglio|lug|agosto|ago|settembre|sett|set|ottobre|ott|novembre|nov|dicembre|dic)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::It,
                 r"(?i)(?:geolocalizzazione|posizione[\s_-]?geografica|posizione[\s_-]?esatta|ubicazione)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::It,
                 r"(?i)(?:codice[\s_-]?identificativo[\s_-]?bancario|identificativo[\s_-]?bancario)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::It,
                 r"(?i)(?:numero[\s_-]?seriale[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?del[\s_-]?dispositivo|identificativo[\s_-]?dispositivo|codice[\s_-]?dispositivo)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             // --- Spain-specific PII types (Language::Es) ---
             // Spanish phone: 9 digits starting 6/7 (mobile) or 8/9 (landline),
@@ -1179,7 +1186,7 @@ impl KeywordContextDetector {
                 PiiKind::EsPhoneNumber,
                 Language::Es,
                 r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?tel[eé]fono|tel[eé]fonos?|m[oó]vil(?:es)?|celular(?:es)?|tlf|fijo|fax|tel)<<C>>((?:\+?34[\s\-.]?)?[6-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
-                phone_check,
+                Check::Any,
             ),
             // Country-prefixed English keywords; value requires the +34 country
             // code so a bare 9-digit number with a generic English keyword does
@@ -1188,13 +1195,13 @@ impl KeywordContextDetector {
                 PiiKind::EsPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?es|spanish[\s_-]?phone[\s_-]?numbers?|spain[\s_-]?phone[\s_-]?numbers?|es[\s_-]?phone[\s_-]?numbers?|spanish[\s_-]?phones?|spain[\s_-]?phones?)<<C>>(\+?34[\s\-.]?[6-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::EsPostalCode,
                 Language::Es,
                 r"(?i)(?:c[oó]digos?[\s_-]?postal(?:es)?)<<C>>(\d{5})\b",
-                es_postal_check,
+                Check::With(es_postal_check),
             ),
             // Substring-disjoint: Spanish "código postal" has a different word
             // order than English "postal code", so it does not collide. The bare
@@ -1206,13 +1213,13 @@ impl KeywordContextDetector {
                 PiiKind::EsPostalCode,
                 Language::En,
                 r"(?i)(?:spanish[\s_-]?postal[\s_-]?codes?|spain[\s_-]?postal[\s_-]?codes?|es[\s_-]?postal[\s_-]?codes?|spanish[\s_-]?zip[\s_-]?codes?|spain[\s_-]?zip[\s_-]?codes?|spanish[\s_-]?postcodes?|spain[\s_-]?postcodes?)<<C>>(\d{5})\b",
-                es_postal_check,
+                Check::With(es_postal_check),
             ),
             (
                 PiiKind::EsNuss,
                 Language::Es,
                 r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?afiliaci[oó]n|n[uú]meros?[\s_-]?de[\s_-]?la[\s_-]?seguridad[\s_-]?social|n[uú]meros?[\s_-]?seguridad[\s_-]?social|seguridad[\s_-]?social|NUSS|NAF)<<C>>(\d{2}[\s/-]?\d{7,8}[\s/-]?\d{2})\b",
-                es_nuss_check,
+                Check::With(es_nuss_check),
             ),
             // Substring-disjoint: Spanish stems "afiliación" / "seguridad" /
             // "social" / "NUSS" / "NAF" do not appear in the English literals;
@@ -1221,13 +1228,13 @@ impl KeywordContextDetector {
                 PiiKind::EsNuss,
                 Language::En,
                 r"(?i)(?:spanish[\s_-]?social[\s_-]?security[\s_-]?numbers?|spain[\s_-]?social[\s_-]?security[\s_-]?numbers?|es[\s_-]?social[\s_-]?security[\s_-]?numbers?|spanish[\s_-]?ssns?|spain[\s_-]?ssns?)<<C>>(\d{2}[\s/-]?\d{7,8}[\s/-]?\d{2})\b",
-                es_nuss_check,
+                Check::With(es_nuss_check),
             ),
             (
                 PiiKind::EsPassportNumber,
                 Language::Es,
                 r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?pasaporte|pasaportes?)<<C>>([A-Za-z]{2,3}\d{6})\b",
-                es_passport_check,
+                Check::With(es_passport_check),
             ),
             // Substring-disjoint: Spanish "pasaporte" does not contain the
             // English "passport"; English alternations are country-prefixed and
@@ -1237,7 +1244,7 @@ impl KeywordContextDetector {
                 PiiKind::EsPassportNumber,
                 Language::En,
                 r"(?i)(?:spanish[\s_-]?passports?|spain[\s_-]?passports?|es[\s_-]?passports?)<<C>>([A-Za-z]{2,3}\d{6})\b",
-                es_passport_check,
+                Check::With(es_passport_check),
             ),
             // DNI is detected keyword-free by HyperscanDetector, but only in its
             // canonical uppercase form (lowercase \d{8}[a-z] is too hot for the
@@ -1250,14 +1257,14 @@ impl KeywordContextDetector {
                 PiiKind::EsDni,
                 Language::Es,
                 r"(?i)(?:documento[\s_-]?nacional[\s_-]?de[\s_-]?identidad|dnis?|nifs?)<<C>>(\d{8}[A-Za-z])\b",
-                es_dni_check,
+                Check::With(es_dni_check),
             ),
             // --- Spanish keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::Es,
                 r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?tel[eé]fono|tel[eé]fonos?|m[oó]vil(?:es)?|celular(?:es)?|tlf|fijo|tel)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             // Complement to EsPassportNumber Es: shares the "pasaporte" keyword
             // but captures the generic 9-digit form; value regexes are disjoint.
@@ -1265,31 +1272,31 @@ impl KeywordContextDetector {
                 PiiKind::PassportNumber,
                 Language::Es,
                 r"(?i)(?:n[uú]meros?[\s_-]?de[\s_-]?pasaporte|pasaportes?|documento[\s_-]?de[\s_-]?viaje)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::Es,
                 r"(?i)(?:fecha[\s_-]?de[\s_-]?nacimiento|fecha[\s_-]?nacimiento|nacid[oa][\s_-]?el)<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|setiembre|sept|sep|set|octubre|oct|noviembre|nov|diciembre|dic)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::Es,
                 r"(?i)(?:geolocalizaci[oó]n|ubicaci[oó]n[\s_-]?exacta|posici[oó]n[\s_-]?exacta|coordenadas)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::Es,
                 r"(?i)(?:c[oó]digo[\s_-]?de[\s_-]?identificaci[oó]n[\s_-]?bancaria|identificador[\s_-]?bancario)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::Es,
                 r"(?i)(?:identificador[\s_-]?del[\s_-]?dispositivo|n[uú]meros?[\s_-]?de[\s_-]?serie[\s_-]?del[\s_-]?dispositivo|c[oó]digo[\s_-]?del[\s_-]?dispositivo)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
             // --- Poland-specific PII types (Language::Pl) ---
             // The bare "PESEL" token and Polish "numer PESEL" form live in the
@@ -1303,13 +1310,13 @@ impl KeywordContextDetector {
                 PiiKind::PlPesel,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?pesel|pesel)<<C>>(\d{11})\b",
-                pl_pesel_check,
+                Check::With(pl_pesel_check),
             ),
             (
                 PiiKind::PlPesel,
                 Language::En,
                 r"(?i)(?:pesel[\s_-]?numbers?|(?:polish|poland)[\s_-]?national[\s_-]?id(?:entification)?[\s_-]?numbers?|(?:polish|poland)[\s_-]?national[\s_-]?ids?)<<C>>(\d{11})\b",
-                pl_pesel_check,
+                Check::With(pl_pesel_check),
             ),
             // The keyword-gated value deliberately excludes the PL-prefixed
             // EU-VAT form — that one is caught keyword-less by the hyperscan
@@ -1318,13 +1325,13 @@ impl KeywordContextDetector {
                 PiiKind::PlNip,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?identyfikacji[\s_-]?podatkowej|nip(?:u|owi|em)?)<<C>>(\d{3}[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2,3})\b",
-                pl_nip_check,
+                Check::With(pl_nip_check),
             ),
             (
                 PiiKind::PlNip,
                 Language::En,
                 r"(?i)(?:nip[\s_-]?numbers?|(?:polish|poland|pl)[\s_-]?tax[\s_-]?id(?:entification)?(?:[\s_-]?numbers?)?|(?:polish|poland|pl)[\s_-]?vat[\s_-]?(?:numbers?|ids?))<<C>>(\d{3}[\s\-]?\d{2,3}[\s\-]?\d{2}[\s\-]?\d{2,3})\b",
-                pl_nip_check,
+                Check::With(pl_nip_check),
             ),
             // Bare "REGON" and "numer REGON" live in the Pl tuple; the English
             // structured-key form "regon_number" lives in the En tuple (same
@@ -1333,25 +1340,25 @@ impl KeywordContextDetector {
                 PiiKind::PlRegon,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?regon|regon(?:u|owi|em|y|ów)?)<<C>>(\d{14}|\d{9})\b",
-                pl_regon_check,
+                Check::With(pl_regon_check),
             ),
             (
                 PiiKind::PlRegon,
                 Language::En,
                 r"(?i)(?:regon[\s_-]?numbers?|(?:polish|poland)[\s_-]?(?:business|company|statistical)[\s_-]?registr(?:y|ation)[\s_-]?numbers?)<<C>>(\d{14}|\d{9})\b",
-                pl_regon_check,
+                Check::With(pl_regon_check),
             ),
             (
                 PiiKind::PlIdCard,
                 Language::Pl,
                 r"(?i)(?:dow[oó]d(?:u|owi|em|y|om)?[\s_-]?osobist(?:y|ego|emu|ym|e|ymi)?|dow[oó]d(?:u|owi|em|y|om)?)<<C>>([A-Za-z]{3}\s?\d{6})\b",
-                pl_id_card_check,
+                Check::With(pl_id_card_check),
             ),
             (
                 PiiKind::PlIdCard,
                 Language::En,
                 r"(?i)(?:(?:polish|poland)[\s_-]?id(?:entity)?[\s_-]?cards?(?:[\s_-]?numbers?)?)<<C>>([A-Za-z]{3}\s?\d{6})\b",
-                pl_id_card_check,
+                Check::With(pl_id_card_check),
             ),
             // Substring-disjoint: Polish "paszport" does not contain the
             // English "passport" stem ("sz" vs "ss"); English alternations are
@@ -1361,13 +1368,13 @@ impl KeywordContextDetector {
                 PiiKind::PlPassportNumber,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?paszport(?:u|ów)|paszport(?:u|owi|em|y|ów)?)<<C>>([A-Za-z]{2}\s?\d{7})\b",
-                pl_passport_check,
+                Check::With(pl_passport_check),
             ),
             (
                 PiiKind::PlPassportNumber,
                 Language::En,
                 r"(?i)(?:(?:polish|poland|pl)[\s_-]?passports?(?:[\s_-]?numbers?)?)<<C>>([A-Za-z]{2}\s?\d{7})\b",
-                pl_passport_check,
+                Check::With(pl_passport_check),
             ),
             // Polish phone: 9 digits not starting with 0, optional +48. Shares
             // keywords with the UsPhoneNumber Pl tuple; the value regexes are
@@ -1376,7 +1383,7 @@ impl KeywordContextDetector {
                 PiiKind::PlPhoneNumber,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?telefon(?:u|ów)|telefon(?:u|owi|em|y|ów)?|kom[oó]rk(?:a|i|owy|owego)|tel)<<C>>((?:\+?48[\s\-.]?)?[1-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
-                phone_check,
+                Check::Any,
             ),
             // Country-prefixed English keywords; value requires the +48
             // country code so a bare 9-digit number with a generic English
@@ -1385,19 +1392,19 @@ impl KeywordContextDetector {
                 PiiKind::PlPhoneNumber,
                 Language::En,
                 r"(?i)(?:phone[\s_-]?pl|(?:polish|poland|pl)[\s_-]?phone[\s_-]?numbers?|(?:polish|poland)[\s_-]?phones?)<<C>>(\+?48[\s\-.]?[1-9]\d{2}[\s\-.]?\d{3}[\s\-.]?\d{3})",
-                phone_check,
+                Check::Any,
             ),
             (
                 PiiKind::PlPostalCode,
                 Language::Pl,
                 r"(?i)(?:kod(?:y|u|em|ów)?[\s_-]?pocztow(?:y|e|ego|emu|ym|ych))<<C>>(\d{2}-\d{3})\b",
-                pl_postal_check,
+                Check::With(pl_postal_check),
             ),
             (
                 PiiKind::PlPostalCode,
                 Language::En,
                 r"(?i)(?:(?:polish|poland)[\s_-]?(?:postal[\s_-]?codes?|postcodes?|zip[\s_-]?codes?))<<C>>(\d{2}-\d{3})\b",
-                pl_postal_check,
+                Check::With(pl_postal_check),
             ),
             // Substring-disjoint: Polish "prawo jazdy" contains no English
             // stem; English alternations are country-prefixed.
@@ -1405,20 +1412,20 @@ impl KeywordContextDetector {
                 PiiKind::PlDriversLicense,
                 Language::Pl,
                 r"(?i)(?:praw[oa][\s_-]?jazdy|prawem[\s_-]?jazdy)<<C>>(\d{5}/\d{2}/\d{4}(?:\d{3})?)\b",
-                pl_dl_check,
+                Check::With(pl_dl_check),
             ),
             (
                 PiiKind::PlDriversLicense,
                 Language::En,
                 r"(?i)(?:(?:polish|poland|pl)[\s_-]?driv(?:ing|ers?)[\s_-]?licen[cs]es?)<<C>>(\d{5}/\d{2}/\d{4}(?:\d{3})?)\b",
-                pl_dl_check,
+                Check::With(pl_dl_check),
             ),
             // --- Polish keywords for existing international types ---
             (
                 PiiKind::UsPhoneNumber,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?telefon(?:u|ów)|telefon(?:u|owi|em|y|ów)?|kom[oó]rk(?:a|i|owy|owego)|tel)<<C>>((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
-                phone_check,
+                Check::Any,
             ),
             // Complement to PlPassportNumber Pl: shares the "paszport" keyword
             // but captures the generic 9-digit form; value regexes are disjoint.
@@ -1426,33 +1433,40 @@ impl KeywordContextDetector {
                 PiiKind::PassportNumber,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?paszport(?:u|ów)|paszport(?:u|owi|em|y|ów)?|dokument[\s_-]?podr[oó][żz]y)<<C>>(\d{9})\b",
-                passport_check,
+                Check::Any,
             ),
             (
                 PiiKind::DateOfBirth,
                 Language::Pl,
                 r"(?i)(?:dat[aęy][\s_-]?urodzenia|urodzon[aey])<<C>>(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:T\d{2}:\d{2}(?::\d{2})?)?|\d{1,2}\s+(?:stycznia|sty|lutego|lut|marca|mar|kwietnia|kwi|maja|maj|czerwca|cze|lipca|lip|sierpnia|sie|września|wrz|października|paź|listopada|lis|grudnia|gru)\s+\d{4})",
-                dob_check,
+                Check::With(dob_check),
             ),
             (
                 PiiKind::PreciseGeolocation,
                 Language::Pl,
                 r"(?i)(?:geolokalizacj[aię]|wsp[oó][lł]rz[eę]dne|dok[lł]adna[\s_-]?lokalizacja)<<C>>(-?\d{1,3}\.\d+,\s?-?\d{1,3}\.\d+)",
-                geolocation_check,
+                Check::With(geolocation_check),
             ),
             (
                 PiiKind::SwiftBic,
                 Language::Pl,
                 r"(?i)(?:kod[\s_-]?identyfikacyjny[\s_-]?banku|identyfikator[\s_-]?bankowy)<<C>>([A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b",
-                swift_bic_check,
+                Check::With(swift_bic_check),
             ),
             (
                 PiiKind::Imei,
                 Language::Pl,
                 r"(?i)(?:numery?[\s_-]?seryjn[ye][\s_-]?urz[aą]dzenia|identyfikator[\s_-]?urz[aą]dzenia|kod[\s_-]?urz[aą]dzenia)<<C>>(\d{2}-?\d{6}-?\d{6}-?\d)",
-                imei_check,
+                Check::With(imei_check),
             ),
-        ];
+        ]
+    }
+
+    pub fn new(
+        enabled_kinds: &HashSet<PiiKind>,
+        enabled_languages: &HashSet<Language>,
+    ) -> Result<Self, PiiError> {
+        let all_patterns = Self::all_patterns();
 
         // Detection-only expressions for vectorscan, used instead of the full
         // extraction regex when the latter would cause DFA bloat. The extraction
@@ -1510,7 +1524,7 @@ impl KeywordContextDetector {
             ),
         ];
 
-        let raw_patterns: Vec<(PiiKind, Language, &str, fn(&str) -> bool)> = all_patterns
+        let raw_patterns: Vec<PatternDef> = all_patterns
             .into_iter()
             .filter(|(kind, lang, _, _)| {
                 enabled_kinds.contains(kind) && enabled_languages.contains(lang)
@@ -1629,7 +1643,7 @@ impl KeywordContextDetector {
                 let region = &input[start..to as usize];
                 if let Some(caps) = pattern.value_regex.captures(region)
                     && let Some(value_match) = caps.get(1)
-                    && (pattern.validate)(value_match.as_str())
+                    && pattern.validate.accepts(value_match.as_str())
                 {
                     found = true;
                     return Scan::Terminate;
@@ -1671,7 +1685,7 @@ impl KeywordContextDetector {
             let region = &input[start..to];
             if let Some(caps) = pattern.value_regex.captures(region)
                 && let Some(value_match) = caps.get(1)
-                && (pattern.validate)(value_match.as_str())
+                && pattern.validate.accepts(value_match.as_str())
             {
                 let span_start = start + value_match.start();
                 let span_end = start + value_match.end();

@@ -22,6 +22,7 @@ upstream_timeout_secs = 300
 [builtin_guards.pii]
 countries = []
 languages = []
+ignore = ["PersonName"]
 scanner_threads = 6
 
 # The guard reads AnythingLLM's system prompt and retrieved context too.
@@ -36,6 +37,44 @@ overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
 
 [guards.prompt_injection.thresholds]
 PROMPT_INJECTION = 0.5
+
+# The PII token classifier of docker/voidwall.toml, beside the regex PII guard.
+# With response scanning on, it also reads the model's replies, so a reply that
+# names a person is blocked too. Comment out its three sections to test the
+# regex PII guard alone.
+[guards.pii_ml]
+adapter = "token_classifier"
+class = "pii"                   # counts in the voidwall_pii_* metric families
+model_path = "/opt/voidwall/models/bards-v2/onnx/model_quantized.onnx"
+tokenizer_path = "/opt/voidwall/models/bards-v2/tokenizer.json"
+config_path = "/opt/voidwall/models/bards-v2/config.json"   # the source of id2label
+max_tokens = 512
+overlap_tokens = 128
+labels = [
+    "PERSON_NAME", "POSTAL_ADDRESS", "DATE_OF_BIRTH",
+    "PHONE_NUMBER", "EMAIL_ADDRESS", "BANK_ACCOUNT_IDENTIFIER", "AUTH_SECRET",
+    "DOCUMENT_IDENTIFIER", "IP_ADDRESS", "PAYMENT_CARD", "PERSON_IDENTIFIER",
+    "GEO_LOCATION",
+]
+
+[guards.pii_ml.thresholds]
+PERSON_NAME = 0.4
+POSTAL_ADDRESS = 0.4
+DATE_OF_BIRTH = 0.4
+PHONE_NUMBER = 0.0
+EMAIL_ADDRESS = 0.0
+BANK_ACCOUNT_IDENTIFIER = 0.0
+AUTH_SECRET = 0.0
+DOCUMENT_IDENTIFIER = 0.0
+IP_ADDRESS = 0.0
+PAYMENT_CARD = 0.0
+PERSON_IDENTIFIER = 0.0
+GEO_LOCATION = 0.0
+
+# A PAYMENT_CARD span gives a finding only when a CREDIT_CARD validator (the Luhn
+# check) accepts it.
+[guards.pii_ml.validate_as]
+PAYMENT_CARD = ["CREDIT_CARD"]
 
 [reverse_proxy]
 enabled = true

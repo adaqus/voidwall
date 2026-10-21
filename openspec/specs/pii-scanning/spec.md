@@ -296,16 +296,19 @@ scanner SHALL synthesize one fragment per segment instead.
 
 ### Requirement: Overlap resolution runs before every use of the matches
 
-Overlap resolution SHALL be scoped to a kind vocabulary, not to a message. While one
-guard is the only producer of a vocabulary, that guard SHALL pass every match through
-`voidwall_pii::resolve_overlaps` before it returns its findings. Every count, kind list,
-and metric SHALL derive from the resolved set. The same value at two distinct byte
-offsets SHALL stay two matches.
+Overlap resolution SHALL be scoped to a kind vocabulary, not to a message. A vocabulary
+SHALL be the set of kinds one guard produces. Two guards that report kinds of the same name
+SHALL NOT share a vocabulary: the engine SHALL merge their findings and SHALL resolve nothing
+between them.
 
-Resolution SHALL NOT be applied twice over the same spans. Resolving each guard's
-findings and then resolving the union is not the same as resolving the union, so when a
-second guard produces the same vocabulary, resolution SHALL move to the engine over the
-union and the per-guard resolution SHALL be removed.
+The regex PII guard SHALL pass every match through `voidwall_pii::resolve_overlaps` before it
+returns its findings. Every count, kind list, and metric of its findings SHALL derive from
+the resolved set. The same value at two distinct byte offsets SHALL stay two matches.
+
+Resolution SHALL NOT be applied twice over the same spans. Resolving each guard's findings
+and then resolving the union is not the same as resolving the union, so if two guards are
+ever built to produce one vocabulary, resolution SHALL move to the engine over their union
+and the per-guard resolution SHALL be removed.
 
 #### Scenario: Two detectors match overlapping spans
 
@@ -321,6 +324,13 @@ union and the per-guard resolution SHALL be removed.
 
 - **WHEN** the engine merges the findings of the guards
 - **THEN** it applies no further overlap resolution to spans a guard already resolved
+
+#### Scenario: Two guards report a kind of the same name
+
+- **WHEN** the regex PII guard and a model guard each report a `PERSON_NAME` finding over the
+  same bytes of one unit
+- **THEN** both findings are kept, the kind list holds `PERSON_NAME` once, and the match
+  count counts both
 
 ### Requirement: Fragment offsets are document-absolute
 

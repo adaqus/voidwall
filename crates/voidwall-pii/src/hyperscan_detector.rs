@@ -16,7 +16,7 @@ thread_local! {
 
 struct PatternEntry {
     kind: PiiKind,
-    validator: fn(&str) -> bool,
+    validator: Check,
     /// Regex fallback for patterns that can't use SOM_LEFTMOST (e.g. email with UCP).
     /// When set, this pattern is excluded from the extraction DB and matched via regex instead.
     extraction_regex: Option<Regex>,
@@ -35,7 +35,7 @@ pub struct HyperscanDetector {
 struct PatternDef {
     kind: PiiKind,
     expr: &'static str,
-    validator: fn(&str) -> bool,
+    validator: Check,
     needs_ucp: bool,
     /// If true, this pattern can't use SOM_LEFTMOST (too large with UCP).
     /// Falls back to regex extraction instead.
@@ -47,7 +47,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
         PatternDef {
             kind: PiiKind::Email,
             expr: r"[\w._%+-]+@[\w.-]+\.\w[\w-]*\w",
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: true,
             som_fallback: true,
         },
@@ -55,28 +55,28 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::CreditCard,
             expr: r"\b(?:[0-9]{4}[-\s]?){3,4}[0-9]{1,4}\b",
             som_fallback: false,
-            validator: luhn_check,
+            validator: Check::With(luhn_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::UsSsn,
             expr: r"\b\d{3}[-. ]\d{2}[-. ]\d{4}\b",
             som_fallback: false,
-            validator: ssn_check,
+            validator: Check::With(ssn_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::GbNino,
             expr: r"\b[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]\b",
             som_fallback: false,
-            validator: nino_check,
+            validator: Check::With(nino_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::Iban,
             expr: r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}(?:\s?[A-Z0-9]{4}){1,7}(?:\s?[A-Z0-9]{1,4})?\b",
             som_fallback: false,
-            validator: iban_check,
+            validator: Check::With(iban_check),
             needs_ucp: false,
         },
         // Dutch BTW (VAT) number: NL + 9 digits + B + 2-digit sub-number.
@@ -86,7 +86,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::NlBtw,
             expr: r"\b[Nn][Ll]\d{9}[Bb]\d{2}\b",
             som_fallback: false,
-            validator: nl_btw_check,
+            validator: Check::With(nl_btw_check),
             needs_ucp: false,
         },
         // Italian codice fiscale: 16-char structural mask (6 letters, 2 digits,
@@ -104,7 +104,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::ItCodiceFiscale,
             expr: r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b",
             som_fallback: false,
-            validator: it_codice_fiscale_check,
+            validator: Check::With(it_codice_fiscale_check),
             needs_ucp: false,
         },
         // Spanish DNI/NIF: 8 digits + control letter (mod-23), e.g. 12345678Z.
@@ -115,7 +115,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::EsDni,
             expr: r"\b\d{8}[A-Z]\b",
             som_fallback: false,
-            validator: es_dni_check,
+            validator: Check::With(es_dni_check),
             needs_ucp: false,
         },
         // Spanish NIE (foreigner ID): X/Y/Z + 7 digits + control letter,
@@ -125,7 +125,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::EsNie,
             expr: r"\b[XYZ]\d{7}[A-Z]\b",
             som_fallback: false,
-            validator: es_nie_check,
+            validator: Check::With(es_nie_check),
             needs_ucp: false,
         },
         // Spanish CIF (legal-entity tax ID): org-type letter + 7 digits +
@@ -135,7 +135,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::EsCif,
             expr: r"\b[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]\b",
             som_fallback: false,
-            validator: es_cif_check,
+            validator: Check::With(es_cif_check),
             needs_ucp: false,
         },
         // Polish NIP in its EU-VAT form: PL + 10 digits, e.g. PL7740001454.
@@ -147,84 +147,84 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::PlNip,
             expr: r"\b[Pp][Ll]\d{10}\b",
             som_fallback: false,
-            validator: pl_nip_check,
+            validator: Check::With(pl_nip_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
             som_fallback: false,
-            validator: ip_check,
+            validator: Check::With(ip_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
             expr: r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}|::",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::UsItin,
             expr: r"\b9\d{2}-\d{2}-\d{4}\b",
             som_fallback: false,
-            validator: itin_check,
+            validator: Check::With(itin_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::CaSin,
             expr: r"\b\d{3}[-\s]\d{3}[-\s]\d{3}\b",
             som_fallback: false,
-            validator: sin_check,
+            validator: Check::With(sin_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::IePpsn,
             expr: r"\b\d{7}[A-Za-z]{1,2}\b",
             som_fallback: false,
-            validator: ppsn_check,
+            validator: Check::With(ppsn_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
             expr: r"\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
             expr: r"\b[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
             expr: r"\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::GbDrivingLicence,
             expr: r"\b[A-Z9]{5}\d[0-6]\d[0-3]\d\d[A-Z9]{2}\d[A-Z]\d\b",
             som_fallback: false,
-            validator: uk_dl_check,
+            validator: Check::With(uk_dl_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::Vin,
             expr: r"\b[A-HJ-NPR-Z0-9]{17}\b",
             som_fallback: false,
-            validator: vin_check,
+            validator: Check::With(vin_check),
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::AwsAccessKey,
             expr: r"\bAKIA[0-9A-Z]{16}\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // GithubToken: {36} and {22}_{59} fixed repetitions create long DFA
@@ -235,14 +235,14 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::GithubToken,
             expr: r"\bgh[opsu]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\b",
             som_fallback: true,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         PatternDef {
             kind: PiiKind::GbPostcode,
             expr: r"\b[A-Za-z]{1,2}[0-9][0-9A-Za-z]?\s?[0-9][A-Za-z]{2}\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // Bare street name: 1–4 leading capitalized words (or an ordinal like
@@ -262,7 +262,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::UsGbCaAuNzIeZaStreet,
             expr: r"\b(?:(?:[A-Z][a-z][A-Za-z'\-]*|\d{1,4}(?:st|nd|rd|th))\s+){1,4}(?:Road|Lane|Avenue|Boulevard|Crescent|Parkway|Motorway|Street|Highway|Freeway)(?:\s+(?:North|South|East|West|Northwest|Northeast|Southwest|Southeast|N|S|E|W|NW|NE|SW|SE))?\b",
             som_fallback: false,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // US ZIP+4 (`12345-6789`) is structurally distinctive enough to detect
@@ -273,7 +273,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::UsZaPostalCode,
             expr: r"\b\d{5}-\d{4}\b",
             som_fallback: false,
-            validator: us_zip_check,
+            validator: Check::With(us_zip_check),
             needs_ucp: false,
         },
         // CaPostalCode: 3 large character classes (~40 chars each) cause DFA
@@ -283,7 +283,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::CaPostalCode,
             expr: r"\b[ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz]\s?[0-9][ABCEGHJKLMNPRSTVWXYZabceghjklmnprstvwxyz][0-9]\b",
             som_fallback: true,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // IeEircode: 1 letter + 2 digits (or "6W" for D6W routing key)
@@ -293,7 +293,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::IeEircode,
             expr: r"\b[A-Za-z](?:[0-9]{2}|6[Ww])\s?[A-Za-z0-9]{4}\b",
             som_fallback: true,
-            validator: ie_eircode_check,
+            validator: Check::With(ie_eircode_check),
             needs_ucp: false,
         },
         // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
@@ -303,7 +303,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::BitcoinAddress,
             expr: r"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\bbc1[ac-hj-np-z02-9]{39,59}\b",
             som_fallback: true,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // EthereumAddress: {40} fixed repetition. Use short prefix for detection.
@@ -311,7 +311,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::EthereumAddress,
             expr: r"\b0x[0-9a-fA-F]{40}\b",
             som_fallback: true,
-            validator: always_valid,
+            validator: Check::Any,
             needs_ucp: false,
         },
         // InternationalPhoneNumber: E.164 with optional separators.
@@ -320,7 +320,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::InternationalPhoneNumber,
             expr: r"\+[1-9]\d{0,2}[\s\-.]?(?:\d[\s\-.]?){6,13}\d\b",
             som_fallback: false,
-            validator: e164_check,
+            validator: Check::With(e164_check),
             needs_ucp: false,
         },
     ];
@@ -328,6 +328,14 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
     all.into_iter()
         .filter(|p| enabled.contains(&p.kind))
         .collect()
+}
+
+/// Each pattern's kind and check, over every kind.
+pub(crate) fn pattern_checks() -> impl Iterator<Item = (PiiKind, Check)> {
+    let every_kind: HashSet<PiiKind> = PiiKind::all().iter().copied().collect();
+    build_patterns(&every_kind)
+        .into_iter()
+        .map(|p| (p.kind, p.validator))
 }
 
 impl HyperscanDetector {
@@ -442,7 +450,7 @@ impl Detector for HyperscanDetector {
                     return Scan::Continue;
                 }
                 let candidate = &input[start..end];
-                if (entry.validator)(candidate) {
+                if entry.validator.accepts(candidate) {
                     found = true;
                     return Scan::Terminate;
                 }
@@ -457,7 +465,7 @@ impl Detector for HyperscanDetector {
         for entry in &self.entries {
             if let Some(ref re) = entry.extraction_regex {
                 for m in re.find_iter(input) {
-                    if (entry.validator)(m.as_str()) {
+                    if entry.validator.accepts(m.as_str()) {
                         return true;
                     }
                 }
@@ -505,7 +513,7 @@ impl Detector for HyperscanDetector {
                 continue;
             }
             let candidate = &input[start..end];
-            if (entry.validator)(candidate) {
+            if entry.validator.accepts(candidate) {
                 results.push(PiiMatch {
                     kind: entry.kind,
                     start,
@@ -520,7 +528,7 @@ impl Detector for HyperscanDetector {
             if let Some(ref re) = entry.extraction_regex {
                 for m in re.find_iter(input) {
                     let candidate = m.as_str();
-                    if (entry.validator)(candidate) {
+                    if entry.validator.accepts(candidate) {
                         results.push(PiiMatch {
                             kind: entry.kind,
                             start: m.start(),

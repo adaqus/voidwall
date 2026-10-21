@@ -6,11 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ort::session::Session;
-use ort::session::builder::{GraphOptimizationLevel, PrepackedWeights};
+use ort::session::builder::{GraphOptimizationLevel, PrepackedWeights, SessionBuilder};
 use tokenizers::Tokenizer;
 
 use crate::adapter::{Adapter, AdapterKind, TextClassifier};
 use crate::checks::{self, InputLayout};
+use crate::labels::Labels;
 use crate::model_file::ModelFile;
 use crate::run::{Cancel, RunError, Windowing};
 
@@ -20,6 +21,9 @@ pub struct LoadSettings {
     pub adapter: AdapterKind,
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
+    /// The model's `config.json`, which holds `id2label`. A `token_classifier`
+    /// load needs it; a `text_classifier` load ignores it.
+    pub config_path: Option<PathBuf>,
     /// The longest input the adapter feeds the model, in tokens.
     pub max_tokens: usize,
     /// Tokens shared by neighbouring windows. `None` means
@@ -33,9 +37,75 @@ pub struct LoadSettings {
     pub workers: NonZeroUsize,
 }
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// What a worker makes of each window's output. The build ships the set, so
+/// the trait is sealed.
+pub trait Head: sealed::Sealed {
+    /// True when the model scores every token, so a window's output is
+    /// `[1, n, width]` rather than `[1, width]`.
+    #[doc(hidden)]
+    const PER_TOKEN: bool;
+}
+
+/// The head of a classifier worker: one score per window, kept by
+/// [`Worker::score`].
+#[derive(Clone)]
+pub struct Classifier {
+    /// The adapter's [`Adapter::window_score`].
+    pub(crate) window_score: fn(&[f32]) -> f32,
+}
+
+impl sealed::Sealed for Classifier {}
+impl Head for Classifier {
+    const PER_TOKEN: bool = false;
+}
+
+/// The head of a token worker: probabilities per token, returned by
+/// [`TokenWorker::run`](crate::TokenWorker).
+#[derive(Clone)]
+pub struct Tokens {
+    pub(crate) labels: Arc<Labels>,
+}
+
+impl sealed::Sealed for Tokens {}
+impl Head for Tokens {
+    const PER_TOKEN: bool = true;
+}
+
+/// A worker of a `token_classifier` load.
+pub type TokenWorker = Worker<Tokens>;
+
+/// The workers of one load, of the kind its adapter runs. A classifier worker
+/// has no per-token run and a token worker has no score, so a guard cannot
+/// call the wrong one.
+pub enum Workers {
+    Classifier(Vec<Worker>),
+    Token(Vec<TokenWorker>),
+}
+
+#[cfg(test)]
+impl Workers {
+    pub(crate) fn into_classifiers(self) -> Vec<Worker> {
+        match self {
+            Self::Classifier(workers) => workers,
+            Self::Token(_) => panic!("expected classifier workers"),
+        }
+    }
+
+    pub(crate) fn into_tokens(self) -> Vec<TokenWorker> {
+        match self {
+            Self::Token(workers) => workers,
+            Self::Classifier(_) => panic!("expected token workers"),
+        }
+    }
+}
+
 /// One loaded session, ready for one worker thread. The guard in `voidwall`
 /// owns the thread.
-pub struct Worker {
+pub struct Worker<H: Head = Classifier> {
     pub(crate) session: Session,
     pub(crate) layout: InputLayout,
     /// Shared by every worker of one load.
@@ -43,8 +113,7 @@ pub struct Worker {
     pub(crate) pad_id: i64,
     pub(crate) windowing: Windowing,
     pub(crate) width: i64,
-    /// The adapter's [`Adapter::window_score`].
-    pub(crate) window_score: fn(&[f32]) -> f32,
+    pub(crate) head: H,
     /// Inferences run, so tests can see how many windows a run took.
     #[cfg(test)]
     pub(crate) inferences: usize,
@@ -58,23 +127,73 @@ pub struct Worker {
 #[derive(Debug)]
 pub enum LoadError {
     AdapterNotBuilt(AdapterKind),
-    ModelUnreadable { path: PathBuf, reason: String },
-    TokenizerUnreadable { path: PathBuf, reason: String },
+    ModelUnreadable {
+        path: PathBuf,
+        reason: String,
+    },
+    TokenizerUnreadable {
+        path: PathBuf,
+        reason: String,
+    },
+    ConfigMissing(AdapterKind),
+    ConfigUnreadable {
+        path: PathBuf,
+        reason: String,
+    },
+    Id2Label {
+        path: PathBuf,
+        reason: String,
+    },
     EmbeddingTableNotFound,
-    TokenizerTooLarge { highest_id: u32, rows: i64 },
-    Session { path: PathBuf, reason: String },
-    Staging { dir: PathBuf, reason: String },
+    TokenizerTooLarge {
+        highest_id: u32,
+        rows: i64,
+    },
+    Session {
+        path: PathBuf,
+        reason: String,
+    },
+    Staging {
+        dir: PathBuf,
+        reason: String,
+    },
     MissingInput(&'static str),
     UnknownInput(String),
-    InputType { name: String, found: String },
-    InputRank { name: String, rank: usize },
-    FixedSequence { fixed: usize, max_tokens: usize },
-    OverlapTooLarge { overlap: usize, bound: usize },
-    WindowTooShort { window: usize, overlap: usize },
+    InputType {
+        name: String,
+        found: String,
+    },
+    InputRank {
+        name: String,
+        rank: usize,
+    },
+    FixedSequence {
+        fixed: usize,
+        max_tokens: usize,
+    },
+    OverlapTooLarge {
+        overlap: usize,
+        bound: usize,
+    },
+    WindowTooShort {
+        window: usize,
+        overlap: usize,
+    },
     OutputCount(usize),
     OutputType(String),
-    OutputRank(usize),
-    OutputWidth { expected: i64, found: i64 },
+    OutputRank {
+        found: usize,
+        expected: usize,
+    },
+    OutputWidth {
+        expected: i64,
+        found: i64,
+    },
+    LabelCount {
+        path: PathBuf,
+        labels: i64,
+        found: i64,
+    },
     SmokeInference(String),
     SmokeNonFinite,
 }
@@ -94,6 +213,23 @@ impl fmt::Display for LoadError {
                 write!(
                     f,
                     "tokenizer {} is not a readable tokenizer: {reason}",
+                    path.display()
+                )
+            }
+            Self::ConfigMissing(kind) => {
+                write!(f, "adapter `{}` needs the model's config.json", kind.name())
+            }
+            Self::ConfigUnreadable { path, reason } => {
+                write!(
+                    f,
+                    "config {} is not a readable JSON file: {reason}",
+                    path.display()
+                )
+            }
+            Self::Id2Label { path, reason } => {
+                write!(
+                    f,
+                    "config {} has no valid id2label: {reason}",
                     path.display()
                 )
             }
@@ -151,18 +287,28 @@ impl fmt::Display for LoadError {
             Self::OutputType(found) => {
                 write!(f, "the output has element type {found}; f32 is required")
             }
-            Self::OutputRank(rank) => write!(f, "the output has rank {rank}; rank 2 is required"),
-            Self::OutputWidth { expected, found } => {
-                let found = if *found < 0 {
-                    "dynamic".to_owned()
-                } else {
-                    found.to_string()
-                };
+            Self::OutputRank { found, expected } => {
                 write!(
                     f,
-                    "the adapter needs output width {expected}; the model's is {found}"
+                    "the output has rank {found}; rank {expected} is required"
                 )
             }
+            Self::OutputWidth { expected, found } => write!(
+                f,
+                "the adapter needs output width {expected}; the model's is {}",
+                width(*found)
+            ),
+            Self::LabelCount {
+                path,
+                labels,
+                found,
+            } => write!(
+                f,
+                "id2label in config {} has {labels} labels, but the model's output width is \
+                 {}; they must be equal",
+                path.display(),
+                width(*found)
+            ),
             Self::SmokeInference(reason) => write!(f, "the smoke inference failed: {reason}"),
             Self::SmokeNonFinite => {
                 f.write_str("the smoke inference returned a non-finite output (NaN or infinity)")
@@ -171,18 +317,63 @@ impl fmt::Display for LoadError {
     }
 }
 
+/// A dimension as an error names it: `-1` is a dynamic one.
+fn width(dim: i64) -> String {
+    if dim < 0 {
+        "dynamic".to_owned()
+    } else {
+        dim.to_string()
+    }
+}
+
 impl std::error::Error for LoadError {}
 
 /// Loads `settings.workers` sessions of one model that share one copy of its
 /// weights, and returns them only when every check passed on every one.
-pub fn load(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
+pub fn load(settings: &LoadSettings) -> Result<Workers, LoadError> {
     match settings.adapter {
-        AdapterKind::TextClassifier => load_with::<TextClassifier>(settings),
+        AdapterKind::TextClassifier => {
+            load_classifier::<TextClassifier>(settings).map(Workers::Classifier)
+        }
+        AdapterKind::TokenClassifier => load_tokens(settings).map(Workers::Token),
         AdapterKind::TextMultilabelClassifier => Err(LoadError::AdapterNotBuilt(settings.adapter)),
     }
 }
 
-fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
+fn load_classifier<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
+    let head = Classifier {
+        window_score: A::window_score,
+    };
+    load_with(settings, head, A::OUTPUT_WIDTH)
+}
+
+/// The output width is the number of labels in `id2label`.
+fn load_tokens(settings: &LoadSettings) -> Result<Vec<TokenWorker>, LoadError> {
+    let path = settings
+        .config_path
+        .as_deref()
+        .ok_or(LoadError::ConfigMissing(settings.adapter))?;
+    let labels = Labels::read(path)?;
+    let width = labels.len() as i64;
+    let head = Tokens {
+        labels: Arc::new(labels),
+    };
+    load_with(settings, head, width).map_err(|e| match e {
+        // Only the output check gives this error; the labels set the width.
+        LoadError::OutputWidth { expected, found } => LoadError::LabelCount {
+            path: path.to_owned(),
+            labels: expected,
+            found,
+        },
+        e => e,
+    })
+}
+
+fn load_with<H: Head + Clone + Send + Sync>(
+    settings: &LoadSettings,
+    head: H,
+    width: i64,
+) -> Result<Vec<Worker<H>>, LoadError> {
     // Cheap checks first: nothing is loaded into ONNX Runtime until they pass.
     let (tokenizer, pad_id) = read_tokenizer(settings)?;
     let special = tokenizer
@@ -205,7 +396,8 @@ fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadErr
     let prepacked = PrepackedWeights::new();
     let first = new_session(settings, &model, &graph, &prepacked)?;
     let layout = checks::check_inputs(first.inputs(), settings.max_tokens)?;
-    checks::check_output(first.outputs(), A::OUTPUT_WIDTH)?;
+    let rank = if H::PER_TOKEN { 3 } else { 2 };
+    checks::check_output(first.outputs(), rank, width)?;
     let ids = checks::smoke_input(&tokenizer, layout.fixed_seq)?;
 
     let tokenizer = Arc::new(tokenizer);
@@ -215,8 +407,8 @@ fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadErr
         tokenizer: Arc::clone(&tokenizer),
         pad_id,
         windowing,
-        width: A::OUTPUT_WIDTH,
-        window_score: A::window_score,
+        width,
+        head: head.clone(),
         #[cfg(test)]
         inferences: 0,
         #[cfg(test)]
@@ -224,7 +416,7 @@ fn load_with<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadErr
     };
     let first = worker(first);
     let workers = std::thread::scope(|scope| {
-        let smoke = |mut worker: Worker| worker.smoke(&ids).map(|()| worker);
+        let smoke = |mut worker: Worker<H>| worker.smoke(&ids).map(|()| worker);
         let mut handles = vec![scope.spawn(move || smoke(first))];
         handles.extend((1..settings.workers.get()).map(|_| {
             let (model, graph, prepacked, worker) = (&model, &graph, &prepacked, &worker);
@@ -262,9 +454,24 @@ fn read_tokenizer(settings: &LoadSettings) -> Result<(Tokenizer, i64), LoadError
     Ok((tokenizer, pad_id))
 }
 
+/// The options of every worker session: one intra-op thread, every graph
+/// optimization, CPU only.
+fn session_options() -> ort::Result<SessionBuilder> {
+    Ok(Session::builder()?
+        .with_intra_threads(1)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?)
+}
+
+/// A session of the model file as it is on disk, with a worker's options but
+/// no shared or prepacked weights, so a test can compare a worker with it.
+#[cfg(test)]
+pub(crate) fn plain_session(path: &Path) -> ort::Result<Session> {
+    session_options()?.commit_from_file(path)
+}
+
 /// One session over the shared weights: the staged weight-free graph, every
 /// initializer from the single read as an override, one shared prepacked
-/// container, one intra-op thread, CPU only.
+/// container, and the options of [`session_options`].
 fn new_session(
     settings: &LoadSettings,
     model: &ModelFile,
@@ -275,11 +482,7 @@ fn new_session(
         path: settings.model_path.clone(),
         reason,
     };
-    let mut builder = Session::builder()
-        .map_err(|e| failed(e.to_string()))?
-        .with_intra_threads(1)
-        .map_err(|e| failed(e.to_string()))?
-        .with_optimization_level(GraphOptimizationLevel::Level3)
+    let mut builder = session_options()
         .map_err(|e| failed(e.to_string()))?
         .with_prepacked_weights(prepacked)
         .map_err(|e| failed(e.to_string()))?;
@@ -293,7 +496,7 @@ fn new_session(
         .map_err(|e| failed(e.to_string()))
 }
 
-impl Worker {
+impl<H: Head> Worker<H> {
     /// Runs one inference on the smoke input through the same path a run uses.
     fn smoke(&mut self, ids: &[i64]) -> Result<(), LoadError> {
         // Nobody cancels the smoke inference.
@@ -317,6 +520,7 @@ mod tests {
             adapter: AdapterKind::TextClassifier,
             model_path: fixture.write(dir),
             tokenizer_path: write_tokenizer(dir, ROWS as u32 - 1),
+            config_path: None,
             max_tokens: 16,
             overlap_tokens: None,
             max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
@@ -326,13 +530,15 @@ mod tests {
 
     fn load_fixture(fixture: Fixture) -> Result<Vec<Worker>, LoadError> {
         let dir = tempfile::tempdir().unwrap();
-        load(&settings(dir.path(), &fixture, 2))
+        load(&settings(dir.path(), &fixture, 2)).map(Workers::into_classifiers)
     }
 
     #[test]
     fn a_good_model_loads_n_workers() {
         let dir = tempfile::tempdir().unwrap();
-        let workers = load(&settings(dir.path(), &Fixture::default(), 3)).unwrap();
+        let workers = load(&settings(dir.path(), &Fixture::default(), 3))
+            .unwrap()
+            .into_classifiers();
         assert_eq!(workers.len(), 3);
     }
 
@@ -444,7 +650,7 @@ mod tests {
             .unwrap()
             .commit_from_file(&settings.model_path)
             .unwrap();
-        let mut worker = load(&settings).unwrap().pop().unwrap();
+        let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
         assert_eq!(logits(&mut worker.session), logits(&mut plain));
     }
 
@@ -470,7 +676,7 @@ mod tests {
             .unwrap()
             .commit_from_file(&settings.model_path)
             .unwrap();
-        let mut worker = load(&settings).unwrap().pop().unwrap();
+        let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
         assert_eq!(logits(&mut worker.session), logits(&mut plain));
     }
 
@@ -514,7 +720,7 @@ mod tests {
         // Reset the high-water mark, so building the fixture does not count.
         std::fs::write("/proc/self/clear_refs", "5").unwrap();
         let (rss, anon) = (status("VmRSS:"), status("RssAnon:"));
-        let workers = load(&settings).unwrap();
+        let workers = load(&settings).unwrap().into_classifiers();
         let peak = (status("VmHWM:") - rss) / weights;
         let kept = (status("RssAnon:") - anon) / weights;
         eprintln!(

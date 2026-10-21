@@ -227,12 +227,20 @@ that resolved set.
 The policy itself lives in the library, in `crates/voidwall-pii/src/overlap.rs`. The proxy does
 not reimplement it, and must not.
 
-Resolution is scoped to a kind vocabulary, not to a message, and it runs once.
+Resolution is scoped to a kind vocabulary, not to a message, and it runs once. A
+vocabulary is the set of kinds one guard produces, so a guard is always the only
+producer of its own. Two guards that report a kind of the same name — the regex guard's
+`PERSON_NAME` and a model's `PERSON_NAME` — do not share a vocabulary. The engine merges
+their findings and resolves nothing between them: the kind appears once in a `kinds`
+list, and each guard's findings count toward the match count. Every detection blocks
+with the same answer, so a value two guards both found changes counts, never the
+outcome.
+
 `resolve_overlaps` is a greedy pairwise pass, so resolving each guard's findings and
-then resolving the union is not the same as resolving the union. While one guard is the
-only producer of a vocabulary — which is the case today — that guard resolves and the
-engine adds nothing. When a second producer of the same vocabulary appears, resolution
-moves to the engine over the union and the per-guard pass goes away. Never both.
+then resolving the union is not the same as resolving the union. Each guard resolves its
+own findings, and the engine adds nothing. If two guards are ever built to produce one
+vocabulary, resolution moves to the engine over their union and the per-guard pass goes
+away. Never both.
 
 The same value at two distinct byte offsets stays two matches. Those are two separate
 instances of PII, not a duplicate.
@@ -385,7 +393,8 @@ surface would silently take the built-in's.
 
 A guard an operator configures is declared under `[guards.<name>]`. That one section
 carries the adapter, the artifacts, `max_tokens`, the labels, the thresholds, and the
-surface. There is no model section and no model reference, which makes "one guard owns
+surface; a `token_classifier` also carries `config_path` and may carry `validate_as`, and
+any model guard may carry `class`. There is no model section and no model reference, which makes "one guard owns
 one model" structural rather than a rule: a guard's model is not addressable from
 anywhere else. That is the same move `[builtin_guards.pii]` makes for the
 second-PII-instance question.
@@ -400,21 +409,52 @@ Nothing names a runtime: ONNX is the only one, so the key could only be written 
 twice. `text_classifier` takes exactly one label, and it names class 1 of the model's two
 outputs, not output position 0: every candidate injection model has a 2-logit head with
 the attack class at 1, and the ONNX file carries no class names to check that against, so
-the docs and the parity harness carry the class order. `text_multilabel_classifier` is
+the docs and the parity harness carry the class order. `token_classifier` takes any
+number of labels, each an entity type of the model under the model's own name; a span of a
+type absent from `labels` gives no finding. `text_multilabel_classifier` is
 rejected at startup until its run side is built. `thresholds` has no default, because the build has no evaluated number for an
 arbitrary model; a label absent from it reports nothing, and that absence is the only
 detection-layer off switch. A threshold key absent from `labels` is rejected, so a
 misspelling is an error rather than a silently disabled kind. A label itself is not
 checked against a vocabulary: there is no closed set of finding kinds to check against.
+Nor is a `token_classifier` label checked against the model's types, which only the
+model's `config.json` names: `--validate` reads no artifact, so a label the model lacks
+loads and reports nothing.
+
+`config_path` names the model's `config.json`, whose `id2label` is the token classifier's
+label list: a model has dozens of labels, and listing them in order by hand is easy to get
+wrong. A `token_classifier` requires it and a `text_classifier` refuses it.
+`[guards.<name>.validate_as]` maps a label to PII kind names, and a span of that label is
+kept only when the validator of some pattern of some named kind accepts its text. The
+validators are the regex guard's own, reachable by kind through
+`voidwall_pii::validate_as`, which walks the same pattern tables the detectors compile, so
+a pattern added later is covered with no extra step. Validators stay per pattern in
+`voidwall-pii`; the engine never validates, because it does not hold span text and regex
+validation must run before `resolve_overlaps`. A key absent from `labels`, an empty list,
+a name that is not a kind, or a kind whose every pattern accepts any value (it would keep
+every span) fails the start. A failed validation drops the span without a trace.
+`class = "pii"` is a closed enum, absent by default, declared rather than derived from the
+adapter, since a token classifier may find secrets as well as PII; it is meant only to
+choose the metric families that count the guard.
 
 Each section builds one `ModelGuard` (`engine/model.rs`) at startup. It loads its model
 into `threads` workers — default the CPUs divided by the number of model guards, at least
 1; a total above the CPU count only warns — and gives each worker its own OS thread, the
-same pool shape as `ScannerPool`. A unit's score at or above the label's threshold is one
-span-less finding with the score as its confidence. The guard scores one text per unit:
-plain text decoded lossily, so one invalid byte cannot hide a unit, and a JSON body's
-values joined with newlines in document order. API-aware decoders replace that join in
-the decoder phases.
+same pool shape as `ScannerPool`. For a `text_classifier`, a unit's score at or above the
+label's threshold is one span-less finding with the score as its confidence. For a
+`token_classifier`, each decoded span whose type has a threshold at or below its
+confidence, and that passes the label's `validate_as`, is one finding with a byte span of
+the unit and the span's confidence; a threshold of 0 keeps every span of its label.
+
+The guard scores one text per unit: plain text decoded lossily, so one invalid byte cannot
+hide a unit, and a JSON body's values joined with newlines in document order. API-aware
+decoders replace that join in the decoder phases. `UnitText` (`engine/unit_text.rs`)
+builds that text with a map back to the unit's bytes: a U+FFFD maps to the invalid bytes
+it replaced, and a fragment's characters to their document-absolute range. Each join is a
+hard boundary (`voidwall_ml::Boundaries`, sorted by construction) that the decoder never
+merges across, so every span lies in one fragment and maps to one contiguous byte range,
+directly comparable with a regex span. Running the model once per fragment would also keep
+spans apart, but would pay windows per fragment.
 
 A model guard failure is an `Error::Inference` (500 under `fail_close`,
 `reason="inference_failure"`); a unit past the window limit is an `Error::WindowLimit`
@@ -425,7 +465,10 @@ Loading takes seconds per guard, so `server::run` binds the admin server first, 
 engine on the blocking pool, and binds the data plane only after every guard has loaded:
 `/healthz` answers throughout, `/readyz` answers 503 until the data plane is up, and a
 load failure exits non-zero with no partial start. `--validate` stays offline and loads
-no model. The `voidwall_pii_*` metric families count only the `pii` guard's findings.
+no model. The `voidwall_pii_*` metric families count the findings of the PII guards: the
+`pii` guard and every guard with `class = "pii"`. The set of their names (`PiiGuards` in
+`metrics.rs`) is built once from configuration, and every increment of a PII family asks
+it, so a kind two PII guards report counts once.
 
 ### 4.9 No authentication
 
@@ -449,8 +492,8 @@ Today:
 
 | Crate | Holds |
 |---|---|
-| `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer |
-| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → N `Worker`s; `Worker::score` → one unit score or `RunError`, stoppable through a `Cancel`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
+| `crates/voidwall-pii` | the detector chain, `PiiKind`, `resolve_overlaps`, the gazetteer, and validation by kind: `validate_as`, `has_validator` |
+| `crates/voidwall-ml` | `AdapterKind`, the CPU floor check, the linked ONNX Runtime, and the model load: `LoadSettings`, trait `Adapter`, `load()` → `Workers`, N classifier `Worker`s or N `TokenWorker`s; `Worker::score` → one unit score, `TokenWorker::spans` → typed, trimmed byte spans with confidences, either one or a `RunError`, stoppable through a `Cancel`. The `test-fixtures` feature exposes tiny fixture models to other crates' tests |
 | `crates/voidwall` | HTTP, config, metrics, the binary |
 | `crates/voidwall-eval` | `ai4privacy-eval`: scores `voidwall-pii` against AI4Privacy openpii300k, through `docker/ctl ai4p-eval`. `piimb-spans`: writes its spans for the PII Masking Benchmark, which `docker/ctl piimb-eval` scores with the benchmark's own metric code. Depends on `voidwall-pii` only; not in the image |
 
@@ -502,8 +545,26 @@ A `Cancel` stops a run from another thread: the run checks it before it tokenize
 before each window, and its `RunOptions` terminate flag stops an inference in progress at
 the next graph node. A cancelled run returns `RunError::Cancelled`, which the model guard
 treats as "nobody waits", never as a failure.
-`crates/voidwall-ml/parity/` checks the scores against Python `tokenizers` and PyTorch on
-real models; it needs model files, so it runs by hand, not in CI.
+
+`load()` returns classifier workers or token workers, chosen by the adapter, so a guard
+cannot call `score` on a token model: the wrong pairing does not compile. A
+`token_classifier` load reads `id2label` from `config_path` (`O` once; `B-`, `I-`, `S-` or
+no prefix) and requires an output `[1, n, labels]`. `TokenWorker::spans(text, &Boundaries,
+&Cancel)` runs the same windows, keeps each token's softmax pooled per entity type with its
+byte offsets, and decodes words with the fixed decoder ported from bards.ai's
+`pii_detector.py` steps 1–5 (`decode.rs`): probabilities summed at each token's first
+non-whitespace character across windows, words split and edge-trimmed, each word labelled
+by its mean pooled argmax, neighbouring words of one type merged when only
+` , - / . ( )` stands between them and the second's start probability is below 0.5. A
+span's confidence is the mean of its words' winning probabilities, and every span is
+trimmed of whitespace, `, . ; : ! ?` and quotes at both edges and `) ] }` at its end. No
+configuration tunes the decoder; a model that needs another gets another named adapter.
+Offsets are bytes, never characters. A blank text runs no inference.
+`crates/voidwall-ml/parity/` checks the scores and the token spans against Python `tokenizers` and PyTorch on
+real models; it needs model files, so it runs by hand, not in CI. An INT8 worker is checked
+against a plain ONNX Runtime session of its own file, bit for bit, not against Python: the
+ONNX Runtime build Voidwall links and the Python wheel round some fp32 operations apart, and
+dynamic quantization turns that into whole quantization steps.
 
 A model cannot follow the detector lifecycle: a `Detector` is built per `Scanner`, and a
 `Scanner` is built per OS thread. A multi-gigabyte model cannot be built per thread. The

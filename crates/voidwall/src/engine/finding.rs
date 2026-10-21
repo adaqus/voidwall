@@ -86,6 +86,20 @@ impl Finding {
         }
     }
 
+    /// A finding localised to a byte span, with the guard's confidence in it.
+    pub fn spanned_with_confidence(
+        unit: UnitId,
+        kind: impl Into<FindingKind>,
+        guard: impl Into<Arc<str>>,
+        span: Span,
+        confidence: f32,
+    ) -> Self {
+        Self {
+            confidence: Some(confidence),
+            ..Self::spanned(unit, kind, guard, span)
+        }
+    }
+
     /// A finding about a whole unit, carrying a confidence instead of a span.
     pub fn whole_unit(
         unit: UnitId,
@@ -161,12 +175,13 @@ impl ScanResult {
         kinds.into_iter().map(str::to_owned).collect()
     }
 
-    /// The kinds one guard found, sorted by name and holding each kind once.
-    pub fn kinds_of(&self, guard: &str) -> Vec<String> {
+    /// The kinds the guards `keep` accepts found, sorted by name and holding
+    /// each kind once.
+    pub fn kinds_where(&self, keep: impl Fn(&str) -> bool) -> Vec<String> {
         let mut kinds: Vec<&str> = self
             .findings
             .iter()
-            .filter(|f| &*f.guard == guard)
+            .filter(|f| keep(&f.guard))
             .map(|f| f.kind.as_str())
             .collect();
         kinds.sort_unstable();
@@ -214,6 +229,16 @@ mod tests {
     }
 
     #[test]
+    fn a_spanned_finding_may_carry_a_confidence() {
+        let finding =
+            Finding::spanned_with_confidence(UnitId(1), "PERSON_NAME", GUARD, Span::new(3, 8), 0.6);
+        assert_eq!(finding.unit, UnitId(1));
+        assert_eq!(finding.kind.as_str(), "PERSON_NAME");
+        assert_eq!(finding.span, Some(Span::new(3, 8)));
+        assert_eq!(finding.confidence, Some(0.6));
+    }
+
+    #[test]
     fn a_whole_unit_finding_carries_a_confidence_and_no_span() {
         let finding = Finding::whole_unit(UnitId(0), "PROMPT_INJECTION", GUARD, 0.75);
         assert!(finding.span.is_none());
@@ -234,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn kinds_of_holds_one_guards_kinds_once() {
+    fn kinds_where_holds_the_kept_guards_kinds_once() {
         let finding = |guard: &str, kind: &str| {
             Finding::spanned(UnitId(0), kind, Arc::<str>::from(guard), Span::new(0, 1))
         };
@@ -244,9 +269,16 @@ mod tests {
             finding("pii", "EMAIL"),
             finding("pii", "EMAIL"),
         ]);
-        assert_eq!(result.kinds_of("pii"), vec!["EMAIL", "US_SSN"]);
-        assert_eq!(result.kinds_of("injection"), vec!["PROMPT_INJECTION"]);
-        assert!(result.kinds_of("absent").is_empty());
+        assert_eq!(result.kinds_where(|g| g == "pii"), vec!["EMAIL", "US_SSN"]);
+        assert_eq!(
+            result.kinds_where(|g| g == "injection"),
+            vec!["PROMPT_INJECTION"]
+        );
+        assert_eq!(
+            result.kinds_where(|_| true),
+            vec!["EMAIL", "PROMPT_INJECTION", "US_SSN"]
+        );
+        assert!(result.kinds_where(|g| g == "absent").is_empty());
     }
 
     #[test]

@@ -472,6 +472,10 @@ pub struct ModelGuardConfig {
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
 
+    /// The model's `config.json`, the source of its `id2label`. Required for
+    /// `token_classifier`, refused for `text_classifier`.
+    pub config_path: Option<PathBuf>,
+
     /// The longest input the adapter feeds the model, in tokens. At least
     /// [`MIN_MODEL_GUARD_MAX_TOKENS`]. A longer input is split into
     /// overlapping windows.
@@ -504,8 +508,65 @@ pub struct ModelGuardConfig {
     #[serde(default)]
     pub thresholds: BTreeMap<String, f32>,
 
+    /// Per label, the PII kinds a span of it must validate as: the span
+    /// passes when the validator of any pattern of any listed kind accepts
+    /// it, and is dropped otherwise. A label absent from here is not
+    /// validated. `token_classifier` only. An `Option`, so an empty table on a
+    /// `text_classifier` is still refused.
+    pub validate_as: Option<BTreeMap<String, Vec<String>>>,
+
+    /// The class of finding the guard reports. Absent means none.
+    pub class: Option<GuardClass>,
+
     #[serde(default)]
     pub surface: ModelGuardSurface,
+}
+
+/// The class of finding a model guard reports. It decides only which metric
+/// families count the guard's findings, never detection or the outcome.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardClass {
+    Pii,
+}
+
+/// The `[guards.<name>.validate_as]` rules: every key is a declared label, and
+/// every list names at least one PII kind, each with a validator that can
+/// reject a value. A kind whose patterns all accept every value would keep
+/// every span, so naming one is a mistake rather than a weaker check.
+fn validate_validate_as(
+    name: &str,
+    labels: &[String],
+    validate_as: &BTreeMap<String, Vec<String>>,
+) -> Result<(), Error> {
+    for (label, kinds) in validate_as {
+        if !labels.contains(label) {
+            return Err(Error::Config(format!(
+                "guards.{name}.validate_as: '{label}' is absent from labels, so it names a \
+                 kind this guard does not declare",
+            )));
+        }
+        if kinds.is_empty() {
+            return Err(Error::Config(format!(
+                "guards.{name}.validate_as.{label}: must not be empty; a span validated as \
+                 no kind always fails",
+            )));
+        }
+        for kind in kinds {
+            let Some(pii) = voidwall_pii::PiiKind::from_label(kind) else {
+                return Err(Error::Config(format!(
+                    "guards.{name}.validate_as.{label}: '{kind}' is not a PII kind",
+                )));
+            };
+            if !voidwall_pii::has_validator(pii) {
+                return Err(Error::Config(format!(
+                    "guards.{name}.validate_as.{label}: '{kind}' has no validator that can \
+                     reject a value, so it would accept every span",
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1376,6 +1437,29 @@ impl AppConfig {
                             guard.labels.len(),
                         )));
                     }
+                    if guard.config_path.is_some() {
+                        return Err(Error::Config(format!(
+                            "guards.{name}.config_path: text_classifier reads no config.json; \
+                             only token_classifier takes one",
+                        )));
+                    }
+                    if guard.validate_as.is_some() {
+                        return Err(Error::Config(format!(
+                            "guards.{name}.validate_as: text_classifier reports no span to \
+                             validate; only token_classifier takes validate_as",
+                        )));
+                    }
+                }
+                AdapterKind::TokenClassifier => {
+                    if guard.config_path.is_none() {
+                        return Err(Error::Config(format!(
+                            "guards.{name}.config_path: token_classifier needs the model's \
+                             config.json, the source of its id2label",
+                        )));
+                    }
+                    if let Some(validate_as) = &guard.validate_as {
+                        validate_validate_as(name, &guard.labels, validate_as)?;
+                    }
                 }
                 AdapterKind::TextMultilabelClassifier => {
                     return Err(Error::Config(format!(
@@ -1438,10 +1522,14 @@ impl AppConfig {
     /// worth opening the file for.
     pub fn validate_model_guard_artifacts(&self) -> Result<(), Error> {
         for (name, guard) in &self.guards {
+            let config = guard.config_path.as_ref().map(|path| ("config_path", path));
             for (field, path) in [
                 ("model_path", &guard.model_path),
                 ("tokenizer_path", &guard.tokenizer_path),
-            ] {
+            ]
+            .into_iter()
+            .chain(config)
+            {
                 if !path.is_file() {
                     return Err(Error::Config(format!(
                         "guards.{name}.{field}: no file at '{}'",
@@ -2939,6 +3027,7 @@ PROMPT_INJECTION = 0.90
 
     #[test_case("text_classifier", AdapterKind::TextClassifier ; "single label")]
     #[test_case("text_multilabel_classifier", AdapterKind::TextMultilabelClassifier ; "multi label")]
+    #[test_case("token_classifier", AdapterKind::TokenClassifier ; "token")]
     fn an_adapter_name_the_build_ships_deserialises(name: &str, expected: AdapterKind) {
         let toml = format!(
             r#"
@@ -3442,6 +3531,130 @@ labels = ["PROMPT_INJECTION", "HATE_SPEECH"]
         );
     }
 
+    // --- Model guards: token_classifier, config_path, validate_as, class ---
+
+    /// A `[guards.pii_ml]` token classifier with `extra` lines under it.
+    fn token_guard_with(extra: &str) -> String {
+        model_guard_toml(&format!(
+            r#"
+[guards.pii_ml]
+adapter = "token_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+config_path = "/c"
+max_tokens = 512
+labels = ["PERSON_NAME", "PAYMENT_CARD"]
+{extra}
+"#
+        ))
+    }
+
+    #[test]
+    fn a_token_classifier_guard_loads_with_its_fields() {
+        let toml = token_guard_with(
+            r#"class = "pii"
+
+[guards.pii_ml.thresholds]
+PERSON_NAME = 0.4
+PAYMENT_CARD = 0.0
+
+[guards.pii_ml.validate_as]
+PAYMENT_CARD = ["CREDIT_CARD"]
+"#,
+        );
+        let config = parse(&toml).expect("should be valid");
+        let guard = &config.guards["pii_ml"];
+        assert_eq!(guard.adapter, AdapterKind::TokenClassifier);
+        assert_eq!(guard.config_path.as_deref(), Some(Path::new("/c")));
+        assert_eq!(guard.labels, ["PERSON_NAME", "PAYMENT_CARD"]);
+        assert_eq!(guard.thresholds["PAYMENT_CARD"], 0.0);
+        assert_eq!(
+            guard.validate_as,
+            Some(BTreeMap::from([(
+                "PAYMENT_CARD".to_owned(),
+                vec!["CREDIT_CARD".to_owned()]
+            )]))
+        );
+        assert_eq!(guard.class, Some(GuardClass::Pii));
+    }
+
+    #[test]
+    fn a_model_guard_has_no_class_and_no_validate_as_by_default() {
+        let config = parse(&token_guard_with("")).expect("should be valid");
+        let guard = &config.guards["pii_ml"];
+        assert_eq!(guard.class, None);
+        assert_eq!(guard.validate_as, None);
+    }
+
+    #[test]
+    fn an_unknown_class_is_a_schema_error() {
+        let toml = token_guard_with(r#"class = "toxicity""#);
+        let err = toml::from_str::<AppConfig>(&toml).expect_err("an unknown class must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("toxicity") && msg.contains("pii"),
+            "got: {msg}"
+        );
+    }
+
+    /// The `config_path` line of `token_guard_with`, removed.
+    fn without_config_path(toml: &str) -> String {
+        toml.replace("config_path = \"/c\"\n", "")
+    }
+
+    #[test]
+    fn a_token_classifier_without_a_config_is_rejected() {
+        let err = parse(&without_config_path(&token_guard_with(""))).expect_err("must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("guards.pii_ml"),
+            "must name the guard, got: {msg}"
+        );
+        assert!(msg.contains("config_path"), "must name the key, got: {msg}");
+    }
+
+    #[test_case(r#"config_path = "/c""#, "config_path" ; "a config path")]
+    #[test_case("[guards.injection.validate_as]", "validate_as" ; "an empty validate_as")]
+    #[test_case(
+        "[guards.injection.validate_as]\nPROMPT_INJECTION = [\"CREDIT_CARD\"]",
+        "validate_as" ;
+        "a validate_as entry"
+    )]
+    fn a_text_classifier_refuses_a_token_classifier_key(extra: &str, key: &str) {
+        let err = parse(&model_guard_with(extra)).expect_err("must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("guards.injection"),
+            "must name the guard, got: {msg}"
+        );
+        assert!(msg.contains(key), "must name the key, got: {msg}");
+    }
+
+    #[test_case(r#"PAYMENT_CARD = ["CREDIT_CARD"]"# ; "one kind")]
+    #[test_case(r#"PAYMENT_CARD = ["US_SSN", "CREDIT_CARD"]"# ; "two kinds")]
+    #[test_case("" ; "an empty table")]
+    fn a_valid_validate_as_is_accepted(entry: &str) {
+        let toml = token_guard_with(&format!("[guards.pii_ml.validate_as]\n{entry}"));
+        parse(&toml).expect("should be valid");
+    }
+
+    #[test_case(r#"PHONE_NUMBER = ["CREDIT_CARD"]"#, "PHONE_NUMBER" ; "a key that is not a label")]
+    #[test_case(r#"PAYMENT_CARD = ["NOT_A_KIND"]"#, "NOT_A_KIND" ; "an unknown kind")]
+    #[test_case(r#"PAYMENT_CARD = ["credit_card"]"#, "credit_card" ; "a kind in the wrong case")]
+    #[test_case(r#"PAYMENT_CARD = ["EMAIL"]"#, "EMAIL" ; "a kind that accepts everything")]
+    #[test_case(r#"PAYMENT_CARD = ["CREDIT_CARD", "EMAIL"]"#, "EMAIL" ; "one listed kind accepts everything")]
+    #[test_case("PAYMENT_CARD = []", "PAYMENT_CARD" ; "an empty list")]
+    fn an_invalid_validate_as_is_rejected(entry: &str, named: &str) {
+        let toml = token_guard_with(&format!("[guards.pii_ml.validate_as]\n{entry}"));
+        let err = parse(&toml).expect_err("must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("guards.pii_ml"),
+            "must name the guard, got: {msg}"
+        );
+        assert!(msg.contains(named), "must name '{named}', got: {msg}");
+    }
+
     #[test]
     fn a_text_classifier_with_two_labels_is_rejected() {
         let toml = model_guard_toml(
@@ -3579,6 +3792,31 @@ labels = ["K"]
         let msg = err.to_string();
         assert!(msg.contains("injection"), "must name the guard, got: {msg}");
         assert!(msg.contains(field), "must name the field, got: {msg}");
+        assert!(msg.contains(missing), "must name the path, got: {msg}");
+    }
+
+    #[test]
+    fn a_missing_config_json_is_reported_with_its_path() {
+        let present = tempfile::NamedTempFile::new().expect("tempfile");
+        let missing = "/definitely/does/not/exist/config.json";
+        let toml = model_guard_toml(&format!(
+            r#"
+[guards.pii_ml]
+adapter = "token_classifier"
+model_path = "{present}"
+tokenizer_path = "{present}"
+config_path = "{missing}"
+max_tokens = 512
+labels = ["K"]
+"#,
+            present = present.path().display(),
+        ));
+        let config = parse(&toml).expect("semantic rules pass");
+        let err = config
+            .validate_model_guard_artifacts()
+            .expect_err("a missing config must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("guards.pii_ml.config_path"), "got: {msg}");
         assert!(msg.contains(missing), "must name the path, got: {msg}");
     }
 

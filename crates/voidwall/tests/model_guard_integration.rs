@@ -4,6 +4,8 @@
 //! The fixture is a tiny bag-of-embeddings classifier from `voidwall-ml`'s
 //! `test-fixtures` feature. Every text scores 0.27 except one holding the word
 //! `trigger`, which scores 1.0.
+//! The token fixture drops the sum over tokens, so it labels each token: the
+//! word `trigger` as label 1, every other word as label 0.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -20,7 +22,9 @@ use axum::routing::any;
 use http_body_util::BodyExt;
 use tempfile::{NamedTempFile, TempDir};
 use tokio::net::TcpListener;
-use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture};
+use voidwall_ml::fixtures::{
+    Fixture, TRIGGER_ID, TokenizerFixture, write_config as write_model_config,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_voidwall");
 
@@ -67,11 +71,16 @@ struct Proxy(Option<Child>);
 
 impl Proxy {
     fn spawn(config: &Path) -> Self {
+        Self::spawn_with_env(config, &[])
+    }
+
+    fn spawn_with_env(config: &Path, env: &[(&str, &str)]) -> Self {
         Self(Some(
             Command::new(BIN)
                 .arg("--config")
                 .arg(config)
                 .env_remove("VOIDWALL_CONFIG")
+                .envs(env.iter().copied())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -179,6 +188,16 @@ struct Running {
 /// Start the binary with `guards` in front of a counting upstream, the
 /// reverse proxy route carrying `route_extra`, and the REST API.
 async fn start(guards: &str, route_extra: &str, top: &str) -> Running {
+    start_with_env(guards, route_extra, top, &[]).await
+}
+
+/// [`start`], with `env` set for the binary.
+async fn start_with_env(
+    guards: &str,
+    route_extra: &str,
+    top: &str,
+    env: &[(&str, &str)],
+) -> Running {
     let (upstream, hits) = start_counting_upstream().await;
     let proxy_addr = free_addr().await;
     let api_addr = free_addr().await;
@@ -209,7 +228,7 @@ listen = "{admin_addr}"
 "#
     ));
 
-    let proxy = Proxy::spawn(config.path());
+    let proxy = Proxy::spawn_with_env(config.path(), env);
     wait_for_port(proxy_addr).await;
     wait_for_port(api_addr).await;
     Running {
@@ -259,6 +278,134 @@ async fn the_model_guard_blocks_on_the_proxy_and_reports_on_the_api() {
     assert_eq!(body["detected"], true);
     assert_eq!(body["matches_count"], 1);
     assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+}
+
+/// A `[guards.pii_ml]` token classifier over the fixture token model, whose
+/// `config.json` labels the word `trigger` as `SECRET` and every other word `O`.
+fn token_guard_section(dir: &Path) -> String {
+    token_guard_section_with(dir, "SECRET", "")
+}
+
+/// [`token_guard_section`], labelling the word `trigger` as `label`, with
+/// `extra` keys.
+fn token_guard_section_with(dir: &Path, label: &str, extra: &str) -> String {
+    let model = Fixture {
+        tokens: true,
+        trigger: true,
+        width: 3,
+        ..Fixture::default()
+    };
+    format!(
+        r#"
+[guards.pii_ml]
+adapter = "token_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+config_path = "{config}"
+max_tokens = 16
+labels = ["{label}"]
+threads = 1
+{extra}
+
+[guards.pii_ml.thresholds]
+{label} = 0.4
+"#,
+        model = model.write(dir).display(),
+        tokenizer = TokenizerFixture::default().write(dir).display(),
+        config =
+            write_model_config(dir, &["O", &format!("B-{label}"), &format!("I-{label}")]).display(),
+    )
+}
+
+/// The token classifier guard reports its span's kind on the API and blocks on
+/// the proxy, and no log line, even at debug, holds the scanned text.
+#[tokio::test]
+async fn the_token_classifier_guard_reports_on_the_api_and_blocks_on_the_proxy() {
+    const BODY: &str = "smoke trigger test";
+    let dir = tempfile::tempdir().unwrap();
+    let mut server = start_with_env(
+        &token_guard_section(dir.path()),
+        "",
+        "",
+        &[("RUST_LOG", "debug")],
+    )
+    .await;
+
+    let resp = post(server.api_addr, "/v1/scan", BODY).await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["detected"], true);
+    assert_eq!(body["matches_count"], 1);
+    assert_eq!(body["kinds"], serde_json::json!(["SECRET"]));
+
+    let resp = post(server.proxy_addr, "/chat", BODY).await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "content blocked");
+    assert_eq!(body["kinds"], serde_json::json!(["SECRET"]));
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+
+    let resp = post(server.proxy_addr, "/chat", "voidwall smoke test").await;
+    assert_eq!(resp.status(), 200, "a body with no span is forwarded");
+
+    let logs = server.proxy.stop();
+    assert!(
+        logs.contains("model thread started"),
+        "the run logged at debug: {logs}"
+    );
+    assert!(!logs.contains(BODY), "a log line holds the text: {logs}");
+}
+
+/// The samples of the `voidwall_pii_*` families and `voidwall_blocked_total`
+/// on the admin metrics endpoint.
+async fn pii_and_block_samples(admin: SocketAddr) -> Vec<String> {
+    reqwest::get(format!("http://{admin}/metrics"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+        .lines()
+        .filter(|l| l.starts_with("voidwall_pii_") || l.starts_with("voidwall_blocked_total{"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// metrics, "A PII model guard's kind" and "Only a PII model guard detects":
+/// a token guard with `class = "pii"` counts in the PII families under its
+/// configured label, and a classless one does not.
+#[tokio::test]
+async fn a_pii_model_guard_counts_in_the_pii_families_and_a_classless_one_does_not() {
+    const BLOCKED: &str =
+        r#"voidwall_blocked_total{direction="request",mode="reverse_proxy",route="/"} 1"#;
+    for (class, expected) in [
+        (
+            r#"class = "pii""#,
+            vec![
+                BLOCKED,
+                r#"voidwall_pii_blocked_total{direction="request",mode="reverse_proxy",route="/"} 1"#,
+                r#"voidwall_pii_detections_total{direction="request",mode="reverse_proxy",pii_kind="PERSON_NAME",route="/"} 1"#,
+            ],
+        ),
+        ("", vec![BLOCKED]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let server = start(
+            &token_guard_section_with(dir.path(), "PERSON_NAME", class),
+            "",
+            "",
+        )
+        .await;
+
+        let resp = post(server.proxy_addr, "/chat", "smoke trigger test").await;
+        assert_eq!(resp.status(), 403);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["kinds"], serde_json::json!(["PERSON_NAME"]));
+
+        let mut samples = pii_and_block_samples(server.admin_addr).await;
+        samples.sort();
+        assert_eq!(samples, expected, "class line: {class:?}");
+    }
 }
 
 /// guard-configuration, "A route selects a model guard": a route naming the

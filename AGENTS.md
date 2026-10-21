@@ -159,7 +159,7 @@ The regex PII guard passes every `Scanner::mark_piis(_structured)` result throug
 `voidwall_pii::resolve_overlaps`, once per unit, before it returns a finding. The proxy uses
 only the resolved, non-overlapping set:
 
-- `/v1/scan` `matches_count` equals `resolve_overlaps(raw).len()`.
+- The `pii` guard's share of `/v1/scan` `matches_count` equals `resolve_overlaps(raw).len()`.
 - API and 403 `kinds` lists derive from the resolved set.
 - `voidwall_pii_detections_total{pii_kind=...}` increments once per kind in the resolved
   match set.
@@ -168,12 +168,17 @@ only the resolved, non-overlapping set:
 The policy lives in `crates/voidwall-pii/src/overlap.rs` and `crates/voidwall-pii/AGENTS.md`. Do not
 reimplement it in the proxy.
 
-Resolution is scoped to a kind vocabulary, and it runs once. `resolve_overlaps` is a
-greedy pairwise pass, so resolving each guard's findings and then resolving the union is
-not the same as resolving the union. While one guard is the only producer of a
-vocabulary, that guard resolves and the engine adds nothing. When a second producer of
-the same vocabulary appears, move resolution to the engine over the union and delete the
-per-guard pass. Never run both.
+Resolution is scoped to a kind vocabulary, and it runs once. A vocabulary is the set of
+kinds one guard produces. Two guards that report a kind of the same name, such as the
+regex guard's `PERSON_NAME` and a model's `PERSON_NAME`, do not share a vocabulary: the
+engine merges their findings and resolves nothing between them. The kind appears once in
+a `kinds` list, and each guard's findings count toward `matches_count`.
+
+`resolve_overlaps` is a greedy pairwise pass, so resolving each guard's findings and then
+resolving the union is not the same as resolving the union. Each guard resolves its own
+findings, and the engine adds nothing. If two guards are ever built to produce one
+vocabulary, move resolution to the engine over their union and delete the per-guard pass.
+Never run both.
 
 ## Threading
 

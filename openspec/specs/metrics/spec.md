@@ -12,7 +12,9 @@ label SHALL be the path prefix in reverse proxy mode, and `global` in every othe
 The `direction` label SHALL be `request` or `response`. The `outcome` label SHALL be
 `passed` or `blocked`. The `guard` label SHALL be the name configuration gave the guard,
 so the set of its values is fixed at startup. The built-in regex PII guard SHALL carry
-`guard="pii"`.
+`guard="pii"`. The `pii_kind` label SHALL be a kind the regex PII guard defines, or a label
+that a guard with `class = "pii"` declares in configuration, so the set of its values is
+fixed at startup too.
 
 #### Scenario: HTTP API records a detection
 
@@ -28,6 +30,11 @@ so the set of its values is fixed at startup. The built-in regex PII guard SHALL
 
 - **WHEN** the built-in regex PII guard reports a finding
 - **THEN** `voidwall_detections_total` increments with `guard="pii"`
+
+#### Scenario: A PII model guard's kind
+
+- **WHEN** a guard with `class = "pii"` reports a finding of its label `POSTAL_ADDRESS`
+- **THEN** the detection counter carries `pii_kind="POSTAL_ADDRESS"`
 
 ### Requirement: A metric label never carries a PII value
 
@@ -46,11 +53,12 @@ method, a status, or a reason. No label SHALL ever carry matched text.
 
 ### Requirement: Detections increment once per resolved kind, whatever happens to the message
 
-The proxy SHALL increment `voidwall_pii_detections_total` once per kind in the resolved
-finding set of the `pii` guard. It SHALL increment once for a kind however many findings
-reported that kind. It SHALL NOT increment for a kind that only another guard reported.
-It SHALL do so whether the message is blocked or reported on, and when a guard error
-makes the API answer 500.
+The proxy SHALL increment `voidwall_pii_detections_total` once per kind in the findings of
+the PII guards: the `pii` guard's resolved set, and the findings of every guard with
+`class = "pii"`. It SHALL increment once for a kind however many findings, and however
+many PII guards, reported that kind. It SHALL NOT increment for a kind that only a guard
+outside the PII guards reported. It SHALL do so whether the message is blocked or reported
+on, and when a guard error makes the API answer 500.
 
 #### Scenario: A blocked message increments the detection counter
 
@@ -76,8 +84,14 @@ makes the API answer 500.
 
 #### Scenario: A model guard's kind is not a PII kind
 
-- **WHEN** a model guard reports a `PROMPT_INJECTION` finding
+- **WHEN** a model guard without a class reports a `PROMPT_INJECTION` finding
 - **THEN** `voidwall_pii_detections_total` does not increment for `PROMPT_INJECTION`
+
+#### Scenario: A PII model guard detects
+
+- **WHEN** only a guard with `class = "pii"` reports findings, of kinds `PERSON_NAME` and
+  `POSTAL_ADDRESS`, in one message
+- **THEN** the detection counter increments once for each of the two kinds
 
 #### Scenario: A guard error makes the API answer 500
 
@@ -195,7 +209,8 @@ stream stopped by the idle timeout, the size limit, or an upstream failure, and 
 answer of `/v1/scan` SHALL NOT increment the counter.
 
 `voidwall_pii_blocked_total` SHALL count only a block for a detection in which the `pii`
-guard reported a finding.
+guard, or a guard with `class = "pii"`, reported a finding. It SHALL increment once for
+such a message, however many PII guards reported findings in it.
 
 #### Scenario: A detection blocks a request
 
@@ -211,9 +226,22 @@ guard reported a finding.
 
 #### Scenario: Only a model guard detects
 
-- **WHEN** only a model guard reports a finding and the reverse proxy answers 403
+- **WHEN** only a model guard without a class reports a finding and the reverse proxy
+  answers 403
 - **THEN** `voidwall_blocked_total` increments by one and `voidwall_pii_blocked_total`
   does not increment
+
+#### Scenario: Only a PII model guard detects
+
+- **WHEN** only a guard with `class = "pii"` reports a finding and the reverse proxy answers
+  403
+- **THEN** `voidwall_blocked_total` and `voidwall_pii_blocked_total` each increment by one
+
+#### Scenario: Two PII guards detect in one message
+
+- **WHEN** the `pii` guard and a guard with `class = "pii"` both report findings in one
+  request that the reverse proxy blocks
+- **THEN** `voidwall_pii_blocked_total` increments by one
 
 #### Scenario: Two guards report findings in one blocked message
 
@@ -339,8 +367,9 @@ The proxy SHALL register these metric families:
   `reason`.
 - `voidwall_streams_cut_total`, a counter labelled `mode`, `route`, and `reason`.
 
-A family that names a detection tier SHALL carry that tier in its name. A family that
-describes the engine as a whole SHALL NOT name a tier.
+A family that counts one class of findings SHALL carry that class in its name, and SHALL
+count every guard of that class: the `pii` guard and every guard with `class = "pii"`. A
+family that describes the engine as a whole SHALL NOT name a class.
 
 #### Scenario: Prometheus scrapes a running proxy
 

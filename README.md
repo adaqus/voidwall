@@ -34,6 +34,9 @@ Guards that exist today:
 - **Prompt injection**: based on classifier model, detecting prompt injections and other threats
   included in that category (Wolf Defender Prompt-Injection Detector Small v2 by default),
   run on the CPU (see TODO).
+- **PII from a model**: a token classifier that finds values with no fixed shape, such as
+  names and postal addresses (bards.ai's EU PII anonimization multilang v2 in the dev
+  stack). See [docs/model-guards.md](docs/model-guards.md).
 
 ## Features
 
@@ -46,7 +49,8 @@ Guards that exist today:
   an optional country scope. See [docs/custom-pii.md](docs/custom-pii.md).
 - Custom model guards: declare a guard in its own config section and point it at an ONNX
   model and its tokenizer. It sets its labels, a threshold per label, the window size, and
-  the window overlap.
+  the window overlap. A text classifier judges a whole unit; a token classifier finds
+  spans, such as names and postal addresses. See [docs/model-guards.md](docs/model-guards.md).
 - Each guard chooses what it scans: the body, the URL path, the query string, and header
   values. Each route names the headers that are scanned; by default it scans none.
 - Structured scanning of JSON and CSV/TSV bodies, with key paths and column names as
@@ -86,10 +90,11 @@ release build tools, then run from the workspace root:
 docker/ctl start
 ```
 
-This builds Voidwall, downloads the default models into `models/` (about 600 MB on first
+This builds Voidwall, downloads the default models into `models/` (about 940 MB on first
 run, no Hugging Face token), and starts the containers with Docker Compose. The config is
-`docker/voidwall.toml`. It runs the PII guard and a `prompt_injection` model guard on Wolf
-Defender Prompt-Injection Detector Small v2.
+`docker/voidwall.toml`. It runs the PII guard, a `prompt_injection` model guard on Wolf
+Defender Prompt-Injection Detector Small v2, and a `pii_ml` model guard on bards.ai's EU
+PII anonimization multilang v2.
 
 The released image will carry the default models, so an operator does not supply them. A
 model other than the defaults is always mounted as a volume.

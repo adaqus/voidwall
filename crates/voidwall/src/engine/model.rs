@@ -1,7 +1,7 @@
 //! The model guard, and the worker pool it owns.
 //!
 //! One guard per `[guards.<name>]` section. It loads its model into N
-//! `voidwall_ml::Worker`s at startup and gives each one its own OS thread:
+//! `voidwall_ml` workers at startup and gives each one its own OS thread:
 //! inference is CPU-bound and must never run on the tokio runtime. `detect`
 //! hands the units to a pool thread over a bounded channel and awaits the
 //! reply on a oneshot, the same shape as the regex PII guard's scanner pool.
@@ -9,8 +9,11 @@
 //! When the engine abandons the guard, dropping the `detect` future cancels
 //! the job's run: the worker stops within about one graph node and takes the
 //! next job. A cancelled run is not a failure and produces no reply.
+//!
+//! A `text_classifier` guard reports one spanless finding per unit. A
+//! `token_classifier` guard reports one finding per decoded span, mapped back
+//! to the unit's bytes through [`UnitText`].
 
-use std::borrow::Cow;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -18,7 +21,8 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{SendTimeoutError, Sender};
 use tracing::{debug, error, info};
-use voidwall_ml::{Cancel, LoadSettings, RunError, Worker};
+use voidwall_ml::{Cancel, LoadSettings, RunError, TokenWorker, Worker, Workers};
+use voidwall_pii::PiiKind;
 
 use crate::config::ModelGuardConfig;
 use crate::error::Error;
@@ -26,7 +30,8 @@ use crate::scanner::LogRateLimiter;
 
 use super::finding::Finding;
 use super::guard::{DetectFuture, Guard, GuardInput, Interest};
-use super::unit::{Unit, UnitContent, UnitId};
+use super::unit::{Unit, UnitId};
+use super::unit_text::UnitText;
 
 /// How long a submit waits for a free channel slot before giving up.
 const SEND_TIMEOUT: Duration = Duration::from_secs(1);
@@ -40,6 +45,26 @@ struct Verdict {
     kind: Arc<str>,
     /// `None` when the label has no threshold: the guard then reports nothing.
     threshold: Option<f32>,
+}
+
+/// What turns a token classifier's spans into findings. Shared by every
+/// worker thread.
+struct SpanVerdict {
+    guard: Arc<str>,
+    /// Per entity type of the model, in `Labels::types` order: the rule of a
+    /// type the guard reports, or `None` for a type absent from `labels` or
+    /// without a threshold.
+    rules: Vec<Option<SpanRule>>,
+}
+
+/// How one reported label keeps a span.
+struct SpanRule {
+    kind: Arc<str>,
+    /// A span whose confidence is below this gives no finding.
+    threshold: f32,
+    /// The kinds the span's text must validate as, when the label has
+    /// `validate_as`. Validation never empties the list.
+    validate_as: Option<Vec<PiiKind>>,
 }
 
 /// One message's work: its units, the subset this guard was asked to score,
@@ -77,10 +102,19 @@ struct ModelPool {
 }
 
 impl ModelPool {
-    /// One thread per worker. The channel holds four jobs per thread, to absorb
-    /// short bursts while still applying backpressure.
-    fn new(workers: Vec<Worker>, verdict: Arc<Verdict>) -> Result<Self, Error> {
-        let guard = Arc::clone(&verdict.guard);
+    /// One thread per worker, each running `run` with the shared verdict. The
+    /// channel holds four jobs per thread, to absorb short bursts while still
+    /// applying backpressure.
+    fn new<W, V>(
+        guard: Arc<str>,
+        workers: Vec<W>,
+        verdict: Arc<V>,
+        run: fn(&mut W, &V, &ModelJob) -> Option<Reply>,
+    ) -> Result<Self, Error>
+    where
+        W: Send + 'static,
+        V: Send + Sync + 'static,
+    {
         let (sender, receiver) = crossbeam_channel::bounded::<WorkItem>(workers.len() * 4);
         let mut handles = Vec::with_capacity(workers.len());
         #[cfg(test)]
@@ -89,12 +123,13 @@ impl ModelPool {
         for (thread_id, mut worker) in workers.into_iter().enumerate() {
             let rx = receiver.clone();
             let verdict = Arc::clone(&verdict);
+            let name = Arc::clone(&guard);
             #[cfg(test)]
             let started = Arc::clone(&started);
             let handle = std::thread::Builder::new()
                 .name(format!("model-{guard}-{thread_id}"))
                 .spawn(move || {
-                    debug!(guard = %verdict.guard, thread_id, "model thread started");
+                    debug!(guard = %name, thread_id, "model thread started");
                     while let Ok((job, reply_tx)) = rx.recv() {
                         // Nobody waits for this job any more: skip it.
                         if reply_tx.is_closed() {
@@ -102,11 +137,11 @@ impl ModelPool {
                         }
                         #[cfg(test)]
                         started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if let Some(reply) = score_job(&mut worker, &verdict, &job) {
+                        if let Some(reply) = run(&mut worker, &verdict, &job) {
                             let _ = reply_tx.send(reply);
                         }
                     }
-                    debug!(guard = %verdict.guard, thread_id, "model thread exiting");
+                    debug!(guard = %name, thread_id, "model thread exiting");
                 })
                 .map_err(|e| {
                     Error::Config(format!(
@@ -190,7 +225,7 @@ fn score_job(worker: &mut Worker, verdict: &Verdict, job: &ModelJob) -> Option<R
         let Some(unit) = job.units.get(id.index()) else {
             continue;
         };
-        let score = match worker.score(&unit_text(&unit.content), &job.cancel) {
+        let score = match worker.score(UnitText::new(&unit.content).text(), &job.cancel) {
             Ok(score) => score,
             Err(e) => return run_error(&verdict.guard, e).map(Err),
         };
@@ -206,21 +241,52 @@ fn score_job(worker: &mut Worker, verdict: &Verdict, job: &ModelJob) -> Option<R
     Some(Ok(findings))
 }
 
-/// The one text a model guard scores for a unit.
-///
-/// Plain text is decoded lossily, so one invalid byte cannot hide the rest. A
-/// JSON unit's values are joined with newlines in document order, keys left
-/// out; API-aware decoders replace this in the decoder phases.
-fn unit_text(content: &UnitContent) -> Cow<'_, str> {
-    match content {
-        UnitContent::PlainText(bytes) => String::from_utf8_lossy(bytes),
-        UnitContent::Structured { fragments } => {
-            let mut ordered: Vec<_> = fragments.iter().collect();
-            ordered.sort_by_key(|f| f.offset);
-            let values: Vec<&str> = ordered.iter().map(|f| f.value.as_str()).collect();
-            Cow::Owned(values.join("\n"))
+/// Decode the selected units' spans on a worker thread, as [`score_job`]
+/// does for scores. A span gives a finding when its type has a rule, its
+/// confidence meets the threshold, and its text passes `validate_as`. A span
+/// that fails is dropped without a trace: its text is never logged, counted,
+/// or returned.
+fn span_job(worker: &mut TokenWorker, verdict: &SpanVerdict, job: &ModelJob) -> Option<Reply> {
+    let mut findings = Vec::new();
+    for id in &job.selected {
+        let Some(unit) = job.units.get(id.index()) else {
+            continue;
+        };
+        let text = UnitText::new(&unit.content);
+        let spans = match worker.spans(text.text(), text.boundaries(), &job.cancel) {
+            Ok(spans) => spans,
+            Err(e) => return run_error(&verdict.guard, e).map(Err),
+        };
+        for span in spans {
+            let Some(Some(rule)) = verdict.rules.get(span.ty) else {
+                continue;
+            };
+            if span.confidence < rule.threshold {
+                continue;
+            }
+            if let Some(kinds) = &rule.validate_as
+                && !voidwall_pii::validate_as(kinds, &text.text()[span.bytes.clone()])
+            {
+                continue;
+            }
+            // A decoded span lies on character boundaries inside one segment,
+            // so it always maps; a miss is a bug, reported without the text.
+            let Some(source) = text.source(span.bytes) else {
+                return Some(Err(Error::Inference {
+                    guard: Arc::clone(&verdict.guard),
+                    detail: "a span did not map back to the unit's bytes".into(),
+                }));
+            };
+            findings.push(Finding::spanned_with_confidence(
+                *id,
+                &*rule.kind,
+                Arc::clone(&verdict.guard),
+                source,
+                span.confidence,
+            ));
         }
     }
+    Some(Ok(findings))
 }
 
 /// A run error as the error the handlers act on, or `None` for a cancelled
@@ -268,6 +334,7 @@ impl ModelGuard {
             adapter: config.adapter,
             model_path: config.model_path.clone(),
             tokenizer_path: config.tokenizer_path.clone(),
+            config_path: config.config_path.clone(),
             max_tokens: config.max_tokens,
             overlap_tokens: config.overlap_tokens,
             max_body_size,
@@ -283,19 +350,70 @@ impl ModelGuard {
             "model guard loaded"
         );
 
-        // Validation guarantees exactly one label for every built adapter.
-        let kind: Arc<str> = Arc::from(config.labels[0].as_str());
-        let verdict = Arc::new(Verdict {
-            guard: Arc::from(name),
-            threshold: config.thresholds.get(&*kind).copied(),
-            kind,
-        });
+        let guard: Arc<str> = Arc::from(name);
+        let pool = match workers {
+            Workers::Classifier(workers) => {
+                // Validation guarantees exactly one label for `text_classifier`.
+                let kind: Arc<str> = Arc::from(config.labels[0].as_str());
+                let verdict = Verdict {
+                    guard: Arc::clone(&guard),
+                    threshold: config.thresholds.get(&*kind).copied(),
+                    kind,
+                };
+                ModelPool::new(Arc::clone(&guard), workers, Arc::new(verdict), score_job)?
+            }
+            Workers::Token(workers) => {
+                // `load` returns at least one worker; all share one label set.
+                let types = workers[0].labels().types();
+                let rules = types
+                    .iter()
+                    .map(|ty| span_rule(config, ty))
+                    .collect::<Result<_, String>>()
+                    .map_err(config_error)?;
+                let verdict = SpanVerdict {
+                    guard: Arc::clone(&guard),
+                    rules,
+                };
+                ModelPool::new(Arc::clone(&guard), workers, Arc::new(verdict), span_job)?
+            }
+        };
         Ok(Self {
-            name: Arc::clone(&verdict.guard),
+            name: guard,
             interest: Interest::from_model_surface(&config.surface),
-            pool: ModelPool::new(workers, verdict)?,
+            pool,
         })
     }
+}
+
+/// The rule of one entity type of the model: `None` when the guard does not
+/// report the type, because `labels` leaves it out or it has no threshold.
+fn span_rule(config: &ModelGuardConfig, ty: &str) -> Result<Option<SpanRule>, String> {
+    if !config.labels.iter().any(|label| label == ty) {
+        return Ok(None);
+    }
+    let Some(&threshold) = config.thresholds.get(ty) else {
+        return Ok(None);
+    };
+    let validate_as = config
+        .validate_as
+        .as_ref()
+        .and_then(|table| table.get(ty))
+        .map(|names| {
+            names
+                .iter()
+                .map(|name| {
+                    // Validation already refused a name that is not a kind.
+                    PiiKind::from_label(name)
+                        .ok_or_else(|| format!("validate_as.{ty}: '{name}' is not a PII kind"))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+    Ok(Some(SpanRule {
+        kind: Arc::from(ty),
+        threshold,
+        validate_as,
+    }))
 }
 
 impl Guard for ModelGuard {
@@ -335,13 +453,14 @@ impl Guard for ModelGuard {
 mod tests {
     use super::*;
     use crate::config::{ModelGuardSurface, OnError};
-    use crate::engine::unit::Units;
+    use crate::engine::unit::{UnitContent, Units};
     use crate::structured::OwnedContextFragment;
     use bytes::Bytes;
     use std::collections::BTreeMap;
     use std::path::Path;
+    use test_case::test_case;
     use voidwall_ml::AdapterKind;
-    use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture};
+    use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture, write_config};
 
     const KIND: &str = "PROMPT_INJECTION";
 
@@ -351,6 +470,7 @@ mod tests {
             adapter: AdapterKind::TextClassifier,
             model_path: fixture.write(dir),
             tokenizer_path: TokenizerFixture::default().write(dir),
+            config_path: None,
             max_tokens: 16,
             overlap_tokens: None,
             threads: None,
@@ -358,6 +478,8 @@ mod tests {
             thresholds: threshold
                 .map(|t| BTreeMap::from([(KIND.to_owned(), t)]))
                 .unwrap_or_default(),
+            validate_as: None,
+            class: None,
             surface: ModelGuardSurface::default(),
         }
     }
@@ -496,25 +618,6 @@ mod tests {
 
         let units: Vec<usize> = findings.iter().map(|f| f.unit.index()).collect();
         assert_eq!(units, vec![0]);
-    }
-
-    #[test]
-    fn structured_values_are_joined_in_document_order() {
-        let content = UnitContent::Structured {
-            fragments: vec![
-                OwnedContextFragment {
-                    context: "b".into(),
-                    value: "second".into(),
-                    offset: 20,
-                },
-                OwnedContextFragment {
-                    context: "a".into(),
-                    value: "first".into(),
-                    offset: 5,
-                },
-            ],
-        };
-        assert_eq!(unit_text(&content), "first\nsecond");
     }
 
     const MARKER: &str = "voidwall smoke";
@@ -709,5 +812,279 @@ mod tests {
         assert!(next.take_error().is_none());
         let freed = dropped.elapsed();
         assert!(freed < full / 4, "freed after {freed:?}; full run {full:?}");
+    }
+
+    // --- token_classifier ---
+
+    /// Every word but the trigger: label 0 wins it, with e² / (e² + 2) ≈ 0.787.
+    const WORD: &str = "WORD";
+    /// The trigger: label 1 wins it, with about 1.0.
+    const SECRET: &str = "SECRET";
+    /// The confidence of a word that is not the trigger.
+    const WORD_CONFIDENCE: f32 = 0.787;
+    /// Placeholder card numbers: the first passes the Luhn check, the second
+    /// differs in its check digit.
+    const CARD: &str = "4111111111111111";
+    const CARD_BAD: &str = "4111111111111112";
+
+    /// A token classifier guard over the fixture token model: `[CLS] $A [SEP]`,
+    /// width 3, with `id2label` mapping IDs 0, 1, 2.
+    struct TokenCase {
+        model: Fixture,
+        id2label: [&'static str; 3],
+        labels: &'static [&'static str],
+        thresholds: &'static [(&'static str, f32)],
+        validate_as: Vec<(&'static str, &'static [&'static str])>,
+    }
+
+    impl Default for TokenCase {
+        fn default() -> Self {
+            Self {
+                model: Fixture {
+                    tokens: true,
+                    trigger: true,
+                    width: 3,
+                    ..Fixture::default()
+                },
+                id2label: ["B-WORD", "B-SECRET", "O"],
+                labels: &[WORD, SECRET],
+                thresholds: &[(WORD, 0.4), (SECRET, 0.4)],
+                validate_as: Vec::new(),
+            }
+        }
+    }
+
+    impl TokenCase {
+        fn config(&self, dir: &Path) -> ModelGuardConfig {
+            let owned = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+            ModelGuardConfig {
+                adapter: AdapterKind::TokenClassifier,
+                model_path: self.model.write(dir),
+                tokenizer_path: TokenizerFixture {
+                    special_tokens: true,
+                    ..TokenizerFixture::default()
+                }
+                .write(dir),
+                config_path: Some(write_config(dir, &self.id2label)),
+                max_tokens: 16,
+                overlap_tokens: None,
+                threads: None,
+                labels: owned(self.labels),
+                thresholds: self
+                    .thresholds
+                    .iter()
+                    .map(|(label, t)| (label.to_string(), *t))
+                    .collect(),
+                validate_as: (!self.validate_as.is_empty()).then(|| {
+                    self.validate_as
+                        .iter()
+                        .map(|(label, kinds)| (label.to_string(), owned(kinds)))
+                        .collect()
+                }),
+                class: None,
+                surface: ModelGuardSurface::default(),
+            }
+        }
+
+        fn guard(&self, dir: &Path) -> ModelGuard {
+            ModelGuard::new("pii_ml", &self.config(dir), 1_048_576, NonZeroUsize::MIN)
+                .expect("the token fixture loads")
+        }
+
+        async fn detect(&self, units: Units) -> Reply {
+            let dir = tempfile::tempdir().unwrap();
+            detect(&self.guard(dir.path()), units).await
+        }
+    }
+
+    /// Each finding as (kind, span start, span end).
+    fn located(findings: &[Finding]) -> Vec<(&str, usize, usize)> {
+        findings
+            .iter()
+            .map(|f| {
+                let span = f.span.expect("a token finding has a span");
+                (f.kind.as_str(), span.start, span.end)
+            })
+            .collect()
+    }
+
+    fn structured(values: &[(&str, usize)]) -> Units {
+        let mut units = Units::new();
+        units.push_body(UnitContent::Structured {
+            fragments: values
+                .iter()
+                .map(|&(value, offset)| OwnedContextFragment {
+                    context: "k".into(),
+                    value: value.into(),
+                    offset,
+                })
+                .collect(),
+        });
+        units
+    }
+
+    #[tokio::test]
+    async fn a_token_classifier_finds_two_values_with_spans_and_confidences() {
+        let findings = TokenCase::default()
+            .detect(plain(&[b"voidwall trigger"]))
+            .await
+            .unwrap();
+        assert_eq!(located(&findings), [(WORD, 0, 8), (SECRET, 9, 16)]);
+        assert!(findings.iter().all(|f| &*f.guard == "pii_ml"));
+        let confidence = |i: usize| findings[i].confidence.unwrap();
+        assert!(
+            (confidence(0) - WORD_CONFIDENCE).abs() < 1e-3,
+            "{findings:?}"
+        );
+        assert!(confidence(1) > 0.99, "{findings:?}");
+    }
+
+    #[tokio::test]
+    async fn a_span_below_its_labels_threshold_gives_no_finding() {
+        let case = TokenCase {
+            thresholds: &[(WORD, 0.8), (SECRET, 0.4)],
+            ..TokenCase::default()
+        };
+        let findings = case.detect(plain(&[b"voidwall trigger"])).await.unwrap();
+        assert_eq!(located(&findings), [(SECRET, 9, 16)]);
+    }
+
+    #[tokio::test]
+    async fn a_threshold_of_zero_lets_every_span_through() {
+        let case = TokenCase {
+            thresholds: &[(WORD, 0.0)],
+            ..TokenCase::default()
+        };
+        let findings = case.detect(plain(&[b"voidwall smoke test"])).await.unwrap();
+        assert_eq!(
+            located(&findings),
+            [(WORD, 0, 8), (WORD, 9, 14), (WORD, 15, 19)]
+        );
+    }
+
+    #[test_case(&[SECRET], &[(SECRET, 0.4)] ; "a type absent from labels")]
+    #[test_case(&[WORD, SECRET], &[(SECRET, 0.4)] ; "a label without a threshold")]
+    #[test_case(&[SECRET, "PHONE_NUMBER"], &[(SECRET, 0.4), ("PHONE_NUMBER", 0.0)] ; "a label the model does not have")]
+    #[tokio::test]
+    async fn only_labels_with_a_threshold_report(
+        labels: &'static [&'static str],
+        thresholds: &'static [(&'static str, f32)],
+    ) {
+        let case = TokenCase {
+            labels,
+            thresholds,
+            ..TokenCase::default()
+        };
+        let findings = case.detect(plain(&[b"voidwall trigger"])).await.unwrap();
+        assert_eq!(located(&findings), [(SECRET, 9, 16)]);
+    }
+
+    /// Every word is a `PAYMENT_CARD` span; only a card number that passes
+    /// one of the listed kinds' validators is reported.
+    #[test_case(&["CREDIT_CARD"], &[(17, 33)] ; "a card that fails the luhn check is dropped")]
+    #[test_case(&["US_SSN", "CREDIT_CARD"], &[(17, 33)] ; "any listed kind may accept")]
+    #[test_case(&["US_SSN"], &[] ; "a kind that rejects both")]
+    #[tokio::test]
+    async fn validate_as_keeps_only_spans_a_listed_kind_accepts(
+        kinds: &'static [&'static str],
+        expected: &[(usize, usize)],
+    ) {
+        let case = TokenCase {
+            id2label: ["B-PAYMENT_CARD", "B-SECRET", "O"],
+            labels: &["PAYMENT_CARD"],
+            thresholds: &[("PAYMENT_CARD", 0.4)],
+            validate_as: vec![("PAYMENT_CARD", kinds)],
+            ..TokenCase::default()
+        };
+        let body = format!("{CARD_BAD} {CARD}");
+        let findings = case.detect(plain(&[body.as_bytes()])).await.unwrap();
+        let spans: Vec<_> = located(&findings)
+            .into_iter()
+            .map(|(_, s, e)| (s, e))
+            .collect();
+        assert_eq!(spans, expected);
+        // A dropped span leaves nothing behind: a finding holds no text.
+        assert!(!format!("{findings:?}").contains(CARD_BAD));
+    }
+
+    #[tokio::test]
+    async fn a_span_after_an_invalid_byte_is_the_values_bytes_in_the_body() {
+        let case = TokenCase {
+            labels: &[SECRET],
+            ..TokenCase::default()
+        };
+        // The text is "voidwall \u{FFFD} trigger": the trigger is at 13..20
+        // there and at 11..18 in the body.
+        let findings = case
+            .detect(plain(&[b"voidwall \xff trigger"]))
+            .await
+            .unwrap();
+        assert_eq!(located(&findings), [(SECRET, 11, 18)]);
+    }
+
+    #[tokio::test]
+    async fn a_span_in_a_json_value_is_its_document_absolute_range() {
+        let case = TokenCase {
+            labels: &[SECRET],
+            ..TokenCase::default()
+        };
+        // {"a":"voidwall","b":"test trigger"}: the second value starts at 21.
+        let findings = case
+            .detect(structured(&[("voidwall", 6), ("test trigger", 21)]))
+            .await
+            .unwrap();
+        assert_eq!(located(&findings), [(SECRET, 26, 33)]);
+    }
+
+    /// IO labels have no `B-`, so neighbouring words of one type merge, but
+    /// never across the join of two values.
+    #[tokio::test]
+    async fn two_values_of_one_type_in_neighbouring_fragments_are_two_spans() {
+        let case = TokenCase {
+            id2label: ["WORD", "SECRET", "O"],
+            labels: &[WORD],
+            thresholds: &[(WORD, 0.4)],
+            ..TokenCase::default()
+        };
+        let findings = case
+            .detect(structured(&[("test voidwall", 2), ("smoke", 30)]))
+            .await
+            .unwrap();
+        assert_eq!(located(&findings), [(WORD, 2, 15), (WORD, 30, 35)]);
+    }
+
+    #[tokio::test]
+    async fn a_token_classifier_failure_names_the_guard_without_the_text() {
+        let case = TokenCase {
+            model: Fixture {
+                nan_row: Some(TRIGGER_ID),
+                ..TokenCase::default().model
+            },
+            ..TokenCase::default()
+        };
+        let err = case
+            .detect(plain(&[format!("{MARKER} trigger").as_bytes()]))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Inference { .. }), "got: {err}");
+        let msg = err.to_string();
+        assert!(msg.contains("pii_ml"), "must name the guard: {msg}");
+        assert!(!msg.contains(MARKER), "must not carry the text: {msg}");
+    }
+
+    #[test]
+    fn a_bad_config_json_fails_naming_the_guard_and_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = TokenCase::default().config(dir.path());
+        let path = config.config_path.clone().unwrap();
+        std::fs::write(&path, br#"{ "label2id": {} }"#).unwrap();
+
+        let err = ModelGuard::new("pii_ml", &config, 1_048_576, NonZeroUsize::MIN)
+            .err()
+            .expect("a config without id2label must fail");
+
+        let msg = err.to_string();
+        assert!(msg.contains("guards.pii_ml"), "got: {msg}");
+        assert!(msg.contains(&path.display().to_string()), "got: {msg}");
     }
 }

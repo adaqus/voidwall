@@ -59,9 +59,11 @@ context: |
   Match resolution. The regex PII guard runs every scanner result through
   `voidwall_pii::resolve_overlaps`, once per unit, before it returns a finding. The
   proxy works on the resolved set only. The policy lives in
-  `crates/voidwall-pii/src/overlap.rs`. Resolution runs once: when a second producer
-  of the same kind vocabulary appears, move it to the engine over the union and
-  delete the per-guard pass. Never run both.
+  `crates/voidwall-pii/src/overlap.rs`. A kind vocabulary is the set of kinds one
+  guard produces: two guards that report a kind of the same name do not share one,
+  and the engine merges their findings without resolution. Resolution runs once: if
+  two guards are ever built to produce one vocabulary, move it to the engine over
+  their union and delete the per-guard pass. Never run both.
 
   Outcome: a detection blocks with a fixed 403 and short-circuits forwarding, unless
   explicitly stated otherwise. A reverse proxy route with `format = "openai-chat"`

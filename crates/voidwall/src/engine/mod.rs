@@ -9,19 +9,23 @@
 //!
 //! # Overlap resolution is scoped to a vocabulary
 //!
+//! A vocabulary is the set of kinds one guard produces. Two guards that report a
+//! kind of the same name do not share one, so the engine merges their findings
+//! and resolves nothing between them.
+//!
 //! `voidwall_pii::resolve_overlaps` is a greedy pairwise pass, so resolving twice
 //! is not the same as resolving once: resolving each guard's findings and then
-//! resolving the union keeps a different set than resolving the union. While
-//! one guard is the only producer of a kind vocabulary, that guard resolves its
-//! own matches and the engine adds nothing — which is what happens today. When
-//! a second producer of the same vocabulary appears, resolution moves here, over
-//! the union, and the per-guard pass is removed. Never both.
+//! resolving the union keeps a different set than resolving the union. Each
+//! guard resolves its own matches and the engine adds nothing. If two guards are
+//! ever built to produce one vocabulary, resolution moves here, over their union,
+//! and the per-guard pass is removed. Never both.
 
 pub mod finding;
 pub mod guard;
 mod model;
 mod regex_pii;
 pub mod unit;
+mod unit_text;
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -995,6 +999,107 @@ enabled = true
             msg.contains(&config.guards["injection"].model_path.display().to_string()),
             "got: {msg}"
         );
+    }
+
+    /// A config with one fixture token classifier guard, `pii_ml`, whose
+    /// model labels the word `trigger` as `SECRET`.
+    fn token_guard_config(dir: &std::path::Path) -> AppConfig {
+        use voidwall_ml::fixtures::{Fixture, TokenizerFixture, write_config};
+        let model = Fixture {
+            tokens: true,
+            trigger: true,
+            width: 3,
+            ..Fixture::default()
+        };
+        let toml = format!(
+            r#"
+[guards.pii_ml]
+adapter = "token_classifier"
+model_path = "{model}"
+tokenizer_path = "{tokenizer}"
+config_path = "{config}"
+max_tokens = 16
+labels = ["SECRET"]
+threads = 1
+
+[guards.pii_ml.thresholds]
+SECRET = 0.4
+
+[http_api]
+enabled = true
+"#,
+            model = model.write(dir).display(),
+            tokenizer = TokenizerFixture::default().write(dir).display(),
+            config = write_config(dir, &["O", "B-SECRET", "I-SECRET"]).display(),
+        );
+        toml::from_str(&toml).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_token_guard_is_built_selected_by_name_and_reports_spans() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine =
+            Engine::from_config(&token_guard_config(dir.path())).expect("engine should build");
+        assert_eq!(engine.guards[0].name().as_ref(), "pii_ml");
+
+        let mut units = Units::new();
+        units.push_body(UnitContent::PlainText(Bytes::from_static(
+            b"voidwall trigger test",
+        )));
+        let mut result = engine
+            .guard(
+                units.into_shared(),
+                &engine.select(Some(&["pii_ml"])),
+                BlockPolicy::Never,
+                OnError::FailClose,
+            )
+            .await;
+
+        assert!(result.take_error().is_none());
+        assert_eq!(result.kinds(), vec!["SECRET".to_string()]);
+        assert_eq!(result.findings()[0].span, Some(Span::new(9, 16)));
+    }
+
+    #[test]
+    fn a_token_guard_load_error_names_the_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = token_guard_config(dir.path());
+        let path = config.guards["pii_ml"].config_path.clone().unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+        let err = Engine::from_config(&config)
+            .err()
+            .expect("a bad config.json must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("guards.pii_ml"), "got: {msg}");
+        assert!(msg.contains(&path.display().to_string()), "got: {msg}");
+    }
+
+    /// pii-scanning, "Two guards report a kind of the same name": the engine
+    /// merges and resolves nothing between two vocabularies.
+    #[tokio::test]
+    async fn two_guards_reporting_one_kind_name_over_the_same_bytes_keep_both_findings() {
+        let engine = Engine::with_guards(vec![
+            Box::new(TestGuard::new("pii", "PERSON_NAME").matching("content")),
+            Box::new(TestGuard::new("pii_ml", "PERSON_NAME").matching("content")),
+        ]);
+
+        let result = run(&engine, body_only(), BlockPolicy::Never).await;
+
+        let found: Vec<_> = result
+            .findings()
+            .iter()
+            .map(|f| (&*f.guard, f.kind.as_str(), f.span))
+            .collect();
+        let span = Some(Span::new(0, 7));
+        assert_eq!(
+            found,
+            [
+                ("pii", "PERSON_NAME", span),
+                ("pii_ml", "PERSON_NAME", span)
+            ]
+        );
+        assert_eq!(result.kinds(), vec!["PERSON_NAME".to_string()]);
+        assert_eq!(result.matches_count(), 2);
     }
 
     #[tokio::test]

@@ -1,30 +1,61 @@
-pub(crate) fn always_valid(_s: &str) -> bool {
-    true
+use std::ops::RangeInclusive;
+
+/// What a pattern checks beyond its expression.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Check {
+    /// The expression alone decides: every value it matches is accepted.
+    Any,
+    /// The value must also pass this function.
+    With(fn(&str) -> bool),
 }
 
-pub(crate) fn luhn_check(s: &str) -> bool {
-    let digits: Vec<u32> = s
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .filter_map(|c| c.to_digit(10))
-        .collect();
-    if digits.len() < 13 || digits.len() > 19 {
-        return false;
+impl Check {
+    pub(crate) fn accepts(self, s: &str) -> bool {
+        match self {
+            Check::Any => true,
+            Check::With(check) => check(s),
+        }
     }
-    let checksum: u32 = digits
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(i, &d)| {
-            if i % 2 == 1 {
+}
+
+/// Whether `s` is a grouped number whose digits pass the Luhn sum: ASCII
+/// digits only, with at most one byte of `separators` between two digit
+/// groups and none at either end, and a digit count inside `digits`.
+///
+/// A pattern's expression gives this shape, so on its matches this agrees
+/// with a check that counts only the digits. A model span has no such shape:
+/// words around a number, or two numbers run together, must fail here.
+fn grouped_luhn(s: &str, separators: &[u8], digits: RangeInclusive<usize>) -> bool {
+    let mut count = 0;
+    let mut sum = 0;
+    // The end counts as a separator, so neither end may hold one.
+    let mut after_separator = true;
+    for &b in s.as_bytes().iter().rev() {
+        if b.is_ascii_digit() {
+            let d = u32::from(b - b'0');
+            sum += if count % 2 == 1 {
                 let doubled = d * 2;
                 if doubled > 9 { doubled - 9 } else { doubled }
             } else {
                 d
-            }
-        })
-        .sum();
-    checksum.is_multiple_of(10)
+            };
+            count += 1;
+            after_separator = false;
+        } else if separators.contains(&b) && !after_separator {
+            after_separator = true;
+        } else {
+            return false;
+        }
+    }
+    !after_separator && digits.contains(&count) && sum.is_multiple_of(10)
+}
+
+/// The separators of the `CREDIT_CARD` expression `[-\s]`: a dash, or ASCII
+/// whitespace, which is what `\s` matches without Unicode mode.
+const CARD_SEPARATORS: &[u8] = b"- \t\n\x0B\x0C\r";
+
+pub(crate) fn luhn_check(s: &str) -> bool {
+    grouped_luhn(s, CARD_SEPARATORS, 13..=19)
 }
 
 pub(crate) fn ssn_check(s: &str) -> bool {
@@ -386,10 +417,6 @@ pub(crate) fn medicare_check(s: &str) -> bool {
     sum % 10 == digits[8]
 }
 
-pub(crate) fn phone_check(_s: &str) -> bool {
-    true
-}
-
 // ITU-T E.164 assigned country/global-service codes.
 // Sorted ascending for binary_search. Source: ITU-T Recommendation E.164,
 // Annex to ITU Operational Bulletin No. 1199 (latest list of assigned codes).
@@ -437,10 +464,6 @@ pub(crate) fn e164_check(s: &str) -> bool {
     }
     let cc1 = digits[0] as u16;
     E164_COUNTRY_CODES.binary_search(&cc1).is_ok()
-}
-
-pub(crate) fn passport_check(_s: &str) -> bool {
-    true
 }
 
 pub(crate) fn passport_new_check(s: &str) -> bool {
@@ -2024,6 +2047,44 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
+    // --- luhn_check ---
+    #[test_case("4111111111111111", true ; "valid no separators")]
+    #[test_case("4111 1111 1111 1111", true ; "valid spaces")]
+    #[test_case("4111-1111-1111-1111", true ; "valid dashes")]
+    #[test_case("4111\t1111\n1111\r1111", true ; "valid ascii whitespace")]
+    #[test_case("4111-1111 1111-1111", true ; "valid mixed separators")]
+    #[test_case("4111111111119", true ; "valid 13 digits")]
+    #[test_case("4111111111111111110", true ; "valid 19 digits")]
+    #[test_case("4111111111111112", false ; "invalid checksum")]
+    #[test_case("41111111111111111117", false ; "invalid 20 digits")]
+    #[test_case("card 4111111111111111", false ; "invalid words before")]
+    #[test_case("4111111111111111 ok", false ; "invalid words after")]
+    #[test_case(" 4111111111111111", false ; "invalid leading separator")]
+    #[test_case("4111111111111111-", false ; "invalid trailing separator")]
+    #[test_case("4111  1111 1111 1111", false ; "invalid two separators")]
+    #[test_case("4111/1111/1111/1111", false ; "invalid slash")]
+    #[test_case("4111\u{A0}1111\u{A0}1111\u{A0}1111", false ; "invalid non ascii space")]
+    #[test_case("", false ; "invalid empty")]
+    fn luhn(input: &str, expected: bool) {
+        assert_eq!(luhn_check(input), expected);
+    }
+
+    // --- grouped_luhn ---
+    #[test_case("4111111111111111", b"", true ; "no separators allowed none used")]
+    #[test_case("4111 1111 1111 1111", b"", false ; "no separators allowed one used")]
+    #[test_case("4111.1111.1111.1111", b".", true ; "dot allowed")]
+    #[test_case("4111 1111 1111 1111", b".", false ; "space not allowed")]
+    fn grouped_luhn_separators(input: &str, separators: &[u8], expected: bool) {
+        assert_eq!(grouped_luhn(input, separators, 13..=19), expected);
+    }
+
+    #[test_case(16..=16, true ; "count inside")]
+    #[test_case(13..=15, false ; "count above")]
+    #[test_case(17..=19, false ; "count below")]
+    fn grouped_luhn_digit_count(digits: RangeInclusive<usize>, expected: bool) {
+        assert_eq!(grouped_luhn("4111111111111111", b"", digits), expected);
+    }
+
     // --- nir_check ---
     #[test_case("1 85 05 78 006 084 91", true ; "valid standard with spaces")]
     #[test_case("185057800608491", true ; "valid no spaces")]
@@ -2970,13 +3031,13 @@ mod tests {
     // A validator added to this file must be added here too.
     #[rustfmt::skip]
     const ALL_VALIDATORS: &[(&str, Validator)] = &[
-        ("always_valid", always_valid), ("luhn_check", luhn_check), ("ssn_check", ssn_check),
+        ("luhn_check", luhn_check), ("ssn_check", ssn_check),
         ("nino_check", nino_check), ("iban_check", iban_check), ("ip_check", ip_check),
         ("itin_check", itin_check), ("sin_check", sin_check), ("ppsn_check", ppsn_check),
         ("uk_dl_check", uk_dl_check), ("vin_check", vin_check), ("tfn_check", tfn_check),
         ("ird_check", ird_check), ("nhs_check", nhs_check), ("medicare_check", medicare_check),
-        ("phone_check", phone_check), ("e164_check", e164_check),
-        ("passport_check", passport_check), ("passport_new_check", passport_new_check),
+        ("e164_check", e164_check),
+        ("passport_new_check", passport_new_check),
         ("swift_bic_check", swift_bic_check), ("ein_check", ein_check),
         ("imei_check", imei_check), ("utr_check", utr_check), ("aba_check", aba_check),
         ("geolocation_check", geolocation_check), ("a_number_check", a_number_check),

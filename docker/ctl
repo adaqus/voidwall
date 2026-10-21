@@ -18,8 +18,10 @@
 #   docker/ctl piimb-eval          # score the voidwall-pii regex engine on the PII
 #                                  # Masking Benchmark's English tasks, with its own
 #                                  # metric code (needs python3 3.11+)
-#   docker/ctl parity              # run the text_classifier parity check on
-#                                  # wolf-small against a new Python reference
+#   docker/ctl parity              # run the parity checks of wolf-small
+#                                  # (text_classifier) and bards v2
+#                                  # (token_classifier) against new Python
+#                                  # references, and the bards v2 INT8 check
 #                                  # (needs python3 3.11+)
 #
 # Soak test env vars:
@@ -43,9 +45,11 @@
 #   PIIMB_TASK     - ai4privacy-en|gretel|nemotron-pii|privy: score one task only;
 #                    not a full benchmark result (default: all four)
 #
-# parity env vars:
-#   PARITY_MAX_TOKENS - window length of the reference (default: 2048)
-#   PARITY_OVERLAP    - window overlap of the reference (default: 64)
+# parity env vars (each overrides the default of both models):
+#   PARITY_MAX_TOKENS - window length of the references (default: 2048 for
+#                       wolf-small, 512 for bards v2, as in docker/voidwall.toml)
+#   PARITY_OVERLAP    - window overlap of the references (default: 64 for
+#                       wolf-small, 128 for bards v2)
 #
 set -euo pipefail
 
@@ -249,12 +253,17 @@ cmd_piimb_eval() {
         "$rev_dir/src" "$rev_dir/data/test_sentences.jsonl" "$spans" "$revision" $tasks
 }
 
-# The PyTorch files of the wolf-small revision that docker/fetch-models.sh pins.
-# reference.py loads the model from them; the dev stack never runs them. The
-# revision is read from fetch-models.sh, so a new revision there fails these
-# hashes until they are updated.
-PARITY_CONFIG_SHA256="b5bfba7b100b4b1aa361e8160e5593695164d81ca09b47f3b26561332b520218"
-PARITY_WEIGHTS_SHA256="88574ea37b2aaff38468194c544a5918b5e160fb9ee630bb11bba0aa3f533cf9"
+# The parity files of the revisions that docker/fetch-models.sh pins. The dev
+# stack never runs them. The revisions are read from fetch-models.sh, so a new
+# revision there fails these hashes until they are updated.
+#
+# wolf-small: the PyTorch config and weights reference.py loads.
+PARITY_WOLF_CONFIG_SHA256="b5bfba7b100b4b1aa361e8160e5593695164d81ca09b47f3b26561332b520218"
+PARITY_WOLF_WEIGHTS_SHA256="88574ea37b2aaff38468194c544a5918b5e160fb9ee630bb11bba0aa3f533cf9"
+# bards v2: the PyTorch weights reference.py loads, and the fp32 ONNX export the
+# Rust test runs. Its config.json and tokenizer.json come from fetch-models.sh.
+PARITY_BARDS_WEIGHTS_SHA256="523c77eee36814d45065bce31867c119a70bf54d9269eac743aed5e988a29623"
+PARITY_BARDS_ONNX_SHA256="9c1bdd68c2c270c3e7305a7b4437a35d76313080dae07c0b9e5e2e310efb14c0"
 PARITY_TORCH_INDEX="https://download.pytorch.org/whl/cpu"
 
 # Downloads URL to DEST unless DEST already has the pinned hash. The download is
@@ -278,6 +287,19 @@ parity_fetch() {
     mv "$dest.part" "$dest"
 }
 
+# The Hugging Face URL of the files at the revision fetch-models.sh pins for the
+# model whose variables start with PREFIX (WOLF or BARDS).
+parity_url() {
+    local repo revision
+    repo="$(sed -n "s/^$1_REPO=\"\(.*\)\"$/\1/p" "$SCRIPT_DIR/fetch-models.sh")"
+    revision="$(sed -n "s/^$1_REVISION=\"\(.*\)\"$/\1/p" "$SCRIPT_DIR/fetch-models.sh")"
+    if [ -z "$repo" ] || [ -z "$revision" ]; then
+        echo "Cannot read $1_REPO and $1_REVISION from docker/fetch-models.sh." >&2
+        exit 1
+    fi
+    echo "https://huggingface.co/$repo/resolve/$revision"
+}
+
 cmd_parity() {
     if ! command -v python3 >/dev/null; then
         echo "parity needs python3 (3.11 or later) on the host to make the reference." >&2
@@ -289,23 +311,24 @@ cmd_parity() {
     fi
 
     local parity_dir="$PROJECT_DIR/.cache/parity"
-    local hf_dir="$parity_dir/hf/wolf-small"
-    local run_dir="$parity_dir/run/wolf-small"
+    local run_dir="$parity_dir/run"
     local src_dir="$PROJECT_DIR/crates/voidwall-ml/parity"
-
-    local repo revision
-    repo="$(sed -n 's/^WOLF_REPO="\(.*\)"$/\1/p' "$SCRIPT_DIR/fetch-models.sh")"
-    revision="$(sed -n 's/^WOLF_REVISION="\(.*\)"$/\1/p' "$SCRIPT_DIR/fetch-models.sh")"
-    if [ -z "$repo" ] || [ -z "$revision" ]; then
-        echo "Cannot read WOLF_REPO and WOLF_REVISION from docker/fetch-models.sh." >&2
-        exit 1
-    fi
-    local wolf_url="https://huggingface.co/$repo/resolve/$revision"
+    local wolf_url bards_url
+    wolf_url="$(parity_url WOLF)"
+    bards_url="$(parity_url BARDS)"
 
     "$SCRIPT_DIR/fetch-models.sh"
-    mkdir -p "$hf_dir" "$run_dir"
-    parity_fetch "$wolf_url/config.json" "$hf_dir/config.json" "$PARITY_CONFIG_SHA256"
-    parity_fetch "$wolf_url/model.safetensors" "$hf_dir/model.safetensors" "$PARITY_WEIGHTS_SHA256"
+    mkdir -p "$parity_dir/hf/wolf-small" "$parity_dir/hf/bards-v2/onnx"
+    parity_fetch "$wolf_url/config.json" "$parity_dir/hf/wolf-small/config.json" \
+        "$PARITY_WOLF_CONFIG_SHA256"
+    parity_fetch "$wolf_url/model.safetensors" "$parity_dir/hf/wolf-small/model.safetensors" \
+        "$PARITY_WOLF_WEIGHTS_SHA256"
+    parity_fetch "$bards_url/model.safetensors" "$parity_dir/hf/bards-v2/model.safetensors" \
+        "$PARITY_BARDS_WEIGHTS_SHA256"
+    parity_fetch "$bards_url/onnx/model.onnx" "$parity_dir/hf/bards-v2/onnx/model.onnx" \
+        "$PARITY_BARDS_ONNX_SHA256"
+    # The config.json fetch-models.sh verified, which reference.py and the test both read.
+    ln -sfn ../../../../models/bards-v2/config.json "$parity_dir/hf/bards-v2/config.json"
 
     # The marker records what the venv holds; a changed requirements.txt makes it again.
     local venv="$parity_dir/venv"
@@ -333,23 +356,41 @@ cmd_parity() {
         echo "Python packages installed: .cache/parity/venv"
     fi
 
-    # The test reads model.onnx and tokenizer.json next to the reference; link the
-    # files fetch-models.sh verified instead of copying them.
-    ln -sfn ../../../../models/wolf-small/model.onnx "$run_dir/model.onnx"
-    ln -sfn ../../../../models/wolf-small/tokenizer.json "$run_dir/tokenizer.json"
+    # The test checks every model directory under run/, so run/ is made anew
+    # with these two only. It links the verified files instead of copying them.
+    rm -rf "$run_dir"
+    mkdir -p "$run_dir/wolf-small" "$run_dir/bards-v2"
+    ln -s ../../../../models/wolf-small/model.onnx "$run_dir/wolf-small/model.onnx"
+    ln -s ../../../../models/wolf-small/tokenizer.json "$run_dir/wolf-small/tokenizer.json"
+    ln -s ../../hf/bards-v2/onnx/model.onnx "$run_dir/bards-v2/model.onnx"
+    ln -s ../../../../models/bards-v2/tokenizer.json "$run_dir/bards-v2/tokenizer.json"
+    ln -s ../../../../models/bards-v2/config.json "$run_dir/bards-v2/config.json"
+    # The INT8 file the dev stack runs, for the test's INT8 check against a plain session.
+    ln -s ../../../../models/bards-v2/onnx/model_quantized.onnx \
+        "$run_dir/bards-v2/model_quantized.onnx"
 
-    local max_tokens="${PARITY_MAX_TOKENS:-2048}" overlap="${PARITY_OVERLAP:-64}"
-    echo "Making the reference (max_tokens=$max_tokens, overlap=$overlap)..."
-    rm -f "$run_dir/reference.json"
-    "$venv/bin/python" -I "$src_dir/reference.py" --model-dir "$hf_dir" \
-        --tokenizer "$run_dir/tokenizer.json" --max-tokens "$max_tokens" --overlap "$overlap" \
-        --out "$run_dir/reference.json.part"
-    mv "$run_dir/reference.json.part" "$run_dir/reference.json"
+    parity_reference wolf-small text_classifier \
+        "${PARITY_MAX_TOKENS:-2048}" "${PARITY_OVERLAP:-64}"
+    parity_reference bards-v2 token_classifier \
+        "${PARITY_MAX_TOKENS:-512}" "${PARITY_OVERLAP:-128}"
 
     echo "Running the parity test..."
-    VOIDWALL_PARITY_DIR="$parity_dir/run" \
+    VOIDWALL_PARITY_DIR="$run_dir" \
         cargo test --release --manifest-path "$PROJECT_DIR/Cargo.toml" \
         -p voidwall-ml -- --ignored parity --nocapture
+}
+
+# Makes the reference of one model under .cache/parity/run/MODEL.
+parity_reference() {
+    local model="$1" adapter="$2" max_tokens="$3" overlap="$4"
+    local parity_dir="$PROJECT_DIR/.cache/parity"
+    local out="$parity_dir/run/$model/reference.json"
+    echo "Making the $model reference ($adapter, max_tokens=$max_tokens, overlap=$overlap)..."
+    "$parity_dir/venv/bin/python" -I "$PROJECT_DIR/crates/voidwall-ml/parity/reference.py" \
+        --adapter "$adapter" --model-dir "$parity_dir/hf/$model" \
+        --tokenizer "$parity_dir/run/$model/tokenizer.json" \
+        --max-tokens "$max_tokens" --overlap "$overlap" --out "$out.part"
+    mv "$out.part" "$out"
 }
 
 # ---------------------------------------------------------------------------

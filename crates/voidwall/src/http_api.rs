@@ -12,10 +12,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use utoipa::ToSchema;
 
-use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, OnError};
+use crate::config::{AppConfig, OnError};
 use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, UnitContent, Units};
 use crate::error::Error;
-use crate::metrics::{self, UnscannedReason};
+use crate::metrics::{self, PiiGuards, UnscannedReason};
 use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body, is_json_content_type};
 use crate::structured::litellm::{self, GuardrailRequest};
 
@@ -35,6 +35,7 @@ pub struct ApiState {
     /// Every enabled guard. The API has no route to attach a selection to, so
     /// it carries none of its own.
     selection: Arc<GuardSelection>,
+    pii_guards: Arc<PiiGuards>,
     content_types: Arc<Vec<String>>,
     max_body_size: usize,
     on_error: OnError,
@@ -51,6 +52,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ApiState {
     ApiState {
         engine,
         selection,
+        pii_guards: Arc::new(PiiGuards::from_config(config)),
         content_types: Arc::new(config.content_types.clone()),
         max_body_size: config.max_body_size,
         on_error: config.on_error,
@@ -367,7 +369,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
 
     let kinds = scan_result.kinds();
 
-    record_detections(&scan_result, "request");
+    record_detections(&scan_result, &state.pii_guards, "request");
     if let Some(resp) = handle_guard_error(&mut scan_result, state.on_error) {
         return resp;
     }
@@ -442,7 +444,7 @@ async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Re
         )
         .await;
 
-    record_detections(&scan_result, direction);
+    record_detections(&scan_result, &state.pii_guards, direction);
     if let Some(resp) = handle_guard_error(&mut scan_result, state.on_error) {
         return resp;
     }
@@ -466,9 +468,9 @@ fn guardrail_response(payload: &GuardrailResponse) -> Response {
 }
 
 /// Increment the detection families. This runs also when a guard error turns
-/// the answer into a 500. The PII family counts the `pii` guard's kinds only.
-fn record_detections(scan_result: &ScanResult, direction: &str) {
-    for kind in &scan_result.kinds_of(BUILTIN_PII_GUARD_NAME) {
+/// the answer into a 500. The PII family counts the PII guards' kinds only.
+fn record_detections(scan_result: &ScanResult, pii_guards: &PiiGuards, direction: &str) {
+    for kind in &pii_guards.kinds(scan_result) {
         metrics::inc_detection(kind, MODE, ROUTE, direction);
     }
     for guard in scan_result.guards() {
@@ -667,6 +669,7 @@ mod tests {
 
     // --- A guard error does not discard the other guards' findings ---
 
+    use crate::config::BUILTIN_PII_GUARD_NAME;
     use crate::engine::test_guard::TestGuard;
     use crate::metrics::{DETECTIONS_TOTAL, ERRORS_TOTAL};
     use http_body_util::BodyExt;
@@ -731,6 +734,39 @@ mod tests {
         assert!(guard_detections(BUILTIN_PII_GUARD_NAME) >= 1);
         assert_eq!(guard_detections("failing"), 0);
         assert_eq!(api_blocks(), 0, "a 500 on /v1/scan is not a block");
+    }
+
+    /// metrics, "A PII model guard detects": the PII family counts a kind a
+    /// guard with `class = "pii"` reports, and not one a classless guard
+    /// reports.
+    #[tokio::test]
+    async fn the_pii_family_counts_a_pii_model_guard_and_not_a_classless_one() {
+        let config: AppConfig = toml::from_str(
+            r#"
+[guards.api_pii_ml]
+adapter = "token_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+config_path = "/c"
+max_tokens = 512
+labels = ["API_PII_ML_KIND"]
+class = "pii"
+"#,
+        )
+        .expect("the test config parses");
+        let engine = Arc::new(Engine::with_guards(vec![
+            Box::new(TestGuard::new("api_pii_ml", "API_PII_ML_KIND")),
+            Box::new(TestGuard::new("api_classless", "API_CLASSLESS_KIND")),
+        ]));
+        let state = build_state(&config, engine);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/plain".parse().unwrap());
+
+        let resp = process(state, headers, Bytes::from_static(b"content")).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(detections("API_PII_ML_KIND"), 1);
+        assert_eq!(detections("API_CLASSLESS_KIND"), 0);
     }
 
     // --- A model guard error names its own status and reason ---
