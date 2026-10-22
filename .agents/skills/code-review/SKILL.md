@@ -34,6 +34,8 @@ output. Refer to PII by kind, span, count, or a safe placeholder.
   overlap priorities when applicable.
 - Request and response body buffers are not retained after scanning.
 - Observable behavior matches the applicable OpenSpec delta and built specs.
+- A change to a metric family, its labels, its buckets, or what it measures updates
+  the queries, legends, and descriptions in `docker/grafana/dashboards/voidwall.json`.
 - Tests cover regressions, boundary cases, error paths, and externally visible behavior.
 
 ## Output

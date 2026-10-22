@@ -89,6 +89,30 @@ ways:
 - Reject a duplicate key as a body that does not parse.
 - Recover offsets from a parser that sees every key, duplicates included.
 
+### 1.6 A metric for the time Voidwall itself adds
+
+`voidwall_request_duration_seconds` stops when the handler returns the response head. On a
+reverse proxy route that time is mostly the upstream's: for a buffered reply, the whole
+generation; for a hold-back stream, the generation up to the first released text. The
+time Voidwall adds is hidden inside it, so no metric shows the cost of a guard.
+
+- Add a histogram of the time each guard takes on one message, labelled by guard and the
+  existing `mode`, `route`, and `direction`.
+- Decide in the proposal whether a guard abandoned at a short-circuit records its time.
+
+### 1.7 The REST API records no request duration
+
+`openspec/specs/litellm-guardrail-api/spec.md` says the LiteLLM route records
+`voidwall_request_duration_seconds` by the rules `/v1/scan` follows. No spec gives
+`/v1/scan` such a rule, and no `http_api` handler records the histogram. Only the reverse
+proxy does.
+
+The proposal picks one:
+
+- Record the histogram on `/v1/scan` and the LiteLLM route, with `mode="http_api"` and
+  `route="global"`.
+- Remove the histogram from the LiteLLM requirement.
+
 ---
 
 ## 2. Test gaps

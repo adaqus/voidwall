@@ -35,6 +35,7 @@ For multi-step work, state a brief plan with a verification check for each step.
 - Active work: `openspec/changes/`
 - Unbuilt work: `docs/backlog.md`
 - Load testing: `docs/load-testing.md`
+- Grafana dashboard: read `docker/grafana/AGENTS.md` before editing `docker/grafana/`
 
 Start coding agents from the workspace root. Commands below assume that location.
 
@@ -211,6 +212,15 @@ its own workers and awaits the reply. Keep it that way.
 - Validation runs at startup and invalid configuration prevents startup.
 - A per-route scan override fully replaces the defaults. It does not merge.
 - New fields require validation and unit tests for valid and invalid values.
+
+## Metrics
+
+- Metric families live in `crates/voidwall/src/metrics.rs`.
+- A change that adds, renames, or removes a metric family, changes its labels or
+  buckets, or changes what it measures also updates
+  `docker/grafana/dashboards/voidwall.json` in the same change. Read
+  `docker/grafana/AGENTS.md` first.
+- Check every panel that queries the family: its query, legend, and description.
 
 ## Testing
 

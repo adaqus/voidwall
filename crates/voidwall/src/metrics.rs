@@ -7,6 +7,12 @@ use prometheus::{
 use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, GuardClass};
 use crate::engine::ScanResult;
 
+/// The bucket bounds of [`REQUEST_DURATION_SECONDS`] in seconds: the crate
+/// defaults up to 10, then up to 300 for a long upstream exchange.
+const REQUEST_DURATION_BUCKETS: [f64; 15] = [
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+];
+
 lazy_static! {
     /// PII detections by kind, mode, route, and direction.
     pub static ref DETECTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
@@ -52,7 +58,8 @@ lazy_static! {
     pub static ref REQUEST_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
         histogram_opts!(
             "voidwall_request_duration_seconds",
-            "Request processing duration in seconds"
+            "Request processing duration in seconds",
+            REQUEST_DURATION_BUCKETS.to_vec()
         ),
         &["mode", "route"]
     )
@@ -465,6 +472,49 @@ labels = ["PERSON_NAME"]
             .with_label_values(&[mode, route])
             .get_sample_count();
         assert_eq!(after, before + 1);
+    }
+
+    /// The finite bucket bounds and their cumulative counts of one series.
+    fn duration_buckets(route: &str) -> Vec<(f64, u64)> {
+        use prometheus::core::Metric;
+        REQUEST_DURATION_SECONDS
+            .with_label_values(&["reverse_proxy", route])
+            .metric()
+            .get_histogram()
+            .get_bucket()
+            .iter()
+            .map(|b| (b.get_upper_bound(), b.get_cumulative_count()))
+            .collect()
+    }
+
+    #[test]
+    fn duration_buckets_reach_300_seconds() {
+        let bounds: Vec<f64> = duration_buckets("/test-bounds")
+            .into_iter()
+            .map(|(bound, _)| bound)
+            .collect();
+        assert_eq!(
+            bounds,
+            [
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0,
+                300.0
+            ]
+        );
+    }
+
+    #[test]
+    fn a_45_second_request_lands_in_the_60_second_bucket() {
+        let route = "/test-45-seconds";
+        let count = |le: f64| {
+            duration_buckets(route)
+                .into_iter()
+                .find(|&(bound, _)| bound == le)
+                .map(|(_, count)| count)
+        };
+        let (le30, le60) = (count(30.0).unwrap_or(0), count(60.0).unwrap_or(0));
+        observe_duration("reverse_proxy", route, 45.0);
+        assert_eq!(count(30.0), Some(le30), "le=30 counts it");
+        assert_eq!(count(60.0), Some(le60 + 1), "le=60 misses it");
     }
 
     #[test_case("passed", "scanner_failure" ; "fail open scanner")]

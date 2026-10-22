@@ -99,3 +99,5 @@ rules:
     - Never put a PII value in an example. Use a placeholder.
   tasks:
     - Every task names a verification check.
+    - A change that adds, renames, or removes a metric family, or changes its labels,
+      buckets, or meaning, has a task to update docker/grafana/dashboards/voidwall.json.

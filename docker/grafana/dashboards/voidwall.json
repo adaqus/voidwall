@@ -8,6 +8,601 @@
   "links": [],
   "panels": [
     {
+      "title": "Traffic",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "title": "Request Rate",
+      "description": "HTTP requests processed per second, stacked by status class. Blocks answer 400 or 403, so they show in 4xx.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 30,
+            "lineWidth": 2,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "2xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#38B27A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#E0A23A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#E5564B"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (class) (label_replace(rate(voidwall_requests_total{route=~\"$route\"}[30s]), \"class\", \"${1}xx\", \"status\", \"(.)..\"))",
+          "legendFormat": "{{ class }}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Request Duration Distribution",
+      "description": "Requests per duration bucket over time; a darker cell holds more requests. Measured until the proxy sends the response head: for a buffered reply, the whole upstream exchange; for a hold-back stream, until the first released text. Most of it is the upstream's time. The REST API records no duration.",
+      "type": "heatmap",
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 10,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "cellGap": 2,
+        "color": {
+          "mode": "opacity",
+          "scale": "exponential",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0,
+          "fill": "#8B7DF6"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true,
+          "showColorScale": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "unit": "s",
+          "reverse": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (le) (increase(voidwall_request_duration_seconds_bucket{route=~\"$route\"}[$__interval]))",
+          "legendFormat": "{{ le }}",
+          "format": "heatmap",
+          "refId": "A"
+        }
+      ],
+      "interval": "30s",
+      "maxDataPoints": 60
+    },
+    {
+      "title": "p95 Latency",
+      "description": "95th percentile of the request duration over the selected range. It reads 300 s when the percentile is above the highest bucket.",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(voidwall_request_duration_seconds_bucket{route=~\"$route\"}[$__range])))",
+          "legendFormat": "p95 Latency",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Detections & Blocks",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "title": "Detections by Guard",
+      "description": "Messages in which a guard reported findings, per interval, stacked by guard. One count per guard per message.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "sum"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (guard) (increase(voidwall_detections_total{route=~\"$route\", direction=~\"$direction\"}[$__interval]))",
+          "legendFormat": "{{ guard }}",
+          "refId": "A"
+        }
+      ],
+      "interval": "30s",
+      "maxDataPoints": 100
+    },
+    {
+      "title": "PII Detections by Kind",
+      "description": "PII detections over the selected range, by kind: one count per kind in the resolved match set of a message.",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
+          },
+          "displayName": "${__field.labels.pii_kind}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 28
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (pii_kind) (increase(voidwall_pii_detections_total{route=~\"$route\", direction=~\"$direction\"}[$__range])) > 0)",
+          "legendFormat": "{{ pii_kind }}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Blocked",
+      "description": "Messages the proxy stopped, per interval, stacked by direction: a detection by any guard, or a fail_close error.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "request"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8B7DF6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#B08A3E"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "sum"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (direction) (increase(voidwall_blocked_total{route=~\"$route\", direction=~\"$direction\"}[$__interval]))",
+          "legendFormat": "{{ direction }}",
+          "refId": "A"
+        }
+      ],
+      "interval": "30s",
+      "maxDataPoints": 100
+    },
+    {
+      "title": "Streams Cut",
+      "description": "Streams the reverse proxy stopped after their first byte reached the client, over the selected range, by reason.",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
+          },
+          "displayName": "${__field.labels.reason}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 28
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (reason) (increase(voidwall_streams_cut_total{route=~\"$route\"}[$__range])) > 0)",
+          "legendFormat": "{{ reason }}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Errors & Gaps",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "panels": []
+    },
+    {
+      "title": "Errors",
+      "description": "Proxy errors over the selected range, by outcome and reason. Not filtered by route or direction: the metric has neither label.",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Count",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome, reason) (increase(voidwall_errors_total[$__range]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "outcome": 0,
+              "reason": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "outcome": "Outcome",
+              "reason": "Reason",
+              "Value": "Count"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Unscanned Values",
+      "description": "Values a decoder skipped on purpose without a scan, over the selected range, by direction and reason.",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
+          },
+          "displayName": "${__field.labels.direction}/${__field.labels.reason}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 28
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (direction, reason) (increase(voidwall_unscanned_total{route=~\"$route\", direction=~\"$direction\"}[$__range])) > 0)",
+          "legendFormat": "{{ direction }}/{{ reason }}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Process",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "panels": []
+    },
+    {
       "title": "Resident Memory (RSS)",
       "description": "Physical memory currently used by the proxy process.",
       "type": "timeseries",
@@ -15,7 +610,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
@@ -25,7 +620,12 @@
         "defaults": {
           "unit": "bytes",
           "custom": {
-            "fillOpacity": 10
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
           }
         },
         "overrides": []
@@ -56,7 +656,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
@@ -66,7 +666,12 @@
         "defaults": {
           "unit": "percentunit",
           "custom": {
-            "fillOpacity": 10
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
           }
         },
         "overrides": []
@@ -92,12 +697,12 @@
     {
       "title": "Virtual Memory",
       "description": "Total virtual address space allocated to the proxy process.",
-      "type": "timeseries",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 5,
+        "w": 8,
         "x": 0,
-        "y": 8
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -106,26 +711,30 @@
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
-          "custom": {
-            "fillOpacity": 10
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
+        "graphMode": "area",
+        "colorMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
           "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
         {
           "expr": "process_virtual_memory_bytes",
-          "legendFormat": "VSZ",
+          "legendFormat": "Virtual Memory",
           "refId": "A"
         }
       ]
@@ -133,12 +742,12 @@
     {
       "title": "Open File Descriptors",
       "description": "Number of file descriptors currently held open by the proxy process.",
-      "type": "timeseries",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 8
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -146,26 +755,31 @@
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "fillOpacity": 10
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
+        "graphMode": "area",
+        "colorMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
           "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
         {
           "expr": "process_open_fds",
-          "legendFormat": "FDs",
+          "legendFormat": "Open File Descriptors",
           "refId": "A"
         }
       ]
@@ -173,12 +787,12 @@
     {
       "title": "Threads",
       "description": "Number of OS threads active in the proxy process.",
-      "type": "timeseries",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 8
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -186,241 +800,31 @@
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "fillOpacity": 10
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
+        "graphMode": "area",
+        "colorMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
           "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
         {
           "expr": "process_threads",
-          "legendFormat": "threads",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Request Rate",
-      "description": "Total number of HTTP requests processed by the proxy per second.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(voidwall_requests_total[30s]))",
-          "legendFormat": "req/s",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Request Duration Percentiles",
-      "description": "End-to-end request latency at p50, p95, and p99 percentiles.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum(rate(voidwall_request_duration_seconds_bucket[30s])) by (le))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(voidwall_request_duration_seconds_bucket[30s])) by (le))",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(voidwall_request_duration_seconds_bucket[30s])) by (le))",
-          "legendFormat": "p99",
-          "refId": "C"
-        }
-      ]
-    },
-    {
-      "title": "PII Detections Rate",
-      "description": "Rate of requests in which PII was detected, broken down by PII kind.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(voidwall_pii_detections_total[30s])) by (pii_kind)",
-          "legendFormat": "{{ pii_kind }}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Blocked Rate",
-      "description": "Rate of requests blocked after a detection.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(voidwall_pii_blocked_total[30s]))",
-          "legendFormat": "blocked",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Errors Rate",
-      "description": "Rate of proxy errors, broken down by outcome and reason.",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 32
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "calcs": [
-            "min",
-            "max",
-            "median"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(voidwall_errors_total[30s])) by (outcome, reason)",
-          "legendFormat": "{{ outcome }}/{{ reason }}",
+          "legendFormat": "Threads",
           "refId": "A"
         }
       ]
@@ -432,7 +836,45 @@
     "voidwall"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "route",
+        "label": "Route",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": ""
+        },
+        "query": {
+          "query": "label_values(voidwall_requests_total, route)",
+          "refId": "route"
+        },
+        "definition": "label_values(voidwall_requests_total, route)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "direction",
+        "label": "Direction",
+        "type": "custom",
+        "query": "request,response",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
