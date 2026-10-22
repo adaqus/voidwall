@@ -1,4 +1,9 @@
-# Voidwall
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-light.svg">
+    <img alt="Voidwall" src="docs/assets/logo.svg" width="330">
+  </picture>
+</h1>
 
 AI agents, chatbots, and other apps send user input, documents, and tool output to large
 language models. Hidden instructions in that text can take control of the model, and
@@ -17,9 +22,9 @@ code change and no rebuild. See [docs/model-guards.md](docs/model-guards.md).
 
 ## Project Status
 
-Not ready for production. No TLS, no streaming (SSE) except on `openai-chat` routes, no
-stable release. The configuration format, the REST API, and the metrics can change in any
-commit, without a deprecation period.
+Not ready for production. No TLS, so no `https://` upstreams such as OpenAI. No streaming
+(SSE) except on `openai-chat` routes. No release yet. The configuration format, the REST
+API, and the metrics can change in any commit, without a deprecation period.
 
 ## How It Works
 
