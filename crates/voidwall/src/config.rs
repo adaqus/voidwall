@@ -16,7 +16,7 @@ use crate::error::Error;
 #[derive(Parser, Debug)]
 #[command(
     name = "voidwall",
-    about = "AI guardrails engine — PII detection today"
+    about = "AI guardrails proxy and API"
 )]
 #[command(group(
     ArgGroup::new("mode")

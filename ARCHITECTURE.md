@@ -19,9 +19,9 @@ fixed 403 naming the kinds that were found; there is no action to choose. The
 detection is always recorded as a metric, whether the message is blocked or reported
 on.
 
-Personally identifiable information is the class of finding it detects today. Each
-further class arrives as another guard behind the same contract. A model-backed guard
-(§ 4.8) runs an ONNX classifier over the units its surface admits.
+Personally identifiable information and prompt injection are the classes of finding it
+detects today. Each further class arrives as another guard behind the same contract. A
+model-backed guard (§ 4.8) runs an ONNX classifier over the units its surface admits.
 
 It is not an ingress controller. It sits in front of one, or beside one, or replaces
 one in a small deployment.

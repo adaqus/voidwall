@@ -1,10 +1,10 @@
 schema: spec-driven
 
 context: |
-  Voidwall — an AI guardrails engine: an HTTP proxy and REST API that inspects
+  Voidwall - an AI guardrails proxy and API that inspects HTTP
   traffic and acts on what it finds. A guard reports findings; the engine merges
-  them. A detection blocks the message. PII is the class of finding it detects
-  today, and each further class arrives as another guard.
+  them. A detection blocks the message. PII and prompt injection are the classes of
+  finding it detects today, and each further class arrives as another guard.
 
   Language: Rust, edition 2024. Platform: Linux only. Never add code for another OS.
   The minimum CPU is x86-64-v3. The binary checks it from `.preinit_array` in

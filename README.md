@@ -6,16 +6,20 @@ personal data can leak to a third-party model provider. Voidwall detects both an
 the message before it reaches the model. It runs on your own infrastructure, so your data
 goes to no other service for the check.
 
-Voidwall is a guardrails engine for AI traffic. It runs as a reverse proxy in front of
+Voidwall is an AI guardrails proxy and API. It runs as a reverse proxy in front of
 your model API, which needs no changes to your application code, or as a REST API your
-application calls. It is extensible: you can add guards that run other ONNX models,
-open-source or your own.
+application calls.
+
+You choose the detection models. A guard can run any ONNX text or token classifier that
+comes with a Hugging Face tokenizer: an open-source model or your own fine-tune. You mount
+the model, point a guard at it in the configuration, and set its labels and thresholds. No
+code change and no rebuild. See [docs/model-guards.md](docs/model-guards.md).
 
 ## Project Status
 
-Not ready for production. No TLS, no streaming (SSE), no stable release. The configuration
-format, the REST API, and the metrics can change in any commit, without a deprecation
-period.
+Not ready for production. No TLS, no streaming (SSE) except on `openai-chat` routes, no
+stable release. The configuration format, the REST API, and the metrics can change in any
+commit, without a deprecation period.
 
 ## How It Works
 
@@ -183,12 +187,21 @@ upstream = "http://vllm:8000"
   are not supported yet: one passes validation and then fails with 502. Use a server on
   plain HTTP, such as vLLM, Ollama, or LM Studio. OpenAI, Azure OpenAI, and OpenRouter
   are not reachable yet.
-- **Streaming.** A stream cannot be scanned yet. With `reverse_proxy.response.scan` on and
-  `on_error = "fail_close"`, a `"stream": true` request answers 422 before it reaches the
-  upstream, and a `text/event-stream` response answers 422. Under `fail_open` the stream
-  passes unscanned. Either way `voidwall_errors_total{reason="unscannable_stream"}` counts
-  it. With response scan off, a stream passes as on any route. Another response that is
-  not JSON, such as an HTML error page, follows `on_error` the same way.
+- **Streaming.** With `reverse_proxy.response.scan` on, a `text/event-stream` response is
+  scanned as a stream, whether or not the request set `"stream": true`. The route's
+  `stream` field selects the mode:
+  - `"holdback"` (the default): events reach the client unchanged while the stream runs,
+    but the newest `stream_holdback_bytes` of text wait until a scan clears them. A
+    detection before the first byte answers the usual 400. After the first byte, Voidwall
+    sends one `data:` event with the same error body and closes the stream, with no
+    `data: [DONE]`.
+  - `"buffer"`: Voidwall reads the whole stream, scans it once, and then sends it
+    unchanged or answers 400.
+
+  In both modes `stream_idle_timeout_secs` limits each gap between bytes, and the stream
+  counts against `max_body_size`. A compressed stream cannot be scanned and follows
+  `on_error`. With response scan off, a stream passes as on any route. A response that is
+  neither JSON nor a stream, such as an HTML error page, follows `on_error`.
 - **SDK retries.** OpenAI SDKs retry 500, 502, and 504 by default, so a scanner failure
   under `fail_close` can reach Voidwall up to three times. A 400 or a 422 is not retried.
 

@@ -1,10 +1,10 @@
 # Project Instructions
 
-Voidwall is an AI guardrails engine: an HTTP proxy and REST API that inspects traffic
+Voidwall is an AI guardrails proxy and API that inspects HTTP traffic
 and acts on what it finds. A guard reports findings; the engine merges them. A detection
 blocks the message with a fixed 403 naming the kinds that were found — there is no
-action to choose. Personally identifiable information (PII) is the class of finding it
-detects today, and each further class arrives as another guard.
+action to choose. Personally identifiable information (PII) and prompt injection are the
+classes of finding it detects today, and each further class arrives as another guard.
 
 ## Communication
 
@@ -147,7 +147,8 @@ reachable from nowhere else.
 ## Detection Safety
 
 These rules are mandatory. They cover every value a guard detects, whatever its class.
-PII is the class that exists today; nothing below is scoped to it.
+PII and prompt injection are the classes that exist today; nothing below is scoped to
+them.
 
 - Never log a detected value. Log kind names and match counts only.
 - Never expose a detected value in metrics. Labels use kind names only.
