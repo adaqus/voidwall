@@ -7,6 +7,7 @@ use clap::Parser;
 use voidwall::config::{AppConfig, Cli};
 use voidwall::engine::Engine;
 use voidwall::{server, validate};
+use voidwall_ml::OnnxRuntime;
 
 /// Runs before every static constructor, including ONNX Runtime's, which use
 /// x86-64-v3 instructions. A check in `main` would come too late: an older
@@ -86,7 +87,17 @@ async fn run_server(config_path: std::path::PathBuf) {
 
     tracing::info!(config_path = %config_path.display(), "configuration loaded");
 
-    if let Err(e) = server::run(config, Engine::from_config, shutdown_signal()).await {
+    // The process's one ONNX Runtime environment, for every model guard.
+    let runtime = match OnnxRuntime::new() {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to initialize detection engine");
+            std::process::exit(1);
+        }
+    };
+    let build_engine = move |config: &AppConfig| Engine::from_config(&runtime, config);
+
+    if let Err(e) = server::run(config, build_engine, shutdown_signal()).await {
         tracing::error!(error = %e, "failed to initialize detection engine");
         std::process::exit(1);
     }

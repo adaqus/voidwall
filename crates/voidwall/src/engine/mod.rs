@@ -33,6 +33,7 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use tracing::{info, warn};
+use voidwall_ml::OnnxRuntime;
 
 use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError, available_cpus};
 use crate::error::Error;
@@ -134,11 +135,12 @@ impl Engine {
     /// Each model guard loads its model here, which takes seconds per guard,
     /// so a caller on the async runtime runs this on the blocking pool. A
     /// load failure names the guard and stops the start.
-    pub fn from_config(config: &AppConfig) -> Result<Self, Error> {
+    pub fn from_config(runtime: &OnnxRuntime, config: &AppConfig) -> Result<Self, Error> {
         let mut engine = Self::new(&config.builtin_guards)?;
         let cpus = available_cpus();
         for (name, guard) in &config.guards {
             engine.guards.push(Box::new(model::ModelGuard::new(
+                runtime,
                 name,
                 guard,
                 config.max_body_size,
@@ -978,8 +980,11 @@ enabled = true
     #[test]
     fn a_model_guard_is_built_and_selectable_by_name_and_by_default() {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::from_config(&model_guard_config(dir.path(), b"")).expect("engine should build");
+        let engine = Engine::from_config(
+            voidwall_ml::fixtures::runtime(),
+            &model_guard_config(dir.path(), b""),
+        )
+        .expect("engine should build");
         assert_eq!(engine.guards.len(), 1);
         assert_eq!(engine.guards[0].name().as_ref(), "injection");
         assert!(!engine.select(Some(&["injection"])).is_empty());
@@ -990,7 +995,7 @@ enabled = true
     fn a_bad_model_fails_the_engine_naming_the_guard_and_the_path() {
         let dir = tempfile::tempdir().unwrap();
         let config = model_guard_config(dir.path(), b"not an onnx model");
-        let err = Engine::from_config(&config)
+        let err = Engine::from_config(voidwall_ml::fixtures::runtime(), &config)
             .err()
             .expect("a bad model must fail");
         let msg = err.to_string();
@@ -1038,8 +1043,11 @@ enabled = true
     #[tokio::test]
     async fn a_token_guard_is_built_selected_by_name_and_reports_spans() {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::from_config(&token_guard_config(dir.path())).expect("engine should build");
+        let engine = Engine::from_config(
+            voidwall_ml::fixtures::runtime(),
+            &token_guard_config(dir.path()),
+        )
+        .expect("engine should build");
         assert_eq!(engine.guards[0].name().as_ref(), "pii_ml");
 
         let mut units = Units::new();
@@ -1066,7 +1074,7 @@ enabled = true
         let config = token_guard_config(dir.path());
         let path = config.guards["pii_ml"].config_path.clone().unwrap();
         std::fs::write(&path, b"{ not json").unwrap();
-        let err = Engine::from_config(&config)
+        let err = Engine::from_config(voidwall_ml::fixtures::runtime(), &config)
             .err()
             .expect("a bad config.json must fail");
         let msg = err.to_string();

@@ -7,7 +7,10 @@
 #
 # Pinned to ONNX Runtime 1.28.0 (tag v1.28.0), the build `ort` 2.0.0-rc.13
 # expects. URL and hash come from ort-sys rc.13 `build/download/dist.tsv`.
-# Bumping `ort` means bumping both, and the vendored files in `licenses/`.
+# `ort` is now 2.0.0-rc.15, which pairs with 1.31.0 but runs on 1.28.0: it
+# asks ONNX Runtime only for API 17. Bumping this archive means bumping the
+# URL, the hash, `ORT_LIB_PATH` in `.cargo/config.toml`, the CI cache key,
+# the pinned-version test in `voidwall-ml`, and the files in `licenses/`.
 #
 # Needs: curl, sha256sum, xz, tar, and gh >= 2.49 logged in or with GH_TOKEN.
 #

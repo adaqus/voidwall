@@ -33,6 +33,43 @@ pub use run::{Cancel, RunError, check_overlap, default_overlap};
 pub use token::{TokenProbs, TokenRecord};
 
 use std::ffi::CStr;
+use std::fmt;
+
+/// The ONNX Runtime environment every session is built in.
+///
+/// A process gets one: `ort` refuses a second environment, even after the
+/// first is dropped. Build it once at startup and pass it to every [`load`].
+pub struct OnnxRuntime(ort::environment::Environment);
+
+impl OnnxRuntime {
+    pub fn new() -> Result<Self, RuntimeError> {
+        ort::init()
+            .build()
+            .map(Self)
+            .map_err(|e| RuntimeError(e.to_string()))
+    }
+
+    pub(crate) fn environment(&self) -> &ort::environment::Environment {
+        &self.0
+    }
+}
+
+/// ONNX Runtime did not build its environment, for example because the
+/// process already built one.
+#[derive(Debug)]
+pub struct RuntimeError(String);
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ONNX Runtime could not build its environment: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for RuntimeError {}
 
 /// The version of the ONNX Runtime linked into this build, as ONNX Runtime
 /// itself reports it.

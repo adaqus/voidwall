@@ -9,6 +9,7 @@ use ort::session::Session;
 use ort::session::builder::{GraphOptimizationLevel, PrepackedWeights, SessionBuilder};
 use tokenizers::Tokenizer;
 
+use crate::OnnxRuntime;
 use crate::adapter::{Adapter, AdapterKind, TextClassifier};
 use crate::checks::{self, InputLayout};
 use crate::labels::Labels;
@@ -330,25 +331,31 @@ impl std::error::Error for LoadError {}
 
 /// Loads `settings.workers` sessions of one model that share one copy of its
 /// weights, and returns them only when every check passed on every one.
-pub fn load(settings: &LoadSettings) -> Result<Workers, LoadError> {
+pub fn load(runtime: &OnnxRuntime, settings: &LoadSettings) -> Result<Workers, LoadError> {
     match settings.adapter {
         AdapterKind::TextClassifier => {
-            load_classifier::<TextClassifier>(settings).map(Workers::Classifier)
+            load_classifier::<TextClassifier>(runtime, settings).map(Workers::Classifier)
         }
-        AdapterKind::TokenClassifier => load_tokens(settings).map(Workers::Token),
+        AdapterKind::TokenClassifier => load_tokens(runtime, settings).map(Workers::Token),
         AdapterKind::TextMultilabelClassifier => Err(LoadError::AdapterNotBuilt(settings.adapter)),
     }
 }
 
-fn load_classifier<A: Adapter>(settings: &LoadSettings) -> Result<Vec<Worker>, LoadError> {
+fn load_classifier<A: Adapter>(
+    runtime: &OnnxRuntime,
+    settings: &LoadSettings,
+) -> Result<Vec<Worker>, LoadError> {
     let head = Classifier {
         window_score: A::window_score,
     };
-    load_with(settings, head, A::OUTPUT_WIDTH)
+    load_with(runtime, settings, head, A::OUTPUT_WIDTH)
 }
 
 /// The output width is the number of labels in `id2label`.
-fn load_tokens(settings: &LoadSettings) -> Result<Vec<TokenWorker>, LoadError> {
+fn load_tokens(
+    runtime: &OnnxRuntime,
+    settings: &LoadSettings,
+) -> Result<Vec<TokenWorker>, LoadError> {
     let path = settings
         .config_path
         .as_deref()
@@ -358,7 +365,7 @@ fn load_tokens(settings: &LoadSettings) -> Result<Vec<TokenWorker>, LoadError> {
     let head = Tokens {
         labels: Arc::new(labels),
     };
-    load_with(settings, head, width).map_err(|e| match e {
+    load_with(runtime, settings, head, width).map_err(|e| match e {
         // Only the output check gives this error; the labels set the width.
         LoadError::OutputWidth { expected, found } => LoadError::LabelCount {
             path: path.to_owned(),
@@ -370,6 +377,7 @@ fn load_tokens(settings: &LoadSettings) -> Result<Vec<TokenWorker>, LoadError> {
 }
 
 fn load_with<H: Head + Clone + Send + Sync>(
+    runtime: &OnnxRuntime,
     settings: &LoadSettings,
     head: H,
     width: i64,
@@ -394,7 +402,7 @@ fn load_with<H: Head + Clone + Send + Sync>(
     // One session first, so a model that breaks the contract fails after one
     // session load rather than N.
     let prepacked = PrepackedWeights::new();
-    let first = new_session(settings, &model, &graph, &prepacked)?;
+    let first = new_session(runtime, settings, &model, &graph, &prepacked)?;
     let layout = checks::check_inputs(first.inputs(), settings.max_tokens)?;
     let rank = if H::PER_TOKEN { 3 } else { 2 };
     checks::check_output(first.outputs(), rank, width)?;
@@ -421,7 +429,7 @@ fn load_with<H: Head + Clone + Send + Sync>(
         handles.extend((1..settings.workers.get()).map(|_| {
             let (model, graph, prepacked, worker) = (&model, &graph, &prepacked, &worker);
             scope.spawn(move || {
-                let session = new_session(settings, model, graph, prepacked)?;
+                let session = new_session(runtime, settings, model, graph, prepacked)?;
                 smoke(worker(session))
             })
         }));
@@ -456,8 +464,8 @@ fn read_tokenizer(settings: &LoadSettings) -> Result<(Tokenizer, i64), LoadError
 
 /// The options of every worker session: one intra-op thread, every graph
 /// optimization, CPU only.
-fn session_options() -> ort::Result<SessionBuilder> {
-    Ok(Session::builder()?
+fn session_options(runtime: &OnnxRuntime) -> ort::Result<SessionBuilder> {
+    Ok(Session::builder(runtime.environment())?
         .with_intra_threads(1)?
         .with_optimization_level(GraphOptimizationLevel::Level3)?)
 }
@@ -466,13 +474,14 @@ fn session_options() -> ort::Result<SessionBuilder> {
 /// no shared or prepacked weights, so a test can compare a worker with it.
 #[cfg(test)]
 pub(crate) fn plain_session(path: &Path) -> ort::Result<Session> {
-    session_options()?.commit_from_file(path)
+    session_options(crate::fixtures::runtime())?.commit_from_file(path)
 }
 
 /// One session over the shared weights: the staged weight-free graph, every
 /// initializer from the single read as an override, one shared prepacked
 /// container, and the options of [`session_options`].
 fn new_session(
+    runtime: &OnnxRuntime,
     settings: &LoadSettings,
     model: &ModelFile,
     graph: &Path,
@@ -482,7 +491,7 @@ fn new_session(
         path: settings.model_path.clone(),
         reason,
     };
-    let mut builder = session_options()
+    let mut builder = session_options(runtime)
         .map_err(|e| failed(e.to_string()))?
         .with_prepacked_weights(prepacked)
         .map_err(|e| failed(e.to_string()))?;
@@ -512,7 +521,7 @@ impl<H: Head> Worker<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{Fixture, ROWS, write_tokenizer};
+    use crate::fixtures::{Fixture, ROWS, runtime, write_tokenizer};
     use ort::value::Tensor;
 
     fn settings(dir: &std::path::Path, fixture: &Fixture, workers: usize) -> LoadSettings {
@@ -530,13 +539,13 @@ mod tests {
 
     fn load_fixture(fixture: Fixture) -> Result<Vec<Worker>, LoadError> {
         let dir = tempfile::tempdir().unwrap();
-        load(&settings(dir.path(), &fixture, 2)).map(Workers::into_classifiers)
+        load(runtime(), &settings(dir.path(), &fixture, 2)).map(Workers::into_classifiers)
     }
 
     #[test]
     fn a_good_model_loads_n_workers() {
         let dir = tempfile::tempdir().unwrap();
-        let workers = load(&settings(dir.path(), &Fixture::default(), 3))
+        let workers = load(runtime(), &settings(dir.path(), &Fixture::default(), 3))
             .unwrap()
             .into_classifiers();
         assert_eq!(workers.len(), 3);
@@ -567,7 +576,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut settings = settings(dir.path(), &Fixture::default(), 1);
         settings.adapter = AdapterKind::TextMultilabelClassifier;
-        let msg = load(&settings).err().unwrap().to_string();
+        let msg = load(runtime(), &settings).err().unwrap().to_string();
         assert!(
             msg.contains("text_multilabel_classifier") && msg.contains("not built"),
             "got: {msg}"
@@ -579,7 +588,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let settings = settings(dir.path(), &Fixture::default(), 1);
         std::fs::write(&settings.tokenizer_path, b"{ not json").unwrap();
-        let err = load(&settings).err().unwrap();
+        let err = load(runtime(), &settings).err().unwrap();
         assert!(matches!(err, LoadError::TokenizerUnreadable { .. }));
         assert!(
             err.to_string()
@@ -593,7 +602,7 @@ mod tests {
         let mut settings = settings(dir.path(), &Fixture::default(), 1);
         settings.tokenizer_path = write_tokenizer(dir.path(), 40);
         assert!(matches!(
-            load(&settings),
+            load(runtime(), &settings),
             Err(LoadError::TokenizerTooLarge {
                 highest_id: 40,
                 rows: ROWS
@@ -646,11 +655,15 @@ mod tests {
     fn a_worker_answers_like_the_unmodified_model() {
         let dir = tempfile::tempdir().unwrap();
         let settings = settings(dir.path(), &Fixture::default(), 1);
-        let mut plain = Session::builder()
+        let mut plain = Session::builder(runtime().environment())
             .unwrap()
             .commit_from_file(&settings.model_path)
             .unwrap();
-        let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
+        let mut worker = load(runtime(), &settings)
+            .unwrap()
+            .into_classifiers()
+            .pop()
+            .unwrap();
         assert_eq!(logits(&mut worker.session), logits(&mut plain));
     }
 
@@ -672,11 +685,15 @@ mod tests {
             ..Fixture::default()
         };
         let settings = settings(dir.path(), &fixture, 2);
-        let mut plain = Session::builder()
+        let mut plain = Session::builder(runtime().environment())
             .unwrap()
             .commit_from_file(&settings.model_path)
             .unwrap();
-        let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
+        let mut worker = load(runtime(), &settings)
+            .unwrap()
+            .into_classifiers()
+            .pop()
+            .unwrap();
         assert_eq!(logits(&mut worker.session), logits(&mut plain));
     }
 
@@ -688,7 +705,13 @@ mod tests {
         let staged = model.stage_in(dir.path()).unwrap();
         // The fixture's embedding is its only stripped initializer.
         model.initializers.retain(|w| w.name != "embedding");
-        let result = new_session(&settings, &model, &staged.path(), &PrepackedWeights::new());
+        let result = new_session(
+            runtime(),
+            &settings,
+            &model,
+            &staged.path(),
+            &PrepackedWeights::new(),
+        );
         assert!(matches!(result, Err(LoadError::Session { .. })));
     }
 
@@ -720,7 +743,7 @@ mod tests {
         // Reset the high-water mark, so building the fixture does not count.
         std::fs::write("/proc/self/clear_refs", "5").unwrap();
         let (rss, anon) = (status("VmRSS:"), status("RssAnon:"));
-        let workers = load(&settings).unwrap().into_classifiers();
+        let workers = load(runtime(), &settings).unwrap().into_classifiers();
         let peak = (status("VmHWM:") - rss) / weights;
         let kept = (status("RssAnon:") - anon) / weights;
         eprintln!(
