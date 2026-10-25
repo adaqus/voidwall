@@ -14,10 +14,7 @@ use crate::error::Error;
 // ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "voidwall",
-    about = "AI guardrails proxy and API"
-)]
+#[command(name = "voidwall", about = "AI guardrails proxy and API")]
 #[command(group(
     ArgGroup::new("mode")
         .required(true)
