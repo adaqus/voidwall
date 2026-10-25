@@ -10,7 +10,7 @@ license.workspace = true
 # Pinned exactly: 2.0 is a release candidate with no semver promise. Default
 # features are off so `download-binaries` never runs; `.cargo/config.toml`
 # links the archive `docker/fetch-ort.sh` verified.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "half"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "half"] }
 # Float16 and BFloat16 initializers (fp16 and mixed-precision models) are
 # shared as `half` tensors; `ort`'s `half` feature brings the same crate.
 half = { version = "2", default-features = false }
