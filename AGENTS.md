@@ -25,6 +25,7 @@ Be concise and use simple words. Keep explanations short unless the user asks fo
 - Remove only dead code created by the current change.
 - Do not revert or modify changes made by someone else.
 - Do not commit finished work.
+- A commit message you write follows `CONTRIBUTING.md#commit-messages`.
 
 For multi-step work, state a brief plan with a verification check for each step.
 

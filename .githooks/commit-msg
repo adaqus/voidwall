@@ -1,0 +1,15 @@
+#!/bin/sh
+# Checks the commit message against committed.toml.
+# Enable it once with: git config core.hooksPath .githooks
+
+# A merge keeps the message Git writes. CI skips merge commits too.
+if [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+    exit 0
+fi
+
+if ! command -v committed >/dev/null 2>&1; then
+    echo "commit-msg: committed is not installed. Run: cargo install --locked committed" >&2
+    exit 1
+fi
+
+exec committed --commit-file "$1"

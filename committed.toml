@@ -1,0 +1,9 @@
+# Commit message rules, checked by committed (https://github.com/crate-ci/committed).
+# CONTRIBUTING.md explains them. CI skips merge commits.
+style = "conventional"
+allowed_types = ["feat", "fix", "perf", "refactor", "test", "docs", "build", "ci", "chore", "style", "revert"]
+# Dependabot subjects with a directory run past 72 characters.
+subject_length = 100
+subject_capitalized = false
+# Bodies may hold long URLs, such as the release notes Dependabot copies in.
+line_length = 0

@@ -67,6 +67,18 @@ cargo install --locked --features cli cargo-about
 | `protoc` | Regenerating `src/onnx_proto.rs` with `crates/voidwall-ml/scripts/gen-onnx-proto.sh`. Normal builds do not need it |
 | `qemu-user` (`qemu-x86_64`) | Manual check of the CPU floor: run the binary with `-cpu Nehalem` and see it exit 1 |
 | [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (Node.js) | Proposing, validating, and archiving changes under `openspec/` |
+| [`committed`](https://github.com/crate-ci/committed) | The commit message hook. CI runs it on every push and pull request |
+
+### Commit Message Hook
+
+The hook checks each commit message against `committed.toml` before Git records the
+commit. [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages) gives the rules. Enable it once
+per clone:
+
+```bash
+cargo install --locked committed
+git config core.hooksPath .githooks
+```
 
 ## `docker/ctl` Commands
 

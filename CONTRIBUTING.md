@@ -39,3 +39,34 @@ A pull request must pass all of them. Clippy warnings count as errors.
   placeholder or a published test value.
 - A pull request never adds model files to the image. An operator mounts a model that is
   not a default one as a volume.
+
+## Commit Messages
+
+Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+CI checks each commit of a push or a pull request, except merge commits, with
+[`committed`](https://github.com/crate-ci/committed) and `committed.toml`. Commits made
+before the format was adopted are not checked.
+
+```text
+<type>(<scope>)!: <description>
+```
+
+- Type: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`,
+  `style`, or `revert`.
+- Scope: optional and free-form. Name the area the commit changes, for example `pii`,
+  `proxy`, or `grafana`.
+- Description: use the imperative mood (`add`, not `added`) and start with a lower-case
+  letter. Do not end it with a full stop. The subject line is at most 100 characters.
+- `!`: marks a break that an operator sees: a configuration field, an endpoint, a metric,
+  a status code, or a response body. A change to the Rust API of a workspace crate does
+  not need `!`.
+
+```text
+feat(proxy): support SSE for OpenAI-compatible APIs
+fix(pii): stop validators panicking on input no pattern produces
+feat(config)!: rename on_error to error_policy
+docs: update TODO
+```
+
+To check a message before you commit it, enable the hook in
+[DEVELOPMENT.md](DEVELOPMENT.md#commit-message-hook).
