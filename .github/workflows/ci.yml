@@ -12,6 +12,11 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # One build per branch: a newer push cancels a build still waiting to start.
+    # The commits job has no group: a cancelled run would leave its commits unchecked.
+    concurrency:
+      group: check-${{ github.ref }}
+      cancel-in-progress: false
     env:
       CARGO_TERM_COLOR: always
     steps:
