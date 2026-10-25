@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{SendTimeoutError, Sender};
 use tracing::{debug, error, info};
-use voidwall_ml::{Cancel, LoadSettings, RunError, TokenWorker, Worker, Workers};
+use voidwall_ml::{Cancel, LoadSettings, OnnxRuntime, RunError, TokenWorker, Worker, Workers};
 use voidwall_pii::PiiKind;
 
 use crate::config::ModelGuardConfig;
@@ -322,6 +322,7 @@ impl ModelGuard {
     /// Load the guard's model into `threads` workers and start one thread per
     /// worker. A load failure names the guard and stops the start.
     pub(crate) fn new(
+        runtime: &OnnxRuntime,
         name: &str,
         config: &ModelGuardConfig,
         max_body_size: usize,
@@ -342,7 +343,8 @@ impl ModelGuard {
         };
 
         let started = Instant::now();
-        let workers = voidwall_ml::load(&settings).map_err(|e| config_error(e.to_string()))?;
+        let workers =
+            voidwall_ml::load(runtime, &settings).map_err(|e| config_error(e.to_string()))?;
         info!(
             guard = name,
             threads = threads.get(),
@@ -460,7 +462,7 @@ mod tests {
     use std::path::Path;
     use test_case::test_case;
     use voidwall_ml::AdapterKind;
-    use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture, write_config};
+    use voidwall_ml::fixtures::{Fixture, TRIGGER_ID, TokenizerFixture, runtime, write_config};
 
     const KIND: &str = "PROMPT_INJECTION";
 
@@ -493,6 +495,7 @@ mod tests {
 
     fn guard_with(dir: &Path, fixture: Fixture, threshold: Option<f32>) -> ModelGuard {
         ModelGuard::new(
+            runtime(),
             "injection",
             &config(dir, fixture, threshold),
             1_048_576,
@@ -647,6 +650,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // max_tokens 16, overlap 8: stride 8, so 8 bytes allow one window.
         let guard = ModelGuard::new(
+            runtime(),
             "injection",
             &config(dir.path(), trigger_fixture(), Some(0.9)),
             8,
@@ -668,9 +672,15 @@ mod tests {
         let config = config(dir.path(), Fixture::default(), Some(0.9));
         std::fs::write(&config.model_path, b"not an onnx model").unwrap();
 
-        let err = ModelGuard::new("injection", &config, 1_048_576, NonZeroUsize::MIN)
-            .err()
-            .expect("a bad model must fail");
+        let err = ModelGuard::new(
+            runtime(),
+            "injection",
+            &config,
+            1_048_576,
+            NonZeroUsize::MIN,
+        )
+        .err()
+        .expect("a bad model must fail");
 
         let msg = err.to_string();
         assert!(msg.contains("guards.injection"), "got: {msg}");
@@ -710,6 +720,7 @@ mod tests {
             ..trigger_fixture()
         };
         ModelGuard::new(
+            runtime(),
             "injection",
             &config(dir, fixture, Some(0.9)),
             1_048_576,
@@ -887,8 +898,14 @@ mod tests {
         }
 
         fn guard(&self, dir: &Path) -> ModelGuard {
-            ModelGuard::new("pii_ml", &self.config(dir), 1_048_576, NonZeroUsize::MIN)
-                .expect("the token fixture loads")
+            ModelGuard::new(
+                runtime(),
+                "pii_ml",
+                &self.config(dir),
+                1_048_576,
+                NonZeroUsize::MIN,
+            )
+            .expect("the token fixture loads")
         }
 
         async fn detect(&self, units: Units) -> Reply {
@@ -1079,7 +1096,7 @@ mod tests {
         let path = config.config_path.clone().unwrap();
         std::fs::write(&path, br#"{ "label2id": {} }"#).unwrap();
 
-        let err = ModelGuard::new("pii_ml", &config, 1_048_576, NonZeroUsize::MIN)
+        let err = ModelGuard::new(runtime(), "pii_ml", &config, 1_048_576, NonZeroUsize::MIN)
             .err()
             .expect("a config without id2label must fail");
 

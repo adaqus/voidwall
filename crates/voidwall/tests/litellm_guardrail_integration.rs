@@ -18,7 +18,7 @@ use voidwall::admin::{self, AdminState};
 use voidwall::config::AppConfig;
 use voidwall::engine::Engine;
 use voidwall::http_api;
-use voidwall_ml::fixtures::{Fixture, TRIGGER, TRIGGER_ID, TokenizerFixture};
+use voidwall_ml::fixtures::{Fixture, TRIGGER, TRIGGER_ID, TokenizerFixture, runtime};
 
 const ROUTE: &str = "/beta/litellm_basic_guardrail_api";
 
@@ -40,7 +40,7 @@ static METRICS: Mutex<()> = Mutex::const_new(());
 const PII: &str = "[builtin_guards.pii]\nscanner_threads = 1\n";
 
 static SHARED_ENGINE: LazyLock<Arc<Engine>> =
-    LazyLock::new(|| Arc::new(Engine::from_config(&config("", "")).unwrap()));
+    LazyLock::new(|| Arc::new(Engine::from_config(runtime(), &config("", "")).unwrap()));
 
 async fn free_addr() -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -82,7 +82,7 @@ impl Server {
     /// An engine of its own, built from `guards` and `extra`.
     async fn start_owning(guards: &str, extra: &str) -> Self {
         let config = config(guards, extra);
-        let engine = Arc::new(Engine::from_config(&config).unwrap());
+        let engine = Arc::new(Engine::from_config(runtime(), &config).unwrap());
         Self::start_with(config, engine).await
     }
 
@@ -91,7 +91,7 @@ impl Server {
     async fn start_broken(extra: &str) -> Self {
         let mut config = config("", extra);
         config.builtin_guards.pii.as_mut().unwrap().scanner_threads = Some(0);
-        let engine = Arc::new(Engine::from_config(&config).unwrap());
+        let engine = Arc::new(Engine::from_config(runtime(), &config).unwrap());
         Self::start_with(config, engine).await
     }
 

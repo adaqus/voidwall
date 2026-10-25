@@ -153,7 +153,7 @@ impl TokenWorker {
 mod tests {
     use super::*;
     use crate::adapter::AdapterKind;
-    use crate::fixtures::{Fixture, TRIGGER, TokenizerFixture, write_config};
+    use crate::fixtures::{Fixture, TRIGGER, TokenizerFixture, runtime, write_config};
     use crate::load::{LoadError, LoadSettings, load};
     use crate::run::uncancelled;
     use std::num::NonZeroUsize;
@@ -205,7 +205,7 @@ mod tests {
                 max_body_size: NonZeroUsize::new(self.max_body_size).unwrap(),
                 workers: NonZeroUsize::new(2).unwrap(),
             };
-            load(&settings).map(|w| w.into_tokens())
+            load(runtime(), &settings).map(|w| w.into_tokens())
         }
 
         fn worker(&self) -> TokenWorker {
@@ -313,7 +313,7 @@ mod tests {
             max_body_size: NonZeroUsize::MIN,
             workers: NonZeroUsize::MIN,
         };
-        let err = load(&settings).err().unwrap();
+        let err = load(runtime(), &settings).err().unwrap();
         assert!(
             matches!(
                 err,
@@ -584,7 +584,7 @@ mod tests {
             max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
             workers: NonZeroUsize::new(workers.parse().unwrap()).unwrap(),
         };
-        let mut loaded = load(&settings).unwrap().into_tokens();
+        let mut loaded = load(runtime(), &settings).unwrap().into_tokens();
         let rss = std::fs::read_to_string("/proc/self/status")
             .unwrap()
             .lines()

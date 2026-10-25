@@ -36,7 +36,7 @@ use voidwall::admin::{self, AdminState};
 use voidwall::config::AppConfig;
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
-use voidwall_ml::fixtures::{Fixture, TRIGGER, TRIGGER_ID, TokenizerFixture};
+use voidwall_ml::fixtures::{Fixture, TRIGGER, TRIGGER_ID, TokenizerFixture, runtime};
 
 const ROUTE: &str = "/v1/chat/completions";
 
@@ -63,7 +63,7 @@ const PII: &str = "[builtin_guards.pii]\nscanner_threads = 1\n";
 
 static SHARED_ENGINE: LazyLock<Arc<Engine>> = LazyLock::new(|| {
     let config = Setup::default().config("http://127.0.0.1:9", PII);
-    Arc::new(Engine::from_config(&config).unwrap())
+    Arc::new(Engine::from_config(runtime(), &config).unwrap())
 });
 
 // ---------------------------------------------------------------------------
@@ -283,7 +283,7 @@ impl Proxy {
     /// An engine of its own, built from `guards`.
     async fn start_owning(setup: Setup, upstream: &str, guards: &str) -> Self {
         let config = setup.config(upstream, guards);
-        let engine = Arc::new(Engine::from_config(&config).unwrap());
+        let engine = Arc::new(Engine::from_config(runtime(), &config).unwrap());
         Self::start_with(config, engine).await
     }
 
@@ -292,7 +292,7 @@ impl Proxy {
     async fn start_broken(setup: Setup, upstream: &str) -> Self {
         let mut config = setup.config(upstream, PII);
         config.builtin_guards.pii.as_mut().unwrap().scanner_threads = Some(0);
-        let engine = Arc::new(Engine::from_config(&config).unwrap());
+        let engine = Arc::new(Engine::from_config(runtime(), &config).unwrap());
         Self::start_with(config, engine).await
     }
 
@@ -1740,7 +1740,7 @@ async fn a_custom_pattern_without_keywords() {
     );
 
     // The proxy starts.
-    let engine = Arc::new(Engine::from_config(&config).unwrap());
+    let engine = Arc::new(Engine::from_config(runtime(), &config).unwrap());
     let proxy = Proxy::start_with(config, engine).await;
     assert_eq!(proxy.post(&clean_request()).await.status(), 200);
 }

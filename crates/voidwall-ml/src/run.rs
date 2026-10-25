@@ -328,7 +328,7 @@ pub(crate) fn ids(encoding: &Encoding) -> Vec<i64> {
 mod tests {
     use super::*;
     use crate::adapter::{Adapter, AdapterKind, TextClassifier};
-    use crate::fixtures::{Fixture, PAD_ID, TRIGGER_ID, TokenizerFixture};
+    use crate::fixtures::{Fixture, PAD_ID, TRIGGER_ID, TokenizerFixture, runtime};
     use crate::load::{LoadSettings, load};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -508,7 +508,11 @@ mod tests {
                 max_body_size: NonZeroUsize::new(self.max_body_size).unwrap(),
                 workers: NonZeroUsize::MIN,
             };
-            let mut worker = load(&settings).unwrap().into_classifiers().pop().unwrap();
+            let mut worker = load(runtime(), &settings)
+                .unwrap()
+                .into_classifiers()
+                .pop()
+                .unwrap();
             worker.inferences = 0; // the smoke inference is not part of a run
             worker
         }

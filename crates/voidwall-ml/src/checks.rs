@@ -145,7 +145,7 @@ mod tests {
     /// A fixture as ONNX Runtime loads it, for its inputs and outputs.
     fn session(fixture: &Fixture) -> Session {
         let dir = tempfile::tempdir().unwrap();
-        Session::builder()
+        Session::builder(crate::fixtures::runtime().environment())
             .unwrap()
             .commit_from_file(fixture.write(dir.path()))
             .unwrap()

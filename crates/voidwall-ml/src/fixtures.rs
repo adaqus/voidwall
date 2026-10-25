@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use prost::Message;
 use tokenizers::models::wordlevel::WordLevel;
@@ -22,10 +23,17 @@ use tokenizers::pre_tokenizers::whitespace::Whitespace;
 use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
 
+use crate::OnnxRuntime;
 use crate::onnx_proto::{
     AttributeProto, GraphProto, ModelProto, NodeProto, OperatorSetIdProto, TensorProto,
     TensorShapeProto, TypeProto, ValueInfoProto, tensor_proto, tensor_shape_proto, type_proto,
 };
+
+/// The runtime every test in the process shares: a process gets one.
+pub fn runtime() -> &'static OnnxRuntime {
+    static RUNTIME: OnceLock<OnnxRuntime> = OnceLock::new();
+    RUNTIME.get_or_init(|| OnnxRuntime::new().unwrap())
+}
 
 /// Rows of the fixture's embedding table.
 pub const ROWS: i64 = 16;
@@ -580,7 +588,10 @@ mod tests {
     fn the_good_fixture_runs_in_plain_ort() {
         let dir = tempfile::tempdir().unwrap();
         let path = Fixture::default().write(dir.path());
-        let mut session = Session::builder().unwrap().commit_from_file(&path).unwrap();
+        let mut session = Session::builder(runtime().environment())
+            .unwrap()
+            .commit_from_file(&path)
+            .unwrap();
         let ids = Tensor::from_array(([1usize, 3], vec![1i64, 2, 3])).unwrap();
         let mask = Tensor::from_array(([1usize, 3], vec![1i64, 1, 1])).unwrap();
         let outputs = session
@@ -615,7 +626,10 @@ mod tests {
             ..Fixture::default()
         }
         .write(dir.path());
-        let mut session = Session::builder().unwrap().commit_from_file(&path).unwrap();
+        let mut session = Session::builder(runtime().environment())
+            .unwrap()
+            .commit_from_file(&path)
+            .unwrap();
         let mut score = |ids: Vec<i64>| {
             let shape = [1usize, ids.len()];
             let mask = Tensor::from_array((shape, vec![1i64; ids.len()])).unwrap();
@@ -642,7 +656,11 @@ mod tests {
             max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
             workers: NonZeroUsize::MIN,
         };
-        load(&settings).unwrap().into_classifiers().pop().unwrap()
+        load(runtime(), &settings)
+            .unwrap()
+            .into_classifiers()
+            .pop()
+            .unwrap()
     }
 
     /// Same score as the model without the chain, and a run that takes longer.

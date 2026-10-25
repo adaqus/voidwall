@@ -23,6 +23,7 @@ use serde::Deserialize;
 
 use crate::adapter::AdapterKind;
 use crate::decode::Boundaries;
+use crate::fixtures::runtime;
 use crate::load::{Head, LoadSettings, TokenWorker, Worker, load, plain_session};
 use crate::run::{uncancelled, window_inputs};
 
@@ -124,7 +125,7 @@ fn check_classifier(dir: &Path, name: &str, json: &[u8]) -> Vec<String> {
         max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
         workers: NonZeroUsize::MIN,
     };
-    let mut worker = load(&settings)
+    let mut worker = load(runtime(), &settings)
         .unwrap_or_else(|e| panic!("{name}: {e}"))
         .into_classifiers()
         .pop()
@@ -231,7 +232,7 @@ fn check_tokens(dir: &Path, name: &str, json: &[u8]) -> Vec<String> {
         max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
         workers: NonZeroUsize::MIN,
     };
-    let mut worker = load(&settings)
+    let mut worker = load(runtime(), &settings)
         .unwrap_or_else(|e| panic!("{name}: {e}"))
         .into_tokens()
         .pop()
@@ -360,7 +361,7 @@ fn check_int8(dir: &Path) -> Vec<String> {
         max_body_size: NonZeroUsize::new(1 << 20).unwrap(),
         workers: NonZeroUsize::MIN,
     };
-    let mut worker = load(&settings)
+    let mut worker = load(runtime(), &settings)
         .unwrap_or_else(|e| panic!("{name}: {e}"))
         .into_tokens()
         .pop()
