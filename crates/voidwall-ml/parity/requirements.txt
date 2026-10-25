@@ -7,4 +7,4 @@
 # becomes 10000 instead of 160000), which moves Wolf scores by up to 3e-3.
 tokenizers==0.22.2
 torch==2.13.0
-transformers==5.10.1
+transformers==5.20.2
