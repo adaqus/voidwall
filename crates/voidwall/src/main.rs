@@ -91,14 +91,14 @@ async fn run_server(config_path: std::path::PathBuf) {
     let runtime = match OnnxRuntime::new() {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!(error = %e, "failed to initialize detection engine");
+            tracing::error!(error = %e, "failed to start");
             std::process::exit(1);
         }
     };
     let build_engine = move |config: &AppConfig| Engine::from_config(&runtime, config);
 
     if let Err(e) = server::run(config, build_engine, shutdown_signal()).await {
-        tracing::error!(error = %e, "failed to initialize detection engine");
+        tracing::error!(error = %e, "failed to start");
         std::process::exit(1);
     }
 

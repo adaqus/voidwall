@@ -132,9 +132,9 @@ fn read_into(pipe: impl Read + Send + 'static, logs: Arc<Mutex<String>>) -> Join
 ///
 /// A port from `free_addr` can be lost to another test before the proxy binds
 /// it. A connect cannot tell the proxy from the listener that took its port, so
-/// readiness is the proxy's own log line. A proxy that lost its port logs that
-/// the reverse proxy failed and keeps running, so it is killed and the start
-/// is repeated on new ports.
+/// readiness is the proxy's own log line. A proxy that lost a port exits and
+/// logs `Address already in use`, so the start is repeated on new ports. Any
+/// other exit fails the test.
 async fn start_proxy(config: impl Fn(SocketAddr, SocketAddr) -> String) -> (Proxy, SocketAddr) {
     for _ in 0..5 {
         let proxy_addr = free_addr().await;
@@ -142,26 +142,38 @@ async fn start_proxy(config: impl Fn(SocketAddr, SocketAddr) -> String) -> (Prox
         let mut proxy = spawn_proxy(write_cfg(&config(proxy_addr, admin_addr)));
         // The proxy compiles its regex and vectorscan databases before it
         // binds, so a start with a guard enabled takes seconds.
+        let mut exit = None;
         for _ in 0..1200 {
-            let logs = proxy.logs();
-            if logs.contains("reverse proxy started") {
+            if proxy.logs().contains("reverse proxy started") {
                 return (proxy, proxy_addr);
             }
-            if logs.contains("reverse proxy failed") {
+            exit = proxy.child.try_wait().expect("poll voidwall");
+            if exit.is_some() {
                 break;
-            }
-            if let Some(status) = proxy.child.try_wait().expect("poll voidwall") {
-                panic!("voidwall exited with {status} before it bound: {logs}");
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let logs = stop_and_read_logs(proxy);
+        let Some(status) = exit else {
+            panic!("the reverse proxy did not start on {proxy_addr}: {logs}");
+        };
         assert!(
-            logs.contains("reverse proxy failed"),
-            "the reverse proxy did not start on {proxy_addr}: {logs}"
+            logs.contains("Address already in use"),
+            "voidwall exited with {status} before it bound: {logs}"
         );
     }
-    panic!("the reverse proxy lost its port on every attempt");
+    panic!("voidwall lost a port on every attempt");
+}
+
+/// Wait until the proxy exits by itself, and return its status and logs.
+async fn wait_for_exit(mut proxy: Proxy) -> (std::process::ExitStatus, String) {
+    for _ in 0..200 {
+        if let Some(status) = proxy.child.try_wait().expect("poll voidwall") {
+            return (status, stop_and_read_logs(proxy));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("voidwall must exit by itself");
 }
 
 /// Stop the proxy and return everything it logged.
@@ -347,8 +359,9 @@ listen = "{admin_addr}"
 /// binds. There is no partial start without the guard.
 #[tokio::test]
 async fn a_model_guard_that_fails_to_load_stops_the_start() {
+    // The data plane never binds, so its port is never taken. The admin server
+    // binds before the load, so it takes port 0, which no other test can hold.
     let proxy_addr = free_addr().await;
-    let admin_addr = free_addr().await;
 
     // Validation only checks that the files exist, so the load is what fails.
     let artifact = write_cfg("not an onnx model");
@@ -373,24 +386,14 @@ path_prefix = "/"
 upstream = "http://127.0.0.1:9"
 
 [admin]
-listen = "{admin_addr}"
+listen = "127.0.0.1:0"
 "#,
         artifact = artifact.path().display(),
     ));
 
-    let mut proxy = spawn_proxy(cfg);
-    let mut status = None;
-    for _ in 0..200 {
-        if let Some(s) = proxy.child.try_wait().expect("poll voidwall") {
-            status = Some(s);
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    let status = status.expect("voidwall must exit by itself");
+    let (status, logs) = wait_for_exit(spawn_proxy(cfg)).await;
     assert!(!status.success(), "a failed load must exit non-zero");
 
-    let logs = stop_and_read_logs(proxy);
     // A connect to the port cannot show this: another test may hold it. The
     // line is logged only once the listener is bound.
     assert!(
@@ -404,5 +407,43 @@ listen = "{admin_addr}"
     assert!(
         logs.contains(&artifact.path().display().to_string()),
         "must name the model path: {logs}"
+    );
+}
+
+/// A reverse proxy port another process holds stops the start: the binary
+/// exits non-zero by itself and logs the listener, the address, and the cause.
+#[tokio::test]
+async fn a_reverse_proxy_port_in_use_stops_the_start() {
+    // The test holds the proxy port, so the bind fails. The admin server binds
+    // port 0, which no other test can hold.
+    let held = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_addr = held.local_addr().unwrap();
+    let cfg = write_cfg(&format!(
+        r#"
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://127.0.0.1:9"
+
+[admin]
+listen = "127.0.0.1:0"
+"#
+    ));
+
+    let (status, logs) = wait_for_exit(spawn_proxy(cfg)).await;
+
+    assert!(!status.success(), "a lost port must exit non-zero: {logs}");
+    assert!(logs.contains("failed to start"), "{logs}");
+    assert!(
+        logs.contains(&format!("reverse proxy could not bind {proxy_addr}")),
+        "must name the listener and the address: {logs}"
+    );
+    assert!(logs.contains("Address already in use"), "{logs}");
+    assert!(
+        !logs.contains("readiness flag set"),
+        "/readyz must never answer 200: {logs}"
     );
 }

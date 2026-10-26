@@ -175,10 +175,20 @@ pub async fn serve(
     engine: Arc<Engine>,
     cancel: CancellationToken,
 ) -> Result<(), Error> {
+    let listener = TcpListener::bind(&config.reverse_proxy.listen).await?;
+    serve_on(listener, config, engine, cancel).await
+}
+
+/// Serve the reverse proxy on a listener already bound.
+pub async fn serve_on(
+    listener: TcpListener,
+    config: &AppConfig,
+    engine: Arc<Engine>,
+    cancel: CancellationToken,
+) -> Result<(), Error> {
     let state = build_state(config, engine);
     let app = router(state);
-    let listener = TcpListener::bind(&config.reverse_proxy.listen).await?;
-    tracing::info!(listen = %config.reverse_proxy.listen, "reverse proxy started");
+    tracing::info!(listen = %listener.local_addr()?, "reverse proxy started");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(cancel.cancelled_owned())

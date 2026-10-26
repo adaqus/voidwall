@@ -10,6 +10,14 @@ pub enum Error {
     /// Configuration file could not be read or parsed.
     Config(String),
 
+    /// A listener could not bind its configured address at startup. No
+    /// request can produce it.
+    Bind {
+        listener: Listener,
+        addr: String,
+        source: std::io::Error,
+    },
+
     /// PII scanner initialization or runtime failure.
     Scanner(String),
 
@@ -50,10 +58,34 @@ pub enum Error {
     UnscannableContent,
 }
 
+/// A listener the proxy binds at startup. The name in a bind error can only
+/// be one of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Listener {
+    Admin,
+    ReverseProxy,
+    HttpApi,
+}
+
+impl std::fmt::Display for Listener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Listener::Admin => "admin server",
+            Listener::ReverseProxy => "reverse proxy",
+            Listener::HttpApi => "HTTP API",
+        })
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Config(msg) => write!(f, "configuration error: {msg}"),
+            Error::Bind {
+                listener,
+                addr,
+                source,
+            } => write!(f, "{listener} could not bind {addr}: {source}"),
             Error::Scanner(msg) => write!(f, "scanner error: {msg}"),
             Error::Inference { guard, detail } => {
                 write!(f, "model guard '{guard}' failed: {detail}")
@@ -81,7 +113,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::Io(e) => Some(e),
+            Error::Io(e) | Error::Bind { source: e, .. } => Some(e),
             _ => None,
         }
     }
@@ -160,7 +192,7 @@ impl Error {
     /// answer shapes read it, so their text cannot drift apart.
     fn status_and_message(&self) -> (StatusCode, &'static str) {
         match self {
-            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => {
+            Error::Config(_) | Error::Bind { .. } | Error::Scanner(_) | Error::Inference { .. } => {
                 (StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR)
             }
             Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
@@ -198,7 +230,7 @@ impl Error {
             // The reverse proxy never answers it; listed so the match stays
             // exhaustive.
             Error::UnsupportedContentType => (INVALID_REQUEST, "unsupported_content_type"),
-            Error::Config(_) | Error::Scanner(_) | Error::Inference { .. } => {
+            Error::Config(_) | Error::Bind { .. } | Error::Scanner(_) | Error::Inference { .. } => {
                 (SERVER_ERROR, "internal_error")
             }
             Error::Proxy(_) | Error::Io(_) | Error::ResponseTooLarge => {
@@ -409,6 +441,38 @@ mod tests {
         assert!(inference_error().to_string().contains("injection"));
         let msg = window_limit_error().to_string();
         assert!(msg.contains("injection") && msg.contains("2746") && msg.contains("2745"));
+    }
+
+    fn bind_error(listener: Listener) -> Error {
+        Error::Bind {
+            listener,
+            addr: "127.0.0.1:8082".into(),
+            source: std::io::Error::from(std::io::ErrorKind::AddrInUse),
+        }
+    }
+
+    #[test_case(Listener::Admin, "admin server" ; "admin")]
+    #[test_case(Listener::ReverseProxy, "reverse proxy" ; "reverse proxy")]
+    #[test_case(Listener::HttpApi, "HTTP API" ; "http api")]
+    fn a_bind_error_names_the_listener_the_address_and_the_cause(listener: Listener, name: &str) {
+        use std::error::Error as StdError;
+        let err = bind_error(listener);
+        let cause = std::io::Error::from(std::io::ErrorKind::AddrInUse).to_string();
+        assert_eq!(
+            err.to_string(),
+            format!("{name} could not bind 127.0.0.1:8082: {cause}")
+        );
+        let source = err.source().expect("the I/O error is the source");
+        let io = source.downcast_ref::<std::io::Error>().unwrap();
+        assert_eq!(io.kind(), std::io::ErrorKind::AddrInUse);
+    }
+
+    #[tokio::test]
+    async fn a_bind_error_answers_the_fixed_500() {
+        let response = bind_error(Listener::ReverseProxy).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"internal error"}"#);
     }
 
     #[tokio::test]

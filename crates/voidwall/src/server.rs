@@ -10,12 +10,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 use crate::admin::{self, AdminState};
 use crate::config::AppConfig;
 use crate::engine::Engine;
-use crate::error::Error;
+use crate::error::{Error, Listener};
 use crate::{http_api, reverse_proxy};
 
 /// Start every enabled mode and run until `shutdown` completes.
@@ -23,8 +24,9 @@ use crate::{http_api, reverse_proxy};
 /// `build_engine` builds the guards. It runs on the blocking pool, because a
 /// model guard loads its model there, which takes seconds; the admin server
 /// keeps answering meanwhile. When it fails, the admin server stops and the
-/// error is returned, so the caller can exit non-zero. A `shutdown` that
-/// completes during the build ends the run without binding the data plane.
+/// error is returned, so the caller can exit non-zero. A listener that cannot
+/// bind ends the run the same way, with an error that names it. A `shutdown`
+/// that completes during the build ends the run without binding the data plane.
 pub async fn run<B, S>(config: AppConfig, build_engine: B, shutdown: S) -> Result<(), Error>
 where
     B: FnOnce(&AppConfig) -> Result<Engine, Error> + Send + 'static,
@@ -38,13 +40,14 @@ where
 
     // Admin server (always on), before the guards load.
     {
+        let listener = bind(Listener::Admin, &config.admin.listen, &cancel).await?;
         let admin_config = config.admin.clone();
         let state = AdminState {
             ready: Arc::clone(&ready),
         };
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = admin::serve(&admin_config, state, cancel).await {
+            if let Err(e) = admin::serve_on(listener, &admin_config, state, cancel).await {
                 tracing::error!(error = %e, "admin server failed");
             }
         }));
@@ -92,11 +95,17 @@ where
 
     // Reverse proxy (if enabled)
     if config.reverse_proxy.enabled {
+        let listener = bind(
+            Listener::ReverseProxy,
+            &config.reverse_proxy.listen,
+            &cancel,
+        )
+        .await?;
         let config = config.clone();
         let engine = Arc::clone(&engine);
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = reverse_proxy::serve(&config, engine, cancel).await {
+            if let Err(e) = reverse_proxy::serve_on(listener, &config, engine, cancel).await {
                 tracing::error!(error = %e, "reverse proxy failed");
             }
         }));
@@ -105,31 +114,22 @@ where
 
     // HTTP API (if enabled)
     if config.http_api.enabled {
+        let listener = bind(Listener::HttpApi, &config.http_api.listen, &cancel).await?;
         let config = config.clone();
         let engine = Arc::clone(&engine);
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = http_api::serve(&config, engine, cancel).await {
+            if let Err(e) = http_api::serve_on(listener, &config, engine, cancel).await {
                 tracing::error!(error = %e, "HTTP API failed");
             }
         }));
         tracing::info!("HTTP API task spawned");
     }
 
-    // Set readiness flag once all listeners are bound
-    // The listeners bind inside their serve() calls. We give a brief moment
-    // for them to bind, then set readiness. A more robust approach would use
-    // per-listener readiness signals, but the current serve() functions bind
-    // immediately on start.
-    {
-        let ready = Arc::clone(&ready);
-        tokio::spawn(async move {
-            // Small yield to let listener tasks bind their ports
-            tokio::task::yield_now().await;
-            ready.store(true, Ordering::Release);
-            tracing::info!("readiness flag set");
-        });
-    }
+    // Every enabled data-plane listener is bound. A connection that arrives
+    // before its task serves waits in the listen backlog.
+    ready.store(true, Ordering::Release);
+    tracing::info!("readiness flag set");
 
     shutdown.await;
     tracing::info!("shutdown signal received, initiating graceful shutdown");
@@ -162,4 +162,21 @@ where
     }
 
     Ok(())
+}
+
+/// Bind `addr` for `listener`. On a failure, cancel `cancel`, so every
+/// listener already serving stops, and return an error that names both.
+async fn bind(
+    listener: Listener,
+    addr: &str,
+    cancel: &CancellationToken,
+) -> Result<TcpListener, Error> {
+    TcpListener::bind(addr).await.map_err(|source| {
+        cancel.cancel();
+        Error::Bind {
+            listener,
+            addr: addr.to_owned(),
+            source,
+        }
+    })
 }

@@ -149,12 +149,11 @@ fn read_into(pipe: impl Read + Send + 'static, logs: Arc<Mutex<String>>) -> Join
     })
 }
 
-/// The line each listener logs once it is bound, and the line it logs when the
-/// bind fails. A listener that fails does not stop the process.
-const LISTENERS: [(&str, &str); 3] = [
-    ("reverse proxy started", "reverse proxy failed"),
-    ("HTTP API started", "HTTP API failed"),
-    ("admin server started", "admin server failed"),
+/// The line each listener logs once it is bound.
+const LISTENERS: [&str; 3] = [
+    "reverse proxy started",
+    "HTTP API started",
+    "admin server started",
 ];
 
 /// A fixture model and tokenizer on disk.
@@ -226,7 +225,8 @@ struct Running {
 /// A port from `free_addr` can be lost to another test before the binary
 /// binds it. A connect cannot tell the binary from the listener that took its
 /// port, so readiness is the binary's own log line for each listener. A start
-/// that lost a port is killed and repeated on new ports.
+/// that lost a port exits and logs `Address already in use`, so it is repeated
+/// on new ports. Any other exit fails the test.
 async fn start(guards: &str, route_extra: &str, top: &str) -> Running {
     start_with_env(guards, route_extra, top, &[]).await
 }
@@ -272,14 +272,10 @@ listen = "{admin_addr}"
         let mut proxy = Proxy::spawn_with_env(config.path(), env);
         // The PII guard compiles its databases before the data plane binds,
         // so a start can take seconds.
-        let mut lost_port = false;
+        let mut exit = None;
         for _ in 0..1200 {
             let logs = proxy.logs();
-            if LISTENERS.iter().any(|(_, failed)| logs.contains(failed)) {
-                lost_port = true;
-                break;
-            }
-            if LISTENERS.iter().all(|(started, _)| logs.contains(started)) {
+            if LISTENERS.iter().all(|started| logs.contains(started)) {
                 return Running {
                     proxy_addr,
                     api_addr,
@@ -289,13 +285,20 @@ listen = "{admin_addr}"
                     _config: config,
                 };
             }
-            if let Some(status) = proxy.try_wait() {
-                panic!("voidwall exited with {status} before it bound: {logs}");
+            exit = proxy.try_wait();
+            if exit.is_some() {
+                break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let logs = proxy.stop();
-        assert!(lost_port, "voidwall did not bind every listener: {logs}");
+        let Some(status) = exit else {
+            panic!("voidwall did not bind every listener: {logs}");
+        };
+        assert!(
+            logs.contains("Address already in use"),
+            "voidwall exited with {status} before it bound: {logs}"
+        );
     }
     panic!("voidwall lost a port on every attempt");
 }
@@ -632,8 +635,9 @@ async fn an_overlap_that_leaves_no_room_in_the_window_stops_the_start() {
     // so max_tokens 10 leaves a window of 4, not longer than an overlap of 5.
     add_leading_cls(&artifacts.tokenizer, 4);
 
+    // The data plane never binds, so its port is never taken. The admin server
+    // binds before the load, so it takes port 0, which no other test can hold.
     let proxy_addr = free_addr().await;
-    let admin_addr = free_addr().await;
     let config = write_config(&format!(
         r#"
 [guards.injection]
@@ -654,7 +658,7 @@ path_prefix = "/"
 upstream = "http://127.0.0.1:9"
 
 [admin]
-listen = "{admin_addr}"
+listen = "127.0.0.1:0"
 "#,
         model = artifacts.model.display(),
         tokenizer = artifacts.tokenizer.display(),

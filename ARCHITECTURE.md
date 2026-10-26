@@ -464,11 +464,11 @@ not the handler, names its status and reason, so no handler branches on a guard.
 Loading takes seconds per guard, so `server::run` binds the admin server first, builds the
 engine on the blocking pool, and binds the data plane only after every guard has loaded:
 `/healthz` answers throughout, `/readyz` answers 503 until the data plane is up, and a
-load failure exits non-zero with no partial start. `--validate` stays offline and loads
-no model. The `voidwall_pii_*` metric families count the findings of the PII guards: the
-`pii` guard and every guard with `class = "pii"`. The set of their names (`PiiGuards` in
-`metrics.rs`) is built once from configuration, and every increment of a PII family asks
-it, so a kind two PII guards report counts once.
+load failure or a listener that cannot bind exits non-zero with no partial start.
+`--validate` stays offline and loads no model. The `voidwall_pii_*` metric families count
+the findings of the PII guards: the `pii` guard and every guard with `class = "pii"`. The
+set of their names (`PiiGuards` in `metrics.rs`) is built once from configuration, and
+every increment of a PII family asks it, so a kind two PII guards report counts once.
 
 ### 4.9 No authentication
 

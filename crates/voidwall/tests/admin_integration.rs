@@ -283,3 +283,172 @@ listen = "{admin_addr}"
     assert!(err.to_string().contains("guards.injection"));
     assert!(tokio::net::TcpStream::connect(api_addr).await.is_err());
 }
+
+// --- A listener that fails to bind stops the start ---
+
+/// Run the server with the config `config` writes for an admin address and a
+/// held address, and return the error it stops with and the admin address.
+/// The test holds a socket on the held address, so a bind of it fails. The
+/// admin port comes from `free_addr` and can be lost to another test before
+/// the run binds it; a run that lost it is repeated on a new port.
+async fn run_against_a_held_port(
+    config: impl Fn(SocketAddr, SocketAddr) -> String,
+) -> (voidwall::error::Error, SocketAddr, SocketAddr) {
+    use voidwall::config::AppConfig;
+    use voidwall::engine::Engine;
+    use voidwall::error::{Error, Listener};
+
+    let held = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let held_addr = held.local_addr().unwrap();
+    for _ in 0..5 {
+        let admin_addr = free_addr().await;
+        let config: AppConfig = toml::from_str(&config(admin_addr, held_addr)).unwrap();
+        let err = voidwall::server::run(
+            config,
+            |config: &AppConfig| Engine::new(&config.builtin_guards),
+            std::future::pending(),
+        )
+        .await
+        .expect_err("the held address cannot bind");
+        if matches!(
+            err,
+            Error::Bind {
+                listener: Listener::Admin,
+                ..
+            }
+        ) {
+            continue;
+        }
+        return (err, admin_addr, held_addr);
+    }
+    panic!("the admin server lost its port on every attempt");
+}
+
+/// The admin server stops once the run returns: a connect fails.
+async fn wait_until_closed(addr: SocketAddr) {
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(addr).await.is_err() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the admin server still serves on {addr}");
+}
+
+#[tokio::test]
+async fn a_reverse_proxy_that_cannot_bind_stops_the_start() {
+    use voidwall::error::{Error, Listener};
+
+    let (err, admin_addr, held_addr) = run_against_a_held_port(|admin_addr, held_addr| {
+        format!(
+            r#"
+[reverse_proxy]
+enabled = true
+listen = "{held_addr}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+        )
+    })
+    .await;
+
+    let Error::Bind {
+        listener,
+        addr,
+        source,
+    } = &err
+    else {
+        panic!("expected a bind error, got {err}");
+    };
+    assert_eq!(*listener, Listener::ReverseProxy);
+    assert_eq!(*addr, held_addr.to_string());
+    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    wait_until_closed(admin_addr).await;
+}
+
+#[tokio::test]
+async fn an_http_api_that_cannot_bind_stops_the_start() {
+    use voidwall::error::{Error, Listener};
+
+    let (err, admin_addr, held_addr) = run_against_a_held_port(|admin_addr, held_addr| {
+        format!(
+            r#"
+[http_api]
+enabled = true
+listen = "{held_addr}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+        )
+    })
+    .await;
+
+    let Error::Bind {
+        listener,
+        addr,
+        source,
+    } = &err
+    else {
+        panic!("expected a bind error, got {err}");
+    };
+    assert_eq!(*listener, Listener::HttpApi);
+    assert_eq!(*addr, held_addr.to_string());
+    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    wait_until_closed(admin_addr).await;
+}
+
+/// The admin server binds first, so a lost admin port stops the start before
+/// the guards load.
+#[tokio::test]
+async fn an_admin_server_that_cannot_bind_stops_the_start_before_the_guards_load() {
+    use voidwall::config::AppConfig;
+    use voidwall::engine::Engine;
+    use voidwall::error::{Error, Listener};
+
+    let held = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let held_addr = held.local_addr().unwrap();
+    let config: AppConfig = toml::from_str(&format!(
+        r#"
+[http_api]
+enabled = true
+listen = "127.0.0.1:0"
+
+[admin]
+listen = "{held_addr}"
+"#
+    ))
+    .unwrap();
+
+    let built = Arc::new(AtomicBool::new(false));
+    let result = voidwall::server::run(
+        config,
+        {
+            let built = Arc::clone(&built);
+            move |config: &AppConfig| {
+                built.store(true, Ordering::Release);
+                Engine::new(&config.builtin_guards)
+            }
+        },
+        std::future::pending(),
+    )
+    .await;
+
+    let err = result.expect_err("the held address cannot bind");
+    let Error::Bind {
+        listener,
+        addr,
+        source,
+    } = &err
+    else {
+        panic!("expected a bind error, got {err}");
+    };
+    assert_eq!(*listener, Listener::Admin);
+    assert_eq!(*addr, held_addr.to_string());
+    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    assert!(
+        !built.load(Ordering::Acquire),
+        "the guards must not load once the admin bind failed"
+    );
+}

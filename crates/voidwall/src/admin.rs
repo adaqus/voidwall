@@ -36,9 +36,20 @@ pub async fn serve(
     state: AdminState,
     cancel: CancellationToken,
 ) -> Result<(), crate::error::Error> {
-    let app = router(config, state);
     let listener = TcpListener::bind(&config.listen).await?;
-    tracing::info!(listen = %config.listen, "admin server started");
+    serve_on(listener, config, state, cancel).await
+}
+
+/// Serve the admin server on a listener already bound.
+/// Runs until the cancellation token is triggered.
+pub async fn serve_on(
+    listener: TcpListener,
+    config: &AdminConfig,
+    state: AdminState,
+    cancel: CancellationToken,
+) -> Result<(), crate::error::Error> {
+    let app = router(config, state);
+    tracing::info!(listen = %listener.local_addr()?, "admin server started");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(cancel.cancelled_owned())
