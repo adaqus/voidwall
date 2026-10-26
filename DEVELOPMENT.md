@@ -16,7 +16,7 @@ You need these to run `cargo check`, `cargo test`, and `cargo clippy`.
 | Tool | Why |
 |---|---|
 | Rust, latest stable, with `clippy` | Edition 2024 workspace. CI uses the latest stable toolchain |
-| C and C++ compiler (`gcc`/`g++` or `clang`) | `vectorscan-rs-sys`, `onig_sys`, `aws-lc-sys`, `tikv-jemalloc-sys` compile C/C++ code |
+| C and C++ compiler (`gcc`/`g++` or `clang`) | `vectorscan-rs-sys`, `onig_sys`, `tikv-jemalloc-sys` compile C/C++ code |
 | `cmake` | Builds Vectorscan from source |
 | Boost headers (`libboost-dev`) | Vectorscan build |
 | `patch` | Vectorscan build applies patches |
