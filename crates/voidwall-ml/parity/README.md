@@ -27,7 +27,7 @@ A `token_classifier` model passes when:
   test turns into byte offsets
 - every pooled probability, start probability, and span confidence is within 2e-4 of
   the reference. This is wider than 1e-4, because the fp32 ONNX export of the PII model
-  alone differs from PyTorch by up to 9.8e-5
+  alone differs from PyTorch 2.14 by up to 1.41e-4
 - the spans and their types equal the reference's
 
 The token test runs the fp32 ONNX export. The INT8 file the dev stack runs is not

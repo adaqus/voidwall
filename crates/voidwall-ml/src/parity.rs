@@ -31,7 +31,7 @@ use crate::run::{uncancelled, window_inputs};
 const TOLERANCE: f64 = 1e-4;
 /// The largest pooled probability or confidence difference from the
 /// reference that token classifier parity accepts. Wider than [`TOLERANCE`]:
-/// the fp32 PII model's ONNX export alone differs from PyTorch by 9.8e-5.
+/// the fp32 PII model's ONNX export alone differs from PyTorch 2.14 by 1.41e-4.
 const TOKEN_TOLERANCE: f64 = 2e-4;
 /// The lowest score the known attack prompt may get.
 const ATTACK_SCORE: f32 = 0.9;

@@ -347,7 +347,7 @@ cmd_parity() {
             exit 2
         fi
         # torch alone from the CPU index first, so pip never picks the CUDA build
-        # from PyPI; the requirements step then keeps it (2.13.0+cpu is ==2.13.0).
+        # from PyPI; the requirements step then keeps it (2.14.1+cpu is ==2.14.1).
         "$venv/bin/pip" install --quiet --disable-pip-version-check \
             --index-url "$PARITY_TORCH_INDEX" "$torch_pin"
         "$venv/bin/pip" install --quiet --disable-pip-version-check -r "$src_dir/requirements.txt"
