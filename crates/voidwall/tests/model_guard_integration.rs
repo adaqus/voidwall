@@ -7,12 +7,13 @@
 //! The token fixture drops the sum over tokens, so it labels each token: the
 //! word `trigger` as label 1, every other word as label 0.
 
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -46,6 +47,8 @@ async fn echo(State(hits): State<Arc<AtomicUsize>>, req: Request) -> impl IntoRe
     (StatusCode::OK, [("content-type", "text/plain")], body)
 }
 
+/// A port picked by binding port 0 and releasing it. Another test can take it
+/// before the binary binds it; `start_with_env` handles that.
 async fn free_addr() -> SocketAddr {
     TcpListener::bind("127.0.0.1:0")
         .await
@@ -54,20 +57,13 @@ async fn free_addr() -> SocketAddr {
         .unwrap()
 }
 
-/// The PII guard compiles its databases before the data plane binds, so a
-/// start can take seconds.
-async fn wait_for_port(addr: SocketAddr) {
-    for _ in 0..1200 {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    panic!("server did not start on {addr}");
+/// The running binary. Its stdout and stderr are read while it runs, so a test
+/// can wait for a line it logs. Killed when dropped.
+struct Proxy {
+    child: Option<Child>,
+    logs: Arc<Mutex<String>>,
+    readers: Vec<JoinHandle<()>>,
 }
-
-/// The running binary, with its output captured. Killed when dropped.
-struct Proxy(Option<Child>);
 
 impl Proxy {
     fn spawn(config: &Path) -> Self {
@@ -75,24 +71,36 @@ impl Proxy {
     }
 
     fn spawn_with_env(config: &Path, env: &[(&str, &str)]) -> Self {
-        Self(Some(
-            Command::new(BIN)
-                .arg("--config")
-                .arg(config)
-                .env_remove("VOIDWALL_CONFIG")
-                .envs(env.iter().copied())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .expect("spawn voidwall"),
-        ))
+        let mut child = Command::new(BIN)
+            .arg("--config")
+            .arg(config)
+            .env_remove("VOIDWALL_CONFIG")
+            .envs(env.iter().copied())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn voidwall");
+        let logs = Arc::new(Mutex::new(String::new()));
+        let readers = vec![
+            read_into(child.stdout.take().unwrap(), Arc::clone(&logs)),
+            read_into(child.stderr.take().unwrap(), Arc::clone(&logs)),
+        ];
+        Self {
+            child: Some(child),
+            logs,
+            readers,
+        }
+    }
+
+    /// What the process has logged so far.
+    fn logs(&self) -> String {
+        self.logs.lock().unwrap().clone()
     }
 
     /// Wait until the process exits by itself, and return its status and logs.
     async fn wait_for_exit(mut self) -> (ExitStatus, String) {
-        let child = self.0.as_mut().unwrap();
         for _ in 0..200 {
-            if let Some(status) = child.try_wait().expect("poll voidwall") {
+            if let Some(status) = self.try_wait() {
                 return (status, self.stop());
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -100,27 +108,54 @@ impl Proxy {
         panic!("voidwall must exit by itself");
     }
 
+    fn try_wait(&mut self) -> Option<ExitStatus> {
+        let child = self.child.as_mut().unwrap();
+        child.try_wait().expect("poll voidwall")
+    }
+
     /// Stop the process and return everything it logged.
     fn stop(&mut self) -> String {
-        let mut child = self.0.take().unwrap();
+        let mut child = self.child.take().unwrap();
         let _ = child.kill();
-        let out = child.wait_with_output().expect("wait for voidwall");
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
-        )
+        child.wait().expect("wait for voidwall");
+        for reader in std::mem::take(&mut self.readers) {
+            reader.join().expect("log reader");
+        }
+        self.logs()
     }
 }
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
+        if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
     }
 }
+
+/// Appends each line of `pipe` to `logs` until the pipe closes. A line that is
+/// not UTF-8 is kept lossily, so the reader never stops early and fills the pipe.
+fn read_into(pipe: impl Read + Send + 'static, logs: Arc<Mutex<String>>) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(pipe);
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
+            logs.lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&line));
+            line.clear();
+        }
+    })
+}
+
+/// The line each listener logs once it is bound, and the line it logs when the
+/// bind fails. A listener that fails does not stop the process.
+const LISTENERS: [(&str, &str); 3] = [
+    ("reverse proxy started", "reverse proxy failed"),
+    ("HTTP API started", "HTTP API failed"),
+    ("admin server started", "admin server failed"),
+];
 
 /// A fixture model and tokenizer on disk.
 struct Artifacts {
@@ -187,6 +222,11 @@ struct Running {
 
 /// Start the binary with `guards` in front of a counting upstream, the
 /// reverse proxy route carrying `route_extra`, and the REST API.
+///
+/// A port from `free_addr` can be lost to another test before the binary
+/// binds it. A connect cannot tell the binary from the listener that took its
+/// port, so readiness is the binary's own log line for each listener. A start
+/// that lost a port is killed and repeated on new ports.
 async fn start(guards: &str, route_extra: &str, top: &str) -> Running {
     start_with_env(guards, route_extra, top, &[]).await
 }
@@ -199,11 +239,12 @@ async fn start_with_env(
     env: &[(&str, &str)],
 ) -> Running {
     let (upstream, hits) = start_counting_upstream().await;
-    let proxy_addr = free_addr().await;
-    let api_addr = free_addr().await;
-    let admin_addr = free_addr().await;
-    let config = write_config(&format!(
-        r#"
+    for _ in 0..5 {
+        let proxy_addr = free_addr().await;
+        let api_addr = free_addr().await;
+        let admin_addr = free_addr().await;
+        let config = write_config(&format!(
+            r#"
 {top}
 {guards}
 
@@ -226,19 +267,37 @@ listen = "{api_addr}"
 [admin]
 listen = "{admin_addr}"
 "#
-    ));
+        ));
 
-    let proxy = Proxy::spawn_with_env(config.path(), env);
-    wait_for_port(proxy_addr).await;
-    wait_for_port(api_addr).await;
-    Running {
-        proxy_addr,
-        api_addr,
-        admin_addr,
-        hits,
-        proxy,
-        _config: config,
+        let mut proxy = Proxy::spawn_with_env(config.path(), env);
+        // The PII guard compiles its databases before the data plane binds,
+        // so a start can take seconds.
+        let mut lost_port = false;
+        for _ in 0..1200 {
+            let logs = proxy.logs();
+            if LISTENERS.iter().any(|(_, failed)| logs.contains(failed)) {
+                lost_port = true;
+                break;
+            }
+            if LISTENERS.iter().all(|(started, _)| logs.contains(started)) {
+                return Running {
+                    proxy_addr,
+                    api_addr,
+                    admin_addr,
+                    hits,
+                    proxy,
+                    _config: config,
+                };
+            }
+            if let Some(status) = proxy.try_wait() {
+                panic!("voidwall exited with {status} before it bound: {logs}");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let logs = proxy.stop();
+        assert!(lost_port, "voidwall did not bind every listener: {logs}");
     }
+    panic!("voidwall lost a port on every attempt");
 }
 
 async fn post(addr: SocketAddr, path: &str, body: impl Into<reqwest::Body>) -> reqwest::Response {
@@ -612,7 +671,12 @@ listen = "{admin_addr}"
         logs.contains("window of 4 tokens") && logs.contains("overlap of 5 tokens"),
         "must name the window and the overlap: {logs}"
     );
-    assert!(tokio::net::TcpStream::connect(proxy_addr).await.is_err());
+    // A connect to the port cannot show this: another test may hold it. The
+    // line is logged only once the listener is bound.
+    assert!(
+        !logs.contains("reverse proxy started"),
+        "the data plane must not bind: {logs}"
+    );
 }
 
 /// Put `n` more `[CLS]` tokens in front of the single-sequence template of a
