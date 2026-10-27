@@ -29,6 +29,10 @@ COPY licenses/ /usr/share/doc/voidwall/
 # Voidwall's own license and attribution notice.
 COPY LICENSE NOTICE /usr/share/doc/voidwall/
 
+# No step needs root: ports are above 1024 and nothing is written at runtime.
+# Numeric, so Kubernetes `runAsNonRoot` can verify it without /etc/passwd.
+USER 65532:65532
+
 # Set by the release workflow; a dev build leaves them empty.
 ARG VERSION
 ARG REVISION
