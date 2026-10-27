@@ -1,10 +1,11 @@
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+use std::io::Write;
 use std::path::Path;
 
-use clap::Parser;
-use voidwall::config::{AppConfig, Cli};
+use clap::{CommandFactory, FromArgMatches};
+use voidwall::config::{self, AppConfig, Cli, Mode};
 use voidwall::engine::Engine;
 use voidwall::{server, validate};
 use voidwall_ml::OnnxRuntime;
@@ -34,20 +35,34 @@ extern "C" fn refuse_cpu_below_floor() {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let mode = config::mode(&cli, matches.value_source("config")).unwrap_or_else(|e| e.exit());
 
-    if let Some(path) = cli.validate.as_deref() {
-        std::process::exit(run_validate(path));
+    match mode {
+        Mode::PrintConfig(path) => std::process::exit(run_print_config(&path)),
+        Mode::Validate(path) => std::process::exit(run_validate(&path)),
+        Mode::Run(path) => run_server(path),
     }
+}
 
-    let Some(config_path) = cli.config.clone() else {
-        eprintln!(
-            "error: --config <PATH> is required to run the proxy (or set VOIDWALL_CONFIG). \
-             Use --validate <PATH> to check a config file without starting the proxy.",
-        );
-        std::process::exit(2);
+/// Writes the config file to stdout as it is on disk, comments included.
+/// Does not parse or validate it, and runs before any load, tracing setup, or
+/// runtime start.
+fn run_print_config(path: &Path) -> i32 {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("cannot read config file {}: {e}", path.display());
+            return 1;
+        }
     };
-    run_server(config_path);
+    let mut stdout = std::io::stdout().lock();
+    if let Err(e) = stdout.write_all(&bytes).and_then(|()| stdout.flush()) {
+        eprintln!("cannot write config file {} to stdout: {e}", path.display());
+        return 1;
+    }
+    0
 }
 
 /// Validate-only code path. Loads and validates the config, builds a scanner

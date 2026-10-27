@@ -5,3 +5,6 @@
 !docker/
 !LICENSE
 !NOTICE
+# The default models only, by name: any other model kept in models/ stays out.
+!models/wolf-small/
+!models/bards-v2/

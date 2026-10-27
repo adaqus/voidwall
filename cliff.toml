@@ -1,0 +1,63 @@
+# git-cliff configuration: `docker/ctl release` computes the next version and
+# writes CHANGELOG.md with it. See https://git-cliff.org/docs/configuration.
+#
+# Only Conventional Commits reach the changelog; the commits made before the
+# format was adopted are left out.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Voidwall. Each section lists the conventional commits of
+one release, grouped by type.\n
+"""
+# A group name starts with an HTML comment that only sets the order of the
+# groups; `striptags` removes it.
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.breaking %}**BREAKING** {% endif %}\
+{% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = false
+# A commit whose type is not one of the parsers below, such as an old
+# "French: tests with real-life PIIs", is left out.
+filter_commits = true
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+sort_commits = "oldest"
+commit_parsers = [
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^feat", group = "<!-- 00 -->Features" },
+    { message = "^fix", group = "<!-- 01 -->Bug Fixes" },
+    { message = "^perf", group = "<!-- 02 -->Performance" },
+    { message = "^refactor", group = "<!-- 03 -->Refactoring" },
+    { message = "^docs", group = "<!-- 04 -->Documentation" },
+    { message = "^test", group = "<!-- 05 -->Tests" },
+    { message = "^build", group = "<!-- 06 -->Build" },
+    { message = "^ci", group = "<!-- 07 -->CI" },
+    { message = "^style", group = "<!-- 08 -->Style" },
+    { message = "^revert", group = "<!-- 09 -->Reverts" },
+    { message = "^chore", group = "<!-- 10 -->Chores" },
+]
+
+[bump]
+# The version of a repository with no version tag: the first release.
+initial_tag = "v0.1.0"
+# Below 1.0.0, a breaking change bumps the minor version (0.1.0 to 0.2.0), not
+# the major one.
+breaking_always_bump_major = false

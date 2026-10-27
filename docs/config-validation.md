@@ -11,8 +11,10 @@ See `openspec/specs/configuration/spec.md` for the full specification.
 voidwall --validate /etc/voidwall/config.toml
 ```
 
-`--validate` and `--config` are mutually exclusive; exactly one must be
-provided.
+`--validate` and `--config` are mutually exclusive on the command line; exactly
+one must be provided. A config path that comes only from `VOIDWALL_CONFIG` does
+not conflict: `--validate` checks its own path and ignores the variable, so it
+works inside the image, which sets `VOIDWALL_CONFIG`.
 
 ## Exit codes and diagnostics
 
