@@ -95,7 +95,7 @@
   --workspace --all-targets -- -D warnings`, and `cargo deny check licenses` pass.
 - [x] 8.2 Review the diff against the spec deltas with the `code-review` skill. Verify:
   no finding is left open.
-- [ ] 8.3 After the change is merged, run `docker/ctl release` on `main`. Verify:
+- [x] 8.3 After the change is merged, run `docker/ctl release` on `main`. Verify:
   `ghcr.io/adaqus/voidwall:0.1.0`, `:0.1`, and `:latest` name one digest; `gh attestation
   verify oci://ghcr.io/adaqus/voidwall:0.1.0 --owner adaqus` passes; and the GitHub
   Release `v0.1.0` carries the `0.1.0` section of `CHANGELOG.md`.
