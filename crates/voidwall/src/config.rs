@@ -3,7 +3,9 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use clap::{ArgGroup, Parser};
+use clap::error::ErrorKind;
+use clap::parser::ValueSource;
+use clap::{ArgGroup, CommandFactory, Parser};
 use serde::Deserialize;
 use voidwall_ml::AdapterKind;
 
@@ -13,12 +15,15 @@ use crate::error::Error;
 // CLI
 // ---------------------------------------------------------------------------
 
+/// The group is `multiple(true)`: clap counts `VOIDWALL_CONFIG` as a given
+/// `--config`, and a `--validate` beside a config path from the environment
+/// must parse. [`mode`] rejects the pair when both come from the command line.
 #[derive(Parser, Debug)]
-#[command(name = "voidwall", about = "AI guardrails proxy and API")]
+#[command(name = "voidwall", version, about = "AI guardrails proxy and API")]
 #[command(group(
     ArgGroup::new("mode")
         .required(true)
-        .multiple(false)
+        .multiple(true)
         .args(["config", "validate"])
 ))]
 pub struct Cli {
@@ -29,6 +34,48 @@ pub struct Cli {
     /// Validate the config at the given path and exit without binding listeners
     #[arg(long = "validate")]
     pub validate: Option<PathBuf>,
+
+    /// Print the config file unchanged, without validating it, and exit
+    #[arg(
+        long = "print-config",
+        requires = "config",
+        conflicts_with = "validate"
+    )]
+    pub print_config: bool,
+}
+
+/// What one run of the binary does. One variant, so `main` cannot act on two.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Mode {
+    Run(PathBuf),
+    Validate(PathBuf),
+    PrintConfig(PathBuf),
+}
+
+/// The mode of a parsed command line. `config_source` is where clap took
+/// `--config` from: a `--validate` wins over a path from `VOIDWALL_CONFIG`, and
+/// conflicts with one from the command line.
+pub fn mode(cli: &Cli, config_source: Option<ValueSource>) -> Result<Mode, clap::Error> {
+    if let Some(path) = &cli.validate {
+        if config_source == Some(ValueSource::CommandLine) {
+            return Err(Cli::command().error(
+                ErrorKind::ArgumentConflict,
+                "the argument '--config <CONFIG>' cannot be used with '--validate <VALIDATE>'",
+            ));
+        }
+        return Ok(Mode::Validate(path.clone()));
+    }
+    let Some(path) = &cli.config else {
+        return Err(Cli::command().error(
+            ErrorKind::MissingRequiredArgument,
+            "one of --config <CONFIG> or --validate <VALIDATE> is required",
+        ));
+    };
+    if cli.print_config {
+        Ok(Mode::PrintConfig(path.clone()))
+    } else {
+        Ok(Mode::Run(path.clone()))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,6 +1646,7 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::FromArgMatches;
     use test_case::test_case;
 
     fn minimal_toml() -> String {
@@ -3819,38 +3867,54 @@ labels = ["K"]
 
     // --- CLI parsing ---
 
-    #[test]
-    fn cli_accepts_config_only() {
-        let cli = Cli::try_parse_from(["voidwall", "--config", "config.toml"])
-            .expect("--config alone must parse");
-        assert_eq!(cli.config.as_deref(), Some(Path::new("config.toml")));
-        assert!(cli.validate.is_none());
+    /// Parses `args` and picks the mode. `config_from_env` stands in for a
+    /// `--config` that clap took from `VOIDWALL_CONFIG`, so no test sets the
+    /// variable.
+    fn mode_of(args: &[&str], config_from_env: bool) -> Result<Mode, clap::error::ErrorKind> {
+        let matches = Cli::command()
+            .try_get_matches_from(std::iter::once("voidwall").chain(args.iter().copied()))
+            .map_err(|e| e.kind())?;
+        let cli = Cli::from_arg_matches(&matches).map_err(|e| e.kind())?;
+        let source = if config_from_env && cli.config.is_some() {
+            Some(ValueSource::EnvVariable)
+        } else {
+            matches.value_source("config")
+        };
+        mode(&cli, source).map_err(|e| e.kind())
     }
 
-    #[test]
-    fn cli_accepts_validate_only() {
-        let cli = Cli::try_parse_from(["voidwall", "--validate", "config.toml"])
-            .expect("--validate alone must parse");
-        assert_eq!(cli.validate.as_deref(), Some(Path::new("config.toml")));
-        assert!(cli.config.is_none());
+    #[test_case(&["--config", "a.toml"], false, Ok(Mode::Run("a.toml".into())) ; "config alone runs")]
+    #[test_case(&["--validate", "b.toml"], false, Ok(Mode::Validate("b.toml".into())) ; "validate alone validates")]
+    #[test_case(&["--config", "a.toml", "--validate", "b.toml"], true, Ok(Mode::Validate("b.toml".into())) ; "validate wins over a config from the env")]
+    #[test_case(&["--config", "a.toml", "--validate", "b.toml"], false, Err(ErrorKind::ArgumentConflict) ; "config and validate on the command line conflict")]
+    #[test_case(&["--config", "a.toml", "--print-config"], false, Ok(Mode::PrintConfig("a.toml".into())) ; "print-config with config")]
+    #[test_case(&["--config", "a.toml", "--print-config"], true, Ok(Mode::PrintConfig("a.toml".into())) ; "print-config with a config from the env")]
+    #[test_case(&["--config", "a.toml", "--validate", "b.toml", "--print-config"], true, Err(ErrorKind::ArgumentConflict) ; "print-config conflicts with validate")]
+    fn cli_mode(args: &[&str], config_from_env: bool, expected: Result<Mode, ErrorKind>) {
+        assert_eq!(mode_of(args, config_from_env), expected);
     }
 
-    #[test]
-    fn cli_rejects_both_flags() {
-        let err = Cli::try_parse_from(["voidwall", "--config", "a.toml", "--validate", "b.toml"])
-            .expect_err("--config and --validate must be mutually exclusive");
-        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
-    }
-
-    #[test]
-    fn cli_rejects_neither_flag() {
+    #[test_case(&[] ; "neither flag")]
+    #[test_case(&["--print-config"] ; "print-config with no config")]
+    fn cli_rejects_missing_config(args: &[&str]) {
         // SAFETY: clear the env fallback so the group's `required=true`
         // actually fires; no other test reads VOIDWALL_CONFIG.
         unsafe {
             std::env::remove_var("VOIDWALL_CONFIG");
         }
-        let err = Cli::try_parse_from(["voidwall"])
-            .expect_err("at least one of --config / --validate is required");
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert_eq!(
+            mode_of(args, false),
+            Err(ErrorKind::MissingRequiredArgument)
+        );
+    }
+
+    #[test]
+    fn cli_prints_the_workspace_version() {
+        let err = Cli::try_parse_from(["voidwall", "--version"]).expect_err("--version exits");
+        assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+        assert_eq!(
+            err.to_string().trim_end(),
+            concat!("voidwall ", env!("CARGO_PKG_VERSION"))
+        );
     }
 }

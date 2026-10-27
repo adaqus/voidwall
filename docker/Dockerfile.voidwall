@@ -1,9 +1,22 @@
 FROM debian:trixie-slim
 
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/adaqus/voidwall"
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# The default models, fetched and verified by `docker/fetch-models.sh`, with
+# their licenses. They change least, so they come first and a rebuild with the
+# same models reuses their layers. The dev stack mounts its own copies over
+# these.
+COPY models/wolf-small/ /opt/voidwall/models/wolf-small/
+COPY models/bards-v2/ /opt/voidwall/models/bards-v2/
+
+# The default config: the REST API on, the reverse proxy off. `--config` beats
+# the variable, so the dev stack's `command` picks its own file.
+COPY docker/voidwall-image.toml /etc/voidwall/voidwall.toml
+ENV VOIDWALL_CONFIG=/etc/voidwall/voidwall.toml
 
 COPY target/release/voidwall /usr/local/bin/voidwall
 
@@ -15,5 +28,11 @@ COPY licenses/ /usr/share/doc/voidwall/
 
 # Voidwall's own license and attribution notice.
 COPY LICENSE NOTICE /usr/share/doc/voidwall/
+
+# Set by the release workflow; a dev build leaves them empty.
+ARG VERSION
+ARG REVISION
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 
 ENTRYPOINT ["voidwall"]

@@ -7,9 +7,10 @@ services:
     volumes:
       # `docker/ctl start <config>` sets VOIDWALL_CONFIG_FILE to that file.
       - ${VOIDWALL_CONFIG_FILE:-./voidwall.toml}:/etc/voidwall/voidwall.toml:ro
-      # Fetched by `docker/ctl fetch_models`; the image ships no model. A missing
-      # directory fails the start instead of being created as root, which would
-      # stop a later fetch from writing into models/.
+      # Fetched by `docker/ctl fetch_models`. The dev stack mounts its own copies
+      # over the models in the image. A missing directory fails the start instead
+      # of being created as root, which would stop a later fetch from writing
+      # into models/.
       - type: bind
         source: ../models/wolf-small
         target: /opt/voidwall/models/wolf-small

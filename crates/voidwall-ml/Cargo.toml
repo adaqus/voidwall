@@ -1,7 +1,7 @@
 [package]
 name = "voidwall-ml"
 description = "ONNX Runtime integration and model adapters for Voidwall"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 publish = false
 license.workspace = true

@@ -360,13 +360,30 @@ fn validate_and_config_cannot_be_combined() {
         .env_remove("VOIDWALL_CONFIG")
         .output()
         .expect("spawn voidwall");
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2), "a usage error exits 2");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    // clap emits usage diagnostics for mutually-exclusive ArgGroup members.
+    assert!(stderr.contains("cannot be used with"), "stderr: {stderr}");
+}
+
+/// The image sets `VOIDWALL_CONFIG`, and `docker run` cannot unset it, so a
+/// `--validate` beside it validates its own path and ignores the variable.
+#[test]
+fn validate_ignores_a_config_path_from_the_env() {
+    let cfg = write_cfg(&valid_config_with_listen("127.0.0.1:18082"));
+    let out = Command::new(BIN)
+        .arg("--validate")
+        .arg(cfg.path())
+        .env("VOIDWALL_CONFIG", "/definitely/does/not/exist.toml")
+        .output()
+        .expect("spawn voidwall");
     assert!(
-        stderr.contains("cannot be used with") || stderr.contains("error"),
-        "stderr: {stderr}",
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
     );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("config OK"), "stdout was: {stdout}");
 }
 
 #[test]

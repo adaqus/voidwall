@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Fetches the models the dev stack's guards run and verifies each file before
-# docker compose mounts it. The files land in `models/`, which is gitignored;
-# the image ships no model.
+# Fetches the default models and verifies each file. The files land in
+# `models/`, which is gitignored. The image build copies them in, and the dev
+# stack mounts its own copies over them.
 #
 # Pinned to Wolf Defender Prompt-Injection Detector Small v2, revision
 # bcab2eff97bcabd7227849639e2d0d7a61b46c92: the fp32 ONNX export, its

@@ -68,6 +68,7 @@ cargo install --locked --features cli cargo-about
 | `qemu-user` (`qemu-x86_64`) | Manual check of the CPU floor: run the binary with `-cpu Nehalem` and see it exit 1 |
 | [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI (Node.js) | Proposing, validating, and archiving changes under `openspec/` |
 | [`committed`](https://github.com/crate-ci/committed) | The commit message hook. CI runs it on every push and pull request |
+| [`git-cliff`](https://git-cliff.org) (`cargo install --locked git-cliff`) | Cutting a release with `docker/ctl release`. See [Releasing](#releasing) |
 
 ### Commit Message Hook
 
@@ -92,4 +93,29 @@ git config core.hooksPath .githooks
 | `docker/ctl soak` | Runs the k6 soak test against the running stack. Set `DURATION` (default `30m`), `PEAK_VUS` (default `100`), and `CYCLES` (default `1`) |
 | `docker/ctl ai4p-eval` | Scores the regex PII engine against AI4Privacy openpii300k and prints recall, precision, F1, and F2. Needs no running stack. Fetches the dataset into `.cache/ai4privacy/` and skips cached files. Set `AI4P_LANG` (`en`, `nl`, `fr`, `de`, `it`, `es`, or the English name; default all six, about 630 MB on the first run), `DATASET` (a local JSONL file or directory; fetches nothing), `MAX_ROWS` (default all), and `SUPPORTED_ONLY=1` (leave out labels Voidwall has no kind for) |
 | `docker/ctl piimb-eval` | Scores the regex PII engine on the four English tasks of the PII Masking Benchmark (piimb) with the benchmark's own metric code, and prints character-level F2, F1, precision, and recall per task and their average. Needs `python3` 3.11 or later and no running stack. Fetches the test data and the metric code into `.cache/piimb/<revision>/` and installs pinned Python packages into `.cache/piimb/venv`, skipping what is cached. Set `PIIMB_REVISION` (benchmark revision; default the pinned commit; a branch name is fetched once and not refreshed, so delete `.cache/piimb/<name>/` to refresh it) and `PIIMB_TASK` (`ai4privacy-en`, `gretel`, `nemotron-pii`, or `privy`: one task only, not a full benchmark result) |
+| `docker/ctl release` | Cuts a release from `main`. See [Releasing](#releasing) |
 | `docker/ctl parity` | Runs the parity checks of wolf-small (`text_classifier`) and bards v2 (`token_classifier`): makes a new Python reference for each with `crates/voidwall-ml/parity/reference.py`, then runs the ignored Rust parity test against both, and the INT8 check of bards v2 against a plain ONNX Runtime session. Exits 0 only when all of them pass. Needs `python3` 3.11 or later and no running stack. Runs `fetch_models`, fetches the fp32 files into `.cache/parity/` and verifies their SHA-256 (wolf-small's PyTorch files, about 560 MB; bards v2's PyTorch weights and fp32 ONNX export, about 2.5 GB), and installs `crates/voidwall-ml/parity/requirements.txt` into `.cache/parity/venv` with CPU `torch`, skipping what is cached. Set `PARITY_MAX_TOKENS` (default `2048` for wolf-small, `512` for bards v2) and `PARITY_OVERLAP` (default `64` and `128`); each overrides both models |
+
+## Releasing
+
+Run `docker/ctl release` on `main`. It refuses, and changes nothing, when the tree is not
+clean, `main` is behind or has diverged from `origin/main`, or the tag exists. Otherwise
+`git-cliff` (`cliff.toml`) computes the next version from the Conventional Commits since
+the last `v*` tag, or `0.1.0` for the first release. The script writes the version to
+`[workspace.package]` and `Cargo.lock`, writes `CHANGELOG.md`, commits
+`chore(release): <version>`, and tags `v<version>`. It pushes both only after you answer
+`y`.
+
+The tag push starts `.github/workflows/release.yml`: the CI checks, the image build, and
+`docker/smoke-test.sh`. When they pass, it pushes `ghcr.io/adaqus/voidwall` as `X.Y.Z`,
+`X.Y`, and `latest`, attests the build provenance, and creates the GitHub Release with
+the version's section of `CHANGELOG.md`. Start the workflow by hand for a dry run: it
+builds and smoke-tests the image and publishes nothing.
+
+To smoke-test a local build:
+
+```bash
+docker/ctl compile && docker/fetch-models.sh
+docker build -f docker/Dockerfile.voidwall -t voidwall:smoke .
+docker/smoke-test.sh voidwall:smoke 0.1.0   # the workspace version
+```

@@ -23,8 +23,8 @@ code change and no rebuild. See [docs/model-guards.md](docs/model-guards.md).
 ## Project Status
 
 Not ready for production. No TLS, so no `https://` upstreams such as OpenAI. No streaming
-(SSE) except on `openai-chat` routes. No release yet. The configuration format, the REST
-API, and the metrics can change in any commit, without a deprecation period.
+(SSE) except on `openai-chat` routes. The configuration format, the REST API, and the
+metrics can change in any release, without a deprecation period.
 
 ## How It Works
 
@@ -91,9 +91,47 @@ Guards that exist today:
 
 ## Quick Start
 
-No prebuilt image is published yet. Until then, build and start the local stack from
-source. Install the tools in [DEVELOPMENT.md](DEVELOPMENT.md#requirements), including the
-release build tools, then run from the workspace root:
+### Run the Image
+
+The image `ghcr.io/adaqus/voidwall` (`linux/amd64`) carries the default models and a
+default config, so it starts with no mounted file. The REST API is on and the reverse
+proxy is off:
+
+```bash
+docker run --rm -p 8083:8083 -p 9090:9090 ghcr.io/adaqus/voidwall
+```
+
+`/readyz` on `:9090` answers 200 once the models have loaded. A model other than the
+defaults is always mounted as a volume. See [docs/model-guards.md](docs/model-guards.md).
+
+To put Voidwall in front of LM Studio or Ollama on the same machine, copy the default
+config out of the image:
+
+```bash
+docker run --rm ghcr.io/adaqus/voidwall --print-config > voidwall.toml
+```
+
+In `voidwall.toml`, set `enabled = true` under `[reverse_proxy]`, and uncomment the block
+of your server: remove the `# ` in front of each line between `# >>> lmstudio` and
+`# <<< lmstudio`, or between `# >>> ollama` and `# <<< ollama`. Check the file, then start
+the image with it:
+
+```bash
+docker run --rm -v "$PWD/voidwall.toml:/etc/voidwall/voidwall.toml:ro" \
+    ghcr.io/adaqus/voidwall --validate /etc/voidwall/voidwall.toml
+docker run --rm --add-host=host.docker.internal:host-gateway \
+    -p 8082:8082 -p 8083:8083 -p 9090:9090 \
+    -v "$PWD/voidwall.toml:/etc/voidwall/voidwall.toml:ro" ghcr.io/adaqus/voidwall
+```
+
+Point your client at `http://localhost:8082/v1`. The container reaches the server on the
+host at `host.docker.internal`, so the server must listen beyond localhost: in LM Studio,
+turn on "Serve on Local Network"; for Ollama, set `OLLAMA_HOST=0.0.0.0`.
+
+### Build From Source
+
+Install the tools in [DEVELOPMENT.md](DEVELOPMENT.md#requirements), including the release
+build tools, then run from the workspace root:
 
 ```bash
 docker/ctl start
@@ -105,8 +143,8 @@ run, no Hugging Face token), and starts the containers with Docker Compose. The 
 Defender Prompt-Injection Detector Small v2, and a `pii_ml` model guard on bards.ai's EU
 PII anonimization multilang v2.
 
-The released image will carry the default models, so an operator does not supply them. A
-model other than the defaults is always mounted as a volume.
+The dev stack mounts its own config and its copies of the models from `models/` over
+those in the image.
 
 ### Ports
 

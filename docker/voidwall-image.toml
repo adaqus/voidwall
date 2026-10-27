@@ -1,0 +1,140 @@
+# Default config of the Voidwall image, at /etc/voidwall/voidwall.toml.
+#
+# The REST API is on (:8083). The reverse proxy is off. To put Voidwall in front
+# of a local model server, copy this file out of the image:
+#
+#   docker run --rm ghcr.io/adaqus/voidwall --print-config > voidwall.toml
+#
+# then set `reverse_proxy.enabled = true`, uncomment the block of your server
+# below (remove the "# " in front of each line between its marker lines), and
+# mount the file back on /etc/voidwall/voidwall.toml. Check it first with:
+#
+#   docker run --rm -v "$PWD/voidwall.toml:/etc/voidwall/voidwall.toml:ro" \
+#       ghcr.io/adaqus/voidwall --validate /etc/voidwall/voidwall.toml
+#
+# The guard sections are the same as those of docker/voidwall.toml, the dev stack
+# config. A test fails when the two differ.
+
+# Ingest keys come first. TOML binds a bare key to the table above it, so one
+# written after a [section] parses as that section's field and is rejected.
+max_body_size = 1048576
+on_error = "fail_close"
+upstream_timeout_secs = 300
+# A text/event-stream on a route with format = "openai-chat". Defaults shown.
+# stream_idle_timeout_secs = 60  # longest gap between two reads of a stream
+# stream_holdback_bytes = 512    # text kept back behind the newest text; <= max_body_size
+# stream_context_bytes = 512     # sent text each scan covers; <= max_body_size
+# stream_scan_bytes = 256        # new text that starts the next scan; <= stream_holdback_bytes
+
+[builtin_guards.pii]
+countries = []
+languages = []
+scanner_threads = 6
+
+# A model-backed guard is declared in its own section. One section carries
+# everything one guard needs to run one model — there is no model section and no
+# model reference — and its surface defaults to the body alone, because each
+# unit it admits costs one model execution.
+#
+# The image ships Wolf Defender Prompt-Injection Detector Small v2 in
+# /opt/voidwall/models/wolf-small/. The guard loads its model at startup (/readyz
+# answers 503 until it ends) and blocks on its findings. A model that fails to
+# load stops the start.
+#
+# The window, overlap, and threshold are the values on the model card.
+
+[guards.prompt_injection]
+adapter = "text_classifier"
+model_path = "/opt/voidwall/models/wolf-small/model.onnx"
+tokenizer_path = "/opt/voidwall/models/wolf-small/tokenizer.json"
+max_tokens = 2048
+labels = ["PROMPT_INJECTION"]   # text_classifier: one label, naming class 1
+overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
+# threads = 4                   # optional; default CPUs / number of model guards
+
+[guards.prompt_injection.thresholds]
+PROMPT_INJECTION = 0.5
+
+# A PII token classifier beside the regex PII guard. The image ships bards.ai's
+# EU PII anonimization multilang v2 (INT8) in /opt/voidwall/models/bards-v2/. It
+# finds values with no fixed shape, such as names and postal addresses, in any
+# language the model knows.
+#
+# `labels` are the model's own type names, from its config.json. A type not
+# listed reports nothing; a misspelled label also reports nothing, and no check
+# catches it. A threshold of 0 keeps every span the decoder returns.
+
+[guards.pii_ml]
+adapter = "token_classifier"
+class = "pii"                   # counts in the voidwall_pii_* metric families
+model_path = "/opt/voidwall/models/bards-v2/onnx/model_quantized.onnx"
+tokenizer_path = "/opt/voidwall/models/bards-v2/tokenizer.json"
+config_path = "/opt/voidwall/models/bards-v2/config.json"   # the source of id2label
+max_tokens = 512
+overlap_tokens = 128
+labels = [
+    "PERSON_NAME", "POSTAL_ADDRESS", "DATE_OF_BIRTH",
+    "PHONE_NUMBER", "EMAIL_ADDRESS", "BANK_ACCOUNT_IDENTIFIER", "AUTH_SECRET",
+    "DOCUMENT_IDENTIFIER", "IP_ADDRESS", "PAYMENT_CARD", "PERSON_IDENTIFIER",
+    "GEO_LOCATION",
+]
+
+[guards.pii_ml.thresholds]
+PERSON_NAME = 0.4
+POSTAL_ADDRESS = 0.4
+DATE_OF_BIRTH = 0.4
+PHONE_NUMBER = 0.0
+EMAIL_ADDRESS = 0.0
+BANK_ACCOUNT_IDENTIFIER = 0.0
+AUTH_SECRET = 0.0
+DOCUMENT_IDENTIFIER = 0.0
+IP_ADDRESS = 0.0
+PAYMENT_CARD = 0.0
+PERSON_IDENTIFIER = 0.0
+GEO_LOCATION = 0.0
+
+# A PAYMENT_CARD span gives a finding only when a CREDIT_CARD validator (the Luhn
+# check) accepts it.
+[guards.pii_ml.validate_as]
+PAYMENT_CARD = ["CREDIT_CARD"]
+
+[reverse_proxy]
+enabled = false
+listen = "0.0.0.0:8082"
+
+# The container reaches a server on the host at host.docker.internal. Start the
+# container with `--add-host=host.docker.internal:host-gateway`, and let the
+# server listen beyond localhost: in LM Studio turn on "Serve on Local Network";
+# for Ollama set OLLAMA_HOST=0.0.0.0.
+#
+# Each block sends Chat Completions through the openai-chat decoder and every
+# other path, such as /v1/models or /v1/embeddings, through the generic route.
+
+# >>> lmstudio
+# [[reverse_proxy.routes]]
+# path_prefix = "/v1/chat/completions"
+# upstream = "http://host.docker.internal:1234"
+# format = "openai-chat"
+#
+# [[reverse_proxy.routes]]
+# path_prefix = "/"
+# upstream = "http://host.docker.internal:1234"
+# <<< lmstudio
+
+# >>> ollama
+# [[reverse_proxy.routes]]
+# path_prefix = "/v1/chat/completions"
+# upstream = "http://host.docker.internal:11434"
+# format = "openai-chat"
+#
+# [[reverse_proxy.routes]]
+# path_prefix = "/"
+# upstream = "http://host.docker.internal:11434"
+# <<< ollama
+
+[http_api]
+enabled = true
+listen = "0.0.0.0:8083"
+
+[admin]
+listen = "0.0.0.0:9090"

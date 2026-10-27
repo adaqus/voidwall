@@ -22,9 +22,9 @@ scanner_threads = 6
 # model reference — and its surface defaults to the body alone, because each
 # unit it admits costs one model execution.
 #
-# The image ships no model. `docker/ctl fetch_models` downloads Wolf Defender
-# Prompt-Injection Detector Small v2 into models/wolf-small/, and the compose
-# file mounts it. The guard loads its model at startup (/readyz answers 503 until
+# `docker/ctl fetch_models` downloads Wolf Defender Prompt-Injection Detector
+# Small v2 into models/wolf-small/, and the compose file mounts it: the dev stack
+# mounts its own copies over the models in the image. The guard loads its model at startup (/readyz answers 503 until
 # it ends) and blocks on its findings. A model that fails to load stops the start.
 #
 # The window, overlap, and threshold are the values on the model card.
