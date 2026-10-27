@@ -3,6 +3,17 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.1.1] - 2026-10-27
+
+### Documentation
+
+- **openspec:** Archive release-cpu-image
+- **readme:** Quick start with docker run and /v1/scan
+
+### Build
+
+- **docker:** Run the image as non-root UID 65532
+
 ## [0.1.0] - 2026-10-27
 
 ### Features
