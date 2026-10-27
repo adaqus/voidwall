@@ -3,6 +3,12 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.1.2] - 2026-10-27
+
+### Bug Fixes
+
+- **release:** Regenerate the OpenAPI document when cutting a release
+
 ## [0.1.1] - 2026-10-27
 
 ### Documentation
