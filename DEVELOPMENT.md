@@ -102,7 +102,7 @@ Run `docker/ctl release` on `main`. It refuses, and changes nothing, when the tr
 clean, `main` is behind or has diverged from `origin/main`, or the tag exists. Otherwise
 `git-cliff` (`cliff.toml`) computes the next version from the Conventional Commits since
 the last `v*` tag, or `0.1.0` for the first release. The script writes the version to
-`[workspace.package]` and `Cargo.lock`, writes `CHANGELOG.md`, commits
+`[workspace.package]`, `Cargo.lock`, and `docs/openapi.json`, writes `CHANGELOG.md`, commits
 `chore(release): <version>`, and tags `v<version>`. It pushes both only after you answer
 `y`.
 

@@ -407,7 +407,7 @@ release_refuse() {
 # HEAD, not the index, tells whether CHANGELOG.md existed: a failed commit
 # leaves a first CHANGELOG.md staged.
 release_rollback() {
-    git -C "$PROJECT_DIR" checkout -q HEAD -- Cargo.toml Cargo.lock
+    git -C "$PROJECT_DIR" checkout -q HEAD -- Cargo.toml Cargo.lock docs/openapi.json
     rm -f "$PROJECT_DIR/Cargo.toml.release"
     if git -C "$PROJECT_DIR" cat-file -e HEAD:CHANGELOG.md 2>/dev/null; then
         git -C "$PROJECT_DIR" checkout -q HEAD -- CHANGELOG.md
@@ -415,7 +415,7 @@ release_rollback() {
         git -C "$PROJECT_DIR" rm -q --cached --ignore-unmatch -- CHANGELOG.md
         rm -f "$PROJECT_DIR/CHANGELOG.md"
     fi
-    echo "release: failed; Cargo.toml, Cargo.lock, and CHANGELOG.md are put back" >&2
+    echo "release: failed; Cargo.toml, Cargo.lock, docs/openapi.json, and CHANGELOG.md are put back" >&2
 }
 
 cmd_release() {
@@ -455,8 +455,10 @@ cmd_release() {
     ' Cargo.toml >Cargo.toml.release && mv Cargo.toml.release Cargo.toml
     grep -qx "version = \"$version\"" Cargo.toml
     cargo update -q --workspace
+    # docs/openapi.json carries the crate version; its freshness test fails CI otherwise.
+    UPDATE_OPENAPI=1 cargo test -q -p voidwall --lib openapi_document_file_is_fresh
     git cliff --tag "$tag" -o CHANGELOG.md
-    git add Cargo.toml Cargo.lock CHANGELOG.md
+    git add Cargo.toml Cargo.lock CHANGELOG.md docs/openapi.json
     git commit -q -m "chore(release): $version"
     trap - ERR
     git tag -a "$tag" -m "$tag"
