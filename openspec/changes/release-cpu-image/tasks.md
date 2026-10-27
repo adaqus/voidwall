@@ -66,17 +66,18 @@
 
 ## 6. Release workflow
 
-- [ ] 6.1 Add `workflow_call` to `ci.yml` and limit its `push` trigger to branches (D7).
+- [x] 6.1 Add `workflow_call` to `ci.yml` and limit its `push` trigger to branches (D7).
   Verify: `actionlint` passes, and a branch push still runs CI.
 - [x] 6.2 Write `.github/workflows/release.yml` with the `check`, `image`, and `publish`
   jobs (D7). Pin each action to a commit SHA with the ref in a comment, as `ci.yml` does.
   Verify: `actionlint` passes.
-- [ ] 6.3 Run the workflow by hand on a branch. Verify: `check` and `image` pass, the log
-  shows the `0.1.0` section of `CHANGELOG.md`, `publish` is skipped, and no package
-  version appears under `ghcr.io/adaqus/voidwall`.
-- [ ] 6.4 Run it by hand a second time. Verify: the log of `image` shows a cache hit for
+- [x] 6.3 Run the workflow by hand on a branch. Verify: `check` and `image` pass, the log
+  of `image` warns that `CHANGELOG.md` has no section for `0.1.0` (before the first
+  release there is no `CHANGELOG.md`; 8.3 checks the notes), `publish` is skipped, and no
+  package version appears under `ghcr.io/adaqus/voidwall`.
+- [x] 6.4 Run it by hand a second time. Verify: the log of `image` shows a cache hit for
   `models/` and `.ort`.
-- [ ] 6.5 Remove the temporary `release-dry-run` push trigger from `release.yml` after
+- [x] 6.5 Remove the temporary `release-dry-run` push trigger from `release.yml` after
   6.3 and 6.4, before the change is merged. Verify: `grep -rn release-dry-run
   .github/workflows/` finds no match, and `actionlint` passes.
 

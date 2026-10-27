@@ -6,9 +6,6 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
-    # TEMPORARY: a dry run before this file reaches main, where a manual run
-    # needs it. Remove before merge.
-    branches: ['release-dry-run']
   workflow_dispatch:
 
 permissions:
