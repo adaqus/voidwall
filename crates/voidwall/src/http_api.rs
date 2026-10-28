@@ -113,6 +113,7 @@ pub async fn serve_on(
     "detected": true,
     "matches_count": 2,
     "kinds": ["EMAIL", "US_SSN"],
+    "guards": [{"name": "pii", "matches_count": 2, "kinds": ["EMAIL", "US_SSN"]}],
 }))]
 struct ScanResponse {
     /// Whether any PII was detected in the body.
@@ -123,6 +124,21 @@ struct ScanResponse {
     /// custom labels surface here using their configured `label`. The full
     /// list of built-in labels is appended to this description at
     /// spec-generation time.
+    kinds: Vec<String>,
+    /// Each guard's share of the findings, sorted by guard name. A guard that
+    /// found nothing has no entry, so a clean scan returns an empty array.
+    guards: Vec<GuardScanResponse>,
+}
+
+/// One guard's share of a `/v1/scan` result.
+#[derive(Serialize, ToSchema)]
+struct GuardScanResponse {
+    /// The name configuration gave the guard.
+    name: String,
+    /// Number of findings this guard reported. The values of all entries add
+    /// up to the top-level `matches_count`.
+    matches_count: usize,
+    /// Distinct kinds this guard detected, sorted.
     kinds: Vec<String>,
 }
 
@@ -255,7 +271,13 @@ use utoipa::OpenApi;
         version = env!("CARGO_PKG_VERSION"),
     ),
     paths(scan_handler, litellm_handler),
-    components(schemas(ScanResponse, ErrorResponse, GuardrailRequest, GuardrailResponse)),
+    components(schemas(
+        ScanResponse,
+        GuardScanResponse,
+        ErrorResponse,
+        GuardrailRequest,
+        GuardrailResponse
+    )),
     tags(
         (name = "pii", description = "PII detection endpoints"),
         (name = "litellm", description = "LiteLLM Generic Guardrail API"),
@@ -530,6 +552,15 @@ fn build_scan_response(scan_result: &ScanResult, kinds: &[String]) -> Response {
         detected: scan_result.detected(),
         matches_count: scan_result.matches_count(),
         kinds: kinds.to_vec(),
+        guards: scan_result
+            .by_guard()
+            .into_iter()
+            .map(|g| GuardScanResponse {
+                name: g.name.to_string(),
+                matches_count: g.matches_count,
+                kinds: g.kinds,
+            })
+            .collect(),
     };
     let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
     (StatusCode::OK, [("content-type", "application/json")], body).into_response()
@@ -641,6 +672,11 @@ mod tests {
             scan_schema["example"]["kinds"],
             serde_json::json!(["EMAIL", "US_SSN"])
         );
+        assert_eq!(scan_schema["example"]["guards"][0]["name"], "pii");
+        assert_eq!(
+            scan_schema["properties"]["guards"]["items"]["$ref"],
+            "#/components/schemas/GuardScanResponse"
+        );
 
         let kinds_desc = scan_schema["properties"]["kinds"]["description"]
             .as_str()
@@ -726,6 +762,16 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["detected"], true);
         assert_eq!(body["kinds"], serde_json::json!(["API_FAIL_OPEN_KIND"]));
+        // The failed guard reported nothing, so only the guard that succeeded
+        // is listed.
+        assert_eq!(
+            body["guards"],
+            serde_json::json!([{
+                "name": BUILTIN_PII_GUARD_NAME,
+                "matches_count": 1,
+                "kinds": ["API_FAIL_OPEN_KIND"],
+            }])
+        );
         // Other tests can count the same labels at the same time, so the
         // check is a lower bound.
         assert!(scanner_failures("passed") > errors_before);

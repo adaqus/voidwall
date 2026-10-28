@@ -114,6 +114,8 @@ The built-in PII guard and a model guard can both report a kind of one name, suc
 `PERSON_NAME`. The engine keeps the findings of both and does not resolve overlaps
 between them. The kind appears once in a `kinds` list, `matches_count` counts the
 findings of both guards, and `voidwall_pii_detections_total` increments once for the kind.
+The `guards` array of a `/v1/scan` response shows each guard's share: its own
+`matches_count` and `kinds`.
 
 A detection blocks the message. The reverse proxy answers as soon as one guard reports a
 finding, so its `kinds` can hold only the kinds of the guards that ended first. The REST

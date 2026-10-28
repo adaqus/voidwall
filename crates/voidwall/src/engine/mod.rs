@@ -39,7 +39,7 @@ use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError, a
 use crate::error::Error;
 use crate::scanner::SCANNER_ERROR_LIMITER;
 
-pub use finding::{Finding, FindingKind, ScanResult, Span};
+pub use finding::{Finding, FindingKind, GuardSummary, ScanResult, Span};
 pub use guard::{DetectFuture, Guard, GuardInput, Interest};
 pub use unit::{Unit, UnitContent, UnitId, UnitKind, Units};
 

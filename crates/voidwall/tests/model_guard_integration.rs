@@ -418,6 +418,50 @@ async fn the_token_classifier_guard_reports_on_the_api_and_blocks_on_the_proxy()
     assert!(!logs.contains(BODY), "a log line holds the text: {logs}");
 }
 
+/// http-api, "Two guards report the same kind for one value": a custom
+/// definition of the `pii` guard and the `pii_ml` model guard each report
+/// `SECRET` for the word `trigger`. The kind is listed once, both findings
+/// count, and `guards` shows each guard's share. A body only one guard finds
+/// something in lists that guard alone.
+#[tokio::test]
+async fn the_scan_api_breaks_the_findings_down_by_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let guards = format!(
+        r#"
+[builtin_guards.pii]
+scanner_threads = 1
+detect = ["Email"]
+
+[[builtin_guards.pii.custom]]
+label = "SECRET"
+pattern = "trigger"
+{}"#,
+        token_guard_section(dir.path())
+    );
+    let server = start(&guards, "", "").await;
+
+    let resp = post(server.api_addr, "/v1/scan", "smoke trigger test").await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["matches_count"], 2, "{body}");
+    assert_eq!(body["kinds"], serde_json::json!(["SECRET"]));
+    assert_eq!(
+        body["guards"],
+        serde_json::json!([
+            {"name": "pii", "matches_count": 1, "kinds": ["SECRET"]},
+            {"name": "pii_ml", "matches_count": 1, "kinds": ["SECRET"]},
+        ])
+    );
+
+    let resp = post(server.api_addr, "/v1/scan", "mail user@example.com").await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        body["guards"],
+        serde_json::json!([{"name": "pii", "matches_count": 1, "kinds": ["EMAIL"]}])
+    );
+}
+
 /// The samples of the `voidwall_pii_*` families and `voidwall_blocked_total`
 /// on the admin metrics endpoint.
 async fn pii_and_block_samples(admin: SocketAddr) -> Vec<String> {

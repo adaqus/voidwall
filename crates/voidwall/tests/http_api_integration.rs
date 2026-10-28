@@ -147,6 +147,12 @@ async fn scan_text_plain_detects_email() {
         .map(|v| v.as_str().unwrap().to_string())
         .collect();
     assert!(kinds.contains(&"EMAIL".to_string()));
+    // Only the `pii` guard runs, so it holds every finding and every kind.
+    let guards = json["guards"].as_array().unwrap();
+    assert_eq!(guards.len(), 1);
+    assert_eq!(guards[0]["name"], "pii");
+    assert_eq!(guards[0]["matches_count"], json["matches_count"]);
+    assert_eq!(guards[0]["kinds"], json["kinds"]);
 }
 
 #[tokio::test]
@@ -166,6 +172,7 @@ async fn scan_text_plain_no_pii() {
     assert_eq!(json["detected"], false);
     assert_eq!(json["matches_count"], 0);
     assert!(json["kinds"].as_array().unwrap().is_empty());
+    assert_eq!(json["guards"], serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -460,6 +467,7 @@ async fn scanner_failure_fail_open_answers_200_detecting_nothing() {
     assert_eq!(json["detected"], false);
     assert_eq!(json["matches_count"], 0);
     assert!(json["kinds"].as_array().unwrap().is_empty());
+    assert_eq!(json["guards"], serde_json::json!([]));
 }
 
 #[tokio::test]
