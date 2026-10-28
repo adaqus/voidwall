@@ -198,6 +198,30 @@ impl ScanResult {
         guards.dedup();
         guards
     }
+
+    /// Each guard's share of the findings, sorted by guard name. A guard that
+    /// reported nothing has no entry.
+    pub fn by_guard(&self) -> Vec<GuardSummary> {
+        self.guards()
+            .into_iter()
+            .map(|guard| GuardSummary {
+                matches_count: self.findings.iter().filter(|f| f.guard == guard).count(),
+                kinds: self.kinds_where(|g| g == &*guard),
+                name: guard,
+            })
+            .collect()
+    }
+}
+
+/// One guard's share of a [`ScanResult`].
+#[derive(Debug, PartialEq, Eq)]
+pub struct GuardSummary {
+    /// The guard's configured name.
+    pub name: Arc<str>,
+    /// How many findings the guard reported.
+    pub matches_count: usize,
+    /// The kinds the guard found, sorted by name and holding each kind once.
+    pub kinds: Vec<String>,
 }
 
 #[cfg(test)]
@@ -341,5 +365,50 @@ mod tests {
     #[test]
     fn guards_is_empty_without_findings() {
         assert!(ScanResult::default().guards().is_empty());
+    }
+
+    #[test]
+    fn by_guard_is_sorted_by_guard_and_holds_each_guards_share() {
+        let result = ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "PERSON_NAME", "pii_ml", Span::new(0, 5)),
+            Finding::spanned(UnitId(0), "EMAIL", "pii", Span::new(0, 5)),
+            Finding::spanned(UnitId(0), "PERSON_NAME", "pii", Span::new(6, 9)),
+            Finding::spanned(UnitId(1), "EMAIL", "pii", Span::new(0, 5)),
+            Finding::whole_unit(UnitId(0), "PROMPT_INJECTION", "injection", 0.9),
+        ]);
+        let expected = vec![
+            GuardSummary {
+                name: Arc::from("injection"),
+                matches_count: 1,
+                kinds: vec!["PROMPT_INJECTION".to_string()],
+            },
+            GuardSummary {
+                name: Arc::from("pii"),
+                matches_count: 3,
+                kinds: vec!["EMAIL".to_string(), "PERSON_NAME".to_string()],
+            },
+            GuardSummary {
+                name: Arc::from("pii_ml"),
+                matches_count: 1,
+                kinds: vec!["PERSON_NAME".to_string()],
+            },
+        ];
+        assert_eq!(result.by_guard(), expected);
+    }
+
+    #[test]
+    fn by_guard_counts_add_up_to_matches_count() {
+        let result = ScanResult::new(vec![
+            Finding::spanned(UnitId(0), "EMAIL", "guard_a", Span::new(0, 5)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_b", Span::new(0, 5)),
+            Finding::spanned(UnitId(0), "EMAIL", "guard_b", Span::new(9, 14)),
+        ]);
+        let total: usize = result.by_guard().iter().map(|g| g.matches_count).sum();
+        assert_eq!(total, result.matches_count());
+    }
+
+    #[test]
+    fn by_guard_is_empty_without_findings() {
+        assert!(ScanResult::default().by_guard().is_empty());
     }
 }

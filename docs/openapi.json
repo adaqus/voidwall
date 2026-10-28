@@ -199,6 +199,33 @@
           "error": "malformed body for declared content type"
         }
       },
+      "GuardScanResponse": {
+        "type": "object",
+        "description": "One guard's share of a `/v1/scan` result.",
+        "required": [
+          "name",
+          "matches_count",
+          "kinds"
+        ],
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct kinds this guard detected, sorted."
+          },
+          "matches_count": {
+            "type": "integer",
+            "description": "Number of findings this guard reported. The values of all entries add\nup to the top-level `matches_count`.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "The name configuration gave the guard."
+          }
+        }
+      },
       "GuardrailRequest": {
         "type": "object",
         "description": "A LiteLLM Generic Guardrail API payload. Only the fields Voidwall reads are\nlisted; any other field, including `request_data` and `request_headers`, is\naccepted and ignored.",
@@ -333,12 +360,20 @@
         "required": [
           "detected",
           "matches_count",
-          "kinds"
+          "kinds",
+          "guards"
         ],
         "properties": {
           "detected": {
             "type": "boolean",
             "description": "Whether any PII was detected in the body."
+          },
+          "guards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardScanResponse"
+            },
+            "description": "Each guard's share of the findings, sorted by guard name. A guard that\nfound nothing has no entry, so a clean scan returns an empty array."
           },
           "kinds": {
             "type": "array",
@@ -359,6 +394,16 @@
           "kinds": [
             "EMAIL",
             "US_SSN"
+          ],
+          "guards": [
+            {
+              "name": "pii",
+              "matches_count": 2,
+              "kinds": [
+                "EMAIL",
+                "US_SSN"
+              ]
+            }
           ]
         }
       }
