@@ -3,6 +3,16 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.2.0] - 2026-10-28
+
+### Features
+
+- **api:** Add a per-guard breakdown to the /v1/scan response
+
+### Build
+
+- **deps:** Bump rustls from 0.23.45 to 0.23.46
+
 ## [0.1.2] - 2026-10-27
 
 ### Bug Fixes
