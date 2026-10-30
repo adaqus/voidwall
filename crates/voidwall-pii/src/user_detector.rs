@@ -7,8 +7,9 @@ use serde::Deserialize;
 use vectorscan_rs::{BlockDatabase, BlockScanner, Flag, Pattern, Scan};
 
 use crate::detector::Detector;
+use crate::keyword_context_detector::ARRAY_INDEX_RE;
 use crate::normalize::decode_for_detection;
-use crate::{Country, PiiError, PiiKind, PiiMatch};
+use crate::{ContextFragment, Country, PiiError, PiiKind, PiiMatch};
 
 thread_local! {
     static USER_DETECTION_CACHE: RefCell<Option<(usize, BlockScanner<'static>)>>
@@ -216,6 +217,11 @@ impl UserDetector {
 
         // Dedup: same (start, end, label) can arise if vectorscan reports
         // multiple hits that all resolve to the same regex match.
+        Self::sort_dedup(&mut results);
+        results
+    }
+
+    fn sort_dedup(results: &mut Vec<PiiMatch>) {
         results.sort_by(|a, b| {
             a.start
                 .cmp(&b.start)
@@ -227,7 +233,6 @@ impl UserDetector {
                 && a.end == b.end
                 && a.user_label.as_deref() == b.user_label.as_deref()
         });
-        results
     }
 
     fn has_on(&self, input: &str) -> bool {
@@ -286,6 +291,49 @@ impl Detector for UserDetector {
                 .collect(),
             None => self.mark_on(input),
         }
+    }
+
+    fn mark_piis_structured(&self, fragments: &[ContextFragment<'_>]) -> Vec<PiiMatch> {
+        if self.entries.is_empty() {
+            return Vec::new();
+        }
+        let has_keywords = self.entries.iter().any(|e| e.has_keywords);
+        let mut results = Vec::new();
+        for f in fragments {
+            // The value alone: a standalone entry, or a keyword entry whose
+            // keyword sits in the value's own text.
+            results.extend(self.mark_piis(f.value).into_iter().map(|m| PiiMatch {
+                start: m.start + f.offset,
+                end: m.end + f.offset,
+                ..m
+            }));
+            if !has_keywords {
+                continue;
+            }
+
+            // The key path as the keyword, as `KeywordContextDetector` does:
+            // `user.employee_id` is tried as `user.employee_id: {value}` and
+            // as `user: {value}`. Only a match inside the value counts.
+            let stripped = ARRAY_INDEX_RE.replace_all(f.context, "");
+            let segments: Vec<&str> = stripped.split('.').filter(|s| !s.is_empty()).collect();
+            for n in (1..=segments.len()).rev() {
+                let prefix = segments[..n].join(".");
+                let value_start = prefix.len() + 2; // "{prefix}: "
+                let value_end = value_start + f.value.len();
+                let synthetic = format!("{prefix}: {}", f.value);
+                for m in self.mark_piis(&synthetic) {
+                    if m.start >= value_start && m.end <= value_end {
+                        results.push(PiiMatch {
+                            start: m.start - value_start + f.offset,
+                            end: m.end - value_start + f.offset,
+                            ..m
+                        });
+                    }
+                }
+            }
+        }
+        Self::sort_dedup(&mut results);
+        results
     }
 }
 
@@ -402,6 +450,112 @@ mod tests {
         let det = make_detector("X", pattern, keywords, Country::International);
         assert!(!det.has_piis(input), "should not detect in: {input}");
         assert!(det.mark_piis(input).is_empty());
+    }
+
+    #[test_case(
+        r"EMP-\d{6}", &[],
+        "messages[0].content", "staff EMP-123456 here", "EMP-123456"
+        ; "standalone in a value"
+    )]
+    #[test_case(
+        r"\d{6}", &["badge"],
+        "messages[0].content", "my badge: 123456", "123456"
+        ; "keyword in the value text"
+    )]
+    #[test_case(
+        r"\d{6}", &["badge"],
+        "badge", "123456", "123456"
+        ; "keyword is the key"
+    )]
+    #[test_case(
+        r"\d{6}", &["badge"],
+        "user.badge", "123456", "123456"
+        ; "keyword is the last key segment"
+    )]
+    #[test_case(
+        r"\d{6}", &["badge"],
+        "badge.number", "123456", "123456"
+        ; "keyword is an earlier key segment"
+    )]
+    #[test_case(
+        r"\d{6}", &["badge"],
+        "badge[2]", "123456", "123456"
+        ; "array index is stripped from the key"
+    )]
+    #[test_case(
+        r"EMP-\d{6}", &[],
+        "id", "EMP%2D123456", "EMP%2D123456"
+        ; "url-encoded value spans the original bytes"
+    )]
+    fn structured_detects(
+        pattern: &str,
+        keywords: &[&str],
+        context: &str,
+        value: &str,
+        expected_value: &str,
+    ) {
+        // The value sits after a 7-byte document prefix, so a span that is
+        // not shifted by the offset reads the wrong bytes.
+        let document = format!("{{\"k\": \"{value}\"}}");
+        let offset = 7;
+        let det = make_detector("LBL", pattern, keywords, Country::International);
+        let matches = det.mark_piis_structured(&[ContextFragment {
+            context,
+            value,
+            offset,
+        }]);
+        assert_eq!(matches.len(), 1, "{matches:?}");
+        assert_eq!(matches[0].label(), "LBL");
+        assert_eq!(&document[matches[0].start..matches[0].end], expected_value);
+    }
+
+    #[test_case("employee", "123456" ; "key is not a keyword")]
+    #[test_case("badges", "123456" ; "keyword is a prefix of the key")]
+    #[test_case("", "123456" ; "empty key")]
+    #[test_case("badge_number", "123456" ; "keyword is not a whole key segment")]
+    fn structured_keyword_entry_does_not_detect(context: &str, value: &str) {
+        let det = make_detector("LBL", r"\d{6}", &["badge"], Country::International);
+        let matches = det.mark_piis_structured(&[ContextFragment {
+            context,
+            value,
+            offset: 0,
+        }]);
+        assert!(matches.is_empty(), "{matches:?}");
+    }
+
+    #[test]
+    fn structured_reports_one_match_per_span() {
+        // The keyword is both the key and in the value text, so the value
+        // pass and every key prefix find the same span.
+        let det = make_detector("LBL", r"\d{6}", &["badge"], Country::International);
+        let value = "badge 123456";
+        let matches = det.mark_piis_structured(&[ContextFragment {
+            context: "badge.badge",
+            value,
+            offset: 0,
+        }]);
+        assert_eq!(matches.len(), 1, "{matches:?}");
+        assert_eq!(&value[matches[0].start..matches[0].end], "123456");
+    }
+
+    #[test]
+    fn structured_spans_are_document_absolute_across_fragments() {
+        let document = r#"{"a":"EMP-111111","b":"EMP-222222"}"#;
+        let det = make_detector("LBL", r"EMP-\d{6}", &[], Country::International);
+        let matches = det.mark_piis_structured(&[
+            ContextFragment {
+                context: "a",
+                value: "EMP-111111",
+                offset: 6,
+            },
+            ContextFragment {
+                context: "b",
+                value: "EMP-222222",
+                offset: 23,
+            },
+        ]);
+        let found: Vec<&str> = matches.iter().map(|m| &document[m.start..m.end]).collect();
+        assert_eq!(found, ["EMP-111111", "EMP-222222"]);
     }
 
     #[test_case(Country::Us, &[Country::Fr], false ; "us entry excluded when only fr enabled")]

@@ -80,3 +80,10 @@ just before the pattern (with a permissive separator). The reported span
 covers only the value, not the keyword, so overlap resolution sees the value's
 own extent. This is useful when the pattern alone would be too broad (e.g. a
 three-letter prefix is too common to treat every occurrence as PII).
+
+In a JSON or CSV body, the key path of a value (or its CSV column) also counts
+as the text before it. `{"user": {"badge": "123456"}}` matches the keyword
+`badge`, as `user.badge: 123456` would. Each key path segment is tried, array
+indexes are dropped, and only a match inside the value is reported. The key
+must spell the keyword exactly: `badge_number` does not match `badge`, so list
+each key form you expect.

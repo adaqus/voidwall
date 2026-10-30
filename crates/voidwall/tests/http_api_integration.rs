@@ -201,6 +201,43 @@ async fn scan_application_json_nested_keys_and_arrays() {
     assert!(kinds.contains(&"US_PHONE_NUMBER".to_string()));
 }
 
+#[test_case("application/json", r#"{"staff":{"badge":"123456"},"note":"ask EMP-654321"}"# ; "json key")]
+#[test_case("text/csv", "badge,note\n123456,ask EMP-654321" ; "csv column")]
+#[tokio::test]
+async fn scan_structured_custom_definitions(content_type: &str, body: &'static str) {
+    let custom = vec![
+        voidwall_pii::UserPiiDefinition {
+            label: "EMPLOYEE_ID".into(),
+            pattern: r"EMP-\d{6}".into(),
+            keywords: Vec::new(),
+            country: voidwall_pii::Country::International,
+        },
+        voidwall_pii::UserPiiDefinition {
+            label: "BADGE".into(),
+            pattern: r"\d{6}".into(),
+            keywords: vec!["badge".into()],
+            country: voidwall_pii::Country::International,
+        },
+    ];
+    let pii_config = PiiGuardConfig {
+        custom,
+        ..default_pii_config()
+    };
+    let api = TestApi::start_with_pii(Ingest::default(), pii_config).await;
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", content_type)
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["detected"], true);
+    assert_eq!(json["kinds"], serde_json::json!(["BADGE", "EMPLOYEE_ID"]));
+}
+
 /// The body holding two kinds, reused by the ordering tests below.
 const TWO_KIND_BODY: &str = r#"{"user":{"phone_number":"555-123-4567"},"email":"a@b.com"}"#;
 

@@ -1755,6 +1755,64 @@ async fn buffer_mode_does_not_warn() {
 }
 
 // ---------------------------------------------------------------------------
+// A custom definition fires on the parsed body in both directions
+// ---------------------------------------------------------------------------
+
+/// The PII guard with a custom definition without keywords and one gated by
+/// the keyword `badge`.
+const CUSTOM: &str = r#"
+[builtin_guards.pii]
+scanner_threads = 1
+
+[[builtin_guards.pii.custom]]
+label = "EMPLOYEE_ID"
+pattern = "EMP-[0-9]{6}"
+
+[[builtin_guards.pii.custom]]
+label = "BADGE"
+pattern = "[0-9]{6}"
+keywords = ["badge"]
+"#;
+
+#[test_case(|p: &mut Value| message(p, "system")["content"][0]["text"] = json!("Staff EMP-123456 may refund") , "EMPLOYEE_ID" ; "a definition in a system message")]
+#[test_case(|p: &mut Value| p["metadata"]["badge"] = json!("123456") , "BADGE" ; "a key that is the keyword")]
+#[tokio::test]
+async fn a_custom_definition_in_the_request(edit: fn(&mut Value), kind: &str) {
+    let _m = METRICS.lock().await;
+    let upstream = Upstream::clean().await;
+    let proxy = Proxy::start_owning(Setup::default(), &upstream.url, CUSTOM).await;
+
+    let body = assert_block(proxy.post(&request(edit)).await, &[kind]).await;
+    assert!(!body.contains("123456"), "{body}");
+    assert_eq!(upstream.hits(), 0);
+}
+
+#[tokio::test]
+async fn a_custom_definition_in_the_response() {
+    let _m = METRICS.lock().await;
+    let upstream = Upstream::json(200, RESPONSE, |r| {
+        r["choices"][0]["message"]["content"] = json!("Ask EMP-123456 for a refund")
+    })
+    .await;
+    let proxy = Proxy::start_owning(Setup::default(), &upstream.url, CUSTOM).await;
+
+    let body = assert_block(proxy.post(&clean_request()).await, &["EMPLOYEE_ID"]).await;
+    assert!(!body.contains("123456"), "{body}");
+}
+
+#[tokio::test]
+async fn a_custom_definition_in_a_stream() {
+    let _m = METRICS.lock().await;
+    let parts = ["Ask EMP-1", "234", "56 for a refund"].map(content);
+    let upstream = Upstream::sse(recorded_with(&parts)).await;
+    let proxy = Proxy::start_owning(Setup::top(SMALL_WINDOW), &upstream.url, CUSTOM).await;
+
+    let error = assert_cut(proxy.post(&stream_request()).await).await;
+    assert_eq!(error["code"], "content_filter");
+    assert_eq!(error["kinds"], json!(["EMPLOYEE_ID"]));
+}
+
+// ---------------------------------------------------------------------------
 // A response that is not JSON is unscannable
 // ---------------------------------------------------------------------------
 

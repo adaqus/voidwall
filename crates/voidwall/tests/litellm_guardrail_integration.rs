@@ -397,6 +397,35 @@ async fn the_response_fixture_is_clean() {
 }
 
 // ---------------------------------------------------------------------------
+// A custom definition fires in both directions
+// ---------------------------------------------------------------------------
+
+const CUSTOM: &str = r#"
+[builtin_guards.pii]
+scanner_threads = 1
+
+[[builtin_guards.pii.custom]]
+label = "EMPLOYEE_ID"
+pattern = "EMP-[0-9]{6}"
+"#;
+
+#[tokio::test]
+async fn a_custom_definition_in_a_system_message() {
+    let server = Server::start_owning(CUSTOM, "").await;
+    let payload =
+        request(|p| message(p, "system")["content"] = json!("Staff EMP-123456 may refund"));
+    assert_eq!(server.verdict(&payload).await, blocked("EMPLOYEE_ID"));
+}
+
+#[tokio::test]
+async fn a_custom_definition_in_model_output() {
+    let server = Server::start_owning(CUSTOM, "").await;
+    let mut payload = fixture(RESPONSE);
+    payload["texts"] = json!(["Ask EMP-123456 for a refund"]);
+    assert_eq!(server.verdict(&payload).await, blocked("EMPLOYEE_ID"));
+}
+
+// ---------------------------------------------------------------------------
 // Caller identity and headers
 // ---------------------------------------------------------------------------
 
