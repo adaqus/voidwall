@@ -8,11 +8,15 @@
 //!
 //! `detect` is `async` but does almost no work of its own: a CPU-bound
 //! detector must not run on the tokio runtime, so a guard hands the units to
-//! its own threads and awaits the reply.
+//! its own threads and awaits the reply. A `detect` that is a single linear
+//! literal scan of its units may run inline instead.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+
+use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::config::{GuardSurface, ModelGuardSurface, OnError};
 use crate::error::Error;
@@ -24,37 +28,73 @@ use super::unit::{Unit, UnitId, UnitKind};
 /// engine holds `Box<dyn Guard>`.
 pub type DetectFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<Finding>, Error>> + Send + 'a>>;
 
-/// The unit kinds a guard wants to see.
+/// Which way a message travels: the request to the upstream, or the
+/// response from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    Request,
+    Response,
+}
+
+impl Direction {
+    /// Both directions, for an interest that inspects either.
+    pub const ALL: &'static [Direction] = &[Direction::Request, Direction::Response];
+
+    /// The `direction` metric label.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Direction::Request => "request",
+            Direction::Response => "response",
+        }
+    }
+}
+
+/// The units a guard wants to see: the directions it inspects, and the unit
+/// kinds it inspects in them.
 ///
-/// One axis only. There is deliberately no trust class and no
+/// Two axes only. There is deliberately no trust class and no
 /// internal/external/tool axis: nothing produces either yet, and freezing a
-/// taxonomy that nothing exercises is how the previous design failed. The axis
+/// taxonomy that nothing exercises is how the previous design failed. An axis
 /// is added when a producer exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interest {
+    directions: Vec<Direction>,
     kinds: Vec<UnitKind>,
 }
 
 impl Interest {
-    /// Interest in the given unit kinds.
+    /// Interest in the given unit kinds, in both directions.
     pub fn in_kinds(kinds: impl IntoIterator<Item = UnitKind>) -> Self {
         let mut kinds: Vec<UnitKind> = kinds.into_iter().collect();
         kinds.sort_unstable();
         kinds.dedup();
-        Self { kinds }
+        Self {
+            directions: Direction::ALL.to_vec(),
+            kinds,
+        }
     }
 
-    /// Interest in every unit kind.
+    /// Narrow this interest to the given directions.
+    pub fn in_directions(mut self, directions: impl IntoIterator<Item = Direction>) -> Self {
+        let mut directions: Vec<Direction> = directions.into_iter().collect();
+        directions.sort_unstable();
+        directions.dedup();
+        self.directions = directions;
+        self
+    }
+
+    /// Interest in every unit kind, in both directions.
     pub fn all() -> Self {
         Self::in_kinds(UnitKind::ALL.iter().copied())
     }
 
     /// Interest in nothing. A guard declaring this is never called.
     pub fn none() -> Self {
-        Self { kinds: Vec::new() }
+        Self::in_kinds([])
     }
 
-    /// The unit kinds a configured scan surface admits.
+    /// The unit kinds a configured scan surface admits, in both directions.
     ///
     /// `headers` is the guard's half of a two-part decision: the route decides
     /// which header values become units at all, and this decides whether the
@@ -77,7 +117,7 @@ impl Interest {
         Self::in_kinds(kinds)
     }
 
-    /// The unit kinds a model guard's scan surface admits.
+    /// The unit kinds a model guard's scan surface admits, in both directions.
     pub fn from_model_surface(surface: &ModelGuardSurface) -> Self {
         Self::from_surface(&GuardSurface {
             url_path: surface.url_path,
@@ -87,14 +127,10 @@ impl Interest {
         })
     }
 
-    /// The kinds this interest covers.
-    pub fn kinds(&self) -> &[UnitKind] {
-        &self.kinds
-    }
-
-    /// Whether this interest covers `kind`.
-    pub fn wants(&self, kind: UnitKind) -> bool {
-        self.kinds.contains(&kind)
+    /// Whether this interest covers units of `kind` in a message travelling
+    /// in `direction`. It must hold both.
+    pub fn wants(&self, direction: Direction, kind: UnitKind) -> bool {
+        self.directions.contains(&direction) && self.kinds.contains(&kind)
     }
 }
 
@@ -129,35 +165,73 @@ pub trait Guard: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
+
+    /// Whether an interest built for both directions covers `kind`. Both
+    /// directions must give the same answer.
+    fn wants(interest: &Interest, kind: UnitKind) -> bool {
+        let request = interest.wants(Direction::Request, kind);
+        assert_eq!(request, interest.wants(Direction::Response, kind));
+        request
+    }
+
+    #[test_case(Direction::Response, UnitKind::Body, true ; "held direction and held kind")]
+    #[test_case(Direction::Request, UnitKind::Body, false ; "other direction")]
+    #[test_case(Direction::Response, UnitKind::HeaderValue, false ; "other kind")]
+    #[test_case(Direction::Request, UnitKind::UrlPath, false ; "neither")]
+    fn an_interest_wants_a_pair_only_when_it_holds_both(
+        direction: Direction,
+        kind: UnitKind,
+        expected: bool,
+    ) {
+        let interest = Interest::in_kinds([UnitKind::Body]).in_directions([Direction::Response]);
+        assert_eq!(interest.wants(direction, kind), expected);
+    }
+
+    /// The `pii` guard and model guards build their interest from a surface,
+    /// so they keep both directions.
+    #[test]
+    fn a_surface_interest_covers_both_directions() {
+        let interest = Interest::from_surface(&GuardSurface::default());
+        for direction in Direction::ALL {
+            assert!(interest.wants(*direction, UnitKind::Body));
+        }
+    }
+
+    #[test]
+    fn direction_labels_match_the_metric_label() {
+        assert_eq!(Direction::Request.as_str(), "request");
+        assert_eq!(Direction::Response.as_str(), "response");
+    }
 
     #[test]
     fn interest_covers_only_the_declared_kinds() {
         let interest = Interest::in_kinds([UnitKind::Body, UnitKind::UrlPath]);
-        assert!(interest.wants(UnitKind::Body));
-        assert!(interest.wants(UnitKind::UrlPath));
-        assert!(!interest.wants(UnitKind::HeaderValue));
-        assert!(!interest.wants(UnitKind::QueryString));
+        assert!(wants(&interest, UnitKind::Body));
+        assert!(wants(&interest, UnitKind::UrlPath));
+        assert!(!wants(&interest, UnitKind::HeaderValue));
+        assert!(!wants(&interest, UnitKind::QueryString));
     }
 
     #[test]
     fn interest_all_covers_every_kind() {
         let interest = Interest::all();
-        assert!(UnitKind::ALL.iter().all(|k| interest.wants(*k)));
+        assert!(UnitKind::ALL.iter().all(|k| wants(&interest, *k)));
     }
 
     #[test]
     fn interest_none_covers_nothing() {
         let interest = Interest::none();
-        assert!(!UnitKind::ALL.iter().any(|k| interest.wants(*k)));
+        assert!(!UnitKind::ALL.iter().any(|k| wants(&interest, *k)));
     }
 
     #[test]
     fn a_default_surface_admits_the_path_the_query_the_body_and_headers() {
         let interest = Interest::from_surface(&GuardSurface::default());
-        assert!(interest.wants(UnitKind::Body));
-        assert!(interest.wants(UnitKind::UrlPath));
-        assert!(interest.wants(UnitKind::QueryString));
-        assert!(interest.wants(UnitKind::HeaderValue));
+        assert!(wants(&interest, UnitKind::Body));
+        assert!(wants(&interest, UnitKind::UrlPath));
+        assert!(wants(&interest, UnitKind::QueryString));
+        assert!(wants(&interest, UnitKind::HeaderValue));
     }
 
     /// The route decides which header values become units; the surface decides
@@ -170,8 +244,8 @@ mod tests {
             ..GuardSurface::default()
         };
         let interest = Interest::from_surface(&surface);
-        assert!(!interest.wants(UnitKind::HeaderValue));
-        assert!(interest.wants(UnitKind::Body));
+        assert!(!wants(&interest, UnitKind::HeaderValue));
+        assert!(wants(&interest, UnitKind::Body));
     }
 
     #[test]
@@ -181,8 +255,8 @@ mod tests {
             ..GuardSurface::default()
         };
         let interest = Interest::from_surface(&surface);
-        assert!(!interest.wants(UnitKind::Body));
-        assert!(interest.wants(UnitKind::UrlPath));
+        assert!(!wants(&interest, UnitKind::Body));
+        assert!(wants(&interest, UnitKind::UrlPath));
     }
 
     /// Such a surface fails validation, so the engine never sees one. The

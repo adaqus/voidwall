@@ -101,6 +101,22 @@
         "summary": "Scan a request body for PII",
         "description": "Inspects the body for PII according to the configured detector set and\nreturns the kinds detected along with per-kind match counts. The body\nitself is never echoed back.",
         "operationId": "scanBody",
+        "parameters": [
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "The direction of the posted content: `request` (the default) or\n`response`. The scan runs the guards that inspect that direction, so\n`hidden_context` runs only for `response`.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Which way a message travels: the request to the upstream, or the\nresponse from it.",
+              "enum": [
+                "request",
+                "response"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "description": "Raw body content to scan for PII. The `Content-Type` header determines how the body is parsed and scanned.",
           "content": {
@@ -139,7 +155,7 @@
             }
           },
           "400": {
-            "description": "Body could not be parsed for the declared `Content-Type`",
+            "description": "Body could not be parsed for the declared `Content-Type`, or `direction` is not `request` or `response`",
             "content": {
               "application/json": {
                 "schema": {

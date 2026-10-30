@@ -2993,6 +2993,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "regex",
+ "regex-syntax",
  "reqwest",
  "serde",
  "serde_json",

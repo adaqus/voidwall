@@ -675,7 +675,7 @@ mod tests {
     // --- 3.1: the tail holds each measured case of the shipped patterns ---
 
     use crate::config::{BuiltinGuards, OnError, PiiGuardConfig};
-    use crate::engine::{BlockPolicy, Engine, UnitContent, Units};
+    use crate::engine::{BlockPolicy, Direction, Engine, UnitContent, Units};
     use crate::structured::OwnedContextFragment;
 
     fn pii_engine() -> Engine {
@@ -703,6 +703,7 @@ mod tests {
                 .guard(
                     units.into_shared(),
                     &engine.select(None),
+                    Direction::Response,
                     BlockPolicy::Never,
                     OnError::FailClose,
                 )

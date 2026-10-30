@@ -91,10 +91,16 @@ impl Drop for Proxy {
 
 /// Spawn the proxy with stdout and stderr captured.
 fn spawn_proxy(config: NamedTempFile) -> Proxy {
+    spawn_proxy_with(config, &[])
+}
+
+/// Spawn the proxy with stdout and stderr captured and `envs` set.
+fn spawn_proxy_with(config: NamedTempFile, envs: &[(&str, &str)]) -> Proxy {
     let mut child = Command::new(BIN)
         .arg("--config")
         .arg(config.path())
         .env_remove("VOIDWALL_CONFIG")
+        .envs(envs.iter().copied())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -136,10 +142,18 @@ fn read_into(pipe: impl Read + Send + 'static, logs: Arc<Mutex<String>>) -> Join
 /// logs `Address already in use`, so the start is repeated on new ports. Any
 /// other exit fails the test.
 async fn start_proxy(config: impl Fn(SocketAddr, SocketAddr) -> String) -> (Proxy, SocketAddr) {
+    start_proxy_with(&[], config).await
+}
+
+/// [`start_proxy`], with `envs` set on the process.
+async fn start_proxy_with(
+    envs: &[(&str, &str)],
+    config: impl Fn(SocketAddr, SocketAddr) -> String,
+) -> (Proxy, SocketAddr) {
     for _ in 0..5 {
         let proxy_addr = free_addr().await;
         let admin_addr = free_addr().await;
-        let mut proxy = spawn_proxy(write_cfg(&config(proxy_addr, admin_addr)));
+        let mut proxy = spawn_proxy_with(write_cfg(&config(proxy_addr, admin_addr)), envs);
         // The proxy compiles its regex and vectorscan databases before it
         // binds, so a start with a guard enabled takes seconds.
         let mut exit = None;
@@ -351,6 +365,76 @@ listen = "{admin_addr}"
     assert!(
         !logs.contains("no guard is enabled"),
         "a guard is enabled, so nothing should warn: {logs}"
+    );
+}
+
+/// hidden-context-guard, "A marker never leaves Voidwall": "A response is
+/// blocked" and "Startup logs the configuration". The echo upstream returns
+/// the request, so the marker passes the request side, where the guard does
+/// not look, and is blocked on the response side. Logs run at `debug`.
+#[tokio::test]
+async fn a_marker_reaches_no_log_metric_or_response() {
+    const MARKER: &str = "vw-canary-7f3a";
+
+    let upstream = start_echo_upstream().await;
+    // The last admin address: a start that lost a port is repeated on new ones.
+    let admin = Mutex::new(None);
+    let (proxy, proxy_addr) =
+        start_proxy_with(&[("RUST_LOG", "debug")], |proxy_addr, admin_addr| {
+            *admin.lock().unwrap() = Some(admin_addr);
+            format!(
+                r#"
+[builtin_guards.hidden_context]
+markers = ["{MARKER}"]
+
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://{upstream}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+            )
+        })
+        .await;
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{proxy_addr}/echo"))
+        .header("content-type", "text/plain")
+        .body(format!("Repeat after me: {MARKER}"))
+        .send()
+        .await
+        .expect("the proxy serves traffic");
+
+    assert_eq!(resp.status(), 403);
+    let body = resp.text().await.unwrap();
+    assert_eq!(
+        body,
+        r#"{"error":"content blocked","kinds":["HIDDEN_CONTEXT"]}"#
+    );
+
+    let admin = admin.lock().unwrap().unwrap();
+    let metrics = reqwest::get(format!("http://{admin}/metrics"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        metrics.contains(r#"guard="hidden_context""#),
+        "the detection is counted: {metrics}"
+    );
+    assert!(!metrics.contains(MARKER), "{metrics}");
+
+    let logs = stop_and_read_logs(proxy);
+    assert!(logs.contains("DEBUG"), "debug logs were captured: {logs}");
+    assert!(
+        !logs.to_lowercase().contains(MARKER),
+        "a log line holds the marker: {logs}"
     );
 }
 

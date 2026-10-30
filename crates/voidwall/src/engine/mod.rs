@@ -22,6 +22,7 @@
 
 pub mod finding;
 pub mod guard;
+mod hidden_context;
 mod model;
 mod regex_pii;
 pub mod unit;
@@ -35,12 +36,15 @@ use futures_util::stream::FuturesUnordered;
 use tracing::{info, warn};
 use voidwall_ml::OnnxRuntime;
 
-use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError, available_cpus};
+use crate::config::{
+    AppConfig, BUILTIN_HIDDEN_CONTEXT_GUARD_NAME, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError,
+    available_cpus,
+};
 use crate::error::Error;
 use crate::scanner::SCANNER_ERROR_LIMITER;
 
 pub use finding::{Finding, FindingKind, GuardSummary, ScanResult, Span};
-pub use guard::{DetectFuture, Guard, GuardInput, Interest};
+pub use guard::{DetectFuture, Direction, Guard, GuardInput, Interest};
 pub use unit::{Unit, UnitContent, UnitId, UnitKind, Units};
 
 /// When the engine may stop waiting for the guards still running.
@@ -79,15 +83,19 @@ impl BlockPolicy {
 pub struct GuardSelection {
     /// Indices into [`Engine::guards`].
     indices: Vec<usize>,
-    /// The union of the selected guards' interests. Nothing outside this is
-    /// worth building: no selected guard would be handed it.
-    interest: Interest,
+    /// The selected guards' interests. Nothing outside their union is worth
+    /// building: no selected guard would be handed it. They are kept apart
+    /// rather than merged into one interest, because a guard that wants
+    /// request headers and another that wants response bodies together want
+    /// neither request bodies nor response headers.
+    interests: Vec<Interest>,
 }
 
 impl GuardSelection {
-    /// Whether any selected guard admits this unit kind.
-    pub fn wants(&self, kind: UnitKind) -> bool {
-        self.interest.wants(kind)
+    /// Whether any selected guard admits this unit kind in a message
+    /// travelling in `direction`.
+    pub fn wants(&self, direction: Direction, kind: UnitKind) -> bool {
+        self.interests.iter().any(|i| i.wants(direction, kind))
     }
 
     /// Whether this selection runs no guard at all. A route that selected none
@@ -103,7 +111,7 @@ impl GuardSelection {
     pub(crate) fn for_test(interest: Interest) -> Self {
         Self {
             indices: Vec::new(),
-            interest,
+            interests: vec![interest],
         }
     }
 }
@@ -125,6 +133,12 @@ impl Engine {
             guards.push(Box::new(regex_pii::RegexPiiGuard::new(
                 BUILTIN_PII_GUARD_NAME,
                 pii,
+            )?));
+        }
+        if let Some(hidden_context) = builtin_guards.enabled_hidden_context() {
+            guards.push(Box::new(hidden_context::HiddenContextGuard::new(
+                BUILTIN_HIDDEN_CONTEXT_GUARD_NAME,
+                hidden_context,
             )?));
         }
         Ok(Self { guards })
@@ -168,22 +182,20 @@ impl Engine {
                 .collect(),
         };
 
-        let kinds: Vec<UnitKind> = indices
+        let interests = indices
             .iter()
-            .flat_map(|&i| self.guards[i].interest().kinds().iter().copied())
+            .map(|&i| self.guards[i].interest().clone())
             .collect();
 
-        GuardSelection {
-            indices,
-            interest: Interest::in_kinds(kinds),
-        }
+        GuardSelection { indices, interests }
     }
 
-    /// Run the selected, interested guards over `units` and return the merged
-    /// findings.
+    /// Run the selected, interested guards over `units`, the units of one
+    /// message travelling in `direction`, and return the merged findings.
     ///
-    /// A guard whose declared interest matches no unit is not called, and nor
-    /// is one the selection left out. The findings come back in canonical
+    /// A guard whose declared interest matches no unit is not called, nor is
+    /// one whose interest lacks `direction`, nor one the selection left out.
+    /// The findings come back in canonical
     /// order, whatever order the guards finished in. `policy` decides whether a
     /// finding ends the scan early; a guard still running when that happens is
     /// abandoned, and its findings do not appear in the result.
@@ -195,6 +207,7 @@ impl Engine {
         &self,
         units: Arc<[Unit]>,
         selection: &GuardSelection,
+        direction: Direction,
         policy: BlockPolicy,
         on_error: OnError,
     ) -> ScanResult {
@@ -208,7 +221,7 @@ impl Engine {
                 let interest = g.interest();
                 let selected: Vec<UnitId> = units
                     .iter()
-                    .filter(|u| interest.wants(u.kind))
+                    .filter(|u| interest.wants(direction, u.kind))
                     .map(|u| u.id)
                     .collect();
                 if selected.is_empty() {
@@ -525,7 +538,7 @@ pub(crate) mod test_guard {
 mod tests {
     use super::test_guard::TestGuard;
     use super::*;
-    use crate::config::{BuiltinGuards, GuardSurface, PiiGuardConfig};
+    use crate::config::{BuiltinGuards, GuardSurface, HiddenContextConfig, PiiGuardConfig};
     use bytes::Bytes;
     use std::time::Duration;
 
@@ -557,7 +570,13 @@ mod tests {
     ) -> ScanResult {
         let selection = engine.select(None);
         engine
-            .guard(units, &selection, policy, OnError::FailOpen)
+            .guard(
+                units,
+                &selection,
+                Direction::Request,
+                policy,
+                OnError::FailOpen,
+            )
             .await
     }
 
@@ -843,6 +862,7 @@ mod tests {
             .guard(
                 body_only(),
                 &selection,
+                Direction::Request,
                 BlockPolicy::AnyFinding,
                 OnError::FailOpen,
             )
@@ -864,6 +884,7 @@ mod tests {
             .guard(
                 body_only(),
                 &selection,
+                Direction::Request,
                 BlockPolicy::Never,
                 OnError::FailOpen,
             )
@@ -899,14 +920,66 @@ mod tests {
             ),
         ]);
 
+        const REQUEST: Direction = Direction::Request;
         let all = engine.select(None);
-        assert!(all.wants(UnitKind::Body));
-        assert!(all.wants(UnitKind::QueryString));
+        assert!(all.wants(REQUEST, UnitKind::Body));
+        assert!(all.wants(REQUEST, UnitKind::QueryString));
 
         let body_only = engine.select(Some(&["body_guard"]));
-        assert!(body_only.wants(UnitKind::Body));
-        assert!(!body_only.wants(UnitKind::QueryString));
-        assert!(!body_only.wants(UnitKind::UrlPath));
+        assert!(body_only.wants(REQUEST, UnitKind::Body));
+        assert!(!body_only.wants(REQUEST, UnitKind::QueryString));
+        assert!(!body_only.wants(REQUEST, UnitKind::UrlPath));
+    }
+
+    // --- Direction is an axis of interest ---
+
+    #[test_case::test_case(Direction::Request, 0 ; "not called for a request")]
+    #[test_case::test_case(Direction::Response, 1 ; "called for a response")]
+    #[tokio::test]
+    async fn a_response_only_guard_is_called_for_a_response_only(
+        direction: Direction,
+        calls: usize,
+    ) {
+        let guard = TestGuard::new("response_only", "HIDDEN_CONTEXT")
+            .with_interest(Interest::all().in_directions([Direction::Response]));
+        let probe = guard.probe();
+        let engine = Engine::with_guards(vec![Box::new(guard)]);
+
+        let result = engine
+            .guard(
+                body_only(),
+                &engine.select(None),
+                direction,
+                BlockPolicy::Never,
+                OnError::FailOpen,
+            )
+            .await;
+
+        assert_eq!(probe.calls(), calls);
+        assert_eq!(result.matches_count(), calls);
+    }
+
+    /// A selection keeps each guard's interest whole. One guard that wants
+    /// request headers and one that wants response bodies together want
+    /// neither a request body nor a response header.
+    #[test]
+    fn a_selection_does_not_cross_one_guards_direction_with_anothers_kind() {
+        let engine = Engine::with_guards(vec![
+            Box::new(TestGuard::new("request_headers", "EMAIL").with_interest(
+                Interest::in_kinds([UnitKind::HeaderValue]).in_directions([Direction::Request]),
+            )),
+            Box::new(
+                TestGuard::new("response_body", "HIDDEN_CONTEXT").with_interest(
+                    Interest::in_kinds([UnitKind::Body]).in_directions([Direction::Response]),
+                ),
+            ),
+        ]);
+
+        let selection = engine.select(None);
+        assert!(selection.wants(Direction::Request, UnitKind::HeaderValue));
+        assert!(selection.wants(Direction::Response, UnitKind::Body));
+        assert!(!selection.wants(Direction::Request, UnitKind::Body));
+        assert!(!selection.wants(Direction::Response, UnitKind::HeaderValue));
     }
 
     // --- Guards are built from configuration (3.3) ---
@@ -948,6 +1021,63 @@ mod tests {
         let engine = Engine::new(&guards).expect("engine should build");
         assert_eq!(engine.guards.len(), 1);
         assert_eq!(engine.guards[0].name().as_ref(), "pii");
+        engine.shutdown();
+    }
+
+    fn hidden_context(enabled: bool) -> BuiltinGuards {
+        BuiltinGuards::with_hidden_context(HiddenContextConfig {
+            enabled,
+            markers: vec!["vw-canary-0000".into()],
+        })
+    }
+
+    #[test]
+    fn an_enabled_hidden_context_section_builds_the_guard_under_its_name() {
+        let engine = Engine::new(&hidden_context(true)).expect("engine should build");
+        assert_eq!(engine.guards.len(), 1);
+        assert_eq!(engine.guards[0].name().as_ref(), "hidden_context");
+        assert!(!engine.select(Some(&["hidden_context"])).is_empty());
+    }
+
+    #[test]
+    fn a_disabled_hidden_context_section_builds_no_guard() {
+        let engine = Engine::new(&hidden_context(false)).expect("engine should build");
+        assert!(engine.guards.is_empty());
+    }
+
+    /// pii-scanning and hidden-context-guard: on a route selecting both, the
+    /// request goes to `pii` alone and the response body to both.
+    #[test_case::test_case(Direction::Request, &["EMAIL"] ; "a request")]
+    #[test_case::test_case(Direction::Response, &["EMAIL", "HIDDEN_CONTEXT"] ; "a response")]
+    #[tokio::test]
+    async fn the_hidden_context_guard_inspects_responses_only(
+        direction: Direction,
+        kinds: &[&str],
+    ) {
+        let mut guards = hidden_context(true);
+        guards.pii = Some(PiiGuardConfig {
+            countries: vec![voidwall_pii::Country::International],
+            languages: vec![voidwall_pii::Language::En],
+            scanner_threads: Some(1),
+            ..PiiGuardConfig::default()
+        });
+        let engine = Engine::new(&guards).expect("engine should build");
+        let mut units = Units::new();
+        units.push_body(UnitContent::text(
+            "mail jane@example.com about vw-canary-0000".into(),
+        ));
+
+        let result = engine
+            .guard(
+                units.into_shared(),
+                &engine.select(None),
+                direction,
+                BlockPolicy::Never,
+                OnError::FailClose,
+            )
+            .await;
+
+        assert_eq!(result.kinds(), kinds);
         engine.shutdown();
     }
 
@@ -1058,6 +1188,7 @@ enabled = true
             .guard(
                 units.into_shared(),
                 &engine.select(Some(&["pii_ml"])),
+                Direction::Request,
                 BlockPolicy::Never,
                 OnError::FailClose,
             )

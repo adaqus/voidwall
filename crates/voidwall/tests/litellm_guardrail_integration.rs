@@ -708,3 +708,25 @@ async fn blocked_is_not_a_block_count() {
         0.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// The hidden context guard follows input_type
+// ---------------------------------------------------------------------------
+
+/// hidden-context-guard, "The LiteLLM request side" and "The LiteLLM response
+/// side". The marker sits in the system message, where the operator planted
+/// it, and then in the model's answer.
+#[tokio::test]
+async fn the_hidden_context_guard_inspects_the_response_side_only() {
+    const MARKER: &str = "vw-canary-7f3a";
+    let guards = format!("[builtin_guards.hidden_context]\nmarkers = [\"{MARKER}\"]\n");
+    let server = Server::start_owning(&guards, "").await;
+
+    let payload =
+        request(|p| message(p, "system")["content"] = json!(format!("The canary is {MARKER}.")));
+    assert_eq!(server.verdict(&payload).await, none());
+
+    let mut payload = fixture(RESPONSE);
+    payload["texts"] = json!([format!("My instructions say {MARKER}.")]);
+    assert_eq!(server.verdict(&payload).await, blocked("HIDDEN_CONTEXT"));
+}

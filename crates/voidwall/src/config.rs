@@ -319,11 +319,16 @@ stream_bytes_key!(
 /// into every finding it reports.
 pub const BUILTIN_PII_GUARD_NAME: &str = "pii";
 
+/// The section key of the built-in hidden context guard, and so the name it
+/// carries into every finding it reports.
+pub const BUILTIN_HIDDEN_CONTEXT_GUARD_NAME: &str = "hidden_context";
+
 /// The guard names the build reserves for guards that ship with Voidwall.
 ///
 /// Every guard a route can select is drawn from one flat name space, so a
 /// configured guard may not take one of these.
-pub const BUILTIN_GUARD_NAMES: &[&str] = &[BUILTIN_PII_GUARD_NAME];
+pub const BUILTIN_GUARD_NAMES: &[&str] =
+    &[BUILTIN_PII_GUARD_NAME, BUILTIN_HIDDEN_CONTEXT_GUARD_NAME];
 
 /// The guards that ship with Voidwall.
 ///
@@ -340,6 +345,9 @@ pub struct BuiltinGuards {
     #[serde(default)]
     pub pii: Option<PiiGuardConfig>,
 
+    #[serde(default)]
+    pub hidden_context: Option<HiddenContextConfig>,
+
     #[serde(flatten)]
     unknown: BTreeMap<String, toml::Value>,
 }
@@ -353,6 +361,17 @@ impl BuiltinGuards {
     pub fn with_pii(pii: PiiGuardConfig) -> Self {
         Self {
             pii: Some(pii),
+            hidden_context: None,
+            unknown: BTreeMap::new(),
+        }
+    }
+
+    /// The guard set holding just this hidden context guard. See
+    /// [`BuiltinGuards::with_pii`].
+    pub fn with_hidden_context(hidden_context: HiddenContextConfig) -> Self {
+        Self {
+            pii: None,
+            hidden_context: Some(hidden_context),
             unknown: BTreeMap::new(),
         }
     }
@@ -360,6 +379,12 @@ impl BuiltinGuards {
     /// The built-in PII guard, when its section is present and enabled.
     pub fn enabled_pii(&self) -> Option<&PiiGuardConfig> {
         self.pii.as_ref().filter(|g| g.enabled)
+    }
+
+    /// The built-in hidden context guard, when its section is present and
+    /// enabled.
+    pub fn enabled_hidden_context(&self) -> Option<&HiddenContextConfig> {
+        self.hidden_context.as_ref().filter(|g| g.enabled)
     }
 
     /// Keys under `[builtin_guards]` naming no built-in guard.
@@ -373,7 +398,80 @@ impl BuiltinGuards {
         if self.enabled_pii().is_some() {
             names.push(BUILTIN_PII_GUARD_NAME);
         }
+        if self.enabled_hidden_context().is_some() {
+            names.push(BUILTIN_HIDDEN_CONTEXT_GUARD_NAME);
+        }
         names
+    }
+}
+
+/// The most markers `[builtin_guards.hidden_context]` accepts.
+pub const MAX_HIDDEN_CONTEXT_MARKERS: usize = 64;
+
+/// The built-in hidden context guard: text that must never leave in a
+/// response.
+///
+/// It has no `surface`: its interest is fixed to the response body in code.
+/// `Debug` is written by hand, not derived: see the impl below.
+#[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct HiddenContextConfig {
+    /// A present section is enabled unless it says otherwise, as for `pii`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Plain text, not patterns. Each matches without regard to case.
+    #[serde(default)]
+    pub markers: Vec<String>,
+}
+
+/// The pattern a marker matches by: the marker as a literal, under Unicode
+/// simple case folding.
+fn marker_pattern(marker: &str) -> String {
+    format!("(?i){}", regex::escape(marker))
+}
+
+/// Every marker as one alternation: the regex the guard searches with.
+/// Validation compiles it too, so a list too large to compile stops the start
+/// at validation, and `--validate` reports it. A bytes regex, so a body that is
+/// not valid UTF-8 is still searched.
+pub(crate) fn markers_regex(markers: &[String]) -> Result<regex::bytes::Regex, regex::Error> {
+    let pattern = markers
+        .iter()
+        .map(|m| marker_pattern(m))
+        .collect::<Vec<_>>()
+        .join("|");
+    regex::bytes::Regex::new(&pattern)
+}
+
+/// The longest text `marker` can match, in bytes. Case folding can make it
+/// longer than the marker: `k` also matches the 3-byte Kelvin sign.
+fn marker_maximum_len(marker: &str) -> Option<usize> {
+    regex_syntax::Parser::new()
+        .parse(&marker_pattern(marker))
+        .ok()?
+        .properties()
+        .maximum_len()
+}
+
+/// A regex that matches exactly the texts equal to `marker` without regard to
+/// case. A later marker it matches whole is a duplicate. Simple case folding
+/// is an equivalence, so the test is symmetric.
+fn whole_marker_regex(marker: &str) -> Result<regex::Regex, regex::Error> {
+    regex::Regex::new(&format!("^(?:{})$", marker_pattern(marker)))
+}
+
+/// Print the marker count, never a marker.
+///
+/// A marker is a secret the operator planted, such as a canary in a system
+/// prompt. A derived `Debug` would put it into any log line, panic message, or
+/// assertion that formats the configuration.
+impl std::fmt::Debug for HiddenContextConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HiddenContextConfig")
+            .field("enabled", &self.enabled)
+            .field("markers", &self.markers.len())
+            .finish()
     }
 }
 
@@ -1202,6 +1300,74 @@ impl AppConfig {
         self.validate_model_guards()?;
         self.validate_reverse_proxy()?;
         self.validate_stream_keys()?;
+        self.validate_hidden_context()?;
+        Ok(())
+    }
+
+    /// The `[builtin_guards.hidden_context]` rules. A disabled section must
+    /// still be well-formed, as for `pii`; only an empty list is allowed
+    /// there, since the guard is never built.
+    ///
+    /// A message names a marker by its position and never quotes it: a
+    /// marker is a secret, and the message reaches the log.
+    fn validate_hidden_context(&self) -> Result<(), Error> {
+        const KEY: &str = "builtin_guards.hidden_context";
+        let Some(section) = &self.builtin_guards.hidden_context else {
+            return Ok(());
+        };
+        let markers = &section.markers;
+        if section.enabled && markers.is_empty() {
+            return Err(Error::Config(format!(
+                "{KEY}: the guard is enabled with no marker; add one to markers or set \
+                 enabled = false",
+            )));
+        }
+        if markers.len() > MAX_HIDDEN_CONTEXT_MARKERS {
+            return Err(Error::Config(format!(
+                "{KEY}.markers: too many markers ({}); max is {MAX_HIDDEN_CONTEXT_MARKERS}",
+                markers.len(),
+            )));
+        }
+
+        // A regex error is left out of every message below: its text can
+        // quote the pattern.
+        let holdback = self.stream_holdback_bytes.get();
+        let mut earlier: Vec<regex::Regex> = Vec::with_capacity(markers.len());
+        for (i, marker) in markers.iter().enumerate() {
+            if marker.is_empty() {
+                return Err(Error::Config(format!(
+                    "{KEY}.markers[{i}]: a marker must not be empty",
+                )));
+            }
+            // The bound comes before the duplicate check, so the patterns that
+            // check compiles are no longer than the hold-back.
+            match marker_maximum_len(marker) {
+                Some(len) if len <= holdback => {}
+                len => {
+                    let len = len.map_or_else(|| "unbounded".to_string(), |n| n.to_string());
+                    return Err(Error::Config(format!(
+                        "{KEY}.markers[{i}]: its longest possible match is {len} bytes, \
+                         longer than stream_holdback_bytes ({holdback})",
+                    )));
+                }
+            }
+            if let Some(j) = earlier.iter().position(|re| re.is_match(marker)) {
+                return Err(Error::Config(format!(
+                    "{KEY}.markers[{i}]: equals markers[{j}] without regard to case",
+                )));
+            }
+            earlier.push(whole_marker_regex(marker).map_err(|_| {
+                Error::Config(format!("{KEY}.markers[{i}]: the marker cannot be compiled"))
+            })?);
+        }
+        if !markers.is_empty() {
+            markers_regex(markers).map_err(|_| {
+                Error::Config(format!(
+                    "{KEY}.markers: the markers together are too large to compile; use \
+                     fewer or shorter markers",
+                ))
+            })?;
+        }
         Ok(())
     }
 
@@ -2142,6 +2308,133 @@ listen = "0.0.0.0:8083"
         let msg = err.to_string();
         assert!(msg.contains("unknown field"), "got: {msg}");
         assert!(msg.contains("type"), "got: {msg}");
+    }
+
+    // --- The hidden context guard section ---
+
+    const MARKER: &str = "vw-canary-0000";
+
+    /// A config with `[builtin_guards.hidden_context]` holding `section`, and
+    /// `top` at the top level.
+    fn hidden_context_toml(top: &str, section: &str) -> String {
+        format!(
+            r#"
+{top}
+
+[builtin_guards.hidden_context]
+{section}
+
+[http_api]
+enabled = true
+listen = "0.0.0.0:8083"
+"#
+        )
+    }
+
+    #[test]
+    fn a_hidden_context_section_is_parsed_and_enabled() {
+        let config = parse(&hidden_context_toml(
+            "",
+            &format!("markers = [\"{MARKER}\"]"),
+        ))
+        .unwrap();
+        let section = config.builtin_guards.enabled_hidden_context().unwrap();
+        assert_eq!(section.markers, vec![MARKER.to_string()]);
+        assert_eq!(
+            config.builtin_guards.enabled_names(),
+            vec!["hidden_context"]
+        );
+    }
+
+    #[test]
+    fn a_hidden_context_section_rejects_a_surface() {
+        let toml = hidden_context_toml(
+            "",
+            &format!(
+                "markers = [\"{MARKER}\"]\n\n[builtin_guards.hidden_context.surface]\nbody = true"
+            ),
+        );
+        let msg = parse(&toml).unwrap_err().to_string();
+        assert!(msg.contains("unknown field"), "got: {msg}");
+        assert!(msg.contains("surface"), "got: {msg}");
+    }
+
+    #[test]
+    fn debug_prints_the_marker_count_and_no_marker() {
+        let config = parse(&hidden_context_toml(
+            "",
+            &format!("markers = [\"{MARKER}\"]"),
+        ))
+        .unwrap();
+        let section = format!(
+            "{:?}",
+            config.builtin_guards.hidden_context.as_ref().unwrap()
+        );
+        assert_eq!(section, "HiddenContextConfig { enabled: true, markers: 1 }");
+        let whole = format!("{config:?}");
+        assert!(!whole.contains(MARKER), "got: {whole}");
+    }
+
+    #[test]
+    fn a_disabled_hidden_context_section_with_no_marker_is_valid() {
+        let config = parse(&hidden_context_toml("", "enabled = false\nmarkers = []")).unwrap();
+        assert!(config.builtin_guards.enabled_hidden_context().is_none());
+        assert!(config.builtin_guards.enabled_names().is_empty());
+    }
+
+    #[test_case("", "markers = []", &["builtin_guards.hidden_context", "no marker"] ; "enabled with no marker")]
+    #[test_case("", "markers = [\"vw-canary-0000\", \"\"]", &["markers[1]", "empty"] ; "an empty marker")]
+    #[test_case("", &format!("markers = [{}]", (0..65).map(|i| format!("\"vw-canary-{i:04}\"")).collect::<Vec<_>>().join(", ")), &["65", "64"] ; "too many markers")]
+    #[test_case("", "markers = [\"Bluefin\", \"BLUEFIN\"]", &["markers[1]", "markers[0]"] ; "two markers differ only in case")]
+    #[test_case("", &format!("markers = [\"{}\"]", "x".repeat(513)), &["markers[0]", "513", "stream_holdback_bytes"] ; "a marker longer than the hold-back")]
+    #[test_case("stream_holdback_bytes = 64\nstream_scan_bytes = 64", &format!("markers = [\"{}\"]", "k".repeat(30)), &["markers[0]", "90", "stream_holdback_bytes"] ; "case folding makes a match longer than the marker")]
+    fn an_invalid_hidden_context_section_is_rejected_without_quoting_a_marker(
+        top: &str,
+        section: &str,
+        expected: &[&str],
+    ) {
+        let msg = parse(&hidden_context_toml(top, section))
+            .unwrap_err()
+            .to_string();
+        for part in expected {
+            assert!(msg.contains(part), "missing {part:?} in: {msg}");
+        }
+        let lower = msg.to_lowercase();
+        for marker in ["vw-canary", "bluefin", "xxxx", "kkkk"] {
+            assert!(!lower.contains(marker), "quotes a marker: {msg}");
+        }
+    }
+
+    /// The cap is inclusive, and a marker as long as the hold-back fits.
+    #[test]
+    fn sixty_four_markers_at_the_hold_back_length_are_valid() {
+        let markers: Vec<String> = (0..64)
+            .map(|i| format!("\"{i:04}{}\"", "x".repeat(508)))
+            .collect();
+        parse(&hidden_context_toml(
+            "",
+            &format!("markers = [{}]", markers.join(", ")),
+        ))
+        .unwrap();
+    }
+
+    /// Each marker fits the hold-back, but together they are past the regex
+    /// size limit. Validation compiles the regex the guard would build, so the
+    /// config fails here and not later, at engine build.
+    #[test]
+    fn markers_too_large_to_compile_together_are_rejected() {
+        let markers: Vec<String> = (0..64)
+            .map(|i| format!("\"{i:04}{}\"", "x".repeat(32_764)))
+            .collect();
+        let top = "max_body_size = 1048576\nstream_holdback_bytes = 32768";
+        let msg = parse(&hidden_context_toml(
+            top,
+            &format!("markers = [{}]", markers.join(", ")),
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(msg.contains("too large to compile"), "got: {msg}");
+        assert!(!msg.contains("xxxx"), "quotes a marker: {msg}");
     }
 
     // --- The old sections are gone (1.4) ---
@@ -3238,6 +3531,7 @@ url_path = true
     }
 
     #[test_case(BUILTIN_PII_GUARD_NAME ; "the built-in pii guard")]
+    #[test_case(BUILTIN_HIDDEN_CONTEXT_GUARD_NAME ; "the built-in hidden context guard")]
     fn a_reserved_guard_name_is_rejected(name: &str) {
         let err = validate_configured_guard_name(name).expect_err("must be rejected");
         assert!(err.to_string().contains("reserved"), "got: {err}");

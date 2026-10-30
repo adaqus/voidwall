@@ -701,3 +701,51 @@ async fn content_types_does_not_apply_to_the_litellm_route() {
     assert_eq!(post_json(&api, "/v1/scan").await.status(), 415);
     assert_eq!(post_litellm(&api).await.status(), 200);
 }
+
+// ---------------------------------------------------------------------------
+// /v1/scan?direction=response and the hidden context guard
+// ---------------------------------------------------------------------------
+
+/// http-api, "The hidden context guard reports a finding", and metrics, "A
+/// response scan detects a marker". No other test in this binary counts the
+/// `hidden_context` guard, so the change is exact.
+#[tokio::test]
+async fn a_response_scan_reports_a_marker_twice_as_one_finding() {
+    use voidwall::config::HiddenContextConfig;
+    use voidwall::metrics::GUARD_DETECTIONS_TOTAL;
+
+    let mut guards = BuiltinGuards::with_hidden_context(HiddenContextConfig {
+        enabled: true,
+        markers: vec!["vw-canary-7f3a".into()],
+    });
+    guards.pii = Some(default_pii_config());
+    let engine = Arc::new(Engine::new(&guards).unwrap());
+    let api = TestApi::start_inner(Ingest::default(), default_pii_config(), engine).await;
+    let counted = || {
+        GUARD_DETECTIONS_TOTAL
+            .with_label_values(&["hidden_context", "http_api", "global", "response"])
+            .get()
+    };
+    let before = counted();
+
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan?direction=response"))
+        .header("content-type", "text/plain")
+        .body("vw-canary-7f3a, again VW-CANARY-7F3A")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "detected": true,
+            "matches_count": 1,
+            "kinds": ["HIDDEN_CONTEXT"],
+            "guards": [{"name": "hidden_context", "matches_count": 1, "kinds": ["HIDDEN_CONTEXT"]}],
+        })
+    );
+    assert_eq!(counted(), before + 1);
+}

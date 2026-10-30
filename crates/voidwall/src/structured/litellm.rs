@@ -21,6 +21,7 @@ use utoipa::ToSchema;
 
 use super::chat_completions::{Decoded, Selection};
 use super::json::flatten_json;
+use crate::engine::Direction;
 use crate::error::Error;
 
 /// The side of the call LiteLLM is guarding.
@@ -34,11 +35,11 @@ pub enum InputType {
 }
 
 impl InputType {
-    /// The `direction` metric label.
-    pub fn direction(self) -> &'static str {
+    /// The direction of the message the call guards.
+    pub fn direction(self) -> Direction {
         match self {
-            InputType::Request => "request",
-            InputType::Response => "response",
+            InputType::Request => Direction::Request,
+            InputType::Response => Direction::Response,
         }
     }
 }
@@ -168,7 +169,7 @@ mod tests {
         let payload = serde_json::to_vec(&json!({"input_type": raw})).unwrap();
         let (input_type, _) = decode(&payload).expect("decodes");
         assert_eq!(input_type, expected);
-        assert_eq!(input_type.direction(), direction);
+        assert_eq!(input_type.direction().as_str(), direction);
     }
 
     /// Payloads in the shape LiteLLM v1.105.1 posts. The integration tests
