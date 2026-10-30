@@ -32,7 +32,8 @@ thread_local! {
 
 /// Matches `[<digits>]` array-index segments like `[0]`, `[42]` so they can
 /// be stripped from a structured-scan key path before iterating prefixes.
-static ARRAY_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[\d+\]").unwrap());
+pub(crate) static ARRAY_INDEX_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[\d+\]").unwrap());
 
 struct KeywordPattern {
     kind: PiiKind,
