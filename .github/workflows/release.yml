@@ -73,7 +73,7 @@ jobs:
       - name: Install native build dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libboost-dev patch xz-utils
 
-      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-deny,cargo-about
 
