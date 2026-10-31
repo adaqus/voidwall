@@ -2976,7 +2976,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voidwall"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "bytes",
@@ -3013,7 +3013,7 @@ dependencies = [
 
 [[package]]
 name = "voidwall-eval"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proptest",
  "serde",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "voidwall-ml"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "half",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "voidwall-pii"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "fst",

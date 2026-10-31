@@ -3,6 +3,29 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.3.0] - 2026-10-31
+
+### Features
+
+- **guard:** Add the hidden_context guard for OWASP LLM08
+
+### Bug Fixes
+
+- **pii:** Apply custom regex rules to JSON and CSV bodies
+
+### Build
+
+- **deps:** Bump transformers in /crates/voidwall-ml/parity
+- **deps:** Bump crossbeam-channel from 0.5.15 to 0.5.17
+- **deps:** Bump regex from 1.12.3 to 1.13.1
+- **deps:** Bump memmap2 from 0.9.11 to 0.9.12
+- **deps:** Bump tokio-util from 0.7.18 to 0.7.20
+- **deps:** Bump criterion from 0.5.1 to 0.8.2
+
+### CI
+
+- **deps:** Bump taiki-e/install-action from 2.87.30 to 2.87.32
+
 ## [0.2.0] - 2026-10-28
 
 ### Features
