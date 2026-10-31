@@ -153,7 +153,8 @@ the body runs under `stream_idle_timeout_secs`, and the body counts against
 
 `engine` holds the detection contract: the units a message decodes into, the findings a
 guard returns, the `Guard` trait, and the `Engine` that runs the guards. Each guard owns
-whatever it needs to detect — the regex PII guard owns the scanner pool.
+whatever it needs to detect — the regex PII guard owns the scanner pool, and the
+`hidden_context` guard owns its compiled markers.
 
 `forward_proxy` and `tls` are empty files. See § 7.
 
@@ -212,6 +213,13 @@ the gazetteer is immutable, so one memory-mapped copy serves every thread.
 The pool has no explicit shutdown. It sits behind a boxed guard, so no caller can
 reclaim it to shut it down; `Drop` closes the channel and joins every thread, and
 `Engine::shutdown` logs only after the guards are released.
+
+There is one exception. A `detect` that is a single linear-time literal scan of its units
+may run inline, on the runtime. The `hidden_context` guard does this: one
+case-insensitive regex of escaped literals, with no backtracking, costs about a
+millisecond on a body near `max_body_size`. A worker thread would add a channel round
+trip and a thread to save less than that. A detector that costs more stays on its own
+threads.
 
 ### 4.2 One resolved match set, everywhere
 
@@ -366,10 +374,19 @@ error would only say the field is unknown.
 
 ### 4.7 A guard's surface is four booleans, and the route decides what exists
 
-Every guard carries a `surface` — `url_path`, `query_params`, `body`, `headers` — which
-is the configuration form of its `Interest`. It is per guard, not global, so two enabled
-guards may want different parts of the same message, and a unit kind no selected guard
-admits is never built.
+Every guard except `hidden_context` carries a `surface` — `url_path`, `query_params`,
+`body`, `headers` — which is the configuration form of its `Interest`. It is per guard,
+not global, so two enabled guards may want different parts of the same message, and a
+unit kind no selected guard admits is never built.
+
+An `Interest` also holds the directions a guard inspects, and the engine is told the
+direction of each scan. The `pii` guard and every model guard inspect both directions.
+The `hidden_context` guard inspects the response body only: a marker is planted in the
+request, so a request scan would block every call. Its interest is fixed in code, so its
+section has no `surface`, and no setting changes a guard's directions. A selection keeps
+each guard's interest whole rather than merging them, so a guard that wants request
+headers and one that wants response bodies together build neither a request body nor a
+response header.
 
 `headers` is a boolean rather than a list of header names, and that split is the point.
 Which headers carry sensitive values is a property of the traffic, not of a detector, so

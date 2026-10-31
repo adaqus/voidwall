@@ -1,19 +1,22 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use bytes::Bytes;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::config::{AppConfig, OnError};
-use crate::engine::{BlockPolicy, Engine, GuardSelection, ScanResult, UnitContent, Units};
+use crate::engine::{
+    BlockPolicy, Direction, Engine, GuardSelection, ScanResult, UnitContent, Units,
+};
 use crate::error::Error;
 use crate::metrics::{self, PiiGuards, UnscannedReason};
 use crate::scanner::{SCANNER_ERROR_LIMITER, classify_body, is_json_content_type};
@@ -179,6 +182,17 @@ const BLOCKED_REASON: &str = "Voidwall blocked the message. Kinds: ";
 // entry per `SUPPORTED_BODY_CONTENT_TYPES` element so the documented set
 // stays in sync with the parser dispatch in `scanner::classify_body`.
 
+/// The query of `/v1/scan`.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct ScanQuery {
+    /// The direction of the posted content: `request` (the default) or
+    /// `response`. The scan runs the guards that inspect that direction, so
+    /// `hidden_context` runs only for `response`.
+    #[param(inline)]
+    direction: Option<Direction>,
+}
+
 /// Scan a request body for PII
 ///
 /// Inspects the body for PII according to the configured detector set and
@@ -189,6 +203,7 @@ const BLOCKED_REASON: &str = "Voidwall blocked the message. Kinds: ";
     path = "/v1/scan",
     tag = "pii",
     operation_id = "scanBody",
+    params(ScanQuery),
     request_body(
         description = "Raw body content to scan for PII. The `Content-Type` \
             header determines how the body is parsed and scanned.",
@@ -202,14 +217,24 @@ const BLOCKED_REASON: &str = "Voidwall blocked the message. Kinds: ";
             body = ScanResponse,
             content_type = "application/json",
         ),
-        (status = 400, description = "Body could not be parsed for the declared `Content-Type`", body = ErrorResponse, content_type = "application/json"),
+        (status = 400, description = "Body could not be parsed for the declared `Content-Type`, or `direction` is not `request` or `response`", body = ErrorResponse, content_type = "application/json"),
         (status = 413, description = "Body exceeds configured `max_body_size`, or, with `on_error = fail_close`, a model guard needs more windows than its limit", body = ErrorResponse, content_type = "application/json"),
         (status = 415, description = "`Content-Type` is not in the configured allowlist", body = ErrorResponse, content_type = "application/json"),
         (status = 500, description = "A guard failed (scanner or model inference) and `on_error = fail_close`", body = ErrorResponse, content_type = "application/json"),
     ),
 )]
-async fn scan_handler(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
-    process(state, headers, body).await
+async fn scan_handler(
+    State(state): State<ApiState>,
+    query: Result<Query<ScanQuery>, QueryRejection>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    // `direction` is the only field, so any rejection is a bad direction.
+    let Ok(Query(query)) = query else {
+        return invalid_direction();
+    };
+    let direction = query.direction.unwrap_or(Direction::Request);
+    process(state, headers, body, direction).await
 }
 
 /// LiteLLM Generic Guardrail API
@@ -360,7 +385,12 @@ fn encode_pointer_segment(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
 }
 
-async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
+async fn process(
+    state: ApiState,
+    headers: HeaderMap,
+    body: Bytes,
+    direction: Direction,
+) -> Response {
     let content_type = headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -394,6 +424,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
         .guard(
             Arc::clone(&units),
             &state.selection,
+            direction,
             BlockPolicy::Never,
             state.on_error,
         )
@@ -401,7 +432,7 @@ async fn process(state: ApiState, headers: HeaderMap, body: Bytes) -> Response {
 
     let kinds = scan_result.kinds();
 
-    record_detections(&scan_result, &state.pii_guards, "request");
+    record_detections(&scan_result, &state.pii_guards, direction);
     if let Some(resp) = handle_guard_error(&mut scan_result, state.on_error) {
         return resp;
     }
@@ -454,7 +485,7 @@ async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Re
         metrics::inc_unscanned(
             MODE,
             ROUTE,
-            direction,
+            direction.as_str(),
             UnscannedReason::EncodedData,
             decoded.encoded_values as u64,
         );
@@ -471,6 +502,7 @@ async fn process_litellm(state: ApiState, headers: HeaderMap, body: Bytes) -> Re
         .guard(
             units.into_shared(),
             &state.selection,
+            direction,
             BlockPolicy::Never,
             state.on_error,
         )
@@ -501,12 +533,12 @@ fn guardrail_response(payload: &GuardrailResponse) -> Response {
 
 /// Increment the detection families. This runs also when a guard error turns
 /// the answer into a 500. The PII family counts the PII guards' kinds only.
-fn record_detections(scan_result: &ScanResult, pii_guards: &PiiGuards, direction: &str) {
+fn record_detections(scan_result: &ScanResult, pii_guards: &PiiGuards, direction: Direction) {
     for kind in &pii_guards.kinds(scan_result) {
-        metrics::inc_detection(kind, MODE, ROUTE, direction);
+        metrics::inc_detection(kind, MODE, ROUTE, direction.as_str());
     }
     for guard in scan_result.guards() {
-        metrics::inc_guard_detection(&guard, MODE, ROUTE, direction);
+        metrics::inc_guard_detection(&guard, MODE, ROUTE, direction.as_str());
     }
 }
 
@@ -519,6 +551,20 @@ fn handle_guard_error(scan_result: &mut ScanResult, on_error: OnError) -> Option
         warn!(dropped, error = %e, "scanner error in http api");
     }
     handle_scanner_failure(e, on_error)
+}
+
+/// A `direction` that is not `request` or `response`. Like the 415, it is a
+/// client mistake rather than a scanner failure or a limit, so it counts no
+/// error.
+fn invalid_direction() -> Response {
+    let resp = (
+        StatusCode::BAD_REQUEST,
+        [("content-type", "application/json")],
+        r#"{"error":"invalid direction"}"#,
+    )
+        .into_response();
+    record_request(resp.status());
+    resp
 }
 
 fn unsupported_content_type() -> Response {
@@ -736,7 +782,13 @@ mod tests {
         let state = build_state(&config, engine);
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
-        process(state, headers, Bytes::from_static(b"content")).await
+        process(
+            state,
+            headers,
+            Bytes::from_static(b"content"),
+            Direction::Request,
+        )
+        .await
     }
 
     fn detections(kind: &str) -> u64 {
@@ -818,7 +870,13 @@ class = "pii"
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
 
-        let resp = process(state, headers, Bytes::from_static(b"content")).await;
+        let resp = process(
+            state,
+            headers,
+            Bytes::from_static(b"content"),
+            Direction::Request,
+        )
+        .await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(detections("API_PII_ML_KIND"), 1);
@@ -847,7 +905,13 @@ class = "pii"
         let state = build_state(&config, engine);
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
-        process(state, headers, Bytes::from_static(b"content")).await
+        process(
+            state,
+            headers,
+            Bytes::from_static(b"content"),
+            Direction::Request,
+        )
+        .await
     }
 
     fn errors(outcome: &str, reason: &str) -> u64 {
@@ -919,12 +983,24 @@ class = "pii"
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
 
-        let resp = process(state.clone(), headers, Bytes::from_static(b"content")).await;
+        let resp = process(
+            state.clone(),
+            headers,
+            Bytes::from_static(b"content"),
+            Direction::Request,
+        )
+        .await;
         assert_eq!(resp.status(), StatusCode::OK);
 
         let mut json = HeaderMap::new();
         json.insert("content-type", "application/json".parse().unwrap());
-        let malformed = process(state, json, Bytes::from_static(b"{not json")).await;
+        let malformed = process(
+            state,
+            json,
+            Bytes::from_static(b"{not json"),
+            Direction::Request,
+        )
+        .await;
         assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
 
         assert_eq!(guard_detections("api_gm_a"), 1);
@@ -1205,6 +1281,129 @@ class = "pii"
         assert_eq!(
             status_of(&router, LITELLM_PATH, "application/json", LITELLM_BODY).await,
             StatusCode::OK
+        );
+    }
+
+    // --- POST /v1/scan takes the direction of the posted content ---
+
+    use crate::config::{BuiltinGuards, HiddenContextConfig, PiiGuardConfig};
+
+    const MARKER: &str = "vw-canary-api0";
+
+    /// A router over the real `pii` and `hidden_context` guards.
+    fn direction_router() -> Router {
+        let mut guards = BuiltinGuards::with_hidden_context(HiddenContextConfig {
+            enabled: true,
+            markers: vec![MARKER.into()],
+        });
+        guards.pii = Some(PiiGuardConfig {
+            countries: vec![voidwall_pii::Country::International],
+            languages: vec![voidwall_pii::Language::En],
+            scanner_threads: Some(1),
+            ..PiiGuardConfig::default()
+        });
+        let engine = Arc::new(Engine::new(&guards).expect("engine should build"));
+        router(build_state(&AppConfig::default(), engine))
+    }
+
+    async fn post_scan(router: &Router, query: &str, body: &'static str) -> Response {
+        let request = Request::post(format!("{SCAN_PATH}{query}"))
+            .header("content-type", "text/plain")
+            .body(Body::from(body))
+            .unwrap();
+        router.clone().oneshot(request).await.unwrap()
+    }
+
+    async fn json_of(resp: Response) -> serde_json::Value {
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[test_case("" ; "no direction")]
+    #[test_case("?direction=request" ; "request direction")]
+    #[tokio::test]
+    async fn a_request_scan_does_not_run_the_hidden_context_guard(query: &str) {
+        let resp = post_scan(&direction_router(), query, "about vw-canary-api0").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_of(resp).await;
+        assert_eq!(body["detected"], false);
+        assert_eq!(body["guards"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn a_response_scan_runs_every_guard_that_inspects_responses() {
+        let resp = post_scan(
+            &direction_router(),
+            "?direction=response",
+            "mail jane@example.com about vw-canary-api0",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_of(resp).await;
+        assert_eq!(
+            body["kinds"],
+            serde_json::json!(["EMAIL", "HIDDEN_CONTEXT"])
+        );
+    }
+
+    /// http-api, "The hidden context guard reports a finding", and metrics,
+    /// "A response scan detects a marker".
+    #[tokio::test]
+    async fn a_marker_twice_is_one_finding_counted_under_the_response_direction() {
+        let counted = || {
+            GUARD_DETECTIONS_TOTAL
+                .with_label_values(&["hidden_context", MODE, ROUTE, "response"])
+                .get()
+        };
+        let before = counted();
+
+        let resp = post_scan(
+            &direction_router(),
+            "?direction=response",
+            "vw-canary-api0 and VW-CANARY-API0",
+        )
+        .await;
+
+        let body = json_of(resp).await;
+        assert_eq!(body["detected"], true);
+        assert_eq!(body["matches_count"], 1);
+        assert_eq!(body["kinds"], serde_json::json!(["HIDDEN_CONTEXT"]));
+        assert_eq!(
+            body["guards"],
+            serde_json::json!([{"name": "hidden_context", "matches_count": 1, "kinds": ["HIDDEN_CONTEXT"]}])
+        );
+        // Other tests may count the same labels at the same time.
+        assert!(counted() > before);
+    }
+
+    #[test_case("?direction=sideways" ; "unknown value")]
+    #[test_case("?direction=" ; "empty value")]
+    #[test_case("?direction=Response" ; "wrong case")]
+    #[tokio::test]
+    async fn an_unknown_direction_answers_400_and_runs_no_guard(query: &str) {
+        let guard = TestGuard::new("api_direction", "API_DIRECTION");
+        let probe = guard.probe();
+        let engine = Arc::new(Engine::with_guards(vec![Box::new(guard)]));
+        let router = router(build_state(&AppConfig::default(), engine));
+
+        let resp = post_scan(&router, query, "content").await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"invalid direction"}"#);
+        assert_eq!(probe.calls(), 0);
+    }
+
+    #[test]
+    fn openapi_spec_documents_the_direction_parameter() {
+        let spec: serde_json::Value = serde_json::from_str(&build_openapi_spec()).unwrap();
+        let params = &spec["paths"][SCAN_PATH]["post"]["parameters"];
+        assert_eq!(params[0]["name"], "direction");
+        assert_eq!(params[0]["in"], "query");
+        assert_eq!(params[0]["required"], false);
+        assert_eq!(
+            params[0]["schema"]["enum"],
+            serde_json::json!(["request", "response"])
         );
     }
 }

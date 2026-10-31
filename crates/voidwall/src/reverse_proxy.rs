@@ -19,7 +19,8 @@ use tracing::{error, warn};
 
 use crate::config::{AppConfig, OnError, RouteFormat, StreamMode};
 use crate::engine::{
-    BlockPolicy, Engine, Finding, GuardSelection, ScanResult, UnitContent, UnitKind, Units,
+    BlockPolicy, Direction, Engine, Finding, GuardSelection, ScanResult, UnitContent, UnitKind,
+    Units,
 };
 use crate::error::{Error, INVALID_REQUEST};
 use crate::metrics::{self, CutReason, PiiGuards, UnscannedReason};
@@ -281,14 +282,14 @@ async fn handle_proxied_request(
     if state.request_scan {
         let ctx = MetricContext {
             route: &route.path_prefix,
-            direction: "request",
+            direction: Direction::Request,
             pii_guards: &state.pii_guards,
         };
 
         // The body is decoded only when a guard selected for this route wants
         // it and there is something to read. A generic route also needs an
         // admitted content type; an `openai-chat` route admits JSON only.
-        let body = if selection.wants(UnitKind::Body) && !body_bytes.is_empty() {
+        let body = if selection.wants(ctx.direction, UnitKind::Body) && !body_bytes.is_empty() {
             match route.format {
                 RouteFormat::Generic
                     if is_content_type_allowed(&headers, &ingest.content_types) =>
@@ -311,7 +312,7 @@ async fn handle_proxied_request(
         };
         match result {
             PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
-                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction.as_str());
                 return resp;
             }
             PipelineResult::Pass => {}
@@ -376,7 +377,7 @@ async fn handle_proxied_request(
     if state.response_scan {
         let ctx = MetricContext {
             route: &route.path_prefix,
-            direction: "response",
+            direction: Direction::Response,
             pii_guards: &state.pii_guards,
         };
 
@@ -427,7 +428,7 @@ async fn handle_proxied_request(
             };
             return match result {
                 PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
-                    metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                    metrics::inc_message_blocked(MODE, ctx.route, ctx.direction.as_str());
                     resp
                 }
                 PipelineResult::Pass => stream_through(upstream_resp),
@@ -457,7 +458,7 @@ async fn handle_proxied_request(
             Err(_) => return answer(shape, upstream_timeout(&route.upstream)),
         };
 
-        let body = if selection.wants(UnitKind::Body) && !resp_body.is_empty() {
+        let body = if selection.wants(ctx.direction, UnitKind::Body) && !resp_body.is_empty() {
             match route.format {
                 RouteFormat::Generic
                     if is_content_type_allowed(&resp_headers, &ingest.content_types) =>
@@ -478,7 +479,7 @@ async fn handle_proxied_request(
         };
         match result {
             PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
-                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+                metrics::inc_message_blocked(MODE, ctx.route, ctx.direction.as_str());
                 return resp;
             }
             PipelineResult::Pass => {
@@ -732,7 +733,7 @@ fn decode_stream_event(
         metrics::inc_unscanned(
             MODE,
             ctx.route,
-            ctx.direction,
+            ctx.direction.as_str(),
             UnscannedReason::EncodedData,
             chunk.encoded_values as u64,
         );
@@ -827,7 +828,7 @@ async fn buffer_stream(
     }
     let raw = raw.freeze();
 
-    let body = if plan.selection.wants(UnitKind::Body) {
+    let body = if plan.selection.wants(ctx.direction, UnitKind::Body) {
         decode_whole_stream(&events, plan.ingest.on_error, ctx)
     } else {
         Ok(Vec::new())
@@ -838,7 +839,7 @@ async fn buffer_stream(
     };
     match result {
         PipelineResult::Block(resp) | PipelineResult::Error(resp) => {
-            metrics::inc_message_blocked(MODE, ctx.route, ctx.direction);
+            metrics::inc_message_blocked(MODE, ctx.route, ctx.direction.as_str());
             resp
         }
         PipelineResult::Pass => {
@@ -909,7 +910,7 @@ impl StreamTask {
     fn ctx(&self) -> MetricContext<'_> {
         MetricContext {
             route: &self.route,
-            direction: "response",
+            direction: Direction::Response,
             pii_guards: &self.pii_guards,
         }
     }
@@ -1193,7 +1194,10 @@ async fn pass_through(
 
 /// Scan the headers the route names, once, before any byte of the body.
 async fn scan_stream_headers(task: &StreamTask, headers: &HeaderMap) -> Verdict {
-    if !task.selection.wants(UnitKind::HeaderValue) {
+    if !task
+        .selection
+        .wants(Direction::Response, UnitKind::HeaderValue)
+    {
         return Verdict::Go;
     }
     let mut units = Units::new();
@@ -1206,6 +1210,7 @@ async fn scan_stream_headers(task: &StreamTask, headers: &HeaderMap) -> Verdict 
         .guard(
             units.into_shared(),
             &task.selection,
+            Direction::Response,
             BlockPolicy::AnyFinding,
             task.ingest.on_error,
         )
@@ -1226,7 +1231,7 @@ async fn scan_stream(
     event_units: Vec<UnitContent>,
 ) -> Verdict {
     let due = hold.due();
-    if !task.selection.wants(UnitKind::Body) {
+    if !task.selection.wants(Direction::Response, UnitKind::Body) {
         for id in due {
             hold.window(id);
             hold.apply(id, Vec::new());
@@ -1253,6 +1258,7 @@ async fn scan_stream(
         .guard(
             units.into_shared(),
             &task.selection,
+            Direction::Response,
             BlockPolicy::Never,
             task.ingest.on_error,
         )
@@ -1365,7 +1371,7 @@ enum PipelineResult {
 /// vary.
 struct MetricContext<'a> {
     route: &'a str,
-    direction: &'a str,
+    direction: Direction,
     pii_guards: &'a PiiGuards,
 }
 
@@ -1402,15 +1408,15 @@ async fn scan_and_act(
     // each is admitted by a guard's surface on its own, and a finding's span
     // then names which of the two it sits in. They are tiny, so the extra unit
     // costs nothing next to body scanning.
-    if plan.selection.wants(UnitKind::UrlPath) {
+    if plan.selection.wants(ctx.direction, UnitKind::UrlPath) {
         units.push_path(uri.path().to_string());
     }
-    if plan.selection.wants(UnitKind::QueryString)
+    if plan.selection.wants(ctx.direction, UnitKind::QueryString)
         && let Some(query) = uri.query()
     {
         units.push_query(query.to_string());
     }
-    if plan.selection.wants(UnitKind::HeaderValue) {
+    if plan.selection.wants(ctx.direction, UnitKind::HeaderValue) {
         push_scan_headers(&mut units, plan.headers, headers);
     }
 
@@ -1433,7 +1439,7 @@ async fn scan_and_act_response(
     for content in body {
         units.push_body(content);
     }
-    if plan.selection.wants(UnitKind::HeaderValue) {
+    if plan.selection.wants(ctx.direction, UnitKind::HeaderValue) {
         push_scan_headers(&mut units, plan.headers, headers);
     }
 
@@ -1463,6 +1469,7 @@ async fn run_engine(
         .guard(
             Arc::clone(&units),
             plan.selection,
+            ctx.direction,
             BlockPolicy::AnyFinding,
             plan.ingest.on_error,
         )
@@ -1500,18 +1507,18 @@ fn record_detection(scan_result: &ScanResult, ctx: &MetricContext<'_>) -> Vec<St
     let kinds = scan_result.kinds();
     let pii_kinds = ctx.pii_guards.kinds(scan_result);
     for kind in &pii_kinds {
-        metrics::inc_detection(kind, MODE, ctx.route, ctx.direction);
+        metrics::inc_detection(kind, MODE, ctx.route, ctx.direction.as_str());
     }
     // Once per guard that reported, however many findings it reported. A
     // guard the block abandoned returned nothing, so it is not counted.
     for guard in scan_result.guards() {
-        metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction);
+        metrics::inc_guard_detection(&guard, MODE, ctx.route, ctx.direction.as_str());
     }
     // The PII family counts only a block a PII guard took part in, once
     // however many PII guards did. The engine-wide family counts every
     // stopped message and moves where the pipeline result is known.
     if !pii_kinds.is_empty() {
-        metrics::inc_blocked(MODE, ctx.route, ctx.direction);
+        metrics::inc_blocked(MODE, ctx.route, ctx.direction.as_str());
     }
     kinds
 }
@@ -1686,7 +1693,7 @@ fn decoded_units(
         metrics::inc_unscanned(
             MODE,
             ctx.route,
-            ctx.direction,
+            ctx.direction.as_str(),
             UnscannedReason::EncodedData,
             decoded.encoded_values as u64,
         );
@@ -2136,9 +2143,9 @@ mod tests {
         };
         let selection = GuardSelection::for_test(Interest::from_surface(&body_only));
 
-        assert!(selection.wants(UnitKind::Body));
-        assert!(!selection.wants(UnitKind::UrlPath));
-        assert!(!selection.wants(UnitKind::QueryString));
+        assert!(selection.wants(Direction::Request, UnitKind::Body));
+        assert!(!selection.wants(Direction::Request, UnitKind::UrlPath));
+        assert!(!selection.wants(Direction::Request, UnitKind::QueryString));
     }
 
     /// The same rule reaches headers, which is why the call that collects them
@@ -2151,13 +2158,13 @@ mod tests {
             ..GuardSurface::default()
         };
         let selection = GuardSelection::for_test(Interest::from_surface(&no_headers));
-        assert!(!selection.wants(UnitKind::HeaderValue));
+        assert!(!selection.wants(Direction::Request, UnitKind::HeaderValue));
 
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
 
         let mut units = Units::new();
-        if selection.wants(UnitKind::HeaderValue) {
+        if selection.wants(Direction::Request, UnitKind::HeaderValue) {
             push_scan_headers(&mut units, &["Authorization".to_string()], &headers);
         }
         assert!(units.is_empty(), "no selected guard admits the kind");
@@ -2212,7 +2219,7 @@ mod tests {
         };
         let ctx = MetricContext {
             route,
-            direction: "request",
+            direction: Direction::Request,
             pii_guards,
         };
         let mut units = Units::new();
@@ -2483,7 +2490,7 @@ mod tests {
         let pii_guards = with_pii_model_guard();
         let ctx = MetricContext {
             route,
-            direction: "request",
+            direction: Direction::Request,
             pii_guards: &pii_guards,
         };
         let scan_result = ScanResult::new(vec![
@@ -2507,7 +2514,7 @@ mod tests {
         let pii_guards = with_pii_model_guard();
         let ctx = MetricContext {
             route,
-            direction: "request",
+            direction: Direction::Request,
             pii_guards: &pii_guards,
         };
         let scan_result = ScanResult::new(vec![
@@ -3401,7 +3408,7 @@ mod tests {
     fn a_bad_payload_under_fail_close_stops_with_malformed_body() {
         let ctx = MetricContext {
             route: "/chat-decode-close",
-            direction: "response",
+            direction: Direction::Response,
             pii_guards: &PiiGuards::from_config(&AppConfig::default()),
         };
         let Err(stop) = decode_stream_event("{not json", OnError::FailClose, &ctx) else {
@@ -3418,7 +3425,7 @@ mod tests {
     fn a_bad_payload_under_fail_open_is_scanned_as_plain_text() {
         let ctx = MetricContext {
             route: "/chat-decode-open",
-            direction: "response",
+            direction: Direction::Response,
             pii_guards: &PiiGuards::from_config(&AppConfig::default()),
         };
         let Ok(event) = decode_stream_event("{not json", OnError::FailOpen, &ctx) else {

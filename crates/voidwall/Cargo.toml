@@ -51,6 +51,8 @@ voidwall-pii = { path = "../voidwall-pii" }
 # Model runtime: adapter kinds today, ONNX Runtime from S5 on
 voidwall-ml = { path = "../voidwall-ml" }
 regex = "1"
+# The longest possible match of a hidden context marker, for the hold-back bound.
+regex-syntax = "0.8"
 percent-encoding = "2"
 
 # OpenAPI spec generation

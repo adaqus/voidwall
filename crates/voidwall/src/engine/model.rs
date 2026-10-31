@@ -792,7 +792,7 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_run_is_not_an_error() {
         use crate::engine::test_guard::TestGuard;
-        use crate::engine::{BlockPolicy, Engine};
+        use crate::engine::{BlockPolicy, Direction, Engine};
 
         let dir = tempfile::tempdir().unwrap();
         let guard = slow_guard(dir.path());
@@ -804,6 +804,7 @@ mod tests {
             .guard(
                 long_unit().into_shared(),
                 &engine.select(None),
+                Direction::Request,
                 BlockPolicy::AnyFinding,
                 OnError::FailClose,
             )
@@ -816,6 +817,7 @@ mod tests {
             .guard(
                 short_unit().into_shared(),
                 &engine.select(Some(&["injection"])),
+                Direction::Request,
                 BlockPolicy::AnyFinding,
                 OnError::FailClose,
             )

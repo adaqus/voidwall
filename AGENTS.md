@@ -191,7 +191,9 @@ inside the regex PII guard, spawns dedicated OS threads, each owning one
 responses. Never call `voidwall_pii::Scanner` directly from an async context.
 
 A guard's `detect` is `async` but does almost no work of its own: it hands the units to
-its own workers and awaits the reply. Keep it that way.
+its own workers and awaits the reply. Keep it that way. One exception: a `detect` that is
+a single linear-time literal scan of its units may run inline, as the `hidden_context`
+guard's does. A detector that costs more stays on its own threads.
 
 ## Errors
 

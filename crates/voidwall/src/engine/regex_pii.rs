@@ -252,6 +252,7 @@ impl Guard for RegexPiiGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::guard::Direction;
     use crate::engine::unit::{UnitKind, Units};
     use crate::scanner::classify_body;
     use bytes::Bytes;
@@ -293,15 +294,17 @@ mod tests {
 
     /// The default surface takes the path, the query, and the body. Header
     /// values come from whatever the route named, so the guard always admits
-    /// the kind.
+    /// the kind. The guard inspects both directions.
     #[test]
     fn the_guard_takes_its_interest_from_its_configured_surface() {
         let guard = guard();
-        for kind in UnitKind::ALL {
-            assert!(
-                guard.interest().wants(*kind),
-                "expected interest in {kind:?}"
-            );
+        for direction in Direction::ALL {
+            for kind in UnitKind::ALL {
+                assert!(
+                    guard.interest().wants(*direction, *kind),
+                    "expected interest in {direction:?} {kind:?}"
+                );
+            }
         }
         assert_eq!(guard.name().as_ref(), "pii");
     }
@@ -316,8 +319,12 @@ mod tests {
             ..test_pii_config()
         };
         let guard = RegexPiiGuard::new("pii", &config).expect("guard should build");
-        assert!(!guard.interest().wants(UnitKind::Body));
-        assert!(guard.interest().wants(UnitKind::UrlPath));
+        assert!(!guard.interest().wants(Direction::Request, UnitKind::Body));
+        assert!(
+            guard
+                .interest()
+                .wants(Direction::Request, UnitKind::UrlPath)
+        );
     }
 
     /// The name is configuration's, not the build's: a differently named

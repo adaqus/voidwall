@@ -15,6 +15,23 @@ The contract is `docs/openapi.json`, an OpenAPI 3.x document in this repository.
 It is generated from the route handlers and their request and response types, so it
 cannot drift from the implementation.
 
+## The direction of a `/v1/scan` body
+
+`POST /v1/scan` takes an optional `direction` query parameter, `request` or `response`.
+It names the direction of the posted content, and the scan runs the guards that inspect
+that direction:
+
+| Query | Scan |
+|---|---|
+| none, or `?direction=request` | A request scan. The `hidden_context` guard does not run. |
+| `?direction=response` | A response scan. Every guard that inspects responses runs, `hidden_context` among them. |
+| any other value | 400 `{"error":"invalid direction"}`. No guard runs. |
+
+The `pii` guard and every model guard inspect both directions, so for them the parameter
+changes nothing. A detection counts under the `direction` label of the scan. The LiteLLM
+route takes no `direction`: its `input_type` sets it. See
+[hidden-context.md](hidden-context.md).
+
 ## The LiteLLM route
 
 - It accepts JSON only (415 otherwise). `max_body_size` applies; `content_types` does not.
