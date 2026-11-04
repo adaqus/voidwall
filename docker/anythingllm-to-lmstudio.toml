@@ -36,7 +36,7 @@ labels = ["PROMPT_INJECTION"]   # text_classifier: one label, naming class 1
 overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
 
 [guards.prompt_injection.thresholds]
-PROMPT_INJECTION = 0.5
+PROMPT_INJECTION = 0.95
 
 # The PII token classifier of docker/voidwall.toml, beside the regex PII guard.
 # With response scanning on, it also reads the model's replies, so a reply that
