@@ -2042,6 +2042,607 @@ pub(crate) fn pl_dl_check(s: &str) -> bool {
         && parts.iter().all(|p| p.bytes().all(|b| b.is_ascii_digit()))
 }
 
+// --- Secrets ---
+//
+// A secret pattern matches a prefix and then the maximal run of the token's
+// alphabet, so a match never ends inside a longer run. These checks then
+// test the structure of that run: its length, markers, and checksums.
+
+/// Documented sample values. Docs and tutorials print them, so they are not
+/// secrets. Exact match only: a sample with one changed character has a real
+/// key's shape and is reported.
+const KNOWN_SAMPLES: &[&str] = &[
+    // AWS docs: the sample access key ID and its paired secret access key.
+    "AKIAIOSFODNN7EXAMPLE",
+    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    // jwt.io debugger HS256 sample: the current one, and the one it showed
+    // before (no `admin` claim).
+    concat!(
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.",
+        "KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30",
+    ),
+    concat!(
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.",
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+    ),
+];
+
+/// Whether `s` is not on the known-sample deny list.
+pub(crate) fn not_known_sample(s: &str) -> bool {
+    !KNOWN_SAMPLES.contains(&s)
+}
+
+/// `AKIA` and 16 of `[0-9A-Z]`, not a known sample. The shape repeats the
+/// expression's, so a model span is checked too, not only the deny list.
+pub(crate) fn aws_access_key_check(s: &str) -> bool {
+    s.strip_prefix("AKIA").is_some_and(|body| {
+        body.len() == 16 && all_bytes(body, |b| b.is_ascii_digit() || b.is_ascii_uppercase())
+    }) && not_known_sample(s)
+}
+
+/// 40 of `[A-Za-z0-9/+=]`, not starting with `=`, and not a known sample.
+///
+/// Base64 never starts with its `=` padding. The keyword expression's
+/// separator can be `=`, so without this rule a value shifted one character
+/// left (`=` plus the first 39 characters of a denied sample) would pass.
+pub(crate) fn aws_secret_key_check(s: &str) -> bool {
+    s.len() == 40
+        && !s.starts_with('=')
+        && all_bytes(s, |b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'/' | b'+' | b'=')
+        })
+        && not_known_sample(s)
+}
+
+fn is_base64url(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
+}
+
+fn is_lower_hex(b: u8) -> bool {
+    b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+}
+
+fn all_bytes(s: &str, class: fn(u8) -> bool) -> bool {
+    s.bytes().all(class)
+}
+
+fn alnum(s: &str) -> bool {
+    all_bytes(s, |b| b.is_ascii_alphanumeric())
+}
+
+/// The part of `s` after the first of `prefixes` it starts with.
+fn body_after<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+    prefixes.iter().find_map(|p| s.strip_prefix(p))
+}
+
+/// The value of `digits` read as a fixed-width number in `radix`. Fixed width
+/// keeps the mapping one-to-one, so comparing values compares the strings.
+fn fixed_radix_value(digits: &str, radix: u64, digit: fn(u8) -> Option<u8>) -> Option<u64> {
+    digits
+        .bytes()
+        .try_fold(0u64, |acc, b| Some(acc * radix + u64::from(digit(b)?)))
+}
+
+/// Lowercase base36: `0-9a-z`.
+fn base36_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'z' => Some(b - b'a' + 10),
+        _ => None,
+    }
+}
+
+/// Base62: `0-9A-Za-z`.
+fn base62_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'A'..=b'Z' => Some(b - b'A' + 10),
+        b'a'..=b'z' => Some(b - b'a' + 36),
+        _ => None,
+    }
+}
+
+/// The marker inside an OpenAI key: base64 of "OpenAI".
+const OPENAI_MARKER: &str = "T3BlbkFJ";
+
+/// `sk-proj-`, `sk-svcacct-`, or `sk-admin-`, then 58 or 74 base64url
+/// characters, the marker, and 58 or 74 more; or the legacy
+/// `sk-<20 alphanumerics>T3BlbkFJ<20 alphanumerics>`.
+pub(crate) fn openai_key_check(s: &str) -> bool {
+    const HALVES: [usize; 2] = [58, 74];
+    if let Some(body) = body_after(s, &["sk-proj-", "sk-svcacct-", "sk-admin-"]) {
+        return all_bytes(body, is_base64url)
+            && HALVES.iter().any(|&head| {
+                body.get(head..head + OPENAI_MARKER.len()) == Some(OPENAI_MARKER)
+                    && HALVES.contains(&(body.len() - head - OPENAI_MARKER.len()))
+            });
+    }
+    s.strip_prefix("sk-").is_some_and(|body| {
+        body.len() == 48 && alnum(body) && body.get(20..28) == Some(OPENAI_MARKER)
+    })
+}
+
+/// `sk-ant-api03-` or `sk-ant-admin01-`, then at least 80 base64url
+/// characters and `AA`. No maximum: the docs give no length.
+pub(crate) fn anthropic_key_check(s: &str) -> bool {
+    body_after(s, &["sk-ant-api03-", "sk-ant-admin01-"]).is_some_and(|body| {
+        body.len() >= 80 + 2 && body.ends_with("AA") && all_bytes(body, is_base64url)
+    })
+}
+
+/// Slack token prefixes: current, rotating, and legacy types.
+const SLACK_TOKEN_PREFIXES: &[&str] = &[
+    "xoxb-",
+    "xoxp-",
+    "xapp-",
+    "xoxe.xapp-",
+    "xwfp-",
+    "xoxe.xoxb-",
+    "xoxe.xoxp-",
+    "xoxe-",
+    "xoxa-",
+    "xoxr-",
+    "xoxo-",
+    "xoxs-",
+];
+
+/// A Slack token: a prefix, then at least 10 characters of `[A-Za-z0-9-]`
+/// with at least one digit. Every Slack token type holds numeric IDs; the
+/// digit rule rejects doc placeholders such as `xoxb-your-bot-token`.
+pub(crate) fn slack_token_check(s: &str) -> bool {
+    body_after(s, SLACK_TOKEN_PREFIXES).is_some_and(|body| {
+        body.len() >= 10
+            && all_bytes(body, |b| b.is_ascii_alphanumeric() || b == b'-')
+            && body.bytes().any(|b| b.is_ascii_digit())
+    })
+}
+
+/// A Slack webhook URL: `hooks.slack.com/services/`, `/workflows/`, or
+/// `/triggers/`, with an optional `http(s)://`, then a path of at least 43
+/// characters of `[A-Za-z0-9+/]`.
+pub(crate) fn slack_webhook_check(s: &str) -> bool {
+    let host_path = body_after(s, &["https://", "http://"]).unwrap_or(s);
+    body_after(
+        host_path,
+        &[
+            "hooks.slack.com/services/",
+            "hooks.slack.com/workflows/",
+            "hooks.slack.com/triggers/",
+        ],
+    )
+    .is_some_and(|path| {
+        path.len() >= 43
+            && all_bytes(path, |b| {
+                b.is_ascii_alphanumeric() || b == b'+' || b == b'/'
+            })
+    })
+}
+
+/// A live Stripe secret or restricted key, or an organization key, with 10 to
+/// 99 alphanumerics. Test and publishable prefixes never reach this check.
+pub(crate) fn stripe_secret_key_check(s: &str) -> bool {
+    body_after(s, &["sk_live_", "rk_live_", "sk_org_"])
+        .is_some_and(|body| (10..=99).contains(&body.len()) && alnum(body))
+}
+
+/// `AIza` and 35 base64url characters.
+pub(crate) fn google_api_key_check(s: &str) -> bool {
+    s.strip_prefix("AIza")
+        .is_some_and(|body| body.len() == 35 && all_bytes(body, is_base64url))
+}
+
+/// GitLab token prefixes. Each is also the prefix of a routable token.
+const GITLAB_PREFIXES: &[&str] = &[
+    "glpat-", "gldt-", "glrt-", "glrtr-", "glcbt-", "glptt-", "glft-", "glimt-", "glagent-",
+    "glwt-", "glsoat-", "glffct-", "gloas-",
+];
+
+/// A GitLab token: a routable token whose checksum matches, or a legacy
+/// `glpat-<20>`, `gldt-<20>`, or `glptt-<40 hex>` token, which has none.
+pub(crate) fn gitlab_token_check(s: &str) -> bool {
+    let Some(dash) = s.find('-') else {
+        return false;
+    };
+    let (prefix, body) = s.split_at(dash + 1);
+    if !GITLAB_PREFIXES.contains(&prefix) {
+        return false;
+    }
+    if body.contains('.') {
+        return gitlab_routable_check(s, body);
+    }
+    match prefix {
+        "glpat-" | "gldt-" => body.len() == 20 && all_bytes(body, is_base64url),
+        "glptt-" => body.len() == 40 && all_bytes(body, is_lower_hex),
+        _ => false,
+    }
+}
+
+/// A routable GitLab token (`lib/authn/token_field/generator/routable_token.rb`):
+/// `<prefix><base64url payload>.01.<2 base36 length><7 base36 CRC32>`. The
+/// CRC32 (IEEE) is over everything before it, prefix included, in lowercase
+/// base36 left-padded with `0`.
+fn gitlab_routable_check(token: &str, body: &str) -> bool {
+    let Some((payload, rest)) = body.split_once('.') else {
+        return false;
+    };
+    let Some(tail) = rest.strip_prefix("01.") else {
+        return false;
+    };
+    if payload.is_empty()
+        || !all_bytes(payload, is_base64url)
+        || tail.len() != 9
+        || !tail.bytes().all(|b| base36_digit(b).is_some())
+    {
+        return false;
+    }
+    let (signed, crc) = token.split_at(token.len() - 7);
+    fixed_radix_value(crc, 36, base36_digit) == Some(u64::from(crc32fast::hash(signed.as_bytes())))
+}
+
+/// `hf_` or `api_org_`, then 34 ASCII letters.
+pub(crate) fn huggingface_token_check(s: &str) -> bool {
+    body_after(s, &["hf_", "api_org_"])
+        .is_some_and(|body| body.len() == 34 && body.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+
+/// `npm_` and 36 alphanumerics, whose last 6 are the CRC32 (IEEE) of the 30
+/// before them, in base62 (`0-9A-Za-z`) left-padded with `0`.
+pub(crate) fn npm_token_check(s: &str) -> bool {
+    let Some(body) = s.strip_prefix("npm_") else {
+        return false;
+    };
+    if body.len() != 36 || !alnum(body) {
+        return false;
+    }
+    let (random, crc) = body.split_at(30);
+    fixed_radix_value(crc, 62, base62_digit) == Some(u64::from(crc32fast::hash(random.as_bytes())))
+}
+
+/// `pypi-AgEIcHlwaS5vcmc` (a macaroon header naming `pypi.org`), then 50 to
+/// 1000 base64url characters.
+pub(crate) fn pypi_token_check(s: &str) -> bool {
+    s.strip_prefix("pypi-AgEIcHlwaS5vcmc")
+        .is_some_and(|body| (50..=1000).contains(&body.len()) && all_bytes(body, is_base64url))
+}
+
+fn is_azure_secret_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'_' | b'~' | b'.' | b'-')
+}
+
+/// 3 characters, a digit, `Q~`, then 31 to 34 characters, all of
+/// `[A-Za-z0-9_~.-]`.
+pub(crate) fn azure_ad_client_secret_check(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 6
+        && b.iter().all(|&c| is_azure_secret_char(c))
+        && b[3].is_ascii_digit()
+        && &b[4..6] == b"Q~"
+        && (31..=34).contains(&(b.len() - 6))
+}
+
+/// `sb_secret_` and at least 31 base64url characters. No maximum: the docs
+/// give no length.
+pub(crate) fn supabase_secret_key_check(s: &str) -> bool {
+    s.strip_prefix("sb_secret_")
+        .is_some_and(|body| body.len() >= 31 && all_bytes(body, is_base64url))
+}
+
+/// `sk-or-v1-` and 64 lowercase hex digits.
+pub(crate) fn openrouter_api_key_check(s: &str) -> bool {
+    s.strip_prefix("sk-or-v1-")
+        .is_some_and(|body| body.len() == 64 && all_bytes(body, is_lower_hex))
+}
+
+/// `pplx-` and 48 alphanumerics.
+pub(crate) fn perplexity_api_key_check(s: &str) -> bool {
+    s.strip_prefix("pplx-")
+        .is_some_and(|body| body.len() == 48 && alnum(body))
+}
+
+/// `xai-` and at least 40 alphanumerics. No maximum: the docs give no length.
+pub(crate) fn xai_api_key_check(s: &str) -> bool {
+    s.strip_prefix("xai-")
+        .is_some_and(|body| body.len() >= 40 && alnum(body))
+}
+
+/// `fc-` and 32 lowercase hex digits.
+pub(crate) fn firecrawl_api_key_check(s: &str) -> bool {
+    s.strip_prefix("fc-")
+        .is_some_and(|body| body.len() == 32 && all_bytes(body, is_lower_hex))
+}
+
+/// `gsk_` and at least 48 alphanumerics. No maximum: the docs give no length.
+pub(crate) fn groq_api_key_check(s: &str) -> bool {
+    s.strip_prefix("gsk_")
+        .is_some_and(|body| body.len() >= 48 && alnum(body))
+}
+
+/// `r8_` and 37 alphanumerics.
+pub(crate) fn replicate_api_token_check(s: &str) -> bool {
+    s.strip_prefix("r8_")
+        .is_some_and(|body| body.len() == 37 && alnum(body))
+}
+
+/// Three base64url segments joined by `.`, the first two starting with `ey`
+/// (base64 of `{`), and not a known sample. The header holds at least 19
+/// characters, the size of the smallest JOSE header `{"alg":"none"}`; the
+/// payload at least 10; the signature at least one. The minimums reject
+/// dotted words such as `eyes.eyelid.x`.
+pub(crate) fn jwt_check(s: &str) -> bool {
+    let mut segments = s.split('.');
+    let (Some(header), Some(payload), Some(signature), None) = (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) else {
+        return false;
+    };
+    header.len() >= 19
+        && header.starts_with("ey")
+        && payload.len() >= 10
+        && payload.starts_with("ey")
+        && !signature.is_empty()
+        && [header, payload, signature]
+            .iter()
+            .all(|segment| all_bytes(segment, is_base64url))
+        && not_known_sample(s)
+}
+
+/// Passwords that stand for a password in docs and templates. Compared
+/// case-insensitively.
+const PLACEHOLDER_PASSWORDS: &[&str] = &[
+    "password",
+    "pass",
+    "passwd",
+    "pwd",
+    "secret",
+    "changeme",
+    "your_password",
+    "your-password",
+    "yourpassword",
+    "mypassword",
+];
+
+/// Whether a URL password is a placeholder: template syntax, a mask, or a
+/// placeholder word. printf-style `%s` and `%(name)s` are not placeholders,
+/// and neither is a default credential such as `postgres`.
+fn is_placeholder_password(p: &str) -> bool {
+    let wrapped =
+        |open: char, close: char| p.len() >= 2 && p.starts_with(open) && p.ends_with(close);
+    let template = wrapped('{', '}')
+        || wrapped('<', '>')
+        || wrapped('[', ']')
+        || p.strip_prefix('$').is_some_and(|rest| {
+            rest.starts_with('{') && rest.ends_with('}')
+                || rest.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                    && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        });
+    let mask = p.chars().all(|c| c == '*')
+        || p.chars().all(|c| c == 'x' || c == 'X')
+        || p.chars().all(|c| c == '.' || c == '…');
+    let word = PLACEHOLDER_PASSWORDS
+        .iter()
+        .any(|w| p.eq_ignore_ascii_case(w));
+    template || mask || word
+}
+
+/// `scheme://user:password@host` whose user and password are not empty and
+/// whose password is not a placeholder. The password is checked as written.
+pub(crate) fn url_credentials_check(s: &str) -> bool {
+    let Some((_, rest)) = s.split_once("://") else {
+        return false;
+    };
+    let Some((userinfo, host)) = rest.split_once('@') else {
+        return false;
+    };
+    let Some((user, password)) = userinfo.split_once(':') else {
+        return false;
+    };
+    !user.is_empty()
+        && !password.is_empty()
+        && !host.is_empty()
+        && !is_placeholder_password(password)
+}
+
+/// Synthetic secret values for tests. Every value is built at run time, so
+/// no full token sits in the source for secret scanners to flag.
+#[cfg(test)]
+pub(crate) mod test_tokens {
+    const BASE36: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    pub(crate) const ALNUM: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    pub(crate) const BASE64URL: &str =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    pub(crate) const LETTERS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    pub(crate) const LOWER_HEX: &str = "0123456789abcdef";
+
+    /// `len` characters of `alphabet` picked by a fixed stride, so the value
+    /// looks random but never changes.
+    pub(crate) fn run(alphabet: &str, len: usize, seed: usize) -> String {
+        let a = alphabet.as_bytes();
+        (0..len)
+            .map(|i| char::from(a[(seed + i * 7 + i / a.len()) % a.len()]))
+            .collect()
+    }
+
+    fn encode(mut n: u64, alphabet: &[u8], width: usize) -> String {
+        let radix = alphabet.len() as u64;
+        let mut digits = Vec::new();
+        while n > 0 {
+            digits.push(alphabet[(n % radix) as usize]);
+            n /= radix;
+        }
+        digits.resize(digits.len().max(width), b'0');
+        digits.reverse();
+        String::from_utf8(digits).unwrap()
+    }
+
+    /// A routable GitLab token built by the rule of GitLab's
+    /// `routable_token.rb`, with a correct checksum.
+    pub(crate) fn gitlab_routable(prefix: &str, seed: usize) -> String {
+        let payload = run(BASE64URL, 40, seed);
+        let signed = format!(
+            "{prefix}{payload}.01.{}",
+            encode(payload.len() as u64, BASE36, 2)
+        );
+        let crc = encode(u64::from(crc32fast::hash(signed.as_bytes())), BASE36, 7);
+        format!("{signed}{crc}")
+    }
+
+    /// An npm token with a correct checksum.
+    pub(crate) fn npm(seed: usize) -> String {
+        let random = run(ALNUM, 30, seed);
+        let crc = encode(u64::from(crc32fast::hash(random.as_bytes())), BASE62, 6);
+        format!("npm_{random}{crc}")
+    }
+
+    /// `token` with its last character replaced by another one of the same
+    /// alphabet.
+    pub(crate) fn with_wrong_last_char(token: &str) -> String {
+        let (head, last) = token.split_at(token.len() - 1);
+        let swapped = if last == "0" { "1" } else { "0" };
+        format!("{head}{swapped}")
+    }
+
+    /// An OpenAI project key: `sk-proj-`, then `head` and `tail` base64url
+    /// characters around the marker.
+    pub(crate) fn openai_project(head: usize, tail: usize) -> String {
+        format!(
+            "sk-proj-{}T3BlbkFJ{}",
+            run(BASE64URL, head, 1),
+            run(BASE64URL, tail, 2)
+        )
+    }
+
+    /// A JWT with an HS256 header and a payload holding `sub` and `iat`.
+    pub(crate) fn jwt() -> String {
+        format!(
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.{}.{}",
+            "eyJzdWIiOiJ1c2VyLTQyIiwiaWF0IjoxNzAwMDAwMDAwfQ",
+            run(BASE64URL, 43, 3)
+        )
+    }
+
+    pub(crate) fn openai_legacy() -> String {
+        format!("sk-{}T3BlbkFJ{}", run(ALNUM, 20, 1), run(ALNUM, 20, 2))
+    }
+
+    /// `sk-ant-api03-`, `body` base64url characters, and `AA`.
+    pub(crate) fn anthropic(body: usize) -> String {
+        format!("sk-ant-api03-{}AA", run(BASE64URL, body, 4))
+    }
+
+    pub(crate) fn openrouter() -> String {
+        format!("sk-or-v1-{}", run(LOWER_HEX, 64, 5))
+    }
+
+    pub(crate) fn perplexity(body: usize) -> String {
+        format!("pplx-{}", run(ALNUM, body, 6))
+    }
+
+    pub(crate) fn xai(body: usize) -> String {
+        format!("xai-{}", run(ALNUM, body, 7))
+    }
+
+    pub(crate) fn groq(body: usize) -> String {
+        format!("gsk_{}", run(ALNUM, body, 8))
+    }
+
+    pub(crate) fn replicate() -> String {
+        format!("r8_{}", run(ALNUM, 37, 9))
+    }
+
+    pub(crate) fn firecrawl() -> String {
+        format!("fc-{}", run(LOWER_HEX, 32, 10))
+    }
+
+    pub(crate) fn slack_bot() -> String {
+        format!("xoxb-1234567890-1234567890123-{}", run(ALNUM, 24, 11))
+    }
+
+    pub(crate) fn slack_webhook() -> String {
+        format!(
+            "https://hooks.slack.com/services/T{}/B{}/{}",
+            run(ALNUM, 8, 12),
+            run(ALNUM, 8, 13),
+            run(ALNUM, 24, 14)
+        )
+    }
+
+    /// A Stripe key: `prefix` and 24 alphanumerics.
+    pub(crate) fn stripe(prefix: &str) -> String {
+        format!("{prefix}{}", run(ALNUM, 24, 15))
+    }
+
+    pub(crate) fn google() -> String {
+        format!("AIza{}", run(BASE64URL, 35, 16))
+    }
+
+    pub(crate) fn gitlab_legacy() -> String {
+        format!("glpat-{}", run(BASE64URL, 20, 17))
+    }
+
+    pub(crate) fn huggingface() -> String {
+        format!("hf_{}", run(LETTERS, 34, 18))
+    }
+
+    pub(crate) fn pypi() -> String {
+        format!("pypi-AgEIcHlwaS5vcmc{}", run(BASE64URL, 80, 19))
+    }
+
+    pub(crate) fn azure() -> String {
+        format!("{}8Q~{}", run(ALNUM, 3, 20), run(ALNUM, 34, 21))
+    }
+
+    /// `sb_secret_` with the self-hosting generator's 31-character body:
+    /// 22 base64url characters, `_`, and an 8-character checksum.
+    pub(crate) fn supabase() -> String {
+        format!(
+            "sb_secret_{}_{}",
+            run(BASE64URL, 22, 22),
+            run(LOWER_HEX, 8, 23)
+        )
+    }
+
+    pub(crate) const PRIVATE_KEY_HEADER: &str = "-----BEGIN OPENSSH PRIVATE KEY-----";
+
+    /// Up to the host: a match ends before the path.
+    pub(crate) const URL_CREDENTIALS: &str = "postgres://app:Tr0ub4dor3x@db.internal:5432";
+
+    /// One value of every secret kind.
+    pub(crate) fn one_of_each() -> Vec<(crate::PiiKind, String)> {
+        use crate::PiiKind;
+        vec![
+            (PiiKind::OpenAiApiKey, openai_project(58, 58)),
+            (PiiKind::AnthropicApiKey, anthropic(93)),
+            (PiiKind::SlackToken, slack_bot()),
+            (PiiKind::SlackToken, slack_webhook()),
+            (PiiKind::StripeSecretKey, stripe("sk_live_")),
+            (PiiKind::GoogleApiKey, google()),
+            (PiiKind::GitlabToken, gitlab_routable("glpat-", 24)),
+            (PiiKind::GitlabToken, gitlab_legacy()),
+            (PiiKind::HuggingFaceToken, huggingface()),
+            (PiiKind::NpmToken, npm(25)),
+            (PiiKind::PypiToken, pypi()),
+            (PiiKind::AzureAdClientSecret, azure()),
+            (PiiKind::SupabaseSecretKey, supabase()),
+            (PiiKind::OpenRouterApiKey, openrouter()),
+            (PiiKind::PerplexityApiKey, perplexity(48)),
+            (PiiKind::XaiApiKey, xai(80)),
+            (PiiKind::FirecrawlApiKey, firecrawl()),
+            (PiiKind::GroqApiKey, groq(52)),
+            (PiiKind::ReplicateApiToken, replicate()),
+            (PiiKind::PrivateKey, PRIVATE_KEY_HEADER.to_owned()),
+            (PiiKind::Jwt, jwt()),
+            (PiiKind::UrlCredentials, URL_CREDENTIALS.to_owned()),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3024,6 +3625,144 @@ mod tests {
         assert_eq!(pl_dl_check(input), expected);
     }
 
+    // --- known-sample deny list ---
+    #[test_case(0 ; "aws access key id")]
+    #[test_case(1 ; "aws secret access key")]
+    #[test_case(2 ; "jwt io current sample")]
+    #[test_case(3 ; "jwt io earlier sample")]
+    fn known_sample_is_denied_and_a_variant_is_not(index: usize) {
+        let sample = KNOWN_SAMPLES[index];
+        assert!(!not_known_sample(sample));
+        assert!(not_known_sample(&test_tokens::with_wrong_last_char(sample)));
+    }
+
+    #[test]
+    fn jwt_io_samples_are_rejected_as_jwt() {
+        assert!(!jwt_check(KNOWN_SAMPLES[2]));
+        assert!(!jwt_check(KNOWN_SAMPLES[3]));
+        assert!(jwt_check(&test_tokens::jwt()));
+    }
+
+    // --- checksums ---
+    #[test_case("glpat-" ; "personal access token")]
+    #[test_case("gldt-" ; "deploy token")]
+    #[test_case("glrtr-" ; "runner token")]
+    #[test_case("gloas-" ; "oauth secret")]
+    fn gitlab_routable_checksum(prefix: &str) {
+        let token = test_tokens::gitlab_routable(prefix, 5);
+        assert!(gitlab_token_check(&token), "{prefix} token rejected");
+        assert!(!gitlab_token_check(&test_tokens::with_wrong_last_char(
+            &token
+        )));
+    }
+
+    #[test]
+    fn gitlab_routable_needs_version_01() {
+        let token = test_tokens::gitlab_routable("glpat-", 5).replace(".01.", ".02.");
+        assert!(!gitlab_token_check(&token));
+    }
+
+    #[test_case(&format!("glpat-{}", test_tokens::run(test_tokens::BASE64URL, 20, 1)), true ; "legacy pat")]
+    #[test_case(&format!("gldt-{}", test_tokens::run(test_tokens::BASE64URL, 20, 2)), true ; "legacy deploy token")]
+    #[test_case(&format!("glptt-{}", test_tokens::run(test_tokens::LOWER_HEX, 40, 3)), true ; "legacy trigger token")]
+    #[test_case(&format!("glpat-{}", test_tokens::run(test_tokens::BASE64URL, 21, 1)), false ; "legacy pat too long")]
+    #[test_case(&format!("glrt-{}", test_tokens::run(test_tokens::BASE64URL, 20, 1)), false ; "runner token has no legacy form")]
+    #[test_case(&format!("glxx-{}", test_tokens::run(test_tokens::BASE64URL, 20, 1)), false ; "unknown prefix")]
+    fn gitlab_legacy(token: &str, expected: bool) {
+        assert_eq!(gitlab_token_check(token), expected);
+    }
+
+    #[test]
+    fn npm_checksum() {
+        let token = test_tokens::npm(9);
+        assert!(npm_token_check(&token));
+        assert!(!npm_token_check(&test_tokens::with_wrong_last_char(&token)));
+        // Independent vector from CredSweeper's filter tests: the base62
+        // CRC32 of 31 zeros is `4WZ4EQ`.
+        assert_eq!(
+            fixed_radix_value("4WZ4EQ", 62, base62_digit),
+            Some(u64::from(crc32fast::hash("0".repeat(31).as_bytes())))
+        );
+    }
+
+    #[test_case(aws_access_key_check, "AKIAIOSFODNN7EXAMPLE", false ; "aws access key sample")]
+    #[test_case(aws_access_key_check, "AKIAIOSFODNN7EXAMPL0", true ; "aws access key variant")]
+    #[test_case(aws_access_key_check, "AKIAiosfodnn7example", false ; "aws access key lowercase")]
+    #[test_case(aws_secret_key_check, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", false ; "aws secret sample")]
+    #[test_case(aws_secret_key_check, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE0", true ; "aws secret variant")]
+    #[test_case(aws_secret_key_check, "short", false ; "aws secret wrong length")]
+    #[test_case(aws_secret_key_check, "=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE", false ; "aws secret shifted onto separator")]
+    fn aws_checks(check: fn(&str) -> bool, input: &str, expected: bool) {
+        assert_eq!(check(input), expected);
+    }
+
+    // --- URL credentials ---
+    #[test_case("${DB_PASSWORD}" ; "shell braces")]
+    #[test_case("$DB_PASS" ; "shell variable")]
+    #[test_case("{{password}}" ; "double braces")]
+    #[test_case("{password}" ; "single braces")]
+    #[test_case("<password>" ; "angle brackets")]
+    #[test_case("[password]" ; "square brackets")]
+    #[test_case("***" ; "stars")]
+    #[test_case("xxxx" ; "lowercase x")]
+    #[test_case("XXXX" ; "uppercase x")]
+    #[test_case("..." ; "dots")]
+    #[test_case("…" ; "ellipsis")]
+    #[test_case("password" ; "word password")]
+    #[test_case("PassWD" ; "word passwd any case")]
+    #[test_case("pwd" ; "word pwd")]
+    #[test_case("secret" ; "word secret")]
+    #[test_case("changeme" ; "word changeme")]
+    #[test_case("your-password" ; "word your-password")]
+    #[test_case("MyPassword" ; "word mypassword")]
+    fn url_password_placeholder_is_not_reported(password: &str) {
+        let url = format!("postgres://app:{password}@db.internal:5432/app");
+        assert!(!url_credentials_check(&url), "{password} reported");
+    }
+
+    #[test_case("%s" ; "printf")]
+    #[test_case("%(pw)s" ; "printf named")]
+    #[test_case("postgres" ; "default credential")]
+    #[test_case("root" ; "default root")]
+    #[test_case("s3cr3t-Pa55" ; "real looking")]
+    #[test_case("passw0rd" ; "word with a digit")]
+    fn url_password_is_reported(password: &str) {
+        let url = format!("postgres://app:{password}@db.internal:5432/app");
+        assert!(url_credentials_check(&url), "{password} not reported");
+    }
+
+    #[test_case("redis://:hunter2@cache:6379" ; "empty user")]
+    #[test_case("https://user@example.com" ; "no password")]
+    #[test_case("https://user:@example.com" ; "empty password")]
+    fn url_without_user_and_password_is_not_reported(url: &str) {
+        assert!(!url_credentials_check(url));
+    }
+
+    // --- structure of the provider shapes ---
+    #[test_case(openai_key_check, &test_tokens::openai_project(58, 58), true ; "openai 58 58")]
+    #[test_case(openai_key_check, &test_tokens::openai_project(74, 74), true ; "openai 74 74")]
+    #[test_case(openai_key_check, &test_tokens::openai_project(57, 58), false ; "openai head too short")]
+    #[test_case(openai_key_check, &test_tokens::openai_project(58, 59), false ; "openai tail too long")]
+    #[test_case(openai_key_check, &format!("sk-{}T3BlbkFJ{}", test_tokens::run(test_tokens::ALNUM, 20, 1), test_tokens::run(test_tokens::ALNUM, 20, 2)), true ; "openai legacy")]
+    #[test_case(openai_key_check, &format!("sk-{}", test_tokens::run(test_tokens::ALNUM, 48, 1)), false ; "openai legacy without marker")]
+    #[test_case(anthropic_key_check, &format!("sk-ant-api03-{}AA", test_tokens::run(test_tokens::BASE64URL, 80, 1)), true ; "anthropic minimum")]
+    #[test_case(anthropic_key_check, &format!("sk-ant-api03-{}AA", test_tokens::run(test_tokens::BASE64URL, 79, 1)), false ; "anthropic below minimum")]
+    #[test_case(anthropic_key_check, &format!("sk-ant-admin01-{}AA", test_tokens::run(test_tokens::BASE64URL, 93, 1)), true ; "anthropic admin")]
+    #[test_case(anthropic_key_check, &format!("sk-ant-api03-{}AB", test_tokens::run(test_tokens::BASE64URL, 93, 1)), false ; "anthropic without aa")]
+    #[test_case(slack_token_check, "xoxb-your-bot-token-here", false ; "slack placeholder")]
+    #[test_case(slack_token_check, "xoxb-1234", false ; "slack too short")]
+    #[test_case(slack_webhook_check, &format!("https://hooks.slack.com/services/{}", test_tokens::run(test_tokens::ALNUM, 42, 1)), false ; "slack webhook path too short")]
+    #[test_case(stripe_secret_key_check, &format!("sk_live_{}", test_tokens::run(test_tokens::ALNUM, 9, 1)), false ; "stripe too short")]
+    #[test_case(stripe_secret_key_check, &format!("sk_live_{}", test_tokens::run(test_tokens::ALNUM, 100, 1)), false ; "stripe too long")]
+    #[test_case(huggingface_token_check, &format!("hf_{}1", test_tokens::run(test_tokens::LETTERS, 33, 1)), false ; "huggingface digit")]
+    #[test_case(azure_ad_client_secret_check, &format!("abc8Q~{}", test_tokens::run(test_tokens::ALNUM, 30, 1)), false ; "azure tail too short")]
+    #[test_case(azure_ad_client_secret_check, &format!("abcdQ~{}", test_tokens::run(test_tokens::ALNUM, 34, 1)), false ; "azure no digit before marker")]
+    #[test_case(jwt_check, "eyes.eyelids.lashes", false ; "jwt dotted words")]
+    #[test_case(jwt_check, &format!("{}.", test_tokens::jwt().rsplit_once('.').unwrap().0), false ; "jwt empty signature")]
+    fn secret_structure(check: fn(&str) -> bool, input: &str, expected: bool) {
+        assert_eq!(check(input), expected, "{input}");
+    }
+
     // --- every validator, on input no pattern produces ---
 
     type Validator = fn(&str) -> bool;
@@ -3074,6 +3813,23 @@ mod tests {
         ("pl_regon_check", pl_regon_check), ("pl_id_card_check", pl_id_card_check),
         ("pl_passport_check", pl_passport_check), ("pl_postal_check", pl_postal_check),
         ("pl_dl_check", pl_dl_check),
+        ("not_known_sample", not_known_sample), ("openai_key_check", openai_key_check),
+        ("aws_access_key_check", aws_access_key_check),
+        ("aws_secret_key_check", aws_secret_key_check),
+        ("anthropic_key_check", anthropic_key_check), ("slack_token_check", slack_token_check),
+        ("slack_webhook_check", slack_webhook_check),
+        ("stripe_secret_key_check", stripe_secret_key_check),
+        ("google_api_key_check", google_api_key_check), ("gitlab_token_check", gitlab_token_check),
+        ("huggingface_token_check", huggingface_token_check), ("npm_token_check", npm_token_check),
+        ("pypi_token_check", pypi_token_check),
+        ("azure_ad_client_secret_check", azure_ad_client_secret_check),
+        ("supabase_secret_key_check", supabase_secret_key_check),
+        ("openrouter_api_key_check", openrouter_api_key_check),
+        ("perplexity_api_key_check", perplexity_api_key_check),
+        ("xai_api_key_check", xai_api_key_check), ("firecrawl_api_key_check", firecrawl_api_key_check),
+        ("groq_api_key_check", groq_api_key_check),
+        ("replicate_api_token_check", replicate_api_token_check), ("jwt_check", jwt_check),
+        ("url_credentials_check", url_credentials_check),
     ];
 
     /// Runs of one character, up to 40 long, and the same runs with one

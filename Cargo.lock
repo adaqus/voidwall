@@ -3042,6 +3042,7 @@ dependencies = [
 name = "voidwall-pii"
 version = "0.3.0"
 dependencies = [
+ "crc32fast",
  "criterion",
  "fst",
  "log",

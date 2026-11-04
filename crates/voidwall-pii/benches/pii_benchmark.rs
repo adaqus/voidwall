@@ -405,13 +405,16 @@ Records requiring Eircode validation:\n\
 - Customer E: D02X285\n\
 All Eircodes must be verified against An Post records before dispatch.";
 
-const AWS_ACCESS_KEY_TEXT: &str = "\
+const AWS_ACCESS_KEY_TEXT: &str = concat!(
+    "\
 AWS Infrastructure Audit — Q1 2025\n\n\
 Rotated credentials detected in CI pipeline logs:\n\
-- Service account A: AKIAIOSFODNN7EXAMPLE\n\
+- Service account A: AKIA",
+    "Z7QK3M9T2WXR5HBN\n\
 - Service account B: AKIAI44QH8DHBEXAMPLE\n\
 All access keys must be rotated within 90 days per security policy.\n\
-Contact the security team to revoke compromised credentials.";
+Contact the security team to revoke compromised credentials."
+);
 
 const GITHUB_TOKEN_TEXT: &str = "\
 GitHub Actions Workflow — Token Audit\n\n\
@@ -421,13 +424,16 @@ Personal access tokens found in repository history:\n\
 All tokens must be revoked and regenerated immediately.\n\
 Review secret scanning alerts in the GitHub repository settings.";
 
-const AWS_SECRET_KEY_TEXT: &str = "\
+const AWS_SECRET_KEY_TEXT: &str = concat!(
+    "\
 AWS Secrets Rotation — Security Notice\n\n\
 The following secret access keys require immediate rotation:\n\
-- Account A: AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\
+- Account A: AWS_SECRET_ACCESS_KEY=q8Vd3T/kR2xLm9Zp",
+    "Wn4Hs7Bf+Yc1Gj6Ue0aKt5Oi\n\
 - Account B: secret_access_key: abcdefghijklmnopqrstuvwxyz0123456789ABCD\n\
 Please update all affected services and rotate keys in IAM immediately.\n\
-Contact DevOps for assistance with the rotation procedure.";
+Contact DevOps for assistance with the rotation procedure."
+);
 
 const GB_PASSPORT_TEXT: &str = "\
 UK Border Control — Passenger Verification\n\n\
@@ -655,7 +661,8 @@ Businesses requiring ABN verification:\n\
 All ABNs must be verified before registration.\n\
 Contact the ABR for corrections.";
 
-const MIXED_PII_TEXT: &str = "\
+const MIXED_PII_TEXT: &str = concat!(
+    "\
 SUPPORT TICKET #ST-2025-0842\n\
 Priority: High\n\
 Created: 2025-01-15 09:23:41 UTC\n\n\
@@ -731,9 +738,11 @@ Tier 5 Verification Records:\n\
   NZ phone: +64 2 123 4567\n\
   IE phone: +353 87 123 4567\n\
   ZA phone: +27 71 123 4567\n\
-  AWS access key: AKIAIOSFODNN7EXAMPLE\n\
+  AWS access key: AKIA",
+    "Z7QK3M9T2WXR5HBN\n\
   GitHub token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12\n\
-  AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\
+  AWS_SECRET_ACCESS_KEY=q8Vd3T/kR2xLm9Zp",
+    "Wn4Hs7Bf+Yc1Gj6Ue0aKt5Oi\n\
   South African passport: 123456789\n\
   Driver's licence: 8001015009087\n\
   Postal code: 0001\n\
@@ -811,7 +820,8 @@ Tier 11 Poland Verification Records:\n\
   Telefon: +48 601 234 567\n\
   Kod pocztowy: 00-950\n\
   Prawo jazdy: 12345/67/8901\n\n\
-End of ticket notes.\n";
+End of ticket notes.\n"
+);
 
 const DE_STEUER_ID_TEXT: &str = "\
 Bundeszentralamt für Steuern — Steuerliche Identifikation\n\n\
@@ -1135,17 +1145,251 @@ fn make_long_clean_text() -> String {
     CLEAN_TEXT.repeat(20)
 }
 
+// --- Secrets ---
+//
+// Secret values are built at run time from a fixed stride over their
+// alphabet, so no full token sits in the source for secret scanners to flag.
+
+const ALNUM: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const BASE64URL: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const LETTERS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const LOWER_HEX: &str = "0123456789abcdef";
+
+fn fake(alphabet: &str, len: usize, seed: usize) -> String {
+    let a = alphabet.as_bytes();
+    (0..len)
+        .map(|i| char::from(a[(seed + i * 7 + i / a.len()) % a.len()]))
+        .collect()
+}
+
+fn encode(mut n: u64, alphabet: &[u8], width: usize) -> String {
+    let radix = alphabet.len() as u64;
+    let mut digits = Vec::new();
+    while n > 0 {
+        digits.push(alphabet[(n % radix) as usize]);
+        n /= radix;
+    }
+    digits.resize(digits.len().max(width), b'0');
+    digits.reverse();
+    String::from_utf8(digits).unwrap()
+}
+
+/// One line per secret kind, as the value appears in real traffic.
+fn secret_lines() -> Vec<(&'static str, String)> {
+    let npm_random = fake(ALNUM, 30, 25);
+    let npm_crc = encode(
+        u64::from(crc32fast::hash(npm_random.as_bytes())),
+        b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        6,
+    );
+    let gitlab_signed = format!("glpat-{}.01.14", fake(BASE64URL, 40, 24));
+    let gitlab_crc = encode(
+        u64::from(crc32fast::hash(gitlab_signed.as_bytes())),
+        b"0123456789abcdefghijklmnopqrstuvwxyz",
+        7,
+    );
+    vec![
+        (
+            "openai_api_key",
+            format!(
+                "OPENAI_API_KEY=sk-proj-{}T3BlbkFJ{}",
+                fake(BASE64URL, 74, 1),
+                fake(BASE64URL, 74, 2)
+            ),
+        ),
+        (
+            "anthropic_api_key",
+            format!(
+                "ANTHROPIC_API_KEY=sk-ant-api03-{}AA",
+                fake(BASE64URL, 93, 4)
+            ),
+        ),
+        (
+            "slack_token",
+            format!(
+                "SLACK_BOT_TOKEN=xoxb-1234567890-1234567890123-{}",
+                fake(ALNUM, 24, 11)
+            ),
+        ),
+        (
+            "slack_webhook",
+            format!(
+                "\"webhook\": \"https://hooks.slack.com/services/T{}/B{}/{}\"",
+                fake(ALNUM, 8, 12),
+                fake(ALNUM, 8, 13),
+                fake(ALNUM, 24, 14)
+            ),
+        ),
+        (
+            "stripe_secret_key",
+            format!("STRIPE_SECRET_KEY=sk_live_{}", fake(ALNUM, 99, 15)),
+        ),
+        (
+            "google_api_key",
+            format!(
+                "GET /maps/api/geocode/json?key=AIza{}&address=Main",
+                fake(BASE64URL, 35, 16)
+            ),
+        ),
+        (
+            "gitlab_token",
+            format!("GITLAB_TOKEN={gitlab_signed}{gitlab_crc}"),
+        ),
+        (
+            "huggingface_token",
+            format!("HF_TOKEN=hf_{}", fake(LETTERS, 34, 18)),
+        ),
+        (
+            "npm_token",
+            format!("//registry.npmjs.org/:_authToken=npm_{npm_random}{npm_crc}"),
+        ),
+        (
+            "pypi_token",
+            format!(
+                "[pypi]\nusername = __token__\npassword = pypi-AgEIcHlwaS5vcmc{}",
+                fake(BASE64URL, 160, 19)
+            ),
+        ),
+        (
+            "azure_ad_client_secret",
+            format!(
+                "AZURE_CLIENT_SECRET={}8Q~{}",
+                fake(ALNUM, 3, 20),
+                fake(ALNUM, 34, 21)
+            ),
+        ),
+        (
+            "supabase_secret_key",
+            format!(
+                "SUPABASE_SERVICE_KEY=sb_secret_{}_{}",
+                fake(BASE64URL, 22, 22),
+                fake(LOWER_HEX, 8, 23)
+            ),
+        ),
+        (
+            "openrouter_api_key",
+            format!("OPENROUTER_API_KEY=sk-or-v1-{}", fake(LOWER_HEX, 64, 5)),
+        ),
+        (
+            "perplexity_api_key",
+            format!("PERPLEXITY_API_KEY=pplx-{}", fake(ALNUM, 48, 6)),
+        ),
+        (
+            "xai_api_key",
+            format!("XAI_API_KEY=xai-{}", fake(ALNUM, 80, 7)),
+        ),
+        (
+            "firecrawl_api_key",
+            format!("FIRECRAWL_API_KEY=fc-{}", fake(LOWER_HEX, 32, 10)),
+        ),
+        (
+            "groq_api_key",
+            format!("GROQ_API_KEY=gsk_{}", fake(ALNUM, 52, 8)),
+        ),
+        (
+            "replicate_api_token",
+            format!("REPLICATE_API_TOKEN=r8_{}", fake(ALNUM, 37, 9)),
+        ),
+        (
+            "private_key",
+            format!(
+                "\"key\": \"-----BEGIN RSA PRIVATE KEY-----\\n{}\\n-----END RSA PRIVATE KEY-----\"",
+                fake(BASE64URL, 64, 26)
+            ),
+        ),
+        (
+            "jwt",
+            format!(
+                "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.{}.{}",
+                "eyJzdWIiOiJ1c2VyLTQyIiwiaWF0IjoxNzAwMDAwMDAwfQ",
+                fake(BASE64URL, 43, 3)
+            ),
+        ),
+        (
+            "url_credentials",
+            "DATABASE_URL=postgres://billing:Tr0ub4dor3x@db.internal:5432/billing".to_owned(),
+        ),
+    ]
+}
+
+/// A support ticket around one secret line: the per-kind corpus.
+fn secret_ticket(line: &str) -> String {
+    format!(
+        "Incident INC-4821: credential pasted into a support chat\n\n\
+         The customer shared their deployment config to debug a failing job:\n\
+         {line}\n\
+         The value was revoked and the ticket was redacted. Rotate the key in the\n\
+         provider console and update the secret store before the next deploy."
+    )
+}
+
+/// A leaked `.env` file with several secrets, beside ordinary PII.
+fn secrets_mixed_text() -> String {
+    let lines = secret_lines();
+    let pick = |name: &str| {
+        lines
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, line)| line.as_str())
+            .unwrap()
+    };
+    format!(
+        "Subject: build failing after the config change\n\n\
+         Hi team, our nightly job broke after I updated the env file. Owner is\n\
+         dana.whitfield@example.com, the runner sits at 10.20.30.40. Here is the file:\n\n\
+         {}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n\n\
+         Can someone check why the deploy step cannot reach the database?\n\
+         Thanks, Dana",
+        pick("openai_api_key"),
+        pick("anthropic_api_key"),
+        pick("stripe_secret_key"),
+        pick("slack_token"),
+        pick("url_credentials"),
+        pick("jwt"),
+        pick("npm_token"),
+        pick("azure_ad_client_secret"),
+    )
+}
+
+// Measures one secret pattern on its own over clean text, so the cost of a
+// pattern with no leading literal (`AZURE_AD_CLIENT_SECRET`, `URL_CREDENTIALS`)
+// shows next to one with a literal prefix (`REPLICATE_API_TOKEN`).
+fn secret_pattern_cost(c: &mut Criterion) {
+    let long_clean = make_long_clean_text();
+    let mut group = c.benchmark_group("secret_pattern_cost");
+    group.throughput(Throughput::Bytes(long_clean.len() as u64));
+    for (name, kind) in [
+        ("azure_ad_client_secret", PiiKind::AzureAdClientSecret),
+        ("url_credentials", PiiKind::UrlCredentials),
+        ("jwt", PiiKind::Jwt),
+        ("openai_api_key", PiiKind::OpenAiApiKey),
+        ("replicate_api_token", PiiKind::ReplicateApiToken),
+    ] {
+        let detector = HyperscanDetector::new(&HashSet::from([kind])).unwrap();
+        group.bench_with_input(
+            BenchmarkId::new("mark_piis_clean_10kb", name),
+            &long_clean,
+            |b, input| {
+                b.iter(|| detector.mark_piis(input));
+            },
+        );
+    }
+    group.finish();
+}
+
 // Measures bytes/second throughput of mark_piis across different input sizes
 // and content types: PII-free text (~500B), mixed PII (~2KB), and long clean text (~10KB).
 fn throughput_mark_piis(c: &mut Criterion) {
     let scanner = Scanner::new().unwrap();
     let long_clean = make_long_clean_text();
+    let secrets_mixed = secrets_mixed_text();
 
     let mut group = c.benchmark_group("throughput_mark_piis");
 
     let inputs: &[(&str, &str)] = &[
         ("clean_500b", CLEAN_TEXT),
         ("mixed_2kb", MIXED_PII_TEXT),
+        ("secrets_mixed", &secrets_mixed),
         ("clean_10kb", &long_clean),
     ];
 
@@ -1164,12 +1408,14 @@ fn throughput_mark_piis(c: &mut Criterion) {
 fn throughput_has_piis(c: &mut Criterion) {
     let scanner = Scanner::new().unwrap();
     let long_clean = make_long_clean_text();
+    let secrets_mixed = secrets_mixed_text();
 
     let mut group = c.benchmark_group("throughput_has_piis");
 
     let inputs: &[(&str, &str)] = &[
         ("clean_500b", CLEAN_TEXT),
         ("mixed_2kb", MIXED_PII_TEXT),
+        ("secrets_mixed", &secrets_mixed),
         ("clean_10kb", &long_clean),
     ];
 
@@ -1474,6 +1720,13 @@ fn per_pii_kind(c: &mut Criterion) {
         b.iter(|| scanner.mark_piis(AWS_SECRET_KEY_TEXT));
     });
 
+    for (name, line) in secret_lines() {
+        let text = secret_ticket(&line);
+        group.bench_function(name, |b| {
+            b.iter(|| scanner.mark_piis(&text));
+        });
+    }
+
     // Country-specific passports
     group.bench_function("gb_passport", |b| {
         b.iter(|| scanner.mark_piis(GB_PASSPORT_TEXT));
@@ -1773,6 +2026,7 @@ criterion_group!(
     clean_text_overhead,
     throughput_hyperscan_detector,
     throughput_keyword_detector,
-    throughput_dictionary_detector
+    throughput_dictionary_detector,
+    secret_pattern_cost
 );
 criterion_main!(benches);

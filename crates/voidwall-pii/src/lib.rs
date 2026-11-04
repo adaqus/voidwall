@@ -305,6 +305,26 @@ pub enum PiiKind {
     /// preceding "street"/"address" field label, or keyword-lessly when the
     /// suffix is an unambiguous street-type word.
     UsGbCaAuNzIeZaStreet,
+    OpenAiApiKey,
+    AnthropicApiKey,
+    SlackToken,
+    StripeSecretKey,
+    GoogleApiKey,
+    GitlabToken,
+    HuggingFaceToken,
+    NpmToken,
+    PypiToken,
+    AzureAdClientSecret,
+    SupabaseSecretKey,
+    OpenRouterApiKey,
+    PerplexityApiKey,
+    XaiApiKey,
+    FirecrawlApiKey,
+    GroqApiKey,
+    ReplicateApiToken,
+    PrivateKey,
+    Jwt,
+    UrlCredentials,
     /// Marker for user-defined PII. The per-entry label lives in
     /// `PiiMatch::user_label`.
     Custom,
@@ -432,6 +452,26 @@ impl PiiKind {
             PiiKind::InternationalPhoneNumber => "PHONE_NUMBER",
             PiiKind::SecondaryAddress => "SECONDARY_ADDRESS",
             PiiKind::UsGbCaAuNzIeZaStreet => "US_GB_CA_AU_NZ_IE_ZA_STREET",
+            PiiKind::OpenAiApiKey => "OPENAI_API_KEY",
+            PiiKind::AnthropicApiKey => "ANTHROPIC_API_KEY",
+            PiiKind::SlackToken => "SLACK_TOKEN",
+            PiiKind::StripeSecretKey => "STRIPE_SECRET_KEY",
+            PiiKind::GoogleApiKey => "GOOGLE_API_KEY",
+            PiiKind::GitlabToken => "GITLAB_TOKEN",
+            PiiKind::HuggingFaceToken => "HUGGINGFACE_TOKEN",
+            PiiKind::NpmToken => "NPM_TOKEN",
+            PiiKind::PypiToken => "PYPI_TOKEN",
+            PiiKind::AzureAdClientSecret => "AZURE_AD_CLIENT_SECRET",
+            PiiKind::SupabaseSecretKey => "SUPABASE_SECRET_KEY",
+            PiiKind::OpenRouterApiKey => "OPENROUTER_API_KEY",
+            PiiKind::PerplexityApiKey => "PERPLEXITY_API_KEY",
+            PiiKind::XaiApiKey => "XAI_API_KEY",
+            PiiKind::FirecrawlApiKey => "FIRECRAWL_API_KEY",
+            PiiKind::GroqApiKey => "GROQ_API_KEY",
+            PiiKind::ReplicateApiToken => "REPLICATE_API_TOKEN",
+            PiiKind::PrivateKey => "PRIVATE_KEY",
+            PiiKind::Jwt => "JWT",
+            PiiKind::UrlCredentials => "URL_CREDENTIALS",
             PiiKind::Custom => "CUSTOM",
         }
     }
@@ -568,6 +608,26 @@ impl PiiKind {
             | PiiKind::DateOfBirth
             | PiiKind::BitcoinAddress
             | PiiKind::EthereumAddress
+            | PiiKind::OpenAiApiKey
+            | PiiKind::AnthropicApiKey
+            | PiiKind::SlackToken
+            | PiiKind::StripeSecretKey
+            | PiiKind::GoogleApiKey
+            | PiiKind::GitlabToken
+            | PiiKind::HuggingFaceToken
+            | PiiKind::NpmToken
+            | PiiKind::PypiToken
+            | PiiKind::AzureAdClientSecret
+            | PiiKind::SupabaseSecretKey
+            | PiiKind::OpenRouterApiKey
+            | PiiKind::PerplexityApiKey
+            | PiiKind::XaiApiKey
+            | PiiKind::FirecrawlApiKey
+            | PiiKind::GroqApiKey
+            | PiiKind::ReplicateApiToken
+            | PiiKind::PrivateKey
+            | PiiKind::Jwt
+            | PiiKind::UrlCredentials
             | PiiKind::Custom => Country::International,
         }
     }
@@ -702,6 +762,26 @@ impl PiiKind {
         PiiKind::InternationalPhoneNumber,
         PiiKind::SecondaryAddress,
         PiiKind::UsGbCaAuNzIeZaStreet,
+        PiiKind::OpenAiApiKey,
+        PiiKind::AnthropicApiKey,
+        PiiKind::SlackToken,
+        PiiKind::StripeSecretKey,
+        PiiKind::GoogleApiKey,
+        PiiKind::GitlabToken,
+        PiiKind::HuggingFaceToken,
+        PiiKind::NpmToken,
+        PiiKind::PypiToken,
+        PiiKind::AzureAdClientSecret,
+        PiiKind::SupabaseSecretKey,
+        PiiKind::OpenRouterApiKey,
+        PiiKind::PerplexityApiKey,
+        PiiKind::XaiApiKey,
+        PiiKind::FirecrawlApiKey,
+        PiiKind::GroqApiKey,
+        PiiKind::ReplicateApiToken,
+        PiiKind::PrivateKey,
+        PiiKind::Jwt,
+        PiiKind::UrlCredentials,
     ];
 
     /// Returns all countries this PII kind applies to.

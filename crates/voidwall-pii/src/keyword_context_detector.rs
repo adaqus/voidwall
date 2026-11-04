@@ -10,18 +10,19 @@ use crate::detector::Detector;
 use crate::normalize::decode_for_detection;
 use crate::validators::{
     Check, a_number_check, aba_check, at_postal_check, at_svnr_check, au_abn_check, au_dl_check,
-    bsn_check, ca_dl_check, ch_ahv_check, ch_postal_check, de_at_address_check,
-    de_at_postfach_check, de_packstation_check, de_passport_check, de_personalausweis_check,
-    de_postal_check, de_steuer_id_check, dob_check, ein_check, es_dni_check, es_nuss_check,
-    es_passport_check, es_postal_check, fr_ch_address_check, fr_ch_boite_postale_check,
-    fr_nif_check, fr_postal_check, gb_address_check, geolocation_check, ie_driver_check,
-    imei_check, ird_check, it_codice_fiscale_check, it_dl_check, it_partita_iva_check,
-    it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check, nir_check,
-    nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check, passport_new_check,
-    person_name_check, pl_dl_check, pl_id_card_check, pl_nip_check, pl_passport_check,
-    pl_pesel_check, pl_postal_check, pl_regon_check, siren_luhn_check, siret_luhn_check,
-    sort_code_check, swift_bic_check, tfn_check, us_dl_check, us_dl_numeric_check,
-    us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check, za_trn_check,
+    aws_secret_key_check, bsn_check, ca_dl_check, ch_ahv_check, ch_postal_check,
+    de_at_address_check, de_at_postfach_check, de_packstation_check, de_passport_check,
+    de_personalausweis_check, de_postal_check, de_steuer_id_check, dob_check, ein_check,
+    es_dni_check, es_nuss_check, es_passport_check, es_postal_check, fr_ch_address_check,
+    fr_ch_boite_postale_check, fr_nif_check, fr_postal_check, gb_address_check, geolocation_check,
+    ie_driver_check, imei_check, ird_check, it_codice_fiscale_check, it_dl_check,
+    it_partita_iva_check, it_passport_check, it_postal_check, medicare_check, nhi_check, nhs_check,
+    nir_check, nl_dl_check, nl_passport_check, nl_postal_check, nz_dl_check, ohip_check,
+    passport_new_check, person_name_check, pl_dl_check, pl_id_card_check, pl_nip_check,
+    pl_passport_check, pl_pesel_check, pl_postal_check, pl_regon_check, siren_luhn_check,
+    siret_luhn_check, sort_code_check, swift_bic_check, tfn_check, us_dl_check,
+    us_dl_numeric_check, us_za_postal_check, uscis_receipt_check, utr_check, za_luhn13_check,
+    za_trn_check,
 };
 use crate::{ContextFragment, PiiError, PiiKind, PiiMatch};
 
@@ -388,7 +389,7 @@ impl KeywordContextDetector {
                 PiiKind::AwsSecretKey,
                 Language::En,
                 r"(?i)(?:aws[\s_-]?secret[\s_-]?access[\s_-]?key=?|secret[\s_-]?access[\s_-]?key[\s:.=\x22]+|aws[\s_-]?secret[\s:.=\x22]+)([A-Za-z0-9/+=]{40})",
-                Check::Any,
+                Check::With(aws_secret_key_check),
             ),
             // Country-specific passport numbers
             (
@@ -1817,6 +1818,14 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
+    /// A real-shaped AWS secret access key that is not on the deny list,
+    /// built from parts so that no full key sits in the source.
+    macro_rules! fake_aws_secret {
+        () => {
+            concat!("q8Vd3T/kR2xLm9Zp", "Wn4Hs7Bf+Yc1Gj6Ue0aKt5Oi")
+        };
+    }
+
     // Global detector for unit tests optimization (otherwise veery slow)
     static DETECTOR: LazyLock<KeywordContextDetector> =
         LazyLock::new(|| KeywordContextDetector::new_all().unwrap());
@@ -2034,9 +2043,9 @@ mod tests {
     // Matomo `_cvar` double-escapes quotes inside the URL-encoded JSON payload,
     // so the raw body contains `\",\"` (literal backslash) between keyword and value.
     #[test_case(r#"_cvar={\"2\":[\"passport\",\"C01X00T47\"]}"#, PiiKind::DePassportNumber, "C01X00T47" ; "de passport matomo cvar double escape")]
-    #[test_case("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws secret env")]
+    #[test_case(concat!("AWS_SECRET_ACCESS_KEY=", fake_aws_secret!()), PiiKind::AwsSecretKey, fake_aws_secret!() ; "aws secret env")]
     #[test_case("secret_access_key: abcdefghijklmnopqrstuvwxyz0123456789ABCD", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret keyword")]
-    #[test_case("\"aws_secret\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws secret json quoted")]
+    #[test_case(concat!("\"aws_secret\":\"", fake_aws_secret!(), "\""), PiiKind::AwsSecretKey, fake_aws_secret!() ; "aws secret json quoted")]
     #[test_case("\"secret_access_key\":\"abcdefghijklmnopqrstuvwxyz0123456789ABCD\"", PiiKind::AwsSecretKey, "abcdefghijklmnopqrstuvwxyz0123456789ABCD" ; "aws secret json quoted full key")]
     #[test_case("date of birth: 15/03/1990", PiiKind::DateOfBirth, "15/03/1990" ; "dob dd/mm/yyyy")]
     #[test_case("dob: 1990-03-15", PiiKind::DateOfBirth, "1990-03-15" ; "dob iso")]
@@ -3377,6 +3386,9 @@ mod tests {
     #[test_case("NIP: 1234567890", PiiKind::PlNip ; "pl nip remainder ten")]
     #[test_case("REGON: 610188202", PiiKind::PlRegon ; "pl regon bad check digit")]
     #[test_case("REGON: 61018820100011", PiiKind::PlRegon ; "pl regon bad fourteenth digit")]
+    // The AWS docs sample secret access key is on the deny list.
+    #[test_case("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey ; "aws docs sample secret env")]
+    #[test_case("\"aws_secret\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"", PiiKind::AwsSecretKey ; "aws docs sample secret json")]
     #[test_case("dowód osobisty: ABS123457", PiiKind::PlIdCard ; "pl id card bad check digit")]
     #[test_case("paszport: CC7999487", PiiKind::PlPassportNumber ; "pl passport bad check digit")]
     #[test_case("telefon: 012 345 678", PiiKind::PlPhoneNumber ; "pl phone leading zero")]
@@ -3660,8 +3672,8 @@ mod tests {
     #[test_case("identityNumber: 8001015009087", PiiKind::ZaId, "8001015009087" ; "compact za identity camelcase yaml")]
     #[test_case(r#""taxNumber": "0123456789""#, PiiKind::ZaTaxReference, "0123456789" ; "compact za trn camelcase json")]
     #[test_case("tax_number=0123456789", PiiKind::ZaTaxReference, "0123456789" ; "compact za trn snakecase equals")]
-    #[test_case(r#""awsSecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY""#, PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "compact aws secret camelcase json")]
-    #[test_case("aws-secret-access-key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", PiiKind::AwsSecretKey, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "compact aws secret kebabcase equals")]
+    #[test_case(concat!(r#""awsSecretAccessKey": ""#, fake_aws_secret!(), "\""), PiiKind::AwsSecretKey, fake_aws_secret!() ; "compact aws secret camelcase json")]
+    #[test_case(concat!("aws-secret-access-key=", fake_aws_secret!()), PiiKind::AwsSecretKey, fake_aws_secret!() ; "compact aws secret kebabcase equals")]
     #[test_case("passportNumber: A12345678", PiiKind::UsPassportNew, "A12345678" ; "compact passport camelcase yaml")]
     #[test_case("passport_number=A12345678", PiiKind::UsPassportNew, "A12345678" ; "compact passport snakecase equals")]
     #[test_case("imeiNumber 490154203237518", PiiKind::Imei, "490154203237518" ; "compact imei camelcase whitespace")]

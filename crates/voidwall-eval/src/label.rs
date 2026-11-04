@@ -263,6 +263,26 @@ pub fn labels_for(kind: PiiKind) -> &'static [Ai4pLabel] {
         | PiiKind::AwsAccessKey
         | PiiKind::GithubToken
         | PiiKind::AwsSecretKey
+        | PiiKind::OpenAiApiKey
+        | PiiKind::AnthropicApiKey
+        | PiiKind::SlackToken
+        | PiiKind::StripeSecretKey
+        | PiiKind::GoogleApiKey
+        | PiiKind::GitlabToken
+        | PiiKind::HuggingFaceToken
+        | PiiKind::NpmToken
+        | PiiKind::PypiToken
+        | PiiKind::AzureAdClientSecret
+        | PiiKind::SupabaseSecretKey
+        | PiiKind::OpenRouterApiKey
+        | PiiKind::PerplexityApiKey
+        | PiiKind::XaiApiKey
+        | PiiKind::FirecrawlApiKey
+        | PiiKind::GroqApiKey
+        | PiiKind::ReplicateApiToken
+        | PiiKind::PrivateKey
+        | PiiKind::Jwt
+        | PiiKind::UrlCredentials
         | PiiKind::BitcoinAddress
         | PiiKind::EthereumAddress
         | PiiKind::AuBankAccount
