@@ -3142,18 +3142,21 @@ listen = "0.0.0.0:8083"
         assert_eq!(pii.detect.as_ref().unwrap().len(), 2);
     }
 
-    #[test]
-    fn ignore_field_deserialization() {
-        let toml = r#"
+    #[test_case("IpAddress" ; "ip address")]
+    #[test_case("Jwt" ; "secret kind")]
+    fn ignore_field_deserialization(kind: &str) {
+        let toml = format!(
+            r#"
 [builtin_guards.pii]
 countries = ["Us"]
-ignore = ["IpAddress"]
+ignore = ["{kind}"]
 
 [http_api]
 enabled = true
 listen = "0.0.0.0:8083"
-"#;
-        let config = parse(toml).unwrap();
+"#
+        );
+        let config = parse(&toml).unwrap();
         let pii = config.builtin_guards.pii.as_ref().unwrap();
         assert_eq!(pii.ignore.as_ref().unwrap().len(), 1);
     }
@@ -3256,6 +3259,15 @@ pattern = 'foo@bar'
 "#,
         "collides with a built-in"
         ; "builtin collision"
+    )]
+    #[test_case(
+        r#"
+[[builtin_guards.pii.custom]]
+label = "OPENAI_API_KEY"
+pattern = 'sk-[a-z]+'
+"#,
+        "label 'OPENAI_API_KEY' collides with a built-in"
+        ; "builtin secret label collision"
     )]
     fn invalid_custom_pii(body: &str, expected_msg: &str) {
         let toml = custom_pii_toml(body);

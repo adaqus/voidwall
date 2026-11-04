@@ -22,6 +22,32 @@ struct PatternEntry {
     extraction_regex: Option<Regex>,
 }
 
+/// Calls `f` with each match of a fallback regex until `f` returns false. A
+/// regex with a capture group reports group 1: the group is the value, and
+/// the text before it is a boundary the regex crate cannot express as a
+/// look-behind, such as "not after a token character".
+fn for_each_fallback_match<'h>(
+    re: &Regex,
+    input: &'h str,
+    mut f: impl FnMut(regex::Match<'h>) -> bool,
+) {
+    if re.captures_len() > 1 {
+        for caps in re.captures_iter(input) {
+            if let Some(m) = caps.get(1)
+                && !f(m)
+            {
+                return;
+            }
+        }
+    } else {
+        for m in re.find_iter(input) {
+            if !f(m) {
+                return;
+            }
+        }
+    }
+}
+
 pub struct HyperscanDetector {
     entries: Vec<PatternEntry>,
     // SAFETY: Prototypes are declared before databases so they are dropped first.
@@ -224,7 +250,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::AwsAccessKey,
             expr: r"\bAKIA[0-9A-Z]{16}\b",
             som_fallback: false,
-            validator: Check::Any,
+            validator: Check::With(aws_access_key_check),
             needs_ucp: false,
         },
         // GithubToken: {36} and {22}_{59} fixed repetitions create long DFA
@@ -236,6 +262,178 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             expr: r"\bgh[opsu]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\b",
             som_fallback: true,
             validator: Check::Any,
+            needs_ucp: false,
+        },
+        // --- Secrets ---
+        //
+        // Each secret pattern matches a prefix and then the maximal run of the
+        // token's alphabet, so a match never ends inside a longer run; its
+        // check then tests the run's structure (length, marker, checksum).
+        // All are regex fallback patterns: Vectorscan reports every match end,
+        // not the maximal run.
+        //
+        // Where the alphabet holds a non-word character (`-`, `.`, `~`), `\b`
+        // cannot tell where a token starts. Such a pattern requires the input
+        // start or a non-token character before the token and captures the
+        // token in group 1. Elsewhere an ASCII `\b` does that job.
+        PatternDef {
+            kind: PiiKind::OpenAiApiKey,
+            expr: r"(?:^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(openai_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::AnthropicApiKey,
+            expr: r"(?:^|[^A-Za-z0-9_-])(sk-ant-(?:api03|admin01)-[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(anthropic_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::SlackToken,
+            expr: r"(?:^|[^A-Za-z0-9-])((?:xox[abeoprs]|xapp|xwfp|xoxe\.(?:xapp|xoxb|xoxp))-[A-Za-z0-9-]+)",
+            som_fallback: true,
+            validator: Check::With(slack_token_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::SlackToken,
+            expr: r"(?:https?://)?(?-u:\b)hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]+",
+            som_fallback: true,
+            validator: Check::With(slack_webhook_check),
+            needs_ucp: false,
+        },
+        // Live and organization keys only: `sk_test_`, `rk_test_`, and `pk_`
+        // never match.
+        PatternDef {
+            kind: PiiKind::StripeSecretKey,
+            expr: r"(?-u:\b)(?:sk_live|rk_live|sk_org)_[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(stripe_secret_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::GoogleApiKey,
+            expr: r"(?:^|[^A-Za-z0-9_-])(AIza[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(google_api_key_check),
+            needs_ucp: false,
+        },
+        // Legacy tokens, or routable ones: `<payload>.01.<length><crc>`.
+        PatternDef {
+            kind: PiiKind::GitlabToken,
+            expr: r"(?:^|[^A-Za-z0-9_.-])((?:glpat|gldt|glrtr|glrt|glcbt|glptt|glft|glimt|glagent|glwt|glsoat|glffct|gloas)-[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)?)",
+            som_fallback: true,
+            validator: Check::With(gitlab_token_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::HuggingFaceToken,
+            expr: r"(?-u:\b)(?:hf|api_org)_[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(huggingface_token_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::NpmToken,
+            expr: r"(?-u:\b)npm_[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(npm_token_check),
+            needs_ucp: false,
+        },
+        // The anchor names `pypi.org`, so TestPyPI tokens never match.
+        PatternDef {
+            kind: PiiKind::PypiToken,
+            expr: r"(?:^|[^A-Za-z0-9_-])(pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(pypi_token_check),
+            needs_ucp: false,
+        },
+        // No leading literal: the `Q~` marker sits at offset 4. The run before
+        // the marker must be exactly 4 characters. The tail does not end in
+        // `.`, so a sentence's full stop stays outside the match.
+        PatternDef {
+            kind: PiiKind::AzureAdClientSecret,
+            expr: r"(?:^|[^A-Za-z0-9_~.-])([A-Za-z0-9_~.-]{3}[0-9]Q~[A-Za-z0-9_~.-]*[A-Za-z0-9_~-])",
+            som_fallback: true,
+            validator: Check::With(azure_ad_client_secret_check),
+            needs_ucp: false,
+        },
+        // `sb_secret_` only: `sb_publishable_` never matches.
+        PatternDef {
+            kind: PiiKind::SupabaseSecretKey,
+            expr: r"(?:^|[^A-Za-z0-9_-])(sb_secret_[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(supabase_secret_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::OpenRouterApiKey,
+            expr: r"(?-u:\b)sk-or-v1-[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(openrouter_api_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::PerplexityApiKey,
+            expr: r"(?-u:\b)pplx-[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(perplexity_api_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::XaiApiKey,
+            expr: r"(?-u:\b)xai-[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(xai_api_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::FirecrawlApiKey,
+            expr: r"(?-u:\b)fc-[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(firecrawl_api_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::GroqApiKey,
+            expr: r"(?-u:\b)gsk_[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(groq_api_key_check),
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::ReplicateApiToken,
+            expr: r"(?-u:\b)r8_[A-Za-z0-9]+",
+            som_fallback: true,
+            validator: Check::With(replicate_api_token_check),
+            needs_ucp: false,
+        },
+        // The PEM header only, so a key whose newlines are escaped (`\n` in
+        // JSON) is still found. Public keys and certificates do not match.
+        PatternDef {
+            kind: PiiKind::PrivateKey,
+            expr: r"-----BEGIN (?:[A-Z0-9]+ ){0,4}PRIVATE KEY(?: BLOCK)?-----",
+            som_fallback: true,
+            validator: Check::Any,
+            needs_ucp: false,
+        },
+        PatternDef {
+            kind: PiiKind::Jwt,
+            expr: r"(?:^|[^A-Za-z0-9_-])(ey[A-Za-z0-9_-]+\.ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)",
+            som_fallback: true,
+            validator: Check::With(jwt_check),
+            needs_ucp: false,
+        },
+        // `scheme://user:password@host`. User and password hold no
+        // whitespace, `/`, or `@`; the user holds no `:`. The host stops
+        // before a quote, so a quoted URL's closing quote stays outside.
+        PatternDef {
+            kind: PiiKind::UrlCredentials,
+            expr: r#"(?-u:\b)[A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@[^\s/@"'`]+"#,
+            som_fallback: true,
+            validator: Check::With(url_credentials_check),
             needs_ucp: false,
         },
         PatternDef {
@@ -464,10 +662,12 @@ impl Detector for HyperscanDetector {
         // Phase 2: Regex fallback for patterns that can't use SOM_LEFTMOST
         for entry in &self.entries {
             if let Some(ref re) = entry.extraction_regex {
-                for m in re.find_iter(input) {
-                    if entry.validator.accepts(m.as_str()) {
-                        return true;
-                    }
+                for_each_fallback_match(re, input, |m| {
+                    found = entry.validator.accepts(m.as_str());
+                    !found
+                });
+                if found {
+                    return true;
                 }
             }
         }
@@ -526,9 +726,8 @@ impl Detector for HyperscanDetector {
         // Phase 2: Regex fallback for patterns that can't use SOM_LEFTMOST
         for entry in &self.entries {
             if let Some(ref re) = entry.extraction_regex {
-                for m in re.find_iter(input) {
-                    let candidate = m.as_str();
-                    if entry.validator.accepts(candidate) {
+                for_each_fallback_match(re, input, |m| {
+                    if entry.validator.accepts(m.as_str()) {
                         results.push(PiiMatch {
                             kind: entry.kind,
                             start: m.start(),
@@ -536,7 +735,8 @@ impl Detector for HyperscanDetector {
                             user_label: None,
                         });
                     }
-                }
+                    true
+                });
             }
         }
 
@@ -577,6 +777,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use super::*;
+    use crate::validators::test_tokens;
     use test_case::test_case;
 
     /// A fake fine-grained GitHub token, built from parts so that no full
@@ -590,6 +791,13 @@ mod tests {
                 "_",
                 "vMgax7hGa8cCg7kSXiFWTSRCdLPEnhi6IHDwmiVJfJQXV4ISJSBGmbgs22A",
             )
+        };
+    }
+
+    /// A real-shaped AWS access key ID that is not on the deny list.
+    macro_rules! fake_aws_access_key {
+        () => {
+            concat!("AKIA", "Z7QK3M9T2WXR5HBN")
         };
     }
 
@@ -665,10 +873,43 @@ mod tests {
     #[test_case("card: 6205500000000000004", PiiKind::CreditCard, "6205500000000000004" ; "stripe unionpay 19 digit")]
     #[test_case("card: 4000002500001001", PiiKind::CreditCard, "4000002500001001" ; "stripe cartes bancaires visa")]
     #[test_case("card: 5555050360000080", PiiKind::CreditCard, "5555050360000080" ; "stripe eftpos mastercard")]
-    #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE" ; "aws access key")]
+    #[test_case(concat!("key: ", fake_aws_access_key!()), PiiKind::AwsAccessKey, fake_aws_access_key!() ; "aws access key")]
     #[test_case("token: gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "gho_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github oauth token")]
     #[test_case("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12", PiiKind::GithubToken, "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGH12" ; "github pat token")]
     #[test_case(concat!("token: ", fake_github_pat!()), PiiKind::GithubToken, fake_github_pat!() ; "github fine grained pat")]
+    // Secrets: synthetic values built at run time (see `test_tokens`).
+    #[test_case(&format!("OPENAI_API_KEY={}", test_tokens::openai_project(58, 58)), PiiKind::OpenAiApiKey, &test_tokens::openai_project(58, 58) ; "openai project key 58")]
+    #[test_case(&format!("key: {} ok", test_tokens::openai_project(74, 74)), PiiKind::OpenAiApiKey, &test_tokens::openai_project(74, 74) ; "openai project key 74")]
+    #[test_case(&format!("key: {}", test_tokens::openai_legacy()), PiiKind::OpenAiApiKey, &test_tokens::openai_legacy() ; "openai legacy key")]
+    #[test_case(&format!("ANTHROPIC_API_KEY={}", test_tokens::anthropic(93)), PiiKind::AnthropicApiKey, &test_tokens::anthropic(93) ; "anthropic key")]
+    #[test_case(&format!("key {} end", test_tokens::anthropic(80)), PiiKind::AnthropicApiKey, &test_tokens::anthropic(80) ; "anthropic key at minimum")]
+    #[test_case(&format!("{{\"token\":\"{}\"}}", test_tokens::slack_bot()), PiiKind::SlackToken, &test_tokens::slack_bot() ; "slack bot token in json")]
+    #[test_case(&format!("{{\"url\":\"{}\"}}", test_tokens::slack_webhook()), PiiKind::SlackToken, &test_tokens::slack_webhook() ; "slack webhook in json")]
+    #[test_case(&format!("stripe {}", test_tokens::stripe("sk_live_")), PiiKind::StripeSecretKey, &test_tokens::stripe("sk_live_") ; "stripe live key")]
+    #[test_case(&format!("stripe {}", test_tokens::stripe("rk_live_")), PiiKind::StripeSecretKey, &test_tokens::stripe("rk_live_") ; "stripe restricted live key")]
+    #[test_case(&format!("stripe {}", test_tokens::stripe("sk_org_")), PiiKind::StripeSecretKey, &test_tokens::stripe("sk_org_") ; "stripe organization key")]
+    #[test_case(&format!("maps?key={}&q=x", test_tokens::google()), PiiKind::GoogleApiKey, &test_tokens::google() ; "google api key in query")]
+    #[test_case(&format!("token {}.", test_tokens::gitlab_routable("glpat-", 24)), PiiKind::GitlabToken, &test_tokens::gitlab_routable("glpat-", 24) ; "gitlab routable token")]
+    #[test_case(&format!("token {}", test_tokens::gitlab_legacy()), PiiKind::GitlabToken, &test_tokens::gitlab_legacy() ; "gitlab legacy token")]
+    #[test_case(&format!("HF_TOKEN={}", test_tokens::huggingface()), PiiKind::HuggingFaceToken, &test_tokens::huggingface() ; "huggingface token")]
+    #[test_case(&format!("//registry.npmjs.org/:_authToken={}", test_tokens::npm(25)), PiiKind::NpmToken, &test_tokens::npm(25) ; "npm token in npmrc")]
+    #[test_case(&format!("password = {}", test_tokens::pypi()), PiiKind::PypiToken, &test_tokens::pypi() ; "pypi token")]
+    #[test_case(&format!("client_secret: {}.", test_tokens::azure()), PiiKind::AzureAdClientSecret, &test_tokens::azure() ; "azure client secret before full stop")]
+    #[test_case(&format!("SUPABASE_KEY={}", test_tokens::supabase()), PiiKind::SupabaseSecretKey, &test_tokens::supabase() ; "supabase secret key")]
+    #[test_case(&format!("key: {}", test_tokens::openrouter()), PiiKind::OpenRouterApiKey, &test_tokens::openrouter() ; "openrouter key")]
+    #[test_case(&format!("key: {}", test_tokens::perplexity(48)), PiiKind::PerplexityApiKey, &test_tokens::perplexity(48) ; "perplexity key")]
+    #[test_case(&format!("key: {}", test_tokens::xai(40)), PiiKind::XaiApiKey, &test_tokens::xai(40) ; "xai key at minimum")]
+    #[test_case(&format!("key: {}", test_tokens::firecrawl()), PiiKind::FirecrawlApiKey, &test_tokens::firecrawl() ; "firecrawl key")]
+    #[test_case(&format!("key: {}", test_tokens::groq(120)), PiiKind::GroqApiKey, &test_tokens::groq(120) ; "groq long body")]
+    #[test_case(&format!("key: {}", test_tokens::replicate()), PiiKind::ReplicateApiToken, &test_tokens::replicate() ; "replicate token")]
+    #[test_case("-----BEGIN OPENSSH PRIVATE KEY-----\\nb3BlbnNzaC1r", PiiKind::PrivateKey, "-----BEGIN OPENSSH PRIVATE KEY-----" ; "openssh private key escaped newline")]
+    #[test_case("-----BEGIN RSA PRIVATE KEY-----", PiiKind::PrivateKey, "-----BEGIN RSA PRIVATE KEY-----" ; "rsa private key")]
+    #[test_case("-----BEGIN PRIVATE KEY-----", PiiKind::PrivateKey, "-----BEGIN PRIVATE KEY-----" ; "pkcs8 private key")]
+    #[test_case("-----BEGIN PGP PRIVATE KEY BLOCK-----", PiiKind::PrivateKey, "-----BEGIN PGP PRIVATE KEY BLOCK-----" ; "pgp private key block")]
+    #[test_case(&format!("Authorization: Bearer {}", test_tokens::jwt()), PiiKind::Jwt, &test_tokens::jwt() ; "jwt bearer")]
+    #[test_case(&format!("DATABASE_URL={}/app", test_tokens::URL_CREDENTIALS), PiiKind::UrlCredentials, test_tokens::URL_CREDENTIALS ; "url credentials connection string")]
+    #[test_case("\"dsn\":\"postgres://app:%s@db/app\"", PiiKind::UrlCredentials, "postgres://app:%s@db" ; "url credentials printf placeholder")]
+    #[test_case("amqp://guest:postgres@mq:5672", PiiKind::UrlCredentials, "amqp://guest:postgres@mq:5672" ; "url credentials default password")]
     // GB postcodes: real landmarks
     #[test_case("postcode: SW1A 1AA", PiiKind::GbPostcode, "SW1A 1AA" ; "gb postcode buckingham palace")]
     #[test_case("postcode: EC1A1BB", PiiKind::GbPostcode, "EC1A1BB" ; "gb postcode barbican")]
@@ -748,6 +989,30 @@ mod tests {
     }
 
     #[test]
+    fn two_slack_token_types_share_a_kind() {
+        let input = format!(
+            "bot {} hook {}",
+            test_tokens::slack_bot(),
+            test_tokens::slack_webhook()
+        );
+        let slack = DETECTOR
+            .mark_piis(&input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::SlackToken)
+            .count();
+        assert_eq!(slack, 2);
+    }
+
+    /// `has_piis` runs the same fallback patterns, with the same boundary
+    /// groups, as `mark_piis`.
+    #[test]
+    fn has_piis_finds_every_secret_kind() {
+        for (kind, value) in test_tokens::one_of_each() {
+            assert!(DETECTOR.has_piis(&value), "{}", kind.label());
+        }
+    }
+
+    #[test]
     fn detects_iban_no_spaces() {
         let detector = &*DETECTOR;
         let matches = detector.mark_piis("IBAN: GB29NWBK60161331926819");
@@ -782,6 +1047,33 @@ mod tests {
     #[test_case("DL: JONES901007A99Y1", PiiKind::GbDrivingLicence ; "uk dl invalid day")]
     #[test_case("VIN: 1HGBH41IXMN10918O", PiiKind::Vin ; "vin invalid chars")]
     #[test_case("key: AKIAIOSFODNN7EXAMPL", PiiKind::AwsAccessKey ; "aws access key too short")]
+    #[test_case("key: AKIAIOSFODNN7EXAMPLE", PiiKind::AwsAccessKey ; "aws docs sample access key")]
+    #[test_case(&format!("{}x", test_tokens::openai_project(58, 58)), PiiKind::OpenAiApiKey ; "openai inside longer run")]
+    #[test_case(&format!("key: {}", test_tokens::anthropic(79)), PiiKind::AnthropicApiKey ; "anthropic below minimum")]
+    #[test_case("token: xoxb-your-bot-token-here", PiiKind::SlackToken ; "slack placeholder")]
+    #[test_case(&format!("key: {}", test_tokens::stripe("sk_test_")), PiiKind::StripeSecretKey ; "stripe test key")]
+    #[test_case(&format!("key: {}", test_tokens::stripe("rk_test_")), PiiKind::StripeSecretKey ; "stripe restricted test key")]
+    #[test_case(&format!("key: {}", test_tokens::stripe("pk_live_")), PiiKind::StripeSecretKey ; "stripe publishable key")]
+    #[test_case(&format!("key: {}x", test_tokens::google()), PiiKind::GoogleApiKey ; "google inside longer run")]
+    #[test_case(&format!("key: {}-x", test_tokens::google()), PiiKind::GoogleApiKey ; "google before a dash run")]
+    #[test_case(&format!("key: x-{}", test_tokens::google()), PiiKind::GoogleApiKey ; "google after a dash run")]
+    #[test_case(&test_tokens::with_wrong_last_char(&test_tokens::gitlab_routable("glpat-", 24)), PiiKind::GitlabToken ; "gitlab routable wrong checksum")]
+    #[test_case(&test_tokens::with_wrong_last_char(&test_tokens::npm(25)), PiiKind::NpmToken ; "npm wrong checksum")]
+    #[test_case(&format!("hf_{}", test_tokens::run(test_tokens::LETTERS, 33, 1)), PiiKind::HuggingFaceToken ; "huggingface too short")]
+    #[test_case("pypi-AgENdGVzdC5weXBpLm9yZwIkZjVlNmQ3YmItYzQ2Ni00OGU3LWIzNzQtMjRmMDRlMjBlYzE4AAIqWzMsIjY4OTkzYjQ", PiiKind::PypiToken ; "testpypi token")]
+    #[test_case(&format!("x abcd8Q~{}", test_tokens::run(test_tokens::ALNUM, 34, 1)), PiiKind::AzureAdClientSecret ; "azure five characters before marker")]
+    #[test_case(&format!("key: sb_publishable_{}", test_tokens::run(test_tokens::BASE64URL, 31, 1)), PiiKind::SupabaseSecretKey ; "supabase publishable key")]
+    #[test_case(&format!("key: sb_secret_{}", test_tokens::run(test_tokens::BASE64URL, 30, 1)), PiiKind::SupabaseSecretKey ; "supabase below minimum")]
+    #[test_case(&format!("key: pplx-{}", test_tokens::run(test_tokens::ALNUM, 20, 1)), PiiKind::PerplexityApiKey ; "perplexity body too short")]
+    #[test_case(&format!("key: {}", test_tokens::xai(39)), PiiKind::XaiApiKey ; "xai below minimum")]
+    #[test_case(&format!("key: {}", test_tokens::groq(47)), PiiKind::GroqApiKey ; "groq below minimum")]
+    #[test_case(&format!("key: fc-{}", test_tokens::run(test_tokens::ALNUM, 32, 1)), PiiKind::FirecrawlApiKey ; "firecrawl not hex")]
+    #[test_case("-----BEGIN CERTIFICATE-----", PiiKind::PrivateKey ; "certificate")]
+    #[test_case("-----BEGIN PUBLIC KEY-----", PiiKind::PrivateKey ; "public key")]
+    #[test_case(concat!("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.", "KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"), PiiKind::Jwt ; "jwt io sample")]
+    #[test_case("postgres://app:${DB_PASSWORD}@db/app", PiiKind::UrlCredentials ; "url credentials template password")]
+    #[test_case("mysql://user:password@localhost/app", PiiKind::UrlCredentials ; "url credentials placeholder word")]
+    #[test_case("see https://example.com:8080/path for docs", PiiKind::UrlCredentials ; "url with port and no credentials")]
     #[test_case("not a key: BKIAIOSFODNN7EXAMPLE1", PiiKind::AwsAccessKey ; "aws access key wrong prefix")]
     #[test_case("BTW: NL123456789B00", PiiKind::NlBtw ; "nl btw sub number zero")]
     #[test_case("DNI: 12345678A", PiiKind::EsDni ; "es dni wrong control letter")]

@@ -235,6 +235,25 @@ in ten. The default `[guards.pii_ml]` validates none of them.
   whole span, then its check must accept it. That changes the `guard-configuration` spec,
   so it needs a proposal. Consider it if a third case appears.
 
+`AZURE_AD_CLIENT_SECRET` is the most expensive secret pattern. Found on 2026-11-04 in the
+benchmarks of the `add-secret-kinds` change (`benchmarks.md` in that change). Its
+expression has no leading literal: the `Q~` marker sits at offset 4. One detector with only
+this kind takes 18.8 µs on 10 KB of clean text; a pattern with a literal prefix takes about
+5.3 µs. That is about 40% of the 22–27% that the secret kinds add to a clean-text scan.
+
+- Replace the regex fallback with a small byte scanner in `HyperscanDetector`: find `Q~`,
+  step back 4 bytes and check them, check that the byte before them is not a token
+  character, then scan forward to the end of the run. Keep the current rules: 31 to 34
+  tail characters, and a tail that does not end in `.`.
+- Do not reuse the window method of `KeywordContextDetector`. Its window ends at the match
+  end, so it cannot see that a run goes on, and it makes the value regex
+  case-insensitive. Both would report values the current pattern rejects.
+- The match set and the spans must not change, so that a future redaction cuts the same
+  bytes. Add a differential test that runs the current regex and the new scanner over the
+  same inputs and requires equal spans. Run the `voidwall-pii` tests before and after.
+- Keep the scanner only if `secret_pattern_cost` and the `throughput_` groups show a gain.
+  Run base and after back to back: one single run drifted by about 25%.
+
 ---
 
 ## 4. Documentation

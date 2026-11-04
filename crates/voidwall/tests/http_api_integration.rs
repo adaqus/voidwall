@@ -238,6 +238,69 @@ async fn scan_structured_custom_definitions(content_type: &str, body: &'static s
     assert_eq!(json["kinds"], serde_json::json!(["BADGE", "EMPLOYEE_ID"]));
 }
 
+/// A synthetic Replicate token (`r8_` and 37 alphanumerics), built at run
+/// time so that no full token sits in the source.
+fn replicate_token() -> String {
+    let body: String = ('a'..='z')
+        .chain('0'..='9')
+        .cycle()
+        .skip(5)
+        .take(37)
+        .collect();
+    format!("r8_{body}")
+}
+
+/// A synthetic JWT: HS256 header, a payload holding `sub`, a fake signature.
+fn jwt() -> String {
+    format!(
+        "{}.{}.{}",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiJ1c2VyLTQyIiwiaWF0IjoxNzAwMDAwMDAwfQ",
+        "c2lnbmF0dXJlLW9mLWEtdGVzdC10b2tlbi1vbmx5"
+    )
+}
+
+async fn scan_text(api: &TestApi, body: String) -> serde_json::Value {
+    let resp = reqwest::Client::new()
+        .post(api.url("/v1/scan"))
+        .header("content-type", "text/plain")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json().await.unwrap()
+}
+
+/// The default guard names no countries, and a secret kind is international,
+/// so it is reported with no extra setting.
+#[tokio::test]
+async fn scan_default_guard_reports_a_secret_kind() {
+    let api = TestApi::start().await;
+    let json = scan_text(&api, format!("deploy with token {}", replicate_token())).await;
+    assert_eq!(json["detected"], true);
+    assert_eq!(json["matches_count"], 1);
+    assert_eq!(json["kinds"], serde_json::json!(["REPLICATE_API_TOKEN"]));
+}
+
+#[tokio::test]
+async fn scan_ignored_secret_kind_is_not_reported() {
+    let body = || format!("session token {}", jwt());
+
+    let default_api = TestApi::start().await;
+    let json = scan_text(&default_api, body()).await;
+    assert_eq!(json["kinds"], serde_json::json!(["JWT"]));
+
+    let pii_config = PiiGuardConfig {
+        ignore: Some(vec![voidwall_pii::PiiKind::Jwt]),
+        ..default_pii_config()
+    };
+    let api = TestApi::start_with_pii(Ingest::default(), pii_config).await;
+    let json = scan_text(&api, body()).await;
+    assert_eq!(json["detected"], false);
+    assert!(json["kinds"].as_array().unwrap().is_empty());
+}
+
 /// The body holding two kinds, reused by the ordering tests below.
 const TWO_KIND_BODY: &str = r#"{"user":{"phone_number":"555-123-4567"},"email":"a@b.com"}"#;
 

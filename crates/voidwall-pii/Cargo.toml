@@ -12,6 +12,8 @@ serde = { version = "1", features = ["derive"] }
 vectorscan-rs = "0.0.5"
 percent-encoding = "2"
 log = "0.4"
+# CRC32 (IEEE) for the checksums of npm and GitLab routable tokens.
+crc32fast = "1.5"
 
 # DictionaryDetector: FST gazetteer membership + Unicode-aware tokenization and
 # NFC key normalization. `normalize` is shared with the offline build tool so

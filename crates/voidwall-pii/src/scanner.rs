@@ -682,8 +682,8 @@ mod tests {
         ; "vin in url path"
     )]
     #[test_case(
-        "/keys/AKIAIOSFODNN7EXAMPLE/revoke",
-        PiiKind::AwsAccessKey, "AKIAIOSFODNN7EXAMPLE"
+        concat!("/keys/", "AKIA", "Z7QK3M9T2WXR5HBN", "/revoke"),
+        PiiKind::AwsAccessKey, concat!("AKIA", "Z7QK3M9T2WXR5HBN")
         ; "aws access key in url path"
     )]
     #[test_case(
@@ -787,6 +787,79 @@ mod tests {
             "expected 1 match for {kind:?} in: {input}"
         );
         assert_eq!(&input[matches[0].start..matches[0].end], expected_span);
+    }
+
+    // --- secrets ---
+
+    /// Resolved findings whose span overlaps `start..end` of `input`.
+    fn kinds_over(input: &str, start: usize, end: usize) -> Vec<&'static str> {
+        crate::resolve_overlaps(SCANNER.mark_piis(input))
+            .into_iter()
+            .filter(|m| m.start < end && start < m.end)
+            .map(|m| m.kind.label())
+            .collect()
+    }
+
+    /// Test, sandbox, and publishable keys and documented samples look like
+    /// secrets but are not: no finding of any kind covers them.
+    #[test_case(&crate::validators::test_tokens::stripe("sk_test_") ; "stripe test secret key")]
+    #[test_case(&crate::validators::test_tokens::stripe("rk_test_") ; "stripe test restricted key")]
+    #[test_case(&crate::validators::test_tokens::stripe("pk_test_") ; "stripe test publishable key")]
+    #[test_case(&crate::validators::test_tokens::stripe("pk_live_") ; "stripe live publishable key")]
+    #[test_case(&format!("sb_publishable_{}", crate::validators::test_tokens::run(crate::validators::test_tokens::BASE64URL, 31, 1)) ; "supabase publishable key")]
+    #[test_case("pypi-AgENdGVzdC5weXBpLm9yZwIkZjVlNmQ3YmItYzQ2Ni00OGU3LWIzNzQtMjRmMDRlMjBlYzE4AAIqWzMsIjY4OTkzYjQ" ; "testpypi token")]
+    #[test_case("AKIAIOSFODNN7EXAMPLE" ; "aws docs sample access key")]
+    #[test_case(concat!("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.", "KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30") ; "jwt io sample")]
+    fn secret_lookalike_has_no_finding(value: &str) {
+        let input = format!("the value {value} here");
+        let start = "the value ".len();
+        let found = kinds_over(&input, start, start + value.len());
+        assert!(found.is_empty(), "found {found:?}");
+    }
+
+    #[test]
+    fn aws_docs_sample_secret_has_no_finding() {
+        let input = "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        assert!(kinds_over(input, 0, input.len()).is_empty());
+    }
+
+    /// No secret value shares an equal span with another kind (design D9):
+    /// each one resolves to its own kind alone, and beside an email address,
+    /// an IP address, and every other secret.
+    #[test]
+    fn secret_values_resolve_to_their_own_kind_overlap() {
+        let values = crate::validators::test_tokens::one_of_each();
+        for (kind, value) in &values {
+            let resolved: Vec<_> = crate::resolve_overlaps(SCANNER.mark_piis(value))
+                .into_iter()
+                .map(|m| (m.kind.label(), m.start, m.end))
+                .collect();
+            assert_eq!(resolved, vec![(kind.label(), 0, value.len())]);
+        }
+
+        let mut input = String::from("contact ops@example.com from 192.168.10.20");
+        let mut spans = Vec::new();
+        for (kind, value) in &values {
+            input.push_str(" and ");
+            let start = input.len();
+            input.push_str(value);
+            spans.push((kind.label(), start, input.len()));
+        }
+        let resolved = crate::resolve_overlaps(SCANNER.mark_piis(&input));
+        for (label, start, end) in spans {
+            let over: Vec<_> = resolved
+                .iter()
+                .filter(|m| m.start < end && start < m.end)
+                .map(|m| (m.kind.label(), m.start, m.end))
+                .collect();
+            assert_eq!(over, vec![(label, start, end)]);
+        }
+        let others: Vec<_> = resolved
+            .iter()
+            .filter(|m| matches!(m.kind, PiiKind::Email | PiiKind::IpAddress))
+            .map(|m| m.kind.label())
+            .collect();
+        assert_eq!(others, vec!["EMAIL", "IP_ADDRESS"]);
     }
 
     #[test]
