@@ -3,6 +3,16 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.4.0] - 2026-11-04
+
+### Features
+
+- **BREAKING** **pii:** Add 20 secret kinds and a known-sample deny list
+
+### Chores
+
+- Increase prompt injection threshold for anythingllm experimental config
+
 ## [0.3.0] - 2026-10-31
 
 ### Features
