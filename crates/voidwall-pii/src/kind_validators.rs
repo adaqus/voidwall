@@ -105,7 +105,7 @@ mod tests {
     #[test_case(&[PiiKind::CreditCard], CARD_LUHN_INVALID, false ; "luhn failing card fails")]
     #[test_case(&[PiiKind::UsSsn], CARD_LUHN_VALID, false ; "first kind alone rejects")]
     #[test_case(&[PiiKind::UsSsn, PiiKind::CreditCard], CARD_LUHN_VALID, true ; "second kind accepts")]
-    #[test_case(&[PiiKind::IpAddress], "x", true ; "kind with an expression only pattern accepts any text")]
+    #[test_case(&[PiiKind::Email], "x", true ; "kind with an expression only pattern accepts any text")]
     #[test_case(&[], CARD_LUHN_VALID, false ; "empty list")]
     #[test_case(&[PiiKind::Custom], CARD_LUHN_VALID, false ; "kind with no pattern")]
     fn validate_as_cases(kinds: &[PiiKind], text: &str, expected: bool) {
