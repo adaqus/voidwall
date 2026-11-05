@@ -53,7 +53,7 @@ overlap_tokens = 128
 labels = [
     "PERSON_NAME", "POSTAL_ADDRESS", "DATE_OF_BIRTH",
     "PHONE_NUMBER", "EMAIL_ADDRESS", "BANK_ACCOUNT_IDENTIFIER", "AUTH_SECRET",
-    "DOCUMENT_IDENTIFIER", "IP_ADDRESS", "PAYMENT_CARD", "PERSON_IDENTIFIER",
+    "DOCUMENT_IDENTIFIER", "PAYMENT_CARD", "PERSON_IDENTIFIER",
     "GEO_LOCATION",
 ]
 
@@ -66,7 +66,6 @@ EMAIL_ADDRESS = 0.0
 BANK_ACCOUNT_IDENTIFIER = 0.0
 AUTH_SECRET = 0.0
 DOCUMENT_IDENTIFIER = 0.0
-IP_ADDRESS = 0.0
 PAYMENT_CARD = 0.0
 PERSON_IDENTIFIER = 0.0
 GEO_LOCATION = 0.0
@@ -75,6 +74,10 @@ GEO_LOCATION = 0.0
 # check) accepts it.
 [guards.pii_ml.validate_as]
 PAYMENT_CARD = ["CREDIT_CARD"]
+# IP_ADDRESS is left to the regex PII guard. To report it here as well, add
+# it to `labels` and `thresholds`, and validate it with the line below, so
+# that a private, loopback, or documentation address gives no finding.
+# IP_ADDRESS = ["IP_ADDRESS"]
 
 [reverse_proxy]
 enabled = true

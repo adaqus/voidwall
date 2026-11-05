@@ -184,17 +184,6 @@ False positives on benign prompts. Found on 2026-10-20 by running `Scanner::new(
 - `PERSON_NAME` fires on 34% of the prompts. In a sample of 25, 11 are not people:
   "St Louis", "Kennedy High", "Red List", "Harry Potter", "Asian Nations", "The Masters".
 
-The default `[guards.pii_ml]` sets no `validate_as` for `IP_ADDRESS`. Since
-`strict-ip-validation`, the regex `pii` guard reports only a whole public address, but
-`pii_ml` reports every `IP_ADDRESS` span the model tags. So in the shipped image a private,
-loopback, or documentation address can still block the message as `IP_ADDRESS`, and the
-two guards disagree.
-
-- Decide whether the default sets `validate_as.IP_ADDRESS = ["IP_ADDRESS"]`, which
-  applies the same rule to `pii_ml`.
-- Measure the model's `IP_ADDRESS` spans first: the span trim removes `:` at both edges,
-  so `2001:4860::` is checked as `2001:4860` and fails.
-
 Luhn validators accept any text with enough digits. Found on 2026-10-20 in the same work.
 Five validators keep only the digits of their input, then check the count and the Luhn sum.
 Anything else in the text is ignored:
