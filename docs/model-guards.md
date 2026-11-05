@@ -94,8 +94,9 @@ name is not a PII kind, or when every pattern of a listed kind accepts every val
 A validator was written for the text its pattern matches, and the pattern gives the
 shape. A span has no such shape, so some validators accept more than their patterns
 match. `CREDIT_CARD` checks the shape too: digits in groups with one dash or ASCII whitespace
-between them, and nothing else. `IP_ADDRESS` accepts almost every span, so it is a poor
-choice for `validate_as`. `docs/backlog.md` §3 lists the other loose validators.
+between them, and nothing else. `IP_ADDRESS` checks the shape too: the whole span must be
+an IPv4 or IPv6 address that can name a public host, so a private, loopback, or
+documentation address fails. `docs/backlog.md` §3 lists the loose validators.
 
 ## class
 

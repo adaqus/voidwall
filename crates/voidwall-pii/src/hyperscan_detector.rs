@@ -253,7 +253,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             kind: PiiKind::IpAddress,
             expr: r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}",
             som_fallback: false,
-            validator: Check::With(ipv6_check),
+            validator: Check::With(ip_check),
             needs_ucp: false,
             edge: Edge::Clear(ipv6_edges_clear),
         },
@@ -944,8 +944,10 @@ mod tests {
     #[test_case("NINO: JY555555D", PiiKind::GbNino, "JY555555D" ; "nino jy prefix")]
     #[test_case("IBAN: GB29 NWBK 6016 1331 9268 19", PiiKind::Iban, "GB29 NWBK 6016 1331 9268 19" ; "iban gb")]
     #[test_case("IBAN: DE89 3704 0044 0532 0130 00", PiiKind::Iban, "DE89 3704 0044 0532 0130 00" ; "iban de")]
-    #[test_case("server at 192.168.1.1 is down", PiiKind::IpAddress, "192.168.1.1" ; "ipv4")]
-    #[test_case("IP: 10.0.0.255 ok", PiiKind::IpAddress, "10.0.0.255" ; "ipv4 span")]
+    #[test_case("server at 109.104.1.1 is down", PiiKind::IpAddress, "109.104.1.1" ; "ipv4")]
+    #[test_case("IP: 81.0.0.255 ok", PiiKind::IpAddress, "81.0.0.255" ; "ipv4 span")]
+    #[test_case("a public 109.4.61.213 host", PiiKind::IpAddress, "109.4.61.213" ; "ipv4 public")]
+    #[test_case("a public 2a00:1450:4001:82a::200e host", PiiKind::IpAddress, "2a00:1450:4001:82a::200e" ; "ipv6 public")]
     #[test_case("ITIN: 912-70-1234", PiiKind::UsItin, "912-70-1234" ; "itin")]
     #[test_case("my ITIN is 900-94-5678 ok", PiiKind::UsItin, "900-94-5678" ; "itin span")]
     // CA SIN: 130-692-544 from Straight Line International, 810-620-716 from TNAADO
@@ -1145,6 +1147,7 @@ mod tests {
     #[test_case("IBAN: GB00 NWBK 6016 1331 9268 19", PiiKind::Iban ; "iban invalid checksum")]
     #[test_case("addr: 999.999.999.999", PiiKind::IpAddress ; "ipv4 octet out of range")]
     #[test_case("addr: 192.168.1.256", PiiKind::IpAddress ; "ipv4 single octet over 255")]
+    #[test_case("addr: 109.004.061.213", PiiKind::IpAddress ; "ipv4 leading zero")]
     #[test_case("ITIN: 900-30-1234", PiiKind::UsItin ; "itin invalid group")]
     #[test_case("SIN: 123-456-789", PiiKind::CaSin ; "sin failing luhn")]
     #[test_case("PPSN: 1234567A", PiiKind::IePpsn ; "ppsn wrong check letter")]
@@ -1284,9 +1287,9 @@ mod tests {
 
     // --- IPv6 variant tests ---
 
-    #[test_case("host: 2001:0db8:85a3:0000:0000:8a2e:0370:7334" ; "ipv6 full")]
-    #[test_case("host: ::1" ; "ipv6 compressed")]
-    #[test_case("host: fe80::1" ; "ipv6 with collapse")]
+    #[test_case("host: 2a00:1450:85a3:0000:0000:8a2e:0370:7334" ; "ipv6 full")]
+    #[test_case("host: 2a00::1" ; "ipv6 compressed")]
+    #[test_case("host: 2a00:1450::1" ; "ipv6 with collapse")]
     fn detects_ipv6_variant(input: &str) {
         let detector = &*DETECTOR;
         let ip_matches: Vec<_> = detector
@@ -1297,11 +1300,11 @@ mod tests {
         assert_eq!(ip_matches.len(), 1);
     }
 
-    #[test_case("host: fe80::1, fe80::2" ; "two in a list")]
-    #[test_case("(fe80::1)" ; "in parentheses")]
-    #[test_case("ping ::1." ; "loopback before a full stop")]
-    #[test_case("- **2001:db8::8a2e:370:7334:** owner" ; "label colon before markdown")]
-    #[test_case("Applicant - 2001:db8::1:\n  - Time" ; "label colon before newline")]
+    #[test_case("host: 2a00::1, 2a00::2" ; "two in a list")]
+    #[test_case("(2a00::1)" ; "in parentheses")]
+    #[test_case("ping 2a00::1." ; "address before a full stop")]
+    #[test_case("- **2a00:1450::8a2e:370:7334:** owner" ; "label colon before markdown")]
+    #[test_case("Applicant - 2a00:1450::1:\n  - Time" ; "label colon before newline")]
     fn ipv6_isolated_by_punctuation_is_detected(input: &str) {
         let detector = &*DETECTOR;
         assert!(detector.has_piis(input));
@@ -1315,12 +1318,12 @@ mod tests {
 
     /// `::` joins path segments in Rust and C++. Hex letters on either side
     /// of it are an IPv6 shape, but a token character touching the match
-    /// shows it is a piece of a longer name. A shape with no decimal digit
-    /// is not a public address: every global unicast address starts `2` or `3`.
+    /// shows it is a piece of a longer name. A shape outside global unicast
+    /// `2000::/3`, such as `dead::beef`, is not a public address.
     #[test_case("What is use std::cell::RefCell in Rust?" ; "rust use path")]
     #[test_case("sum = Add::add(a, b);" ; "rust trait method between punctuation")]
     #[test_case("<T as Add>::add(x)" ; "rust qualified path")]
-    #[test_case("the marker dead::beef" ; "reserved block with no digit")]
+    #[test_case("the marker dead::beef" ; "hex word outside global unicast")]
     #[test_case("known as wagyu, and are:: 66 : 420" ; "dolly prompt 4208 word before colons")]
     #[test_case("call Vec::new() then f64::abs(x)" ; "rust associated functions")]
     #[test_case("let x = base64::encode(data);" ; "rust module path with digits")]
@@ -1329,6 +1332,26 @@ mod tests {
     fn ipv6_shape_inside_a_path_is_not_detected(input: &str) {
         let detector = &*DETECTOR;
         assert!(!detector.has_piis(input));
+        let ip_matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert!(ip_matches.is_empty(), "{ip_matches:?}");
+    }
+
+    /// An address in a range that names no public host is not PII.
+    #[test_case("connect to 127.0.0.1 now" ; "v4 loopback")]
+    #[test_case("router at 192.168.1.1 is down" ; "v4 private")]
+    #[test_case("server at 203.0.113.45 is down" ; "v4 documentation")]
+    #[test_case("upgrade to 0.11.0.0 today" ; "v4 this network version number")]
+    #[test_case("netmask 255.255.255.0 set" ; "v4 netmask")]
+    #[test_case("ping ::1 now" ; "v6 loopback")]
+    #[test_case("host: fe80::1" ; "v6 link local")]
+    #[test_case("host: fd12:3456:789a::1" ; "v6 unique local")]
+    #[test_case("host: 2001:db8::8a2e:370:7334" ; "v6 documentation")]
+    fn ip_address_naming_no_public_host_is_not_detected(input: &str) {
+        let detector = &*DETECTOR;
         let ip_matches: Vec<_> = detector
             .mark_piis(input)
             .into_iter()

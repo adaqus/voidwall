@@ -647,8 +647,8 @@ mod tests {
         ; "nino in url path"
     )]
     #[test_case(
-        "/admin/ip/192.168.1.1/block",
-        PiiKind::IpAddress, "192.168.1.1"
+        "/admin/ip/109.104.1.1/block",
+        PiiKind::IpAddress, "109.104.1.1"
         ; "ipv4 in url path"
     )]
     #[test_case(
@@ -837,7 +837,7 @@ mod tests {
             assert_eq!(resolved, vec![(kind.label(), 0, value.len())]);
         }
 
-        let mut input = String::from("contact ops@example.com from 192.168.10.20");
+        let mut input = String::from("contact ops@example.com from 109.104.10.20");
         let mut spans = Vec::new();
         for (kind, value) in &values {
             input.push_str(" and ");
@@ -993,8 +993,8 @@ mod tests {
     )]
     // IP address in custom variable
     #[test_case(
-        "/matomo.php?idsite=1&rec=1&cip=192.168.1.1",
-        PiiKind::IpAddress, "192.168.1.1"
+        "/matomo.php?idsite=1&rec=1&cip=109.104.1.1",
+        PiiKind::IpAddress, "109.104.1.1"
         ; "matomo cip override ip"
     )]
     fn detects_pii_in_matomo(input: &str, kind: PiiKind, expected_span: &str) {
@@ -1130,8 +1130,8 @@ mod tests {
     )]
     // GA4 — IP address in event parameter
     #[test_case(
-        "/g/collect?v=2&tid=G-ABC123&cid=555&en=error&ep.client_ip=192.168.1.1",
-        PiiKind::IpAddress, "192.168.1.1"
+        "/g/collect?v=2&tid=G-ABC123&cid=555&en=error&ep.client_ip=109.104.1.1",
+        PiiKind::IpAddress, "109.104.1.1"
         ; "ga4 event param ip address"
     )]
     fn detects_pii_in_ga(input: &str, kind: PiiKind, expected_span: &str) {
@@ -1214,14 +1214,14 @@ mod tests {
     )]
     // Unhashed client IPv4 — always sent raw per Meta's spec, but still PII.
     #[test_case(
-        r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","user_data":{"client_ip_address":"203.0.113.45","fbp":"fb.1.1700000000.1234567890"}}]}"#,
-        PiiKind::IpAddress, "203.0.113.45"
+        r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","user_data":{"client_ip_address":"185.0.113.45","fbp":"fb.1.1700000000.1234567890"}}]}"#,
+        PiiKind::IpAddress, "185.0.113.45"
         ; "capi ipv4 in client_ip_address"
     )]
     // IPv6 client address (mobile networks commonly send v6).
     #[test_case(
-        r#"{"data":[{"event_name":"AddToCart","event_time":1712841600,"user_data":{"client_ip_address":"2001:0db8:85a3:0000:0000:8a2e:0370:7334"}}]}"#,
-        PiiKind::IpAddress, "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+        r#"{"data":[{"event_name":"AddToCart","event_time":1712841600,"user_data":{"client_ip_address":"2a00:1450:85a3:0000:0000:8a2e:0370:7334"}}]}"#,
+        PiiKind::IpAddress, "2a00:1450:85a3:0000:0000:8a2e:0370:7334"
         ; "capi ipv6 in client_ip_address"
     )]
     // event_source_url captured from a logged-in account page where the
@@ -1234,14 +1234,14 @@ mod tests {
     // Support-callback landing page passes phone as a query param — ends up
     // in event_source_url verbatim.
     #[test_case(
-        r#"{"data":[{"event_name":"Contact","event_time":1712841600,"event_source_url":"https://support.example.com/callback?phone_number=555-123-4567&topic=billing","user_data":{"client_ip_address":"198.51.100.12"}}]}"#,
+        r#"{"data":[{"event_name":"Contact","event_time":1712841600,"event_source_url":"https://support.example.com/callback?phone_number=555-123-4567&topic=billing","user_data":{"client_ip_address":"185.51.100.12"}}]}"#,
         PiiKind::UsPhoneNumber, "555-123-4567"
         ; "capi phone leaked via event_source_url query"
     )]
     // Developer used SSN as `external_id` to deduplicate customers across
     // devices (real anti-pattern observed in healthcare / tax verticals).
     #[test_case(
-        r#"{"data":[{"event_name":"CompleteRegistration","event_time":1712841600,"user_data":{"external_id":["123-45-6789"],"client_ip_address":"198.51.100.7"}}]}"#,
+        r#"{"data":[{"event_name":"CompleteRegistration","event_time":1712841600,"user_data":{"external_id":["123-45-6789"],"client_ip_address":"185.51.100.7"}}]}"#,
         PiiKind::UsSsn, "123-45-6789"
         ; "capi ssn in external_id"
     )]
@@ -1289,14 +1289,14 @@ mod tests {
     // Fraud-signal enrichment: the advertiser's own risk engine attached an
     // IP address as a custom field to aid manual review in Meta reporting.
     #[test_case(
-        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"custom_data":{"currency":"USD","value":3200.00,"fraud_signal":"high","reported_ip":"198.51.100.23"}}]}"#,
-        PiiKind::IpAddress, "198.51.100.23"
+        r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"custom_data":{"currency":"USD","value":3200.00,"fraud_signal":"high","reported_ip":"185.51.100.23"}}]}"#,
+        PiiKind::IpAddress, "185.51.100.23"
         ; "capi ipv4 in custom_data fraud signal"
     )]
     // US tax filing flow: the funnel landing page embeds the SSN in the URL
     // before the checkout event fires. event_source_url carries it verbatim.
     #[test_case(
-        r#"{"data":[{"event_name":"InitiateCheckout","event_time":1712841600,"event_source_url":"https://taxapp.example.com/file?ssn=123-45-6789&tax_year=2025","user_data":{"client_ip_address":"192.0.2.88"}}]}"#,
+        r#"{"data":[{"event_name":"InitiateCheckout","event_time":1712841600,"event_source_url":"https://taxapp.example.com/file?ssn=123-45-6789&tax_year=2025","user_data":{"client_ip_address":"185.0.2.88"}}]}"#,
         PiiKind::UsSsn, "123-45-6789"
         ; "capi ssn leaked via event_source_url query"
     )]
@@ -1338,7 +1338,7 @@ mod tests {
     #[test]
     fn capi_purchase_multi_pii_leak() {
         let scanner = &*SCANNER;
-        let input = r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"action_source":"website","event_source_url":"https://shop.example.com/thank-you","user_data":{"em":["bob.buyer@example.com"],"client_ip_address":"203.0.113.99","client_user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)","fbp":"fb.1.1700000000.1122334455","fbc":"fb.1.1700000000.IwAR2abcdef"},"custom_data":{"currency":"USD","value":199.00,"order_id":"4242424242424242","num_items":3,"content_type":"product"}}]}"#;
+        let input = r#"{"data":[{"event_name":"Purchase","event_time":1712841600,"action_source":"website","event_source_url":"https://shop.example.com/thank-you","user_data":{"em":["bob.buyer@example.com"],"client_ip_address":"185.0.113.99","client_user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)","fbp":"fb.1.1700000000.1122334455","fbc":"fb.1.1700000000.IwAR2abcdef"},"custom_data":{"currency":"USD","value":199.00,"order_id":"4242424242424242","num_items":3,"content_type":"product"}}]}"#;
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(
@@ -1362,7 +1362,7 @@ mod tests {
     #[test]
     fn capi_test_event_sandbox_raw_profile() {
         let scanner = &*SCANNER;
-        let input = r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","event_source_url":"https://leads.example.com/callback?phone_number=555-222-3344","user_data":{"em":["carla.tester@example.com"],"external_id":["123-45-6789"],"client_ip_address":"198.51.100.44","first_name":"Carla","last_name":"Tester"},"custom_data":{"lead_event_source":"landing","currency":"USD"}}],"test_event_code":"TEST12345"}"#;
+        let input = r#"{"data":[{"event_name":"Lead","event_time":1712841600,"action_source":"website","event_source_url":"https://leads.example.com/callback?phone_number=555-222-3344","user_data":{"em":["carla.tester@example.com"],"external_id":["123-45-6789"],"client_ip_address":"185.51.100.44","first_name":"Carla","last_name":"Tester"},"custom_data":{"lead_event_source":"landing","currency":"USD"}}],"test_event_code":"TEST12345"}"#;
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
         assert!(kinds.contains(&PiiKind::Email), "expected email");
@@ -1537,7 +1537,7 @@ mod tests {
     #[test]
     fn essay_ip_address_in_technical_context() {
         let scanner = &*SCANNER;
-        let input = "We deployed the prototype on our internal server at 10.0.42.15 \
+        let input = "We deployed the prototype on our server at 81.0.42.15 \
                      and asked participants to test the interface remotely. The server \
                      logs showed 342 unique sessions during the two-week testing period.";
         let matches = scanner.mark_piis(input);
@@ -1824,7 +1824,7 @@ mod tests {
         let scanner = &*SCANNER;
         let input = "IT Security Audit - Network Segment B\n\n\
                      Flagged device MAC: 00:1A:2B:3C:4D:5E connected from \
-                     192.168.42.107 at 09:14 UTC. The device attempted to access \
+                     109.104.42.107 at 09:14 UTC. The device attempted to access \
                      the payment gateway containing card 4111111111111111. \
                      Email alert sent to admin@internal.corp.";
         let matches = scanner.mark_piis(input);
@@ -1842,7 +1842,7 @@ mod tests {
                      Suspicious transfers detected between Bitcoin wallet \
                      1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf and Ethereum address \
                      0x1234567890abcdef1234567890abcdef12345678. Source IP \
-                     traced to 203.0.113.42. Contact investigator at \
+                     traced to 185.0.113.42. Contact investigator at \
                      fraud.team@enforcement.gov for case coordination.";
         let matches = scanner.mark_piis(input);
         let kinds: Vec<PiiKind> = matches.iter().map(|m| m.kind).collect();
@@ -2467,7 +2467,7 @@ mod tests {
     #[test]
     fn ai4p_span_accuracy_network() {
         let scanner = &*SCANNER;
-        let input = "Audit log: source 192.168.1.42, device MAC 00:1A:2B:3C:4D:5E, \
+        let input = "Audit log: source 109.104.1.42, device MAC 00:1A:2B:3C:4D:5E, \
                      alert sent to soc@monitoring.net";
         let matches = scanner.mark_piis(input);
 
@@ -2475,7 +2475,7 @@ mod tests {
             .iter()
             .find(|m| m.kind == PiiKind::IpAddress)
             .unwrap();
-        assert_eq!(&input[ip.start..ip.end], "192.168.1.42");
+        assert_eq!(&input[ip.start..ip.end], "109.104.1.42");
 
         let mac = matches
             .iter()

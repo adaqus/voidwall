@@ -895,8 +895,7 @@ async fn block_body_kinds_are_sorted_and_stable_across_two_requests() {
 #[tokio::test]
 async fn clean_request_passes_through() {
     let upstream = start_echo_upstream().await;
-    // Request direction only: the echo upstream reflects the client's Host
-    // header, which is an IP address and would block the response on its own.
+    // Request direction only.
     let proxy = TestProxy::start(
         upstream,
         vec![("/", "")],

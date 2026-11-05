@@ -152,7 +152,7 @@ def generate_nested_json() -> str:
             "metadata": {
                 "trace_id": "abc-123-def-456",
                 "session": {
-                    "ip": "203.0.113.5",
+                    "ip": "185.0.113.5",
                     "ua": "Mozilla/5.0 (X11; Linux x86_64)",
                 },
             },

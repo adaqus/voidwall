@@ -87,11 +87,11 @@ Please submit copies of all passport bio pages to the travel desk.";
 const IP_TEXT: &str = "\
 Server Incident Report — 2025-01-15\n\n\
 Affected systems:\n\
-- Web server: 192.168.1.100\n\
-- Database: 10.0.0.42\n\
-- Load balancer: 172.16.0.1\n\
-- IPv6 gateway: 2001:0db8:85a3:0000:0000:8a2e:0370:7334\n\n\
-Unauthorized access detected from 203.0.113.55 at 14:23 UTC.\n\
+- Web server: 109.104.1.100\n\
+- Database: 81.0.0.42\n\
+- Load balancer: 185.16.0.1\n\
+- IPv6 gateway: 2a00:1450:85a3:0000:0000:8a2e:0370:7334\n\n\
+Unauthorized access detected from 185.0.113.55 at 14:23 UTC.\n\
 All traffic from the source IP has been blocked at the firewall.";
 
 const ITIN_TEXT: &str = "\
@@ -628,8 +628,8 @@ also flagged on card 5500 0000 0000 0004.\n\n\
 Identity Verification:\n\
   SSN provided: 123-45-6789\n\n\
 Technical Notes:\n\
-Login attempt flagged from IP address 203.0.113.55. \
-A second access attempt originated from 198.51.100.42 within the same session. \
+Login attempt flagged from IP address 185.0.113.55. \
+A second access attempt originated from 185.51.100.42 within the same session. \
 Both IPs have been logged for security review.\n\n\
 Agent assigned: sarah.jones@support.example.com\n\
 Escalation email: fraud-team@bank.example.com\n\n\
@@ -689,7 +689,7 @@ Customer Identity Verification:\n\
   Bank IBAN: GB29 NWBK 6016 1331 9268 19\n\n\
 Resolution Timeline:\n\
 The investigation team has been briefed. Preliminary review indicates the \
-transaction originated from overseas IP address 203.0.113.55. The security team has \
+transaction originated from overseas IP address 185.0.113.55. The security team has \
 flagged the merchant account for further analysis. All relevant transaction \
 logs have been preserved for the investigation. The customer's account has \
 been temporarily secured with enhanced monitoring. A follow-up call is \
@@ -1117,7 +1117,7 @@ A second card 5500 0000 0000 0004 was also flagged.\n\n\
 Identity verification on file: SSN 078-05-1120.\n\
 Wire transfer traced to IBAN DE89 3704 0044 0532 0130 00.\n\
 A second IBAN GB29 NWBK 6016 1331 9268 19 was linked to the account.\n\n\
-Login originated from IP 203.0.113.55. Secondary access from 2001:0db8:85a3:0000:0000:8a2e:0370:7334.\n\
+Login originated from IP 185.0.113.55. Secondary access from 2a00:1450:85a3:0000:0000:8a2e:0370:7334.\n\
 Notifications sent to alert-team@bank.example.com.\n\n\
 Case Status: Under Review.";
 
@@ -1336,7 +1336,7 @@ fn secrets_mixed_text() -> String {
     format!(
         "Subject: build failing after the config change\n\n\
          Hi team, our nightly job broke after I updated the env file. Owner is\n\
-         dana.whitfield@example.com, the runner sits at 10.20.30.40. Here is the file:\n\n\
+         dana.whitfield@example.com, the runner sits at 81.20.30.40. Here is the file:\n\n\
          {}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n\n\
          Can someone check why the deploy step cannot reach the database?\n\
          Thanks, Dana",

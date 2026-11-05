@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::RangeInclusive;
 
 /// What a pattern checks beyond its expression.
@@ -134,26 +135,44 @@ pub(crate) fn iban_check(s: &str) -> bool {
     remainder == 1
 }
 
+/// Whether `s` is a whole IPv4 or IPv6 address that can name a public host.
+/// The parse gives the shape: four IPv4 parts of ASCII digits with no leading
+/// zero, each 0 to 255, or a valid IPv6 text form. No whitespace, port, prefix
+/// length, or zone is accepted.
 pub(crate) fn ip_check(s: &str) -> bool {
-    if s.contains('.') {
-        for octet_str in s.split('.') {
-            let octet: u32 = match octet_str.parse() {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            if octet > 255 {
-                return false;
-            }
-        }
+    match s.parse::<IpAddr>() {
+        Ok(IpAddr::V4(address)) => ipv4_is_public(address),
+        Ok(IpAddr::V6(address)) => ipv6_is_public(address),
+        Err(_) => false,
     }
-    true
 }
 
-/// Whether an IPv6-shaped value holds a decimal digit. Every global unicast
-/// address (`2000::/3`) starts `2` or `3`; a shape with letters only, such as
-/// `dead::beef` or `Add::add`, is reserved space or code.
-pub(crate) fn ipv6_check(s: &str) -> bool {
-    s.bytes().any(|b| b.is_ascii_digit())
+/// False for this network, loopback, private, link-local, multicast,
+/// reserved (with broadcast), and documentation addresses.
+fn ipv4_is_public(address: Ipv4Addr) -> bool {
+    let first = address.octets()[0];
+    // `0.0.0.0/8` and `240.0.0.0/4`: `is_unspecified` covers only
+    // `0.0.0.0`, and `is_reserved` is not stable.
+    let this_network = first == 0;
+    let reserved = first >= 240;
+    !(this_network
+        || reserved
+        || address.is_loopback()
+        || address.is_private()
+        || address.is_link_local()
+        || address.is_multicast()
+        || address.is_documentation())
+}
+
+/// True only in global unicast `2000::/3`, outside documentation
+/// `2001:db8::/32`. Every other block, such as loopback, unique-local,
+/// link-local, and multicast, is outside `2000::/3`. So is a code token of
+/// hex letters, such as `dead::beef` or `Add::add`.
+fn ipv6_is_public(address: Ipv6Addr) -> bool {
+    let [first, second, ..] = address.segments();
+    let global_unicast = (0x2000..=0x3fff).contains(&first);
+    let documentation = first == 0x2001 && second == 0x0db8;
+    global_unicast && !documentation
 }
 
 pub(crate) fn itin_check(s: &str) -> bool {
@@ -3770,15 +3789,94 @@ mod tests {
         assert_eq!(check(input), expected, "{input}");
     }
 
-    // --- ipv6_check ---
+    // --- ip_check ---
 
-    #[test_case("fe80::1", true ; "link local")]
-    #[test_case("2001:db8::8a2e:370:7334", true ; "global unicast")]
-    #[test_case("::1", true ; "loopback")]
-    #[test_case("dead::beef", false ; "reserved block with no digit")]
-    #[test_case("Add::add", false ; "rust trait method")]
-    fn ipv6_check_cases(input: &str, expected: bool) {
-        assert_eq!(ipv6_check(input), expected);
+    // Public addresses, and the first and last address next to each excluded range.
+    #[test_case("109.4.61.213" ; "public v4")]
+    #[test_case("1.0.0.0" ; "v4 after this network")]
+    #[test_case("9.255.255.255" ; "v4 before private 10")]
+    #[test_case("11.0.0.0" ; "v4 after private 10")]
+    #[test_case("126.255.255.255" ; "v4 before loopback")]
+    #[test_case("128.0.0.0" ; "v4 after loopback")]
+    #[test_case("169.253.255.255" ; "v4 before link local")]
+    #[test_case("169.255.0.0" ; "v4 after link local")]
+    #[test_case("172.15.255.255" ; "v4 before private 172")]
+    #[test_case("172.32.0.0" ; "v4 after private 172")]
+    #[test_case("192.0.1.255" ; "v4 before documentation 192")]
+    #[test_case("192.0.3.0" ; "v4 after documentation 192")]
+    #[test_case("192.167.255.255" ; "v4 before private 192")]
+    #[test_case("192.169.0.0" ; "v4 after private 192")]
+    #[test_case("198.51.99.255" ; "v4 before documentation 198")]
+    #[test_case("198.51.101.0" ; "v4 after documentation 198")]
+    #[test_case("203.0.112.255" ; "v4 before documentation 203")]
+    #[test_case("203.0.114.0" ; "v4 after documentation 203")]
+    #[test_case("223.255.255.255" ; "v4 before multicast")]
+    #[test_case("2a00:1450:4001:82a::200e" ; "public v6")]
+    #[test_case("2000::" ; "v6 first global unicast")]
+    #[test_case("3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" ; "v6 last global unicast")]
+    #[test_case("2001:db7:ffff:ffff:ffff:ffff:ffff:ffff" ; "v6 before documentation")]
+    #[test_case("2001:db9::" ; "v6 after documentation")]
+    #[test_case("2A00:1450:4001:82A::200E" ; "v6 upper case")]
+    fn ip_check_accepts(input: &str) {
+        assert!(ip_check(input), "{input}");
+    }
+
+    // Shape.
+    #[test_case("" ; "empty")]
+    #[test_case("hello" ; "word")]
+    #[test_case("12345" ; "number")]
+    #[test_case("1.2.3" ; "three v4 parts")]
+    #[test_case("1.2.3.4.5" ; "five v4 parts")]
+    #[test_case("109.4.61.256" ; "v4 part over 255")]
+    #[test_case("109.004.061.213" ; "v4 leading zero")]
+    #[test_case("+109.+4.+61.+213" ; "v4 plus signs")]
+    #[test_case(" 109.4.61.213" ; "v4 leading space")]
+    #[test_case("109.4.61.213:80" ; "v4 with port")]
+    #[test_case("109.4.61.0/24" ; "v4 with prefix length")]
+    #[test_case("2a00:1450::200e%eth0" ; "v6 with zone")]
+    #[test_case("2a00:1450:4001:82a:0:0:0:200e:1" ; "nine v6 groups")]
+    #[test_case("2a00::1450::1" ; "two v6 gaps")]
+    // IPv4 ranges that name no public host.
+    #[test_case("0.0.0.0" ; "v4 unspecified")]
+    #[test_case("0.11.0.0" ; "v4 this network version number")]
+    #[test_case("0.255.255.255" ; "v4 this network last")]
+    #[test_case("127.0.0.1" ; "v4 loopback")]
+    #[test_case("127.255.255.255" ; "v4 loopback last")]
+    #[test_case("10.0.0.0" ; "v4 private 10 first")]
+    #[test_case("10.255.255.255" ; "v4 private 10 last")]
+    #[test_case("172.16.0.0" ; "v4 private 172 first")]
+    #[test_case("172.31.255.255" ; "v4 private 172 last")]
+    #[test_case("192.168.0.0" ; "v4 private 192 first")]
+    #[test_case("192.168.255.255" ; "v4 private 192 last")]
+    #[test_case("169.254.0.0" ; "v4 link local first")]
+    #[test_case("169.254.255.255" ; "v4 link local last")]
+    #[test_case("224.0.0.0" ; "v4 multicast first")]
+    #[test_case("239.255.255.255" ; "v4 multicast last")]
+    #[test_case("240.0.0.0" ; "v4 reserved first")]
+    #[test_case("255.255.255.0" ; "v4 netmask")]
+    #[test_case("255.255.255.255" ; "v4 broadcast")]
+    #[test_case("192.0.2.0" ; "v4 documentation 192 first")]
+    #[test_case("192.0.2.255" ; "v4 documentation 192 last")]
+    #[test_case("198.51.100.0" ; "v4 documentation 198 first")]
+    #[test_case("198.51.100.255" ; "v4 documentation 198 last")]
+    #[test_case("203.0.113.0" ; "v4 documentation 203 first")]
+    #[test_case("203.0.113.255" ; "v4 documentation 203 last")]
+    // IPv6 outside global unicast, and its documentation block.
+    #[test_case("::" ; "v6 unspecified")]
+    #[test_case("::1" ; "v6 loopback")]
+    #[test_case("::ffff:6d04:3dd5" ; "v6 ipv4 mapped")]
+    #[test_case("1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" ; "v6 before global unicast")]
+    #[test_case("4000::" ; "v6 after global unicast")]
+    #[test_case("fc00::" ; "v6 unique local first")]
+    #[test_case("fd12:3456:789a::1" ; "v6 unique local")]
+    #[test_case("fe80::1" ; "v6 link local")]
+    #[test_case("ff02::1" ; "v6 multicast")]
+    #[test_case("2001:db8::" ; "v6 documentation first")]
+    #[test_case("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff" ; "v6 documentation last")]
+    #[test_case("dead::beef" ; "v6 hex word")]
+    #[test_case("Add::add" ; "rust trait method")]
+    fn ip_check_rejects(input: &str) {
+        assert!(!ip_check(input), "{input}");
     }
 
     // --- every validator, on input no pattern produces ---
@@ -3790,7 +3888,6 @@ mod tests {
     const ALL_VALIDATORS: &[(&str, Validator)] = &[
         ("luhn_check", luhn_check), ("ssn_check", ssn_check),
         ("nino_check", nino_check), ("iban_check", iban_check), ("ip_check", ip_check),
-        ("ipv6_check", ipv6_check),
         ("itin_check", itin_check), ("sin_check", sin_check), ("ppsn_check", ppsn_check),
         ("uk_dl_check", uk_dl_check), ("vin_check", vin_check), ("tfn_check", tfn_check),
         ("ird_check", ird_check), ("nhs_check", nhs_check), ("medicare_check", medicare_check),

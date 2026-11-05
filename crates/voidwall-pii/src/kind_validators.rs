@@ -108,6 +108,12 @@ mod tests {
     #[test_case(&[PiiKind::Email], "x", true ; "kind with an expression only pattern accepts any text")]
     #[test_case(&[], CARD_LUHN_VALID, false ; "empty list")]
     #[test_case(&[PiiKind::Custom], CARD_LUHN_VALID, false ; "kind with no pattern")]
+    #[test_case(&[PiiKind::IpAddress], "hello", false ; "ip word")]
+    #[test_case(&[PiiKind::IpAddress], "12345", false ; "ip number")]
+    #[test_case(&[PiiKind::IpAddress], "1.2.3.4.5", false ; "ip five parts")]
+    #[test_case(&[PiiKind::IpAddress], "10.0.0.1", false ; "ip private")]
+    #[test_case(&[PiiKind::IpAddress], "109.4.61.213", true ; "ip public v4")]
+    #[test_case(&[PiiKind::IpAddress], "2a00:1450:4001:82a::200e", true ; "ip public v6")]
     fn validate_as_cases(kinds: &[PiiKind], text: &str, expected: bool) {
         assert_eq!(validate_as(kinds, text), expected);
     }
