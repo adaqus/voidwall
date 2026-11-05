@@ -1506,6 +1506,22 @@ mod tests {
         assert!(!scanner.has_piis(input));
     }
 
+    /// A chat question about Rust: `std::cell::RefCell` once matched the
+    /// IPv6 pattern and blocked the message as `IP_ADDRESS`. Only that kind
+    /// is checked: the name gazetteer reads "Rust" as a surname.
+    #[test]
+    fn rust_path_question_is_not_an_ip_address() {
+        let scanner = &*SCANNER;
+        let input = "What is use std::cell::RefCell in Rust?";
+        let ip_spans: Vec<_> = scanner
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .map(|m| (m.start, m.end))
+            .collect();
+        assert!(ip_spans.is_empty(), "{ip_spans:?}");
+    }
+
     #[test]
     fn essay_iban_in_reimbursement_note() {
         let scanner = &*SCANNER;

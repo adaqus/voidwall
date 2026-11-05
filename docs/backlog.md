@@ -179,19 +179,21 @@ False positives on benign prompts. Found on 2026-10-20 by running `Scanner::new(
   Prompts 11, 3426, 6321, 6922, 13242, 13618.
 - `GB_POSTCODE`: 4 of 4 false: FM call signs `W250AP` and `W297CO`, and "T20Is". Prompts 9839,
   12284.
-- `IP_ADDRESS`: "e::" in "are:: 66" (prompt 4208) and the version `0.11.0.0` (prompt 4727).
+- `IP_ADDRESS`: the version `0.11.0.0` (prompt 4727).
 - `DE_AT_CH_ADDRESS`: one span across a tab-separated table of dates, prompt 12404.
 - `US_GB_CA_AU_NZ_IE_ZA_STREET`: "to address any possible exploit path", prompt 12081.
 - `PERSON_NAME` fires on 34% of the prompts. In a sample of 25, 11 are not people:
   "St Louis", "Kennedy High", "Red List", "Harry Potter", "Asian Nations", "The Masters".
 
 `IP_ADDRESS` validators accept almost anything. Found on 2026-10-20 while building
-`voidwall_pii::validate_as` (stage 1 of `add-ml-pii-guard`). `IP_ADDRESS` is the only kind
-whose patterns mix a real validator with one that accepts every value:
+`voidwall_pii::validate_as` (stage 1 of `add-ml-pii-guard`). Both `IP_ADDRESS` validators
+accept much more than an address:
 
 - The IPv4 pattern uses `ip_check`. It returns true for any text without a dot. With dots,
   it checks only that each part is a number from 0 to 255, not that there are four parts.
-- The IPv6 pattern uses `Check::Any`: its expression alone decides.
+- The IPv6 pattern uses `ipv6_check`. It returns true for any text with a decimal digit.
+  On the regex path this is enough: the expression gives the shape, and a value with no
+  digit is reserved space or code, such as `dead::beef` or `Add::add`.
 
 The regex guard is safe today, because its expressions give the shape. A model span has no
 guaranteed shape, so `validate_as([IpAddress], …)` accepts "hello", "12345", "::" and
@@ -199,8 +201,8 @@ guaranteed shape, so `validate_as([IpAddress], …)` accepts "hello", "12345", "
 `IP_ADDRESS` (see `openspec/changes/add-ml-pii-guard/design.md` D10 and Risks).
 
 - Make `ip_check` strict: exactly four dot-separated decimal octets, each 0–255.
-- Give the IPv6 pattern a real validator, for example a parse with `std::net::Ipv6Addr`.
-- A parse does not fix the Dolly false positive "e::" above: `Ipv6Addr` accepts it.
+- Make `ipv6_check` strict: a parse with `std::net::Ipv6Addr`, and keep the digit rule.
+  Alone this changes nothing for `validate_as`, because `ip_check` still accepts the span.
 - Both changes can change what the regex guard reports. Run the `voidwall-pii` tests and
   the AI4Privacy eval before and after.
 - After the fix, decide whether the default `[guards.pii_ml]` validates `IP_ADDRESS` again.

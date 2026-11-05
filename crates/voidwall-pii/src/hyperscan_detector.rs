@@ -20,6 +20,46 @@ struct PatternEntry {
     /// Regex fallback for patterns that can't use SOM_LEFTMOST (e.g. email with UCP).
     /// When set, this pattern is excluded from the extraction DB and matched via regex instead.
     extraction_regex: Option<Regex>,
+    edge: Edge,
+}
+
+impl PatternEntry {
+    /// Whether `input[start..end]` is a value of this pattern: its edges are
+    /// clear and its check accepts it.
+    fn accepts(&self, input: &str, start: usize, end: usize) -> bool {
+        self.edge.clear(input.as_bytes(), start, end) && self.validator.accepts(&input[start..end])
+    }
+}
+
+/// What may stand next to a match. Vectorscan has no look-around, so a
+/// pattern whose expression cannot state its own boundary states it here.
+#[derive(Clone, Copy)]
+enum Edge {
+    /// Anything: the expression bounds the value itself.
+    Any,
+    /// No byte for which the function returns true, on either side. Such a
+    /// byte shows the match is a piece of a longer token.
+    Not(fn(u8) -> bool),
+}
+
+impl Edge {
+    fn clear(self, input: &[u8], start: usize, end: usize) -> bool {
+        match self {
+            Edge::Any => true,
+            Edge::Not(token) => {
+                let before = start.checked_sub(1).map(|i| input[i]);
+                let after = input.get(end).copied();
+                !before.is_some_and(token) && !after.is_some_and(token)
+            }
+        }
+    }
+}
+
+/// A byte that continues an IPv6-shaped token. In `std::cell::RefCell` the
+/// IPv6 expression matches `d::ce`; the `t` before it and the `l` after it
+/// show it is part of a Rust path.
+fn ipv6_token_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b':'
 }
 
 /// Calls `f` with each match of a fallback regex until `f` returns false. A
@@ -66,6 +106,7 @@ struct PatternDef {
     /// If true, this pattern can't use SOM_LEFTMOST (too large with UCP).
     /// Falls back to regex extraction instead.
     som_fallback: bool,
+    edge: Edge,
 }
 
 fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
@@ -75,6 +116,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             expr: r"[\w._%+-]+@[\w.-]+\.\w[\w-]*\w",
             validator: Check::Any,
             needs_ucp: true,
+            edge: Edge::Any,
             som_fallback: true,
         },
         PatternDef {
@@ -83,6 +125,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(luhn_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::UsSsn,
@@ -90,6 +133,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(ssn_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::GbNino,
@@ -97,6 +141,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(nino_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::Iban,
@@ -104,6 +149,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(iban_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Dutch BTW (VAT) number: NL + 9 digits + B + 2-digit sub-number.
         // Structurally unique, so detected without a keyword. The validator
@@ -114,6 +160,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(nl_btw_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Italian codice fiscale: 16-char structural mask (6 letters, 2 digits,
         // letter, 2 digits, letter, 3 digits, check letter). Structurally unique
@@ -132,6 +179,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(it_codice_fiscale_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Spanish DNI/NIF: 8 digits + control letter (mod-23), e.g. 12345678Z.
         // Structurally distinctive and checksum-validated, so detected without
@@ -143,6 +191,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(es_dni_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Spanish NIE (foreigner ID): X/Y/Z + 7 digits + control letter,
         // e.g. X1234567L. The X/Y/Z literal prefix anchors detection; mod-23
@@ -153,6 +202,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(es_nie_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Spanish CIF (legal-entity tax ID): org-type letter + 7 digits +
         // control char, e.g. A28015865. The restricted org-letter prefix plus
@@ -163,6 +213,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(es_cif_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Polish NIP in its EU-VAT form: PL + 10 digits, e.g. PL7740001454.
         // The PL literal prefix anchors detection (cf. NlBtw); the weighted
@@ -175,6 +226,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(pl_nip_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::IpAddress,
@@ -182,13 +234,17 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(ip_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
+        // IPv6. The unspecified address `::` alone is left out: it names no
+        // host, and `::` is common syntax (`x :: Int` in Haskell).
         PatternDef {
             kind: PiiKind::IpAddress,
-            expr: r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}|::",
+            expr: r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}",
             som_fallback: false,
-            validator: Check::Any,
+            validator: Check::With(ipv6_check),
             needs_ucp: false,
+            edge: Edge::Not(ipv6_token_byte),
         },
         PatternDef {
             kind: PiiKind::UsItin,
@@ -196,6 +252,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(itin_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::CaSin,
@@ -203,6 +260,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(sin_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::IePpsn,
@@ -210,6 +268,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(ppsn_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -217,6 +276,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -224,6 +284,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::MacAddress,
@@ -231,6 +292,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::GbDrivingLicence,
@@ -238,6 +300,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(uk_dl_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::Vin,
@@ -245,6 +308,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(vin_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::AwsAccessKey,
@@ -252,6 +316,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(aws_access_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // GithubToken: {36} and {22}_{59} fixed repetitions create long DFA
         // state chains. Use short prefix for detection; regex extraction
@@ -263,6 +328,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // --- Secrets ---
         //
@@ -282,6 +348,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(openai_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::AnthropicApiKey,
@@ -289,6 +356,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(anthropic_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::SlackToken,
@@ -296,6 +364,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(slack_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::SlackToken,
@@ -303,6 +372,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(slack_webhook_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Live and organization keys only: `sk_test_`, `rk_test_`, and `pk_`
         // never match.
@@ -312,6 +382,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(stripe_secret_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::GoogleApiKey,
@@ -319,6 +390,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(google_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Legacy tokens, or routable ones: `<payload>.01.<length><crc>`.
         PatternDef {
@@ -327,6 +399,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(gitlab_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::HuggingFaceToken,
@@ -334,6 +407,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(huggingface_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::NpmToken,
@@ -341,6 +415,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(npm_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // The anchor names `pypi.org`, so TestPyPI tokens never match.
         PatternDef {
@@ -349,6 +424,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(pypi_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // No leading literal: the `Q~` marker sits at offset 4. The run before
         // the marker must be exactly 4 characters. The tail does not end in
@@ -359,6 +435,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(azure_ad_client_secret_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // `sb_secret_` only: `sb_publishable_` never matches.
         PatternDef {
@@ -367,6 +444,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(supabase_secret_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::OpenRouterApiKey,
@@ -374,6 +452,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(openrouter_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::PerplexityApiKey,
@@ -381,6 +460,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(perplexity_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::XaiApiKey,
@@ -388,6 +468,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(xai_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::FirecrawlApiKey,
@@ -395,6 +476,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(firecrawl_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::GroqApiKey,
@@ -402,6 +484,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(groq_api_key_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::ReplicateApiToken,
@@ -409,6 +492,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(replicate_api_token_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // The PEM header only, so a key whose newlines are escaped (`\n` in
         // JSON) is still found. Public keys and certificates do not match.
@@ -418,6 +502,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::Jwt,
@@ -425,6 +510,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(jwt_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // `scheme://user:password@host`. User and password hold no
         // whitespace, `/`, or `@`; the user holds no `:`. The host stops
@@ -435,6 +521,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(url_credentials_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         PatternDef {
             kind: PiiKind::GbPostcode,
@@ -442,6 +529,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // Bare street name: 1–4 leading capitalized words (or an ordinal like
         // `216th`) followed by an unambiguous street-type suffix and an optional
@@ -462,6 +550,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // US ZIP+4 (`12345-6789`) is structurally distinctive enough to detect
         // without a keyword — the 5+4 hyphenated shape is almost always a ZIP+4.
@@ -473,6 +562,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(us_zip_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // CaPostalCode: 3 large character classes (~40 chars each) cause DFA
         // state explosion with SOM_LEFTMOST. Use short prefix for detection;
@@ -483,6 +573,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // IeEircode: 1 letter + 2 digits (or "6W" for D6W routing key)
         // + 4 alphanumerics, optional space between routing key and unique id.
@@ -493,6 +584,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::With(ie_eircode_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // BitcoinAddress: bounded repetitions {25,34} and {39,59} of large char
         // classes cause DFA state explosion. Use minimum-length prefix for
@@ -503,6 +595,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // EthereumAddress: {40} fixed repetition. Use short prefix for detection.
         PatternDef {
@@ -511,6 +604,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: true,
             validator: Check::Any,
             needs_ucp: false,
+            edge: Edge::Any,
         },
         // InternationalPhoneNumber: E.164 with optional separators.
         // Trailing \b prevents matching a 15-digit prefix of a longer digit run.
@@ -520,6 +614,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(e164_check),
             needs_ucp: false,
+            edge: Edge::Any,
         },
     ];
 
@@ -554,6 +649,7 @@ impl HyperscanDetector {
                 kind: pdef.kind,
                 validator: pdef.validator,
                 extraction_regex,
+                edge: pdef.edge,
             });
 
             let id = id as u32;
@@ -647,8 +743,7 @@ impl Detector for HyperscanDetector {
                 {
                     return Scan::Continue;
                 }
-                let candidate = &input[start..end];
-                if entry.validator.accepts(candidate) {
+                if entry.accepts(input, start, end) {
                     found = true;
                     return Scan::Terminate;
                 }
@@ -663,7 +758,7 @@ impl Detector for HyperscanDetector {
         for entry in &self.entries {
             if let Some(ref re) = entry.extraction_regex {
                 for_each_fallback_match(re, input, |m| {
-                    found = entry.validator.accepts(m.as_str());
+                    found = entry.accepts(input, m.start(), m.end());
                     !found
                 });
                 if found {
@@ -712,8 +807,7 @@ impl Detector for HyperscanDetector {
             {
                 continue;
             }
-            let candidate = &input[start..end];
-            if entry.validator.accepts(candidate) {
+            if entry.accepts(input, start, end) {
                 results.push(PiiMatch {
                     kind: entry.kind,
                     start,
@@ -727,7 +821,7 @@ impl Detector for HyperscanDetector {
         for entry in &self.entries {
             if let Some(ref re) = entry.extraction_regex {
                 for_each_fallback_match(re, input, |m| {
-                    if entry.validator.accepts(m.as_str()) {
+                    if entry.accepts(input, m.start(), m.end()) {
                         results.push(PiiMatch {
                             kind: entry.kind,
                             start: m.start(),
@@ -1190,6 +1284,44 @@ mod tests {
             .filter(|m| m.kind == PiiKind::IpAddress)
             .collect();
         assert_eq!(ip_matches.len(), 1);
+    }
+
+    #[test_case("host: fe80::1, fe80::2" ; "two in a list")]
+    #[test_case("(fe80::1)" ; "in parentheses")]
+    #[test_case("ping ::1." ; "loopback before a full stop")]
+    fn ipv6_isolated_by_punctuation_is_detected(input: &str) {
+        let detector = &*DETECTOR;
+        assert!(detector.has_piis(input));
+        assert!(
+            detector
+                .mark_piis(input)
+                .iter()
+                .any(|m| m.kind == PiiKind::IpAddress)
+        );
+    }
+
+    /// `::` joins path segments in Rust and C++. Hex letters on either side
+    /// of it are an IPv6 shape, but a token character touching the match
+    /// shows it is a piece of a longer name. A shape with no decimal digit
+    /// is not a public address: every global unicast address starts `2` or `3`.
+    #[test_case("What is use std::cell::RefCell in Rust?" ; "rust use path")]
+    #[test_case("sum = Add::add(a, b);" ; "rust trait method between punctuation")]
+    #[test_case("<T as Add>::add(x)" ; "rust qualified path")]
+    #[test_case("the marker dead::beef" ; "reserved block with no digit")]
+    #[test_case("known as wagyu, and are:: 66 : 420" ; "dolly prompt 4208 word before colons")]
+    #[test_case("call Vec::new() then f64::abs(x)" ; "rust associated functions")]
+    #[test_case("let x = base64::encode(data);" ; "rust module path with digits")]
+    #[test_case("std::vector<int> v; std::cout << v[0];" ; "cpp std namespace")]
+    #[test_case("foo :: Int -> Int" ; "haskell type signature")]
+    fn ipv6_shape_inside_a_path_is_not_detected(input: &str) {
+        let detector = &*DETECTOR;
+        assert!(!detector.has_piis(input));
+        let ip_matches: Vec<_> = detector
+            .mark_piis(input)
+            .into_iter()
+            .filter(|m| m.kind == PiiKind::IpAddress)
+            .collect();
+        assert!(ip_matches.is_empty(), "{ip_matches:?}");
     }
 
     #[test]

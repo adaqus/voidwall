@@ -149,6 +149,13 @@ pub(crate) fn ip_check(s: &str) -> bool {
     true
 }
 
+/// Whether an IPv6-shaped value holds a decimal digit. Every global unicast
+/// address (`2000::/3`) starts `2` or `3`; a shape with letters only, such as
+/// `dead::beef` or `Add::add`, is reserved space or code.
+pub(crate) fn ipv6_check(s: &str) -> bool {
+    s.bytes().any(|b| b.is_ascii_digit())
+}
+
 pub(crate) fn itin_check(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 3 {
@@ -3763,6 +3770,17 @@ mod tests {
         assert_eq!(check(input), expected, "{input}");
     }
 
+    // --- ipv6_check ---
+
+    #[test_case("fe80::1", true ; "link local")]
+    #[test_case("2001:db8::8a2e:370:7334", true ; "global unicast")]
+    #[test_case("::1", true ; "loopback")]
+    #[test_case("dead::beef", false ; "reserved block with no digit")]
+    #[test_case("Add::add", false ; "rust trait method")]
+    fn ipv6_check_cases(input: &str, expected: bool) {
+        assert_eq!(ipv6_check(input), expected);
+    }
+
     // --- every validator, on input no pattern produces ---
 
     type Validator = fn(&str) -> bool;
@@ -3772,6 +3790,7 @@ mod tests {
     const ALL_VALIDATORS: &[(&str, Validator)] = &[
         ("luhn_check", luhn_check), ("ssn_check", ssn_check),
         ("nino_check", nino_check), ("iban_check", iban_check), ("ip_check", ip_check),
+        ("ipv6_check", ipv6_check),
         ("itin_check", itin_check), ("sin_check", sin_check), ("ppsn_check", ppsn_check),
         ("uk_dl_check", uk_dl_check), ("vin_check", vin_check), ("tfn_check", tfn_check),
         ("ird_check", ird_check), ("nhs_check", nhs_check), ("medicare_check", medicare_check),
