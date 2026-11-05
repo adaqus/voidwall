@@ -37,29 +37,40 @@ impl PatternEntry {
 enum Edge {
     /// Anything: the expression bounds the value itself.
     Any,
-    /// No byte for which the function returns true, on either side. Such a
-    /// byte shows the match is a piece of a longer token.
-    Not(fn(u8) -> bool),
+    /// The function, given the input and the match bounds, returns true when
+    /// the text next to the match leaves it a value of its own, not a piece
+    /// of a longer token.
+    Clear(fn(&[u8], usize, usize) -> bool),
 }
 
 impl Edge {
     fn clear(self, input: &[u8], start: usize, end: usize) -> bool {
         match self {
             Edge::Any => true,
-            Edge::Not(token) => {
-                let before = start.checked_sub(1).map(|i| input[i]);
-                let after = input.get(end).copied();
-                !before.is_some_and(token) && !after.is_some_and(token)
-            }
+            Edge::Clear(clear) => clear(input, start, end),
         }
     }
 }
 
-/// A byte that continues an IPv6-shaped token. In `std::cell::RefCell` the
-/// IPv6 expression matches `d::ce`; the `t` before it and the `l` after it
-/// show it is part of a Rust path.
+/// A byte that continues an IPv6-shaped token.
 fn ipv6_token_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b':'
+}
+
+/// Whether an IPv6 match stands alone. In `std::cell::RefCell` the IPv6
+/// expression matches `d::ce`; the `t` before it and the `l` after it show it
+/// is part of a Rust path. A colon after the match ends a label, as in
+/// `- **2001:db8::1:** owner`, unless a token byte follows the colon.
+fn ipv6_edges_clear(input: &[u8], start: usize, end: usize) -> bool {
+    let before_clear = !start
+        .checked_sub(1)
+        .is_some_and(|i| ipv6_token_byte(input[i]));
+    let after_clear = match input.get(end..).unwrap_or_default() {
+        [b':', rest @ ..] => !rest.first().is_some_and(|&b| ipv6_token_byte(b)),
+        [b, ..] => !ipv6_token_byte(*b),
+        [] => true,
+    };
+    before_clear && after_clear
 }
 
 /// Calls `f` with each match of a fallback regex until `f` returns false. A
@@ -244,7 +255,7 @@ fn build_patterns(enabled: &HashSet<PiiKind>) -> Vec<PatternDef> {
             som_fallback: false,
             validator: Check::With(ipv6_check),
             needs_ucp: false,
-            edge: Edge::Not(ipv6_token_byte),
+            edge: Edge::Clear(ipv6_edges_clear),
         },
         PatternDef {
             kind: PiiKind::UsItin,
@@ -1289,6 +1300,8 @@ mod tests {
     #[test_case("host: fe80::1, fe80::2" ; "two in a list")]
     #[test_case("(fe80::1)" ; "in parentheses")]
     #[test_case("ping ::1." ; "loopback before a full stop")]
+    #[test_case("- **2001:db8::8a2e:370:7334:** owner" ; "label colon before markdown")]
+    #[test_case("Applicant - 2001:db8::1:\n  - Time" ; "label colon before newline")]
     fn ipv6_isolated_by_punctuation_is_detected(input: &str) {
         let detector = &*DETECTOR;
         assert!(detector.has_piis(input));
