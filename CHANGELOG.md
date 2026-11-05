@@ -3,6 +3,18 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.5.0] - 2026-11-05
+
+### Features
+
+- **BREAKING** **pii:** Report only public IP addresses as IP_ADDRESS
+
+### Bug Fixes
+
+- **pii:** Stop matching IPv6 inside code paths such as std::cell
+- **pii:** Stop matching IPv6 inside code paths such as std::cell
+- **image:** Leave IP_ADDRESS to the regex PII guard in the default pii_ml config
+
 ## [0.4.0] - 2026-11-04
 
 ### Features
