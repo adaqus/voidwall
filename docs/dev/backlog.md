@@ -113,6 +113,14 @@ The proposal picks one:
   `route="global"`.
 - Remove the histogram from the LiteLLM requirement.
 
+### 1.8 Guardrail operations
+
+No design yet.
+
+- Model lifecycle and diagnostics
+- Operational qualification
+- Shadow mode
+
 ---
 
 ## 2. Test gaps

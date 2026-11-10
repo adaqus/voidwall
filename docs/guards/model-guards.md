@@ -11,7 +11,7 @@ volume and point the guard at them.
 `voidwall --validate` checks every rule below and that each named file exists. It does
 not load a model. The model, the tokenizer, and `config.json` are checked when the guard
 loads at startup, and a guard that fails to load stops the start. The messages are in
-[config-validation.md](config-validation.md#model-guard-rules).
+[configuration.md](../configuration.md#model-guard-rules).
 
 ## Adapters
 
@@ -96,7 +96,7 @@ shape. A span has no such shape, so some validators accept more than their patte
 match. `CREDIT_CARD` checks the shape too: digits in groups with one dash or ASCII whitespace
 between them, and nothing else. `IP_ADDRESS` checks the shape too: the whole span must be
 an IPv4 or IPv6 address that can name a public host, so a private, loopback, or
-documentation address fails. `docs/backlog.md` §3 lists the loose validators.
+documentation address fails. `docs/dev/backlog.md` §3 lists the loose validators.
 
 ## class
 

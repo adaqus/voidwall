@@ -7,7 +7,7 @@ state behaviour.
 |---|---|
 | What the system does today | `openspec/specs/<capability>/spec.md` |
 | Work in flight | `openspec/changes/` |
-| Work not started | `docs/backlog.md` |
+| Work not started | `docs/dev/backlog.md` |
 
 ---
 
@@ -617,7 +617,7 @@ features. Without that, a CPU without AVX dies with SIGILL (exit 132) and no log
 ## 7. Not built
 
 These appear in the config schema or the module list. None of them runs.
-`docs/backlog.md` holds the work.
+`docs/dev/backlog.md` holds the work.
 
 | Item | State | Why it waits |
 |---|---|---|

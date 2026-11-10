@@ -20,7 +20,7 @@ change makes old. Run it after a change, and read this file first.
 | `api-reference.md` | The HTTP API and the admin server; it links `openapi.json` |
 | `guards/` | `README.md`, `pii-regex.md`, `model-guards.md`, `hidden-context.md`, `custom-guard.md` |
 | `owasp-coverage.md` | OWASP Top 10 for LLM Applications (2026) coverage |
-| `dev/` | Contributor material: the backlog, load testing |
+| `dev/` | Contributor material: the backlog, the TODO list, load testing |
 
 More topics come later. Add a page to the index when you add it to `docs/`.
 

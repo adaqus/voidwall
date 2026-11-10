@@ -30,7 +30,7 @@ that direction:
 The `pii` guard and every model guard inspect both directions, so for them the parameter
 changes nothing. A detection counts under the `direction` label of the scan. The LiteLLM
 route takes no `direction`: its `input_type` sets it. See
-[hidden-context.md](hidden-context.md).
+[guards/hidden-context.md](guards/hidden-context.md).
 
 ## The LiteLLM route
 
