@@ -34,7 +34,7 @@ in — is forwarded. No setting changes this.
 | Entry point | Scanned |
 |---|---|
 | Reverse proxy | The upstream response body, when `reverse_proxy.response.scan` is true. |
-| `POST /v1/scan` | The posted body, with `?direction=response` only. See [api-docs.md](api-docs.md). |
+| `POST /v1/scan` | The posted body, with `?direction=response` only. See [api-reference.md](../api-reference.md). |
 | LiteLLM route | The payload with `input_type` `response` only. |
 
 A route that names no guard runs every enabled guard. A route with `guards = [...]`

@@ -37,7 +37,7 @@ Diagnostic categories:
 ## Model guard rules
 
 A `[guards.<name>]` section builds a model guard that loads its model at startup.
-[model-guards.md](model-guards.md) describes its fields.
+[guards/model-guards.md](guards/model-guards.md) describes its fields.
 `--validate` checks the rules below and that the artifact files exist; it does not
 load a model. A model that fails to load (not ONNX, a tensor contract the adapter
 does not accept, a tokenizer larger than the embedding table, a failed smoke

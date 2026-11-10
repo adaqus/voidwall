@@ -18,7 +18,7 @@ application calls.
 You choose the detection models. A guard can run any ONNX text or token classifier that
 comes with a Hugging Face tokenizer: an open-source model or your own fine-tune. You mount
 the model, point a guard at it in the configuration, and set its labels and thresholds. No
-code change and no rebuild. See [docs/model-guards.md](docs/model-guards.md).
+code change and no rebuild. See [docs/guards/model-guards.md](docs/guards/model-guards.md).
 
 ## Project Status
 
@@ -50,7 +50,7 @@ Guards that exist today:
   run on the CPU (see TODO).
 - **PII from a model**: a token classifier that finds values with no fixed shape, such as
   names and postal addresses (bards.ai's EU PII anonimization multilang v2 in the dev
-  stack). See [docs/model-guards.md](docs/model-guards.md).
+  stack). See [docs/guards/model-guards.md](docs/guards/model-guards.md).
 
 ## Features
 
@@ -60,11 +60,11 @@ Guards that exist today:
   FR, DE, AT, CH, NL, IT, ES, PL) and the languages (EN, FR, DE, NL, IT, ES, PL) it covers.
 - Built-in PII kinds can be narrowed with `detect` or excluded with `ignore`.
 - Custom PII rules: a regex with an operator-chosen label, optional context keywords, and
-  an optional country scope. See [docs/custom-pii.md](docs/custom-pii.md).
+  an optional country scope. See [docs/guards/pii-regex.md](docs/guards/pii-regex.md).
 - Custom model guards: declare a guard in its own config section and point it at an ONNX
   model and its tokenizer. It sets its labels, a threshold per label, the window size, and
   the window overlap. A text classifier judges a whole unit; a token classifier finds
-  spans, such as names and postal addresses. See [docs/model-guards.md](docs/model-guards.md).
+  spans, such as names and postal addresses. See [docs/guards/model-guards.md](docs/guards/model-guards.md).
 - Each guard chooses what it scans: the body, the URL path, the query string, and header
   values. Each route names the headers that are scanned; by default it scans none.
 - Structured scanning of JSON and CSV/TSV bodies, with key paths and column names as
@@ -78,7 +78,7 @@ Guards that exist today:
   field by field and answers in the OpenAI error shape. See
   [Use With OpenAI-Compatible Servers](#use-with-openai-compatible-servers).
 - REST API: `POST /v1/scan` reports what was found and forwards nothing. See
-  [docs/api-docs.md](docs/api-docs.md) and [docs/openapi.json](docs/openapi.json).
+  [docs/api-reference.md](docs/api-reference.md) and [docs/openapi.json](docs/openapi.json).
 - LiteLLM guardrail: `POST /beta/litellm_basic_guardrail_api` on the REST API speaks
   LiteLLM's Generic Guardrail API, on the request and the response side. It answers
   `NONE`, or `BLOCKED` with the kinds found. `http_api.scan.enabled` and
@@ -91,7 +91,7 @@ Guards that exist today:
 - Admin server: Prometheus `/metrics`, `/healthz`, and `/readyz`, on its own port.
 - Detected values never reach logs, metrics, or error responses.
 - `voidwall --validate` checks a config without starting the server. See
-  [docs/config-validation.md](docs/config-validation.md).
+  [docs/configuration.md](docs/configuration.md).
 - An invalid configuration stops Voidwall's start.
 
 ## Quick Start
@@ -128,7 +128,7 @@ curl -s localhost:8083/v1/scan -H 'content-type: application/json' -d '{
 ```
 
 A model other than the defaults is always mounted as a volume. See
-[docs/model-guards.md](docs/model-guards.md).
+[docs/guards/model-guards.md](docs/guards/model-guards.md).
 
 ### Use With LiteLLM
 
@@ -231,7 +231,7 @@ those in the image.
 | Service | URL | Notes |
 |---|---|---|
 | Reverse proxy | `http://localhost:8082` | Sends every path to the bundled echo server |
-| REST API | `http://localhost:8083` | `POST /v1/scan` and `POST /beta/litellm_basic_guardrail_api`. See `docs/api-docs.md` |
+| REST API | `http://localhost:8083` | `POST /v1/scan` and `POST /beta/litellm_basic_guardrail_api`. See `docs/api-reference.md` |
 | Admin server | `http://localhost:9090` | `/metrics`, `/healthz`, `/readyz` |
 | Echo server | `http://localhost:8090` | Upstream for the reverse proxy |
 | Prometheus | `http://localhost:9091` | Scrapes the admin server |
@@ -314,7 +314,7 @@ docker/ctl piimb-eval
 
 ## TODO
 
-See [docs/TODO.md](docs/TODO.md).
+See [docs/dev/TODO.md](docs/dev/TODO.md).
 
 ## Development
 

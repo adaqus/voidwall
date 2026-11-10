@@ -90,12 +90,12 @@ context: |
   real servers and make real HTTP requests.
 
   Architecture and rationale: `ARCHITECTURE.md`. Built behavior: `openspec/specs/`.
-  Unbuilt work: `docs/backlog.md`.
+  Unbuilt work: `docs/dev/backlog.md`.
 
 rules:
   specs:
     - A spec states behaviour that is built and covered by a test. Never write a
-      requirement for unbuilt work. Unbuilt work belongs in docs/backlog.md.
+      requirement for unbuilt work. Unbuilt work belongs in docs/dev/backlog.md.
     - Never put a PII value in an example. Use a placeholder.
   tasks:
     - Every task names a verification check.

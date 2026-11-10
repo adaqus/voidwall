@@ -34,8 +34,8 @@ For multi-step work, state a brief plan with a verification check for each step.
 - Architecture and rationale: `ARCHITECTURE.md`
 - Built behavior: `openspec/specs/`
 - Active work: `openspec/changes/`
-- Unbuilt work: `docs/backlog.md`
-- Load testing: `docs/load-testing.md`
+- Unbuilt work: `docs/dev/backlog.md`
+- Load testing: `docs/dev/load-testing.md`
 - Grafana dashboard: read `docker/grafana/AGENTS.md` before editing `docker/grafana/`
 - User documentation: read `docs/AGENTS.md` before editing `docs/`. After a change a user
   can see, and after a release, run the `docs-sync` skill
@@ -234,7 +234,7 @@ guard's does. A detector that costs more stays on its own threads.
 - Prefer `#[test_case]` where it removes duplicated test code.
 - Integration tests under `crates/voidwall/tests/` start real servers and make real HTTP
   requests.
-- Load tests live in `crates/voidwall/benches/`; see `docs/load-testing.md`.
+- Load tests live in `crates/voidwall/benches/`; see `docs/dev/load-testing.md`.
 
 ## Outcomes
 
@@ -256,7 +256,7 @@ Do not reintroduce a per-direction action list.
 
 `openspec/specs/` states built behavior. `openspec/changes/` holds work in progress. A
 spec must describe behavior that is built and tested. Unbuilt work belongs in
-`docs/backlog.md` until a change starts.
+`docs/dev/backlog.md` until a change starts.
 
 Use OpenSpec when any of these apply:
 
@@ -264,7 +264,7 @@ Use OpenSpec when any of these apply:
   error code, or detector output.
 - The change touches more than one crate.
 - The change is one step of a planned engine tier and it ships code.
-- The change implements a feature listed in `docs/backlog.md`.
+- The change implements a feature listed in `docs/dev/backlog.md`.
 - A decision must be recorded for later work.
 - The change cannot be reviewed in one diff.
 

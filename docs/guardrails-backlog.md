@@ -1,3 +1,0 @@
-- [ ] Model Lifecycle and Diagnostics
-- [ ] Operational Qualification
-- [ ] Shadow mode
