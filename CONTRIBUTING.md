@@ -1,8 +1,12 @@
 # Contributing to Voidwall
 
-Voidwall is in early development. The configuration format, the REST API, the metrics,
-and the Rust APIs of the workspace crates can change in any commit, without a
-deprecation period.
+Voidwall is alpha software. See [docs/about.md](docs/about.md#project-status) for what
+is built and tested.
+
+Until 1.0, a release can change the configuration format, the HTTP API, or the metrics.
+Mark such a change with `!` in the commit message (see [Commit Messages](#commit-messages)),
+so that the changelog marks it **BREAKING** and the release bumps the minor version. The
+Rust APIs of the workspace crates can change in any commit, without a deprecation period.
 
 ## Before You Start
 
