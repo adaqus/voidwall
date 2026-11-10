@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::rejection::QueryRejection;
+use axum::extract::rejection::{BytesRejection, QueryRejection};
 use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -227,8 +227,12 @@ async fn scan_handler(
     State(state): State<ApiState>,
     query: Result<Query<ScanQuery>, QueryRejection>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
+    let body = match body {
+        Ok(body) => body,
+        Err(rejection) => return rejected_body(rejection),
+    };
     // `direction` is the only field, so any rejection is a bad direction.
     let Ok(Query(query)) = query else {
         return invalid_direction();
@@ -271,9 +275,12 @@ async fn scan_handler(
 async fn litellm_handler(
     State(state): State<ApiState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    process_litellm(state, headers, body).await
+    match body {
+        Ok(body) => process_litellm(state, headers, body).await,
+        Err(rejection) => rejected_body(rejection),
+    }
 }
 
 // The OpenAPI document is a checked-in repository artefact
@@ -551,6 +558,28 @@ fn handle_guard_error(scan_result: &mut ScanResult, on_error: OnError) -> Option
         warn!(dropped, error = %e, "scanner error in http api");
     }
     handle_scanner_failure(e, on_error)
+}
+
+/// The answer to a body the extractor refused. The `DefaultBodyLimit` layer
+/// refuses a body over `max_body_size` before any handler code runs, and axum
+/// would answer that in plain text. The 413 is mapped to the fixed JSON body
+/// the proxy modes answer, and counted as a limit violation. Any other
+/// rejection keeps axum's answer.
+fn rejected_body(rejection: BytesRejection) -> Response {
+    if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        body_too_large()
+    } else {
+        rejection.into_response()
+    }
+}
+
+/// A body over `max_body_size`. The API has nothing to forward, so the body
+/// is always refused, under `fail_open` too.
+fn body_too_large() -> Response {
+    metrics::inc_error("blocked", "body_too_large");
+    let resp = Error::BodyTooLarge.into_response();
+    record_request(resp.status());
+    resp
 }
 
 /// A `direction` that is not `request` or `response`. Like the 415, it is a
@@ -1282,6 +1311,35 @@ class = "pii"
             status_of(&router, LITELLM_PATH, "application/json", LITELLM_BODY).await,
             StatusCode::OK
         );
+    }
+
+    // --- An oversize body answers the fixed 413 ---
+
+    #[test_case(SCAN_PATH, "text/plain" ; "scan route")]
+    #[test_case(LITELLM_PATH, "application/json" ; "litellm route")]
+    #[tokio::test]
+    async fn an_oversize_body_answers_the_fixed_json_413(path: &str, content_type: &str) {
+        let config = AppConfig {
+            max_body_size: 16,
+            ..AppConfig::default()
+        };
+        let engine = Arc::new(Engine::with_guards(vec![Box::new(
+            TestGuard::new("lt_oversize", "LT_OVERSIZE").silent(),
+        )]));
+        let router = router(build_state(&config, engine));
+        let before = errors("blocked", "body_too_large");
+
+        let request = Request::post(path)
+            .header("content-type", content_type)
+            .body(Body::from("x".repeat(64)))
+            .unwrap();
+        let resp = router.oneshot(request).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(resp.headers()["content-type"], "application/json");
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], br#"{"error":"request body too large"}"#);
+        assert!(errors("blocked", "body_too_large") > before);
     }
 
     // --- POST /v1/scan takes the direction of the posted content ---
