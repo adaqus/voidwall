@@ -3,6 +3,30 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.5.1] - 2026-11-10
+
+### Bug Fixes
+
+- **api:** Answer an oversize body with the JSON 413
+
+### Documentation
+
+- Add user docs rules and the docs-sync skill
+- **openspec:** Archive add-hidden-context-guard
+- Move internal docs to docs/dev and add the docs index
+- Add the configuration, API, and guards reference
+- Add the about, quick start, hardware, and OWASP pages
+- Add the LiteLLM and AnythingLLM recipes and shorten the README
+- Add the Ollama recipe
+- Move the LM Studio steps to their own recipe and clarify guard pages
+- Move the LM Studio steps to their own recipe and clarify the Ollama setup
+- Describe the project as alpha and state what is tested
+- Describe the project as alpha in CONTRIBUTING
+
+### Chores
+
+- Update prompt injection thresholds
+
 ## [0.5.0] - 2026-11-05
 
 ### Features
