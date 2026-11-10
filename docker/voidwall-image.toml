@@ -53,7 +53,7 @@ overlap_tokens = 64             # optional; default min(128, max_tokens / 2)
 # threads = 4                   # optional; default CPUs / number of model guards
 
 [guards.prompt_injection.thresholds]
-PROMPT_INJECTION = 0.5
+PROMPT_INJECTION = 0.9
 
 # A PII token classifier beside the regex PII guard. The image ships bards.ai's
 # EU PII anonimization multilang v2 (INT8) in /opt/voidwall/models/bards-v2/. It
