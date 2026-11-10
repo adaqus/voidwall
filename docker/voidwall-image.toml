@@ -107,8 +107,9 @@ listen = "0.0.0.0:8082"
 
 # The container reaches a server on the host at host.docker.internal. Start the
 # container with `--add-host=host.docker.internal:host-gateway`, and let the
-# server listen beyond localhost: in LM Studio turn on "Serve on Local Network";
-# for Ollama set OLLAMA_HOST=0.0.0.0.
+# server listen on the address of the Docker bridge, 172.17.0.1 by default: for
+# LM Studio run `lms server start --bind 172.17.0.1 --port 1234`; for Ollama set
+# OLLAMA_HOST=172.17.0.1:11434. See docs/recipes/.
 #
 # Each block sends Chat Completions through the openai-chat decoder and every
 # other path, such as /v1/models or /v1/embeddings, through the generic route.

@@ -4,6 +4,7 @@
 |---|---|---|
 | [LiteLLM](litellm.md) | As a LiteLLM guardrail, on the HTTP API | Any model that LiteLLM serves, hosted models too |
 | [AnythingLLM](anythingllm.md) | As a reverse proxy in front of the model server | A local server on plain HTTP |
+| [Ollama](ollama.md) | As a reverse proxy in front of Ollama | A model that Ollama serves |
 
 > **The reverse proxy reaches plain-HTTP upstreams only.** It does not originate TLS
 > yet. An `https://` upstream, such as OpenAI, Azure OpenAI, or OpenRouter, passes
@@ -123,8 +124,8 @@ question itself is clean.
 
 When the model runs on your own machine, personal data in a prompt does not leave it. You
 can then run only the prompt injection guard on the chat route, and no guard on
-embeddings. Add `guards` to the chat route, and add an embeddings route, in the
-`lmstudio` block:
+embeddings. Add `guards` to the chat route, and add an embeddings route, in the block of
+your server. For example, in the `lmstudio` block:
 
 ```toml
 [[reverse_proxy.routes]]
@@ -166,10 +167,3 @@ On a generic route, a stream is not scanned. See
 
 OpenAI clients retry 500, 502, and 504 by default. So under `fail_close`, a guard failure
 can reach Voidwall up to three times. A 400 or a 422 is not retried.
-
-## Ollama
-
-The config of the image also holds a block for Ollama, between `# >>> ollama` and
-`# <<< ollama`. These recipes were not tested with Ollama. Ollama must listen beyond
-`127.0.0.1` (`OLLAMA_HOST`), and it must be a version that serves the OpenAI-compatible
-API under `/v1`.

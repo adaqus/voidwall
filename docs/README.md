@@ -19,6 +19,7 @@ These docs describe one release. Open them at the tag of the image you run, for 
   documents, embeddings, and streaming.
 - [LiteLLM](recipes/litellm.md): Voidwall as a LiteLLM guardrail, also for hosted models.
 - [AnythingLLM](recipes/anythingllm.md): AnythingLLM, Voidwall, and LM Studio.
+- [Ollama](recipes/ollama.md): put Voidwall in front of Ollama.
 
 ## Reference
 

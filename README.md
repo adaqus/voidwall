@@ -54,7 +54,7 @@ See [docs/quick-start.md](docs/quick-start.md) for more.
 |---|---|
 | What Voidwall is, ONNX Runtime, status | [docs/about.md](docs/about.md) |
 | Hardware requirements | [docs/hardware.md](docs/hardware.md) |
-| LiteLLM, AnythingLLM, and LM Studio setups | [docs/recipes/](docs/recipes/README.md) |
+| LiteLLM, AnythingLLM, LM Studio, and Ollama setups | [docs/recipes/](docs/recipes/README.md) |
 | Every configuration key | [docs/configuration.md](docs/configuration.md) |
 | The HTTP API and the reverse proxy answers | [docs/api-reference.md](docs/api-reference.md) |
 | Guards: regex PII, model guards, hidden context, your own model | [docs/guards/](docs/guards/README.md) |
