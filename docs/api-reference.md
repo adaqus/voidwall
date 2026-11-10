@@ -88,7 +88,7 @@ metrics under the direction of the scan. See
 Serves the
 [LiteLLM Generic Guardrail API](https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api).
 LiteLLM calls it before and after each model call. For the LiteLLM setup, see
-[README.md](../README.md#use-with-litellm).
+[recipes/litellm.md](recipes/litellm.md).
 
 ```bash
 curl -s localhost:8083/beta/litellm_basic_guardrail_api -H 'content-type: application/json' -d '{
