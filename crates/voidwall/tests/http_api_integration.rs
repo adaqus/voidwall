@@ -465,6 +465,11 @@ async fn oversized_body_returns_413() {
         .unwrap();
 
     assert_eq!(resp.status(), 413);
+    assert_eq!(resp.headers()["content-type"], "application/json");
+    assert_eq!(
+        resp.text().await.unwrap(),
+        r#"{"error":"request body too large"}"#
+    );
 }
 
 #[tokio::test]
