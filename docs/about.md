@@ -81,7 +81,7 @@ Known limits:
 
 Until version 1.0, a release can change the configuration format, the HTTP API, or the
 metrics. [CHANGELOG.md](../CHANGELOG.md) marks each such change with **BREAKING**. Pin
-the image to a release tag, such as `ghcr.io/adaqus/voidwall:0.5.0`, and read the
+the image to a release tag, such as `ghcr.io/adaqus/voidwall:0.5.1`, and read the
 changelog before you upgrade. The `0.5` tag follows the patch releases of 0.5, and
 `latest` follows every release.
 
