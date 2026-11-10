@@ -29,20 +29,11 @@ overlapping windows.
 
 ## Fields
 
-| Field | Required | Meaning |
-|---|---|---|
-| `adapter` | yes | `text_classifier` or `token_classifier` |
-| `model_path` | yes | The ONNX file |
-| `tokenizer_path` | yes | The model's `tokenizer.json` |
-| `config_path` | `token_classifier` only | The model's `config.json`, the source of `id2label`. A `text_classifier` guard must not set it |
-| `max_tokens` | yes | The longest window the adapter gives the model, special tokens included. At least 10 |
-| `overlap_tokens` | no | Tokens that two neighbouring windows share. Default: 128 or `max_tokens / 2`, whichever is smaller. At most `max_tokens / 2` |
-| `threads` | no | Worker threads, each with its own model session. Default: the CPUs divided by the number of model guards. At least 1 |
-| `labels` | yes | The finding kinds the guard reports. Not empty, no duplicates. See [Labels](#labels) |
-| `thresholds` | no | Per label, the lowest score or confidence that gives a finding, from 0.0 to 1.0. A label with no threshold reports nothing |
-| `validate_as` | no | `token_classifier` only. See [validate_as](#validate_as) |
-| `class` | no | `"pii"` is the only value. See [class](#class) |
-| `surface` | no | What the guard scans: `body` (default `true`), `url_path`, `query_params`, `headers` (each default `false`). Each unit costs one model run |
+Every key of a `[guards.<name>]` section, with its default, is in
+[configuration.md](../configuration.md#model-guards-guardsname). In short: `adapter`,
+`model_path`, `tokenizer_path`, `max_tokens`, and `labels` are required. A
+`token_classifier` also needs `config_path`. A label gives findings only when it has a
+threshold.
 
 ## Labels
 
@@ -119,7 +110,7 @@ The `guards` array of a `/v1/scan` response shows each guard's share: its own
 `matches_count` and `kinds`.
 
 A detection blocks the message. The reverse proxy answers as soon as one guard reports a
-finding, so its `kinds` can hold only the kinds of the guards that ended first. The REST
+finding, so its `kinds` can hold only the kinds of the guards that ended first. The HTTP
 API waits for every guard.
 
 ## Examples
@@ -136,7 +127,7 @@ overlap_tokens = 64
 labels = ["PROMPT_INJECTION"]
 
 [guards.prompt_injection.thresholds]
-PROMPT_INJECTION = 0.5
+PROMPT_INJECTION = 0.9
 ```
 
 A PII token classifier, shortened from `docker/voidwall.toml`:

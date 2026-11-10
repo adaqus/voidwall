@@ -4223,4 +4223,252 @@ labels = ["K"]
             concat!("voidwall ", env!("CARGO_PKG_VERSION"))
         );
     }
+
+    /// `docs/configuration.md` lists every key the config types accept, and no
+    /// other. The keys come from the serde derives, so a new field fails this
+    /// test until the page has a row for it.
+    mod key_reference {
+        use std::cell::Cell;
+        use std::collections::BTreeSet;
+
+        use serde::de::{self, DeserializeOwned, Visitor};
+
+        use super::*;
+
+        type Fields = &'static [&'static str];
+
+        /// A deserializer that records the field names a derived `Deserialize`
+        /// passes to `deserialize_struct`, and then fails. Nothing is parsed.
+        struct FieldsOf<'a>(&'a Cell<Option<Fields>>);
+
+        impl<'de> de::Deserializer<'de> for FieldsOf<'_> {
+            type Error = de::value::Error;
+
+            fn deserialize_struct<V: Visitor<'de>>(
+                self,
+                _name: &'static str,
+                fields: Fields,
+                _visitor: V,
+            ) -> Result<V::Value, Self::Error> {
+                self.0.set(Some(fields));
+                Err(de::Error::custom("field names recorded"))
+            }
+
+            fn deserialize_any<V: Visitor<'de>>(
+                self,
+                _visitor: V,
+            ) -> Result<V::Value, Self::Error> {
+                Err(de::Error::custom("not a struct"))
+            }
+
+            serde::forward_to_deserialize_any! {
+                bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+                bytes byte_buf option unit unit_struct newtype_struct seq tuple
+                tuple_struct map enum identifier ignored_any
+            }
+        }
+
+        fn fields<T: DeserializeOwned>() -> Fields {
+            let out = Cell::new(None);
+            let _ = T::deserialize(FieldsOf(&out));
+            out.get()
+                .unwrap_or_else(|| panic!("{} is not a struct", std::any::type_name::<T>()))
+        }
+
+        /// Every table of the config, by its path on the page. `[]` marks an
+        /// array of tables, and `<name>` the key an operator chooses.
+        /// `[builtin_guards]` is absent: its keys are the built-in guard names,
+        /// checked against `BUILTIN_GUARD_NAMES` below.
+        fn tables() -> Vec<(&'static str, Fields)> {
+            vec![
+                ("", fields::<AppConfig>()),
+                ("builtin_guards.pii", fields::<PiiGuardConfig>()),
+                ("builtin_guards.pii.surface", fields::<GuardSurface>()),
+                (
+                    "builtin_guards.pii.custom[]",
+                    fields::<voidwall_pii::UserPiiDefinition>(),
+                ),
+                (
+                    "builtin_guards.hidden_context",
+                    fields::<HiddenContextConfig>(),
+                ),
+                ("guards.<name>", fields::<ModelGuardConfig>()),
+                ("guards.<name>.surface", fields::<ModelGuardSurface>()),
+                ("reverse_proxy", fields::<ReverseProxyConfig>()),
+                ("reverse_proxy.request", fields::<DirectionConfig>()),
+                ("reverse_proxy.response", fields::<DirectionConfig>()),
+                ("reverse_proxy.tls", fields::<TlsConfig>()),
+                ("reverse_proxy.routes[]", fields::<Route>()),
+                ("forward_proxy", fields::<ForwardProxyConfig>()),
+                ("forward_proxy.request", fields::<DirectionConfig>()),
+                ("forward_proxy.response", fields::<DirectionConfig>()),
+                ("forward_proxy.tls", fields::<TlsConfig>()),
+                ("http_api", fields::<HttpApiConfig>()),
+                ("http_api.scan", fields::<RouteSwitch>()),
+                ("http_api.litellm", fields::<RouteSwitch>()),
+                ("admin", fields::<AdminConfig>()),
+            ]
+        }
+
+        /// The keys that hold a value: every field that is not itself a table.
+        fn value_keys() -> BTreeSet<String> {
+            let tables = tables();
+            let is_table = |key: &str| {
+                tables.iter().any(|(path, _)| {
+                    *path == key
+                        || *path == format!("{key}[]")
+                        || path.starts_with(&format!("{key}."))
+                })
+            };
+            let mut keys = BTreeSet::new();
+            for (path, fields) in &tables {
+                for field in *fields {
+                    let key = if path.is_empty() {
+                        (*field).to_string()
+                    } else {
+                        format!("{path}.{field}")
+                    };
+                    if !is_table(&key) {
+                        keys.insert(key);
+                    }
+                }
+            }
+            keys
+        }
+
+        /// The first cell of every row in a table whose header starts `| Key |`.
+        fn documented_keys(page: &str) -> BTreeSet<String> {
+            let mut keys = BTreeSet::new();
+            let mut in_key_table = false;
+            for line in page.lines() {
+                if !line.starts_with('|') {
+                    in_key_table = false;
+                    continue;
+                }
+                if line.starts_with("| Key |") {
+                    in_key_table = true;
+                    continue;
+                }
+                let cell = line.split('|').nth(1).unwrap_or("").trim();
+                if in_key_table && !cell.starts_with('-') {
+                    keys.insert(cell.trim_matches('`').to_string());
+                }
+            }
+            keys
+        }
+
+        fn page() -> String {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/configuration.md");
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        }
+
+        #[test]
+        fn the_page_lists_every_key_and_no_other() {
+            let code = value_keys();
+            let page = documented_keys(&page());
+            let missing: Vec<_> = code.difference(&page).collect();
+            let unknown: Vec<_> = page.difference(&code).collect();
+            assert!(
+                missing.is_empty() && unknown.is_empty(),
+                "docs/configuration.md is out of date.\n\
+                 Keys with no row: {missing:?}\n\
+                 Rows with no key: {unknown:?}"
+            );
+        }
+
+        #[test]
+        fn every_built_in_guard_has_a_table() {
+            let tables = tables();
+            for name in BUILTIN_GUARD_NAMES {
+                let path = format!("builtin_guards.{name}");
+                assert!(
+                    tables.iter().any(|(p, _)| *p == path),
+                    "add [{path}] to tables() and its keys to docs/configuration.md"
+                );
+            }
+        }
+
+        #[test]
+        fn a_field_of_a_table_is_not_a_value_key() {
+            let keys = value_keys();
+            assert!(keys.contains("reverse_proxy.routes[].path_prefix"));
+            assert!(keys.contains("guards.<name>.surface.body"));
+            assert!(keys.contains("max_body_size"));
+            assert!(!keys.contains("reverse_proxy.routes"));
+            assert!(!keys.contains("guards"));
+            assert!(!keys.contains("builtin_guards"));
+            assert!(!keys.contains("admin"));
+            assert!(!keys.contains("reverse_proxy.request"));
+            assert!(!keys.contains("guards.<name>.surface"));
+        }
+
+        #[test]
+        fn only_key_tables_are_read() {
+            let page = "\
+| Exit | Meaning |
+|---|---|
+| `0` | ok |
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `admin.listen` | string | `\"127.0.0.1:9090\"` | The address. |
+";
+            assert_eq!(
+                documented_keys(page),
+                BTreeSet::from(["admin.listen".to_string()])
+            );
+        }
+    }
+
+    /// `docs/guards/pii-regex.md` lists every built-in PII kind: the name that
+    /// `detect` and `ignore` take, the label a finding reports, and the country.
+    /// On a mismatch the test prints the table to paste in.
+    mod kind_reference {
+        use voidwall_pii::PiiKind;
+
+        const HEADER: &str = "| Name | Label | Country |";
+
+        /// The table rows, in `PiiKind::all()` order. `Custom` is left out: it
+        /// is no kind a config can name.
+        fn expected_rows() -> Vec<String> {
+            PiiKind::all()
+                .iter()
+                .filter(|k| **k != PiiKind::Custom)
+                .map(|k| format!("| `{k:?}` | `{}` | `{:?}` |", k.label(), k.country()))
+                .collect()
+        }
+
+        /// The rows of the table under `HEADER`, without its separator line.
+        fn documented_rows(page: &str) -> Vec<String> {
+            page.lines()
+                .skip_while(|line| *line != HEADER)
+                .skip(2)
+                .take_while(|line| line.starts_with('|'))
+                .map(str::to_string)
+                .collect()
+        }
+
+        #[test]
+        fn the_page_lists_every_pii_kind() {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/guards/pii-regex.md");
+            let page = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+            let expected = expected_rows();
+            assert!(
+                documented_rows(&page) == expected,
+                "docs/guards/pii-regex.md is out of date. Replace its kind table with:\n\n\
+                 {HEADER}\n|---|---|---|\n{}\n",
+                expected.join("\n")
+            );
+        }
+
+        #[test]
+        fn rows_end_at_the_first_line_outside_the_table() {
+            let page = "text\n\n| Name | Label | Country |\n|---|---|---|\n| `A` | `A` | `Us` |\n\nafter\n";
+            assert_eq!(documented_rows(page), vec!["| `A` | `A` | `Us` |"]);
+        }
+    }
 }
