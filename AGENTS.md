@@ -37,6 +37,8 @@ For multi-step work, state a brief plan with a verification check for each step.
 - Unbuilt work: `docs/backlog.md`
 - Load testing: `docs/load-testing.md`
 - Grafana dashboard: read `docker/grafana/AGENTS.md` before editing `docker/grafana/`
+- User documentation: read `docs/AGENTS.md` before editing `docs/`. After a change a user
+  can see, and after a release, run the `docs-sync` skill
 
 Start coding agents from the workspace root. Commands below assume that location.
 
@@ -283,8 +285,9 @@ Workflow:
 2. Run `openspec validate <name> --strict`.
 3. Use the `openspec-apply-change` workflow. Mark tasks only in the change's `tasks.md`.
 4. Run workspace tests and Clippy.
-5. Review the diff against the spec deltas with the `code-review` skill.
-6. Run `openspec archive <name>` to merge deltas into the main specs.
+5. Use the `docs-sync` workflow to update the user docs in `docs/`.
+6. Review the diff against the spec deltas with the `code-review` skill.
+7. Run `openspec archive <name>` to merge deltas into the main specs.
 
 Rules:
 

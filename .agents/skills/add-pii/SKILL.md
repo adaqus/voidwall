@@ -335,6 +335,8 @@ independently before writing test values.
   language test (see rule 3) so the `languages=["En"]` config keeps detecting it.
 - If you appended to `PRIORITY_GROUPS` in `overlap.rs`, keep that source file as the only
   inventory. Do not copy the list into instructions.
+- Run the `docs-sync` skill. The countries, languages, and kinds in
+  `docs/guards/pii-regex.md` match the change.
 - `cargo bench throughput  --bench pii_benchmark` - after every other task is finished, run 
   benchmark for baseline before changes and compare with changed codebase (do not run the
   command in paraller e.g. with tests as this will skew benchmark result).
