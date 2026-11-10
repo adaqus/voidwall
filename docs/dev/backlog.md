@@ -121,6 +121,20 @@ No design yet.
 - Operational qualification
 - Shadow mode
 
+### 1.9 Ollama's own API streams pass unscanned
+
+Ollama's own API (`/api/chat`, `/api/generate`) streams its answer by default, as
+`application/x-ndjson`: one JSON object per line, each with a few tokens of text. The
+type is not in `content_types`, so a generic route forwards the stream without a scan,
+and personal data in the answer reaches the client. A request, and an answer with
+`"stream": false`, are scanned. Tested with Ollama 0.40.16. Until this is built,
+`docs/recipes/ollama.md` sends clients to the OpenAI-compatible API under `/v1`.
+
+- Scan an NDJSON stream of Ollama's own API in hold-back or buffer mode, as an
+  `openai-chat` route scans a Chat Completions stream.
+- Decide in the proposal how a route selects this decoding, and what a block answers
+  after the first byte.
+
 ---
 
 ## 2. Test gaps
