@@ -66,14 +66,24 @@ There is no GPU support yet. For the CPU that ONNX Runtime needs, see
 
 ## Project status
 
-Voidwall is not ready for production.
+Voidwall is alpha software. Every feature in these docs is built and has automated
+tests: unit tests, and integration tests that start real servers and send real HTTP
+requests. Each recipe was tested end to end on Linux, with the app versions it names.
+Try Voidwall in development and test environments, and tell us what you find.
+
+Known limits:
 
 - The reverse proxy sends requests over plain HTTP only. It cannot reach an `https://`
   upstream, such as OpenAI, yet. To guard a hosted model, use the LiteLLM guardrail.
 - The reverse proxy does not terminate TLS. Put a TLS proxy in front of it.
 - Streaming (SSE) is inspected only on routes with `format = "openai-chat"`.
-- The configuration format, the HTTP API, and the metrics can change in any release,
-  without a deprecation period.
+- Docker Desktop on macOS and on Windows is not tested yet. See [hardware.md](hardware.md).
+
+Until version 1.0, a release can change the configuration format, the HTTP API, or the
+metrics. [CHANGELOG.md](../CHANGELOG.md) marks each such change with **BREAKING**. Pin
+the image to a release tag, such as `ghcr.io/adaqus/voidwall:0.5.0`, and read the
+changelog before you upgrade. The `0.5` tag follows the patch releases of 0.5, and
+`latest` follows every release.
 
 ## Licence
 

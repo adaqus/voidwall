@@ -24,10 +24,12 @@ code change and no rebuild.
 
 ## Project Status
 
-Not ready for production. The reverse proxy reaches plain-HTTP upstreams only, so it
-cannot reach `https://` upstreams such as OpenAI yet: use the LiteLLM guardrail for a
-hosted model. The configuration format, the HTTP API, and the metrics can change in any
-release, without a deprecation period. See [docs/about.md](docs/about.md#project-status).
+Alpha. The guards, the reverse proxy, the HTTP API, and the LiteLLM guardrail are built
+and tested, and each recipe was tested end to end on Linux. The reverse proxy reaches
+plain-HTTP upstreams only, so use the LiteLLM guardrail for a hosted model such as OpenAI.
+Until 1.0, a release can change the configuration, the API, or the metrics, and
+[CHANGELOG.md](CHANGELOG.md) marks each such change. See
+[docs/about.md](docs/about.md#project-status).
 
 ## Quick Start
 
