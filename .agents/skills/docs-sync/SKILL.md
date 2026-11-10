@@ -69,8 +69,9 @@ grep -rnoE '\]\([^)#[:space:]]+(#[^)]*)?\)' docs README.md \
 
 Then:
 
-- Run `cargo test --workspace`. It holds the `openapi.json` test and, once
-  `configuration.md` exists, the test of its keys.
+- Run `cargo test --workspace`. It holds the `openapi.json` test, the test of the keys
+  in `configuration.md`, and the test of the kind table in `guards/pii-regex.md`. The
+  kind test prints the table to paste in.
 - Run each example you changed, and compare its output with the page.
 
 ## 5. After a release

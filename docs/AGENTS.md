@@ -37,7 +37,8 @@ More topics come later. Add a page to the index when you add it to `docs/`.
      (`../voidwall-website/src/06-coverage.jsx`). Change both in the same change.
 4. Call the API on port 8083 the "HTTP API", never the "REST API". It is not REST.
 5. `configuration.md` lists every key with its description and its default value. A
-   test checks the keys against the config types; add the test with the page.
+   test checks the keys against the config types. A second test checks the kind table in
+   `guards/pii-regex.md` against the built-in PII kinds.
 6. Test each recipe end to end, and name the version of each app you tested. A proxy-mode
    recipe states that the reverse proxy reaches plain-HTTP upstreams only. A hosted model,
    such as OpenAI, goes through LiteLLM.

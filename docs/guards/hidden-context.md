@@ -16,13 +16,10 @@ Plant a canary in the system prompt, and list it as a marker:
 markers = ["vw-canary-5c1f9e27a04b", "Project Bluefin"]
 ```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `enabled` | `true` | A present section is on unless it sets `enabled = false`. |
-| `markers` | `[]` | Text that must never leave in a response. Plain text, not patterns. |
-
-The section has no `surface` key, and the schema rejects one. The image's default
-configuration does not declare the guard.
+The section has two keys, `enabled` and `markers`. See
+[configuration.md](../configuration.md#builtin_guardshidden_context). It has no
+`surface` key, and the schema rejects one. The config of the image does not declare the
+guard.
 
 ## What it scans
 

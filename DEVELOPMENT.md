@@ -41,6 +41,15 @@ docker/fetch-ort.sh
 cargo test --workspace
 ```
 
+Some tests compare checked-in documentation with the code:
+
+- `docs/openapi.json` is generated from the HTTP API handlers. After you change a route, a
+  request type, or a response type, regenerate it with
+  `UPDATE_OPENAPI=1 cargo test -p voidwall --lib openapi` and commit the result.
+- `docs/configuration.md` must list every configuration key, and
+  `docs/guards/pii-regex.md` every built-in PII kind. When a test fails, its message names
+  the rows to add or remove. The PII kind test prints the whole table to paste in.
+
 ### Release Build and Docker Image
 
 `docker/ctl compile` builds the release binary, runs the license gate, and writes the

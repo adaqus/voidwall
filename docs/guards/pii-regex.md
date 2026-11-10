@@ -1,34 +1,94 @@
-# User-Defined PII — Worked Example
+# Regex PII Guard
 
-Operator-supplied regex definitions under `[[builtin_guards.pii.custom]]` run
-alongside the built-in detectors. A custom definition belongs to the guard that
-runs it, so disabling that guard disables every entry under it. Matches surface
-with the operator's chosen `label` in metrics (`pii_kind` counter), the `kinds`
-list of a 403 block response, and the `kinds` array of `/v1/scan`.
+The `pii` guard finds personal data and secrets with regular expressions, keyword rules,
+checks such as checksums, and a dictionary of names. It runs no model, so it is fast and
+gives the same result each time. It runs on its own CPU threads.
 
-See `openspec/specs/custom-pii/spec.md` for the full specification.
+The guard runs when the config file holds a `[builtin_guards.pii]` section. The config
+of the image holds one. Every key of the section is in
+[configuration.md](../configuration.md#builtin_guardspii).
 
-## Example
+## Choose what it finds
 
-Use `detect` to narrow built-in coverage to a known-good set, and
-`[[builtin_guards.pii.custom]]` to add organization-specific identifiers. The
-two fields are independent — `detect`/`ignore` apply only to built-in kinds.
+```toml
+[builtin_guards.pii]
+countries = ["International", "Us", "Gb"]
+languages = ["En"]
+```
+
+- `countries` selects the kinds of these countries. `International` holds the kinds that
+  belong to no country, such as e-mail addresses, card numbers, and cloud keys. An empty
+  list selects all countries.
+- `languages` selects the keyword languages. Some kinds need a keyword near the value,
+  for example "passport" before a passport number, because the value alone has no
+  shape that is safe to match. An empty list selects all languages: `En`, `Fr`, `De`,
+  `Nl`, `It`, `Es`, `Pl`.
+- `detect` keeps only the kinds that you list. `ignore` removes the kinds that you list.
+  You can set one of them, not both.
+
+```toml
+[builtin_guards.pii]
+countries = ["International", "Us"]
+ignore = ["IpAddress", "MacAddress"]
+```
+
+### Names and labels
+
+A kind has two names:
+
+- The **name** is what `detect` and `ignore` take, such as `UsSsn`.
+- The **label** is what a finding reports in `kinds`, in metrics, and in a 403, such as
+  `US_SSN`.
+
+The [table of kinds](#kinds) gives both, and the country of each kind. A kind of a
+country that `countries` does not select is never found, also when `detect` lists it.
+
+## What it reads
+
+The guard reads the parts of a message that its `surface` admits: the URL path, the query
+string, the body, and the header values that the route names. All four are on by default.
+
+A body is read only when its content type is in `content_types`. A JSON, CSV, or TSV body
+is read value by value:
+
+- In JSON, each string value is read on its own. The key path of the value, such as
+  `user.passport`, counts as the text before it. So `{"user": {"passport": "..."}}`
+  can match a passport number that needs the keyword "passport".
+- In CSV and TSV, each cell is read on its own, and its column name counts as the text
+  before it. A file with no header row is read as plain text.
+- A body that does not parse follows `on_error`.
+
+## Overlapping matches
+
+Two rules can match the same text, for example a number that has the shape of two
+kinds. The guard keeps one non-overlapping set of matches:
+
+- A match inside a longer match is dropped.
+- For two matches of the same text, a fixed priority picks one kind.
+- For two matches that partly overlap, the longer one stays.
+
+`matches_count`, `kinds`, and the metrics come from this set. The same value at two
+places in a message counts two times.
+
+The guard resolves only its own matches. When a model guard reports a kind of the same
+name, such as `PERSON_NAME`, both findings stay. See
+[model-guards.md](model-guards.md#two-guards-that-report-one-kind).
+
+## Custom rules
+
+`[[builtin_guards.pii.custom]]` adds a rule of your own: a regular expression and the
+label that its match reports. The label appears in `kinds`, in a 403, and in the
+`pii_kind` metric label, as a built-in label does. See
+`openspec/specs/custom-pii/spec.md` for the full specification.
+
+### Example
 
 ```toml
 [builtin_guards.pii]
 countries = ["International", "Us"]
 languages = ["En"]
+detect = ["Email", "CreditCard", "UsSsn"]
 
-# Built-in kinds to detect (closed set). Custom entries below run independently
-# and are NOT controlled by this list.
-detect = [
-    "Email",
-    "CreditCard",
-    "UsSsn",
-]
-
-# User-defined entries. Labels must be unique, non-empty, and must not collide
-# with any built-in PiiKind label (e.g. "EMAIL", "US_SSN").
 [[builtin_guards.pii.custom]]
 label   = "EMPLOYEE_ID"
 pattern = 'EMP-\d{6}'
@@ -36,54 +96,179 @@ pattern = 'EMP-\d{6}'
 [[builtin_guards.pii.custom]]
 label    = "PROJECT_CODE"
 pattern  = '[A-Z]{3}-\d{3}'
-keywords = ["project code", "proj id"]   # keyword-context mode
-country  = "International"                # default
+keywords = ["project code", "proj id"]
 ```
 
-Alternative: use `ignore` to opt out of specific built-in kinds while still
-using custom entries:
+With this config, `Badge EMP-123456 was found` reports `EMPLOYEE_ID`, and
+`project code ABC-123` reports `PROJECT_CODE`. `ABC-123` alone reports nothing, because
+the rule needs a keyword.
 
-```toml
-[builtin_guards.pii]
-countries = ["International", "Us"]
-ignore = ["IpAddress"]
+`detect` and `ignore` apply only to built-in kinds. A custom rule runs because it is in
+the file, so `Custom` is not a name that `detect` or `ignore` can take.
 
-[[builtin_guards.pii.custom]]
-label   = "EMPLOYEE_ID"
-pattern = 'EMP-\d{6}'
-```
+### Keywords
 
-## `CUSTOM` is reserved
+When `keywords` has entries, a match needs one of them just before the value. Spaces and
+punctuation can be between the keyword and the value. The match covers only the value,
+not the keyword. Use keywords when the pattern alone matches too much text.
 
-The literal `"Custom"` (the marker variant for user-defined PII) must **not**
-appear in `detect` or `ignore`. User entries are enabled by their presence in
-config — there is no on/off toggle via `detect`/`ignore`. Startup validation
-rejects configs that list `"Custom"` in either field.
+In a JSON or CSV body, the key path or the column name counts as the text before the
+value. `{"user": {"badge": "123456"}}` matches the keyword `badge`. The key must spell
+the keyword exactly: `badge_number` does not match `badge`, so list each key form that
+you expect.
 
-## Validation (at startup)
+### Rules for a custom entry
 
-- `label` non-empty, unique across `[[builtin_guards.pii.custom]]`, and
-  non-colliding with any built-in `PiiKind` label (full namespace, independent
-  of `detect`/`ignore`).
-- `pattern` non-empty; regex compilation is enforced by the `pii` crate.
-  Invalid regex fails fast with the offending entry's label in the error.
-- Total entries capped at 64.
-- Pattern dialect: must compile in both the `regex` crate and vectorscan —
-  no backreferences or lookaround.
-- `country` entries outside the scanner's enabled country set are silently
-  dropped at build time (the entry stays in config but never matches).
+Each of these stops the start:
 
-## Keyword-context mode
+- `label` is empty, is the label of a built-in kind, or is the label of another entry.
+- `pattern` is empty or does not compile. The pattern must compile in two engines, the
+  Rust `regex` crate and Vectorscan, so it cannot use backreferences or lookaround.
+- The section has more than 64 entries.
 
-When `keywords` is non-empty, a match requires one of the keywords to appear
-just before the pattern (with a permissive separator). The reported span
-covers only the value, not the keyword, so overlap resolution sees the value's
-own extent. This is useful when the pattern alone would be too broad (e.g. a
-three-letter prefix is too common to treat every occurrence as PII).
+An entry whose `country` is not in `countries` stays in the file, but it never runs.
 
-In a JSON or CSV body, the key path of a value (or its CSV column) also counts
-as the text before it. `{"user": {"badge": "123456"}}` matches the keyword
-`badge`, as `user.badge: 123456` would. Each key path segment is tried, array
-indexes are dropped, and only a match inside the value is reported. The key
-must spell the keyword exactly: `badge_number` does not match `badge`, so list
-each key form you expect.
+## Kinds
+
+Every built-in kind. `country` and `countries` take the values of the Country column.
+
+| Name | Label | Country |
+|---|---|---|
+| `Email` | `EMAIL` | `International` |
+| `UsPhoneNumber` | `US_PHONE_NUMBER` | `International` |
+| `CreditCard` | `CREDIT_CARD` | `International` |
+| `UsSsn` | `US_SSN` | `Us` |
+| `GbNino` | `GB_NINO` | `Gb` |
+| `Iban` | `IBAN` | `International` |
+| `PassportNumber` | `PASSPORT_NUMBER` | `International` |
+| `IpAddress` | `IP_ADDRESS` | `International` |
+| `UsItin` | `US_ITIN` | `Us` |
+| `CaSin` | `CA_SIN` | `Ca` |
+| `IePpsn` | `IE_PPSN` | `Ie` |
+| `ZaId` | `ZA_ID` | `Za` |
+| `MacAddress` | `MAC_ADDRESS` | `International` |
+| `GbDrivingLicence` | `GB_DRIVING_LICENCE` | `Gb` |
+| `Vin` | `VIN` | `International` |
+| `AuTfn` | `AU_TFN` | `Au` |
+| `NzIrdNumber` | `NZ_IRD_NUMBER` | `Nz` |
+| `GbNhsNumber` | `GB_NHS_NUMBER` | `Gb` |
+| `AuMedicare` | `AU_MEDICARE` | `Au` |
+| `UsPassportNew` | `US_PASSPORT_NEW` | `Us` |
+| `SwiftBic` | `SWIFT_BIC` | `International` |
+| `UsEin` | `US_EIN` | `Us` |
+| `Imei` | `IMEI` | `International` |
+| `GbUtr` | `GB_UTR` | `Gb` |
+| `UsAbaRouting` | `US_ABA_ROUTING` | `Us` |
+| `GbSortCode` | `GB_SORT_CODE` | `Gb` |
+| `PreciseGeolocation` | `PRECISE_GEOLOCATION` | `International` |
+| `UsDriversLicense` | `US_DRIVERS_LICENSE` | `Us` |
+| `UsAlienNumber` | `US_ALIEN_NUMBER` | `Us` |
+| `UsUscisReceiptNumber` | `US_USCIS_RECEIPT_NUMBER` | `Us` |
+| `NzNhiNumber` | `NZ_NHI_NUMBER` | `Nz` |
+| `NzDriverLicence` | `NZ_DRIVER_LICENCE` | `Nz` |
+| `IeDriverNumber` | `IE_DRIVER_NUMBER` | `Ie` |
+| `CaDriversLicense` | `CA_DRIVERS_LICENSE` | `Ca` |
+| `ZaTaxReference` | `ZA_TAX_REFERENCE` | `Za` |
+| `CaOhip` | `CA_OHIP` | `Ca` |
+| `GbPhoneNumber` | `GB_PHONE_NUMBER` | `Gb` |
+| `AuPhoneNumber` | `AU_PHONE_NUMBER` | `Au` |
+| `NzPhoneNumber` | `NZ_PHONE_NUMBER` | `Nz` |
+| `IePhoneNumber` | `IE_PHONE_NUMBER` | `Ie` |
+| `ZaPhoneNumber` | `ZA_PHONE_NUMBER` | `Za` |
+| `AwsAccessKey` | `AWS_ACCESS_KEY` | `International` |
+| `GithubToken` | `GITHUB_TOKEN` | `International` |
+| `AwsSecretKey` | `AWS_SECRET_KEY` | `International` |
+| `GbZaPassportNumber` | `GB_ZA_PASSPORT_NUMBER` | `Gb` |
+| `AuPassportNumber` | `AU_PASSPORT_NUMBER` | `Au` |
+| `CaPassportNumber` | `CA_PASSPORT_NUMBER` | `Ca` |
+| `NzPassportNumber` | `NZ_PASSPORT_NUMBER` | `Nz` |
+| `IePassportNumber` | `IE_PASSPORT_NUMBER` | `Ie` |
+| `DateOfBirth` | `DATE_OF_BIRTH` | `International` |
+| `GbPostcode` | `GB_POSTCODE` | `Gb` |
+| `CaPostalCode` | `CA_POSTAL_CODE` | `Ca` |
+| `BitcoinAddress` | `BITCOIN_ADDRESS` | `International` |
+| `EthereumAddress` | `ETHEREUM_ADDRESS` | `International` |
+| `AuBankAccount` | `AU_BANK_ACCOUNT` | `Au` |
+| `CaBankAccount` | `CA_BANK_ACCOUNT` | `Ca` |
+| `FrNir` | `FR_NIR` | `Fr` |
+| `FrSiret` | `FR_SIRET` | `Fr` |
+| `FrSiren` | `FR_SIREN` | `Fr` |
+| `FrPassportNumber` | `FR_PASSPORT_NUMBER` | `Fr` |
+| `FrCni` | `FR_CNI` | `Fr` |
+| `FrDriversLicense` | `FR_DRIVERS_LICENSE` | `Fr` |
+| `FrPhoneNumber` | `FR_PHONE_NUMBER` | `Fr` |
+| `FrPostalCode` | `FR_POSTAL_CODE` | `Fr` |
+| `FrNif` | `FR_NIF` | `Fr` |
+| `FrChAddress` | `FR_CH_ADDRESS` | `Fr` |
+| `FrChBoitePostale` | `FR_CH_BOITE_CASE_POSTALE` | `Fr` |
+| `DeSteuerId` | `DE_STEUER_ID` | `De` |
+| `DePersonalausweis` | `DE_PERSONALAUSWEIS` | `De` |
+| `DePassportNumber` | `DE_PASSPORT_NUMBER` | `De` |
+| `DePhoneNumber` | `DE_PHONE_NUMBER` | `De` |
+| `DePostalCode` | `DE_POSTAL_CODE` | `De` |
+| `AtSvnr` | `AT_SVNR` | `At` |
+| `AtPhoneNumber` | `AT_PHONE_NUMBER` | `At` |
+| `AtPostalCode` | `AT_POSTAL_CODE` | `At` |
+| `ChAhv` | `CH_AHV` | `Ch` |
+| `ChPhoneNumber` | `CH_PHONE_NUMBER` | `Ch` |
+| `ChPostalCode` | `CH_POSTAL_CODE` | `Ch` |
+| `PersonName` | `PERSON_NAME` | `International` |
+| `DeAtChAddress` | `DE_AT_CH_ADDRESS` | `De` |
+| `DeAtChPostfach` | `DE_AT_CH_POSTFACH` | `De` |
+| `DePackstation` | `DE_PACKSTATION` | `De` |
+| `ZaDriversLicense` | `ZA_DRIVERS_LICENSE` | `Za` |
+| `UsZaPostalCode` | `US_ZA_POSTAL_CODE` | `Us` |
+| `AuDriversLicense` | `AU_DRIVERS_LICENSE` | `Au` |
+| `AuAbn` | `AU_ABN` | `Au` |
+| `IeEircode` | `IE_EIRCODE` | `Ie` |
+| `NlBsn` | `NL_BSN` | `Nl` |
+| `NlBtw` | `NL_BTW` | `Nl` |
+| `NlPostalCode` | `NL_POSTAL_CODE` | `Nl` |
+| `NlPhoneNumber` | `NL_PHONE_NUMBER` | `Nl` |
+| `NlPassportNumber` | `NL_PASSPORT_NUMBER` | `Nl` |
+| `NlDriversLicense` | `NL_DRIVERS_LICENSE` | `Nl` |
+| `ItCodiceFiscale` | `IT_CODICE_FISCALE` | `It` |
+| `ItPartitaIva` | `IT_PARTITA_IVA` | `It` |
+| `ItPostalCode` | `IT_POSTAL_CODE` | `It` |
+| `ItPhoneNumber` | `IT_PHONE_NUMBER` | `It` |
+| `ItPassportNumber` | `IT_PASSPORT_NUMBER` | `It` |
+| `ItDriversLicense` | `IT_DRIVERS_LICENSE` | `It` |
+| `EsDni` | `ES_DNI` | `Es` |
+| `EsNie` | `ES_NIE` | `Es` |
+| `EsCif` | `ES_CIF` | `Es` |
+| `EsNuss` | `ES_NUSS` | `Es` |
+| `EsPassportNumber` | `ES_PASSPORT_NUMBER` | `Es` |
+| `EsPostalCode` | `ES_POSTAL_CODE` | `Es` |
+| `EsPhoneNumber` | `ES_PHONE_NUMBER` | `Es` |
+| `PlPesel` | `PL_PESEL` | `Pl` |
+| `PlNip` | `PL_NIP` | `Pl` |
+| `PlRegon` | `PL_REGON` | `Pl` |
+| `PlIdCard` | `PL_ID_CARD` | `Pl` |
+| `PlPassportNumber` | `PL_PASSPORT_NUMBER` | `Pl` |
+| `PlPhoneNumber` | `PL_PHONE_NUMBER` | `Pl` |
+| `PlPostalCode` | `PL_POSTAL_CODE` | `Pl` |
+| `PlDriversLicense` | `PL_DRIVERS_LICENSE` | `Pl` |
+| `GbAddress` | `GB_ADDRESS` | `Gb` |
+| `InternationalPhoneNumber` | `PHONE_NUMBER` | `International` |
+| `SecondaryAddress` | `SECONDARY_ADDRESS` | `International` |
+| `UsGbCaAuNzIeZaStreet` | `US_GB_CA_AU_NZ_IE_ZA_STREET` | `International` |
+| `OpenAiApiKey` | `OPENAI_API_KEY` | `International` |
+| `AnthropicApiKey` | `ANTHROPIC_API_KEY` | `International` |
+| `SlackToken` | `SLACK_TOKEN` | `International` |
+| `StripeSecretKey` | `STRIPE_SECRET_KEY` | `International` |
+| `GoogleApiKey` | `GOOGLE_API_KEY` | `International` |
+| `GitlabToken` | `GITLAB_TOKEN` | `International` |
+| `HuggingFaceToken` | `HUGGINGFACE_TOKEN` | `International` |
+| `NpmToken` | `NPM_TOKEN` | `International` |
+| `PypiToken` | `PYPI_TOKEN` | `International` |
+| `AzureAdClientSecret` | `AZURE_AD_CLIENT_SECRET` | `International` |
+| `SupabaseSecretKey` | `SUPABASE_SECRET_KEY` | `International` |
+| `OpenRouterApiKey` | `OPENROUTER_API_KEY` | `International` |
+| `PerplexityApiKey` | `PERPLEXITY_API_KEY` | `International` |
+| `XaiApiKey` | `XAI_API_KEY` | `International` |
+| `FirecrawlApiKey` | `FIRECRAWL_API_KEY` | `International` |
+| `GroqApiKey` | `GROQ_API_KEY` | `International` |
+| `ReplicateApiToken` | `REPLICATE_API_TOKEN` | `International` |
+| `PrivateKey` | `PRIVATE_KEY` | `International` |
+| `Jwt` | `JWT` | `International` |
+| `UrlCredentials` | `URL_CREDENTIALS` | `International` |
