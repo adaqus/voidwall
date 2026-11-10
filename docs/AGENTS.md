@@ -15,7 +15,7 @@ change makes old. Run it after a change, and read this file first.
 | `about.md` | What Voidwall is, its guards, ONNX Runtime, project status, licence |
 | `quick-start.md` | The first run of the image |
 | `hardware.md` | CPU, memory, disk, and platforms |
-| `recipes/` | `README.md` with the shared proxy setup, and one page per integration: `litellm.md`, `anythingllm.md`, `ollama.md` |
+| `recipes/` | `README.md` with the shared proxy setup, and one page per integration: `lm-studio.md`, `ollama.md`, `anythingllm.md`, `litellm.md` |
 | `configuration.md` | Every configuration key, its default, and validation |
 | `api-reference.md` | The HTTP API and the admin server; it links `openapi.json` |
 | `guards/` | `README.md`, `pii-regex.md`, `model-guards.md`, `hidden-context.md`, `custom-guard.md` |

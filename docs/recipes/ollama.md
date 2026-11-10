@@ -87,8 +87,8 @@ upstream = "http://host.docker.internal:11434"
 ```
 
 The first route decodes Chat Completions, and the second sends every other path through
-the generic route. [Make a config file](README.md#2-make-a-config-file) in the LM Studio
-setup tells more about the two routes.
+the generic route. [Make a config file](lm-studio.md#2-make-a-config-file) in the LM
+Studio recipe tells more about the two routes.
 
 Check the file:
 
@@ -99,7 +99,7 @@ docker run --rm -v "$PWD/voidwall.toml:/etc/voidwall/voidwall.toml:ro" \
 
 ## 3. Start Voidwall
 
-Do [Start Voidwall](README.md#3-start-voidwall) in the LM Studio setup. The command is
+Do [Start Voidwall](lm-studio.md#3-start-voidwall) in the LM Studio recipe. The command is
 the same for Ollama. A container on the `guardrails` network then reaches Voidwall at
 `http://voidwall:8082/v1`. An app on the host reaches it at `http://localhost:8082/v1`.
 
