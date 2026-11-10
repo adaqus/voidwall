@@ -27,8 +27,8 @@ bridge, `172.17.0.1` by default:
 lms server start --bind 172.17.0.1 --port 1234
 ```
 
-Containers can reach this address, and other hosts on your network cannot. To find the
-address, run `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`.
+Containers can reach this address. Other hosts on your network do not normally reach
+it. To find the address, run `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`.
 "Serve on Local Network" in LM Studio also works, but it opens the server to your whole
 network.
 

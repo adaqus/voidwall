@@ -24,8 +24,18 @@ By default, Ollama listens only on `127.0.0.1`, and a container cannot reach tha
 address. Make Ollama listen on the address of the Docker bridge, `172.17.0.1` by default.
 To find the address, run `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`.
 
-The Linux installer of Ollama runs it as the `ollama` systemd service. Open an override
-file for the service:
+Containers can reach this address. Other hosts on your network do not normally reach
+it. `OLLAMA_HOST=0.0.0.0:11434` also lets containers reach Ollama, but it opens Ollama to
+your whole network, and Ollama has no login.
+
+### If Ollama runs as a systemd service
+
+The Linux installer of Ollama runs it as the `ollama` systemd service.
+
+> **Ollama then stops answering on `localhost:11434`.** Ollama listens on one address
+> only. Set each app on the host that calls Ollama to `http://172.17.0.1:11434`.
+
+Open an override file for the service:
 
 ```bash
 sudo systemctl edit ollama
@@ -35,9 +45,15 @@ Add these lines above the line `### Lines below this comment will be discarded`,
 save the file. Lines below it are not kept:
 
 ```ini
+[Unit]
+After=docker.service
+
 [Service]
 Environment="OLLAMA_HOST=172.17.0.1:11434"
 ```
+
+`After=docker.service` starts Ollama after Docker at boot. Docker gives the bridge its
+address, and Ollama cannot listen on the address before that.
 
 Restart the service:
 
@@ -45,11 +61,27 @@ Restart the service:
 sudo systemctl restart ollama
 ```
 
-If you start Ollama yourself, use `OLLAMA_HOST=172.17.0.1:11434 ollama serve`.
+To undo the change, remove the override and restart the service:
 
-Containers can reach this address, and other hosts on your network cannot.
-`OLLAMA_HOST=0.0.0.0:11434` also lets containers reach Ollama, but it opens Ollama to
-your whole network, and Ollama has no login.
+```bash
+sudo systemctl revert ollama
+sudo systemctl restart ollama
+```
+
+### If you start Ollama yourself
+
+Use this way when Ollama does not run as a systemd service:
+
+```bash
+OLLAMA_HOST=172.17.0.1:11434 ollama serve
+```
+
+This Ollama runs as your user, and reads its models from `~/.ollama/models`. The systemd
+service keeps its models in `/usr/share/ollama/.ollama/models`. So a model that you
+pulled through the service is missing here. If the service also runs, two Ollamas run,
+and each one can load models into memory.
+
+### Use the same address in your shell
 
 The `ollama` command must use the same address. Set it in your shell, and pull the
 model that the app will use:
