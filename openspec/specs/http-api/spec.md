@@ -147,9 +147,9 @@ the failure.
 
 `/v1/scan` SHALL return JSON holding `detected`, `matches_count`, `kinds`, and `guards`. It
 SHALL NOT echo the body. `matches_count` SHALL be the size of the resolved match set, plus
-one for each finding a model guard reported. `kinds` SHALL hold kind names only, never a
-matched value. `kinds` SHALL be sorted and SHALL hold each kind once, so two scans of the
-same body return the same array.
+one for each finding a model guard or the `hidden_context` guard reported. `kinds` SHALL
+hold kind names only, never a matched value. `kinds` SHALL be sorted and SHALL hold each
+kind once, so two scans of the same body return the same array.
 
 `guards` SHALL be an array holding one object for each guard that reported at least one
 finding, sorted by guard name. A guard that reported no finding SHALL NOT appear, so a
@@ -200,6 +200,14 @@ scan with no findings returns an empty array. Each object SHALL hold `name`,
 - **WHEN** two guards are configured and only one of them reports a finding for the posted
   body
 - **THEN** `guards` holds one object, naming the guard that reported the finding
+
+#### Scenario: The hidden context guard reports a finding
+
+- **WHEN** a client posts to `/v1/scan?direction=response` a body holding one marker twice
+  and no PII
+- **THEN** the response reports `detected` true, `matches_count` 1, and `kinds`
+  `["HIDDEN_CONTEXT"]`
+- **AND** `guards` is `[{"name":"hidden_context","matches_count":1,"kinds":["HIDDEN_CONTEXT"]}]`
 
 ### Requirement: Custom PII labels surface in the results
 
@@ -279,3 +287,34 @@ the guards that succeeded under `fail_open`.
 
 - **WHEN** a model guard's inference fails on `/v1/scan` and `on_error` is `fail_close`
 - **THEN** the API answers 500 with the body `{"error":"internal error"}`
+
+### Requirement: POST /v1/scan takes the direction of the posted content
+
+`/v1/scan` SHALL accept a `direction` query parameter with the value `request` or
+`response`. The scan SHALL run the guards that inspect that direction. Without the
+parameter, the scan SHALL be a request scan. Any other value SHALL answer 400 with a JSON
+body holding an `error` field, and SHALL scan nothing. The LiteLLM route SHALL NOT take
+the parameter; its `input_type` sets the direction.
+
+#### Scenario: No direction
+
+- **WHEN** a client posts a body holding a marker to `/v1/scan`
+- **THEN** the `hidden_context` guard is not run and the response reports `detected`
+  false
+
+#### Scenario: Request direction
+
+- **WHEN** a client posts a body holding a marker to `/v1/scan?direction=request`
+- **THEN** the `hidden_context` guard is not run and the response reports `detected`
+  false
+
+#### Scenario: Response direction
+
+- **WHEN** a client posts a body holding a marker and an email placeholder to
+  `/v1/scan?direction=response`
+- **THEN** the response reports `kinds` `["EMAIL", "HIDDEN_CONTEXT"]`
+
+#### Scenario: Unknown direction
+
+- **WHEN** a client posts to `/v1/scan?direction=sideways`
+- **THEN** the API answers 400 with a JSON body holding `error`, and no guard runs
