@@ -6,6 +6,13 @@ in HTTP traffic, and it blocks the message before it reaches the model.
 These docs describe one release. Open them at the tag of the image you run, for example
 `github.com/adaqus/voidwall/tree/v0.5.0/docs`.
 
+## Start here
+
+- [About](about.md): what Voidwall is, how you use it, ONNX Runtime, and the project
+  status.
+- [Quick start](quick-start.md): run the image and send two test messages.
+- [Hardware](hardware.md): the CPU, memory, and disk that Voidwall needs.
+
 ## Reference
 
 - [API reference](api-reference.md): the HTTP API routes, the answers of the reverse
@@ -24,6 +31,11 @@ These docs describe one release. Open them at the tag of the image you run, for 
   canary or other marker.
 - [Add your own guard](guards/custom-guard.md): mount your own model and declare a guard
   for it.
+
+## Security
+
+- [OWASP coverage](owasp-coverage.md): Voidwall against the OWASP Top 10 for LLM
+  Applications (2026), and why some risks need another layer.
 
 ## For contributors
 
