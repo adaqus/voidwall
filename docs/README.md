@@ -13,6 +13,13 @@ These docs describe one release. Open them at the tag of the image you run, for 
 - [Quick start](quick-start.md): run the image and send two test messages.
 - [Hardware](hardware.md): the CPU, memory, and disk that Voidwall needs.
 
+## Recipes
+
+- [Recipes](recipes/README.md): put Voidwall in front of LM Studio, with notes on
+  documents, embeddings, and streaming.
+- [LiteLLM](recipes/litellm.md): Voidwall as a LiteLLM guardrail, also for hosted models.
+- [AnythingLLM](recipes/anythingllm.md): AnythingLLM, Voidwall, and LM Studio.
+
 ## Reference
 
 - [API reference](api-reference.md): the HTTP API routes, the answers of the reverse

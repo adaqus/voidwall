@@ -28,7 +28,7 @@ a guard, a kind, a country, a language, a model, a platform, a port.
 | `crates/voidwall/src/config.rs`, `validate.rs` | `configuration.md` |
 | `http_api.rs`, `docs/openapi.json`, `admin.rs` | `api-reference.md` |
 | The LiteLLM route | `api-reference.md`, `recipes/litellm.md` |
-| `reverse_proxy` or the `openai-chat` format | `configuration.md`, `recipes/anythingllm.md`, `recipes/odysseus.md` |
+| `reverse_proxy` or the `openai-chat` format | `configuration.md`, `recipes/README.md`, `recipes/anythingllm.md` |
 | `voidwall-pii` kinds, countries, languages, custom rules (`add-pii` too) | `guards/pii-regex.md` |
 | `voidwall-ml` adapters, model guard fields | `guards/model-guards.md`, `guards/custom-guard.md` |
 | The `hidden_context` guard | `guards/hidden-context.md` |

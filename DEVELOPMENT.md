@@ -105,6 +105,21 @@ git config core.hooksPath .githooks
 | `docker/ctl release` | Cuts a release from `main`. See [Releasing](#releasing) |
 | `docker/ctl parity` | Runs the parity checks of wolf-small (`text_classifier`) and bards v2 (`token_classifier`): makes a new Python reference for each with `crates/voidwall-ml/parity/reference.py`, then runs the ignored Rust parity test against both, and the INT8 check of bards v2 against a plain ONNX Runtime session. Exits 0 only when all of them pass. Needs `python3` 3.11 or later and no running stack. Runs `fetch_models`, fetches the fp32 files into `.cache/parity/` and verifies their SHA-256 (wolf-small's PyTorch files, about 560 MB; bards v2's PyTorch weights and fp32 ONNX export, about 2.5 GB), and installs `crates/voidwall-ml/parity/requirements.txt` into `.cache/parity/venv` with CPU `torch`, skipping what is cached. Set `PARITY_MAX_TOKENS` (default `2048` for wolf-small, `512` for bards v2) and `PARITY_OVERLAP` (default `64` and `128`); each overrides both models |
 
+### Dev Stack Ports
+
+`docker/ctl start` runs the PII guard, the `prompt_injection` model guard, and the
+`pii_ml` model guard, with `docker/voidwall.toml`. It mounts its own config and its copies
+of the models from `models/` over those in the image.
+
+| Service | URL | Notes |
+|---|---|---|
+| Reverse proxy | `http://localhost:8082` | Sends every path to the bundled echo server |
+| HTTP API | `http://localhost:8083` | `POST /v1/scan` and `POST /beta/litellm_basic_guardrail_api` |
+| Admin server | `http://localhost:9090` | `/metrics`, `/healthz`, `/readyz` |
+| Echo server | `http://localhost:8090` | Upstream for the reverse proxy |
+| Prometheus | `http://localhost:9091` | Scrapes the admin server |
+| Grafana | `http://localhost:3000` | Dashboards are set up. No login |
+
 ## Releasing
 
 Run `docker/ctl release` on `main`. It refuses, and changes nothing, when the tree is not
