@@ -21,18 +21,19 @@ You can declare many model guards. Each loads its own model.
 
 To add a guard of your own, see [custom-guard.md](custom-guard.md).
 
-## The guards of the image
+## Default guards of the Docker image
 
-The config of the image declares three guards:
+The Docker image holds a default config and the models for it. This config declares
+three guards, and they run when you start the image with no config of your own:
 
 | Name | Type | Finds |
 |---|---|---|
-| `pii` | Built-in | Personal data and secrets of all countries and languages |
+| `pii` | Built-in, regex | Personal data and secrets of all countries and languages |
 | `prompt_injection` | Model guard, `text_classifier` | Prompt injection, with the Wolf Defender Prompt-Injection Detector Small v2 model |
 | `pii_ml` | Model guard, `token_classifier` | Personal data with no fixed shape, such as names and postal addresses, with the bards.ai EU PII anonimization multilang v2 model |
 
-The `hidden_context` guard is built in, but the image does not declare it. To see the
-config of the image, run `docker run --rm ghcr.io/adaqus/voidwall --print-config`.
+The `hidden_context` guard is built in, but the default config does not declare it. To
+see the default config, run `docker run --rm ghcr.io/adaqus/voidwall --print-config`.
 
 ## What a guard reads
 

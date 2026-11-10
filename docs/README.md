@@ -1,24 +1,25 @@
 # Voidwall Documentation
 
 Voidwall is an AI guardrails proxy and API. It finds prompt injection and personal data
-in HTTP traffic, and it blocks the message before it reaches the model.
+in HTTP traffic, and it blocks the message before it reaches the local LLM or external
+LLM provider.
 
 These docs describe one release. Open them at the tag of the image you run, for example
 `github.com/adaqus/voidwall/tree/v0.5.0/docs`.
 
 ## Start here
 
-- [About](about.md): what Voidwall is, how you use it, ONNX Runtime, and the project
-  status.
-- [Quick start](quick-start.md): run the image and send two test messages.
+- [About](about.md): what Voidwall is, how you use it, and the project status.
+- [Quick start](quick-start.md): run the image and send test messages.
 - [Hardware](hardware.md): the CPU, memory, and disk that Voidwall needs.
 
 ## Recipes
 
-- [Recipes](recipes/README.md): put Voidwall in front of LM Studio, with notes on
-  documents, embeddings, and streaming.
+- [Recipes](recipes/README.md): choose a recipe, with notes on documents, embeddings,
+  and streaming.
+- [LM Studio](recipes/lm-studio.md): put Voidwall in front of LM Studio.
 - [LiteLLM](recipes/litellm.md): Voidwall as a LiteLLM guardrail, also for hosted models.
-- [AnythingLLM](recipes/anythingllm.md): AnythingLLM, Voidwall, and LM Studio.
+- [AnythingLLM](recipes/anythingllm.md): AnythingLLM, Voidwall, and LM Studio or Ollama.
 - [Ollama](recipes/ollama.md): put Voidwall in front of Ollama.
 
 ## Reference

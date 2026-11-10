@@ -2,12 +2,12 @@
 
 [AnythingLLM](https://anythingllm.com/) is a chat app for local and hosted models, with
 documents and agents. In this recipe, AnythingLLM sends its model calls to Voidwall, and
-Voidwall forwards them to LM Studio. A message with a prompt injection or personal data
-is blocked before it reaches the model.
+Voidwall forwards them to LM Studio. You can use Ollama in place of LM Studio. A message
+with a prompt injection or personal data is blocked before it reaches the model.
 
 > **Tested with** Voidwall 0.5.0, AnythingLLM 1.19.0 (the `mintplexlabs/anythingllm`
 > Docker image), and LM Studio 0.4.28 with `google/gemma-3-1b`, on Linux. The AnythingLLM
-> desktop app was not tested.
+> desktop app was not tested. AnythingLLM with Ollama was not tested yet.
 
 ```
 AnythingLLM ──► Voidwall :8082 ──► LM Studio :1234
@@ -16,10 +16,16 @@ AnythingLLM ──► Voidwall :8082 ──► LM Studio :1234
 The reverse proxy reaches plain-HTTP upstreams only. For a hosted model, use the
 [LiteLLM recipe](litellm.md), and point AnythingLLM at LiteLLM.
 
-## 1. Start Voidwall in front of LM Studio
+## 1. Start Voidwall in front of LM Studio or Ollama
 
-Do the steps in [Put Voidwall in front of LM Studio](README.md#put-voidwall-in-front-of-lm-studio).
-Voidwall then runs on the `guardrails` Docker network as `voidwall`.
+Do the steps in the [LM Studio recipe](lm-studio.md). Voidwall then runs on the
+`guardrails` Docker network as `voidwall`.
+
+To use Ollama, do the steps in the [Ollama recipe](ollama.md) instead. In step 2, set
+`GENERIC_OPEN_AI_MODEL_PREF` to the Ollama model, for example `gemma3:1b`. Keep the
+Generic OpenAI provider. Do not choose the Ollama provider of AnythingLLM: it calls
+Ollama's own API, where Voidwall does not scan a streamed answer. See
+[Ollama's own API](ollama.md#ollamas-own-api).
 
 ## 2. Start AnythingLLM
 

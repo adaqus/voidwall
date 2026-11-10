@@ -28,13 +28,13 @@ own model session, and each session keeps the memory of its largest input. So me
 grows during the first requests, and then stays at a ceiling.
 
 Measured with the config of the image, which runs `pii`, `prompt_injection`, and
-`pii_ml`:
+`pii_ml`. `pii` is the [regex PII guard](guards/pii-regex.md), with no model:
 
 | CPUs for the container | Model threads | Memory when ready | Memory after load |
 |---|---|---|---|
 | 12 | 6 for each model guard | 1.8 GiB | 3.7 GiB |
 | 4 (`--cpus=4`) | 2 for each model guard | 1.8 GiB | 2.2 GiB |
-| 12, `pii` guard only | None | 280 MiB | 290 MiB |
+| 12, regex `pii` guard only | None | 280 MiB | 290 MiB |
 
 "After load" is after 48 requests of 16 KB of text, 12 at a time. Plan for at least
 4 GiB with the default config. A config with fewer model guards, fewer `threads`, or a
@@ -60,7 +60,7 @@ Time grows faster than the text: four times the text takes more than four times 
 One measurement on one machine, AMD Ryzen 5 7600X with 12 CPUs, the config of the image,
 one `/v1/scan` request at a time:
 
-| Body | Config of the image | `pii` guard only |
+| Body | Config of the image | Regex `pii` guard only |
 |---|---|---|
 | 1 KB of text | 0.15 s | under 1 ms |
 | 4 KB of text | 1.0 s | Not measured |

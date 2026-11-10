@@ -58,6 +58,21 @@ models/my-classifier/tokenizer.json
    `labels` names the kind that a finding reports. A label with no threshold reports
    nothing. Every key is in [configuration.md](../configuration.md#model-guards-guardsname).
 
+   Where to get the labels:
+
+   - `text_classifier`: you choose the label. It names class 1 of the model. To see
+     which class is class 1, read `id2label` in the model's `config.json`, or the model
+     card on Hugging Face.
+   - `token_classifier`: use the type names of the model. They are in `id2label` in the
+     model's `config.json`, and often on the model card. Remove the `B-`, `I-`, or `S-`
+     prefix. This command lists them:
+
+     ```bash
+     jq -r '.id2label[]' models/my-model/config.json | sed -E 's/^[BIS]-//' | grep -vx O | sort -u
+     ```
+
+     Add only the types that you want to block to `labels`.
+
 3. Check the file. Mount the models, so that the check finds each file:
 
    ```bash
