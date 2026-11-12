@@ -3,6 +3,27 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.5.2] - 2026-11-12
+
+### Documentation
+
+- Name v0.5.1 in the docs tag and image pin examples
+
+### Build
+
+- **deps:** Bump axum from 0.8.8 to 0.8.9
+- **deps:** Bump lazy_static from 1.5.0 to 1.5.1
+- **deps:** Bump test-case from 3.4.0 to 3.4.1
+- **deps:** Bump reqwest from 0.12.28 to 0.13.5
+- **deps:** Allow the Zlib license, with deny.toml and about.toml
+- **deps:** Bump serde_json from 1.0.149 to 1.0.154
+- **deps:** Turn off the default features of reqwest
+- **deps:** Bump torch to 2.15.0 and transformers to 5.22.1 in parity
+
+### CI
+
+- **deps:** Bump taiki-e/install-action from 2.87.32 to 2.90.0
+
 ## [0.5.1] - 2026-11-10
 
 ### Bug Fixes
