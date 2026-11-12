@@ -34,7 +34,10 @@ More topics come later. Add a page to the index when you add it to `docs/`.
 3. Give each topic one source. Other places link to it and do not copy it.
    - The root `README.md` stays short: the pitch, a short quick start, and links here.
    - `owasp-coverage.md` is the source of the website coverage table
-     (`../voidwall-website/src/06-coverage.jsx`). Change both in the same change.
+     (`../voidwall-website/src/07-coverage.jsx`). Change both in the same change.
+   - `recipes/` is the source of the website "Tested setups" tiles
+     (`../voidwall-website/src/06-integrations.jsx`). The tiles link the recipes and copy
+     no steps. When you add or remove a recipe, change the tiles in the same change.
 4. Call the API on port 8083 the "HTTP API", never the "REST API". It is not REST.
 5. `configuration.md` lists every key with its description and its default value. A
    test checks the keys against the config types. A second test checks the kind table in
