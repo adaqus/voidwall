@@ -7,13 +7,12 @@ server or gateway:
 |---|---|---|
 | [LM Studio](lm-studio.md) | As a reverse proxy in front of LM Studio | A model that LM Studio serves |
 | [Ollama](ollama.md) | As a reverse proxy in front of Ollama | A model that Ollama serves |
-| [AnythingLLM](anythingllm.md) | As a reverse proxy between AnythingLLM and LM Studio or Ollama | A local server on plain HTTP |
+| [AnythingLLM](anythingllm.md) | As a reverse proxy between AnythingLLM and LM Studio, Ollama, or a hosted provider | A local server, or a hosted model such as OpenAI |
 | [LiteLLM](litellm.md) | As a LiteLLM guardrail, on the HTTP API | Any model provider that LiteLLM calls, hosted ones too |
 
-> **The reverse proxy reaches plain-HTTP upstreams only.** It does not originate TLS
-> yet. An `https://` upstream, such as OpenAI, Azure OpenAI, or OpenRouter, passes
-> validation and then fails with 502. To guard a hosted model, use the
-> [LiteLLM recipe](litellm.md).
+The reverse proxy reaches `https://` upstreams, such as OpenAI. See
+[HTTPS upstreams](../configuration.md#https-upstreams), and
+[A hosted model](anythingllm.md#a-hosted-model) in the AnythingLLM recipe.
 
 The sections below apply to each recipe that runs Voidwall as a reverse proxy: LM Studio,
 Ollama, and AnythingLLM. Their examples use the LM Studio port, `1234`. For Ollama, use

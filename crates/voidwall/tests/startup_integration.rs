@@ -4,6 +4,9 @@
 //! cover the paths `--validate` cannot: what the proxy logs, and what it does
 //! with traffic once it is running.
 
+#[path = "support/tls.rs"]
+mod tls;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::process::{Child, Command, Stdio};
@@ -530,4 +533,207 @@ listen = "127.0.0.1:0"
         !logs.contains("readiness flag set"),
         "/readyz must never answer 200: {logs}"
     );
+}
+
+/// The system roots are trusted with and without a route's CA bundle: the
+/// bundle adds to them. `SSL_CERT_FILE` stands in for the system store, so CA A
+/// is a system root here and CA B is only a route's bundle.
+#[tokio::test]
+async fn an_https_upstream_signed_by_a_system_root_is_reached() {
+    let (system_ca, other_ca) = (tls::TestCa::new(), tls::TestCa::new());
+    let dir = tempfile::tempdir().unwrap();
+    let system_pem = system_ca.write_pem(dir.path(), "system.pem");
+    let bundle = other_ca.write_pem(dir.path(), "bundle.pem");
+    let config = || system_ca.server_config(tls::HOST, tls::H2_AND_H1);
+    // Two upstreams, because the routes of one upstream must agree on the bundle.
+    let plain = tls::https_upstream(config(), tls::Reply::Version).await;
+    let bundled = tls::https_upstream(config(), tls::Reply::Version).await;
+
+    let envs = [("SSL_CERT_FILE", system_pem.to_str().unwrap())];
+    let (proxy, proxy_addr) = start_proxy_with(&envs, |proxy_addr, admin_addr| {
+        format!(
+            r#"
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/no-bundle"
+upstream = "https://{plain}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/bundle"
+upstream = "https://{bundled}"
+upstream_ca_path = "{bundle}"
+
+[admin]
+listen = "{admin_addr}"
+"#,
+            bundle = bundle.display(),
+        )
+    })
+    .await;
+
+    for path in ["/no-bundle", "/bundle"] {
+        let resp = reqwest::get(format!("http://{proxy_addr}{path}"))
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body = resp.text().await.unwrap();
+        assert_eq!(status, 200, "{path}: {body}\n{}", proxy.logs());
+        assert_eq!(body, "HTTP/2.0", "{path}");
+    }
+}
+
+/// An upstream certificate that does not verify answers 502, and the log names
+/// the certificate cause, not only "client error (Connect)".
+#[tokio::test]
+async fn an_untrusted_upstream_certificate_logs_its_cause() {
+    let (system_ca, other_ca) = (tls::TestCa::new(), tls::TestCa::new());
+    let dir = tempfile::tempdir().unwrap();
+    let system_pem = system_ca.write_pem(dir.path(), "system.pem");
+    let untrusted = tls::https_upstream(
+        other_ca.server_config(tls::HOST, tls::H2_AND_H1),
+        tls::Reply::Version,
+    )
+    .await;
+
+    let envs = [("SSL_CERT_FILE", system_pem.to_str().unwrap())];
+    let (proxy, proxy_addr) = start_proxy_with(&envs, |proxy_addr, admin_addr| {
+        format!(
+            r#"
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "https://{untrusted}"
+
+[admin]
+listen = "{admin_addr}"
+"#
+        )
+    })
+    .await;
+
+    let resp = reqwest::get(format!("http://{proxy_addr}/version"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 502);
+    assert_eq!(resp.text().await.unwrap(), r#"{"error":"upstream error"}"#);
+
+    // The log line is written before the answer, but its reader is a thread.
+    for _ in 0..100 {
+        if proxy.logs().contains("upstream request failed") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let logs = stop_and_read_logs(proxy);
+    let line = logs
+        .lines()
+        .find(|l| l.contains("upstream request failed"))
+        .unwrap_or_else(|| panic!("no failure line: {logs}"));
+    // Both test CAs carry rcgen's default subject, so rustls finds an issuer
+    // by name and the signature fails; any certificate cause will do here.
+    assert!(
+        line.contains("invalid peer certificate"),
+        "the log must name the certificate cause: {line}"
+    );
+}
+
+/// A CA bundle that does not load stops the start: the binary logs the route
+/// and the path, exits non-zero by itself, and the data plane never binds.
+async fn assert_a_bundle_stops_the_start(bundle: &std::path::Path) {
+    let proxy_addr = free_addr().await;
+    let cfg = write_cfg(&format!(
+        r#"
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/v1"
+upstream = "https://127.0.0.1:9"
+upstream_ca_path = "{bundle}"
+
+[admin]
+listen = "127.0.0.1:0"
+"#,
+        bundle = bundle.display(),
+    ));
+
+    let (status, logs) = wait_for_exit(spawn_proxy(cfg)).await;
+    assert!(!status.success(), "a bad bundle must exit non-zero: {logs}");
+    assert!(
+        !logs.contains("reverse proxy started"),
+        "the data plane must not bind: {logs}"
+    );
+    assert!(logs.contains("'/v1'"), "must name the route: {logs}");
+    assert!(
+        logs.contains(&bundle.display().to_string()),
+        "must name the path: {logs}"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_ca_bundle_stops_the_start() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_a_bundle_stops_the_start(&dir.path().join("missing.pem")).await;
+}
+
+#[tokio::test]
+async fn a_ca_bundle_with_no_certificate_stops_the_start() {
+    let bundle = write_cfg("not a certificate\n");
+    assert_a_bundle_stops_the_start(bundle.path()).await;
+}
+
+/// The startup log lines that warn about kinds `countries` makes unreachable,
+/// for a proxy whose `pii` guard sets `countries`.
+async fn international_warnings(countries: &str) -> Vec<String> {
+    let (proxy, _) = start_proxy(|proxy_addr, admin_addr| {
+        format!(
+            r#"
+[builtin_guards.pii]
+countries = {countries}
+
+[reverse_proxy]
+enabled = true
+listen = "{proxy_addr}"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "http://127.0.0.1:9"
+
+[admin]
+listen = "{admin_addr}"
+"#
+        )
+    })
+    .await;
+    // The warning is logged while the config loads, before the listener binds.
+    stop_and_read_logs(proxy)
+        .lines()
+        .filter(|l| l.contains("WARN") && l.contains("omits \"International\""))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Countries without `International` start the proxy with one warning that
+/// names the kinds never found.
+#[tokio::test]
+async fn countries_without_international_start_with_one_warning() {
+    let warnings = international_warnings(r#"["Us"]"#).await;
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("EMAIL"), "{}", warnings[0]);
+}
+
+/// Countries that list `International` leave nothing unreachable. An empty
+/// list does too, but compiling every country takes the debug binary longer
+/// than the start limit; the unit tests cover it.
+#[tokio::test]
+async fn countries_with_international_start_without_the_warning() {
+    let warnings = international_warnings(r#"["International", "Us"]"#).await;
+    assert!(warnings.is_empty(), "{warnings:?}");
 }

@@ -18,7 +18,9 @@ languages = ["En"]
 
 - `countries` selects the kinds of these countries. `International` holds the kinds that
   belong to no country, such as e-mail addresses, card numbers, and cloud keys. An empty
-  list selects all countries.
+  list selects all countries. If you list countries without `International`, and do not
+  set `detect`, Voidwall logs a warning at startup. The warning names the kinds and the
+  custom rules that are then never found.
 - `languages` selects the keyword languages. Some kinds need a keyword near the value,
   for example "passport" before a passport number, because the value alone has no
   shape that is safe to match. An empty list selects all languages: `En`, `Fr`, `De`,

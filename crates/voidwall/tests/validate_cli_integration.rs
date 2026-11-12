@@ -596,3 +596,55 @@ listen = "127.0.0.1:18083"
         String::from_utf8_lossy(&out.stderr),
     );
 }
+
+/// A route's CA bundle is TLS material, so validate mode does not open it: a
+/// path that does not exist passes. The real start reads it.
+#[test]
+fn validate_does_not_open_a_ca_bundle() {
+    let cfg = write_cfg(
+        r#"
+[reverse_proxy]
+enabled = true
+listen = "127.0.0.1:18082"
+
+[[reverse_proxy.routes]]
+path_prefix = "/v1"
+upstream = "https://gateway.example.com"
+upstream_ca_path = "/nonexistent/voidwall-test/ca.pem"
+"#,
+    );
+    let out = run_validate(cfg.path());
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+/// Validate mode logs no startup warning, so countries without International
+/// pass with the success line only.
+#[test]
+fn validate_does_not_warn_about_countries_without_international() {
+    let cfg = write_cfg(
+        r#"
+[builtin_guards.pii]
+countries = ["Us"]
+
+[http_api]
+enabled = true
+listen = "127.0.0.1:18083"
+"#,
+    );
+    let out = run_validate(cfg.path());
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(out.status.success(), "stdout: {stdout}\nstderr: {stderr}");
+    assert!(stdout.contains("config OK"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("International") && !stderr.contains("International"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+}

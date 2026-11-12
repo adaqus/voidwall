@@ -13,8 +13,8 @@ OpenAI-compatible API can use them.
 app ──► Voidwall :8082 ──► LM Studio :1234
 ```
 
-The reverse proxy reaches plain-HTTP upstreams only. LM Studio serves plain HTTP, so this
-works. For a hosted model, use the [LiteLLM recipe](litellm.md).
+For a hosted model, see [A hosted model](anythingllm.md#a-hosted-model) in the
+AnythingLLM recipe, or the [LiteLLM recipe](litellm.md).
 
 ## 1. Let containers reach LM Studio
 

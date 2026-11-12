@@ -118,7 +118,16 @@ route and stays plain.
 
 The response content type is read before the body. A body that is neither JSON nor a
 `text/event-stream` is unscannable and follows `on_error`; under `fail_open` it streams
-through unbuffered. Upstreams are reached over plain HTTP only (§ 7).
+through unbuffered.
+
+Each distinct upstream has one pooling client, in `reverse_proxy::UpstreamClients`.
+`server::run` builds them before the reverse proxy listener binds, because they read every
+`upstream_ca_path`: a bundle that does not load stops the start. An `https` upstream gets
+rustls on the ring provider, the system roots plus the route's bundle, and ALPN `h2` and
+`http/1.1`. An `http` upstream gets plain HTTP/1.1. Verification has no off switch, and a
+TLS failure is an upstream failure: 502 and `reason="upstream_error"`. Validation makes
+the routes of one upstream agree on the bundle, so the upstream string alone keys the
+client.
 
 A `text/event-stream` response is scanned as a stream, whatever the request said about
 `stream`. `structured::sse` frames the events and keeps each one's raw bytes;
@@ -174,8 +183,11 @@ whatever it needs to detect — the regex PII guard owns the scanner pool, and t
 6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
    raw matches with `pii::resolve_overlaps` before returning them as findings.
 7. A detection counts its kinds, counts the block, and answers 403 with those kind
-   names, or 400 in the OpenAI error shape on an `openai-chat` route. Nothing anywhere on this path rewrites a message.
-8. With no detection, the proxy forwards to the upstream unchanged.
+   names, or 400 in the OpenAI error shape on an `openai-chat` route. Nothing anywhere on this path rewrites a message, with the one header of step 8.
+8. With no detection, the proxy forwards to the upstream unchanged, with one exception:
+   when `response.scan` is true, it sends `Accept-Encoding: identity` in place of the
+   client's value. The proxy does not decompress, so a compressed body that the route
+   would scan is unscannable content.
 9. The response travels the same path in the other direction, when `response.scan` is
    true. A `text/event-stream` on an `openai-chat` route is scanned as it arrives instead
    of buffered whole, in hold-back or buffer mode (§ 2).
@@ -287,7 +299,9 @@ Three consequences worth stating:
   the worker takes the next job. A cancelled run is not a failure and is not counted.
 
 Nothing rewrites a message. A guard reads the units it was handed and reports spans; no
-stage downstream turns those spans into replacement bytes. That is not only a policy
+stage downstream turns those spans into replacement bytes. The one header value the
+proxy sets, `Accept-Encoding: identity` with `response.scan` on, does not depend on a
+finding. That is not only a policy
 choice — an abandoned guard's worker may still hold a clone of the shared units, so
 exclusive access to the content is never guaranteed anyway.
 
@@ -623,7 +637,6 @@ These appear in the config schema or the module list. None of them runs.
 |---|---|---|
 | Forward proxy mode | `forward_proxy.rs` is empty. `ForwardProxyConfig` parses, and validation rejects `forward_proxy.enabled = true`. | The reverse proxy and the API cover the current deployments. Egress inspection is a larger design than the config schema implies, and its shape is still being settled. |
 | TLS termination | `tls.rs` is empty. `TlsConfig` parses, and validation rejects `tls.enabled = true`. | Deployments terminate TLS at the ingress or the load balancer. |
-| Upstream TLS | Every upstream client is `build_http()`. An `https://` upstream passes validation and fails with 502. | The `format = "openai-chat"` route was scoped to plain-HTTP servers such as vLLM and Ollama. |
 | Forward proxy TLS interception | Not started. Needs the forward proxy first. | Certificate generation and distribution is a large surface. It only pays off with the egress case. |
 | Ingress controller integration | Never started. | It needs an ext_proc or external-auth implementation per controller. Standalone modes came first. |
 | Checksum validation toggle | Not started. `PiiGuardConfig` has no `validate` field. Do not confuse it with the `--validate <path>` CLI flag, which is unrelated and does work. | It is an evaluation aid only. It disables every validator scanner-wide and inflates false positives. |

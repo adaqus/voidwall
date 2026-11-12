@@ -1,21 +1,27 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderName, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use bytes::{Bytes, BytesMut};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
+use rustls::RootCertStore;
+use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::config::{AppConfig, OnError, RouteFormat, StreamMode};
 use crate::engine::{
@@ -91,7 +97,7 @@ const MODE: &str = "reverse_proxy";
 #[derive(Clone)]
 pub struct ReverseProxyState {
     routes: Arc<Vec<ResolvedRoute>>,
-    clients: Arc<HashMap<String, Client<hyper_util::client::legacy::connect::HttpConnector, Body>>>,
+    clients: UpstreamClients,
     engine: Arc<Engine>,
     pii_guards: Arc<PiiGuards>,
     ingest: Arc<Ingest>,
@@ -105,23 +111,147 @@ pub struct ReverseProxyState {
 }
 
 // ---------------------------------------------------------------------------
+// Upstream clients
+// ---------------------------------------------------------------------------
+
+/// A pooling client that speaks plain HTTP/1.1 to an `http` upstream and TLS
+/// to an `https` one, where ALPN picks HTTP/2 or HTTP/1.1.
+type UpstreamClient = Client<HttpsConnector<HttpConnector>, Body>;
+
+/// One pooling client per distinct upstream, each with the trust its routes
+/// name. Validation guarantees that the routes of one upstream agree on
+/// `upstream_ca_path`, so the upstream string alone keys the client.
+///
+/// [`UpstreamClients::build`] reads every CA bundle, so it runs before the
+/// reverse proxy listener binds: a bundle that fails to load stops the start.
+#[derive(Clone)]
+pub struct UpstreamClients(Arc<HashMap<String, UpstreamClient>>);
+
+impl UpstreamClients {
+    /// Build the clients of every reverse proxy route, trusting the system
+    /// roots and each route's `upstream_ca_path`.
+    pub fn build(config: &AppConfig) -> Result<Self, Error> {
+        Self::build_with(config, system_roots)
+    }
+
+    /// [`UpstreamClients::build`] with the system root loader passed in. It
+    /// is called only when a route names an `https` upstream, so a config of
+    /// plain upstreams reads no certificate store.
+    fn build_with(
+        config: &AppConfig,
+        load_roots: impl FnOnce() -> RootCertStore,
+    ) -> Result<Self, Error> {
+        let routes = &config.reverse_proxy.routes;
+        let roots = if routes.iter().any(|r| is_https(&r.upstream)) {
+            load_roots()
+        } else {
+            RootCertStore::empty()
+        };
+
+        let mut clients = HashMap::new();
+        for route in routes {
+            if clients.contains_key(&route.upstream) {
+                continue;
+            }
+            let mut trusted = roots.clone();
+            if let Some(path) = &route.upstream_ca_path {
+                add_ca_bundle(&mut trusted, path).map_err(|cause| {
+                    Error::Config(format!(
+                        "reverse_proxy: route '{}': upstream_ca_path '{}' {cause}",
+                        route.path_prefix,
+                        path.display(),
+                    ))
+                })?;
+            }
+            clients.insert(route.upstream.clone(), upstream_client(trusted)?);
+        }
+        Ok(Self(Arc::new(clients)))
+    }
+
+    fn get(&self, upstream: &str) -> Option<&UpstreamClient> {
+        self.0.get(upstream)
+    }
+}
+
+fn is_https(upstream: &str) -> bool {
+    upstream
+        .parse::<Uri>()
+        .is_ok_and(|uri| uri.scheme_str() == Some("https"))
+}
+
+/// The system root store, read once. A certificate that does not load is
+/// counted, not fatal; an empty store only warns, and an `https` upstream that
+/// relies on it then answers 502.
+fn system_roots() -> RootCertStore {
+    let found = rustls_native_certs::load_native_certs();
+    if !found.errors.is_empty() {
+        warn!(
+            errors = found.errors.len(),
+            "some system root certificates did not load"
+        );
+    }
+    let mut roots = RootCertStore::empty();
+    let (loaded, ignored) = roots.add_parsable_certificates(found.certs);
+    if roots.is_empty() {
+        warn!(
+            "no system root certificate loaded; an https upstream that relies on them answers 502"
+        );
+    } else {
+        info!(loaded, ignored, "system root certificates loaded");
+    }
+    roots
+}
+
+/// Add every certificate of the PEM file at `path` to `roots`. The error text
+/// completes "upstream_ca_path '<path>' …".
+fn add_ca_bundle(roots: &mut RootCertStore, path: &Path) -> Result<(), String> {
+    let certs = CertificateDer::pem_file_iter(path)
+        .map_err(|e| format!("cannot be read: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("does not parse: {e}"))?;
+    if certs.is_empty() {
+        return Err("holds no certificate".into());
+    }
+    for cert in certs {
+        roots
+            .add(cert)
+            .map_err(|e| format!("holds a certificate that is not a valid CA: {e}"))?;
+    }
+    Ok(())
+}
+
+/// A client that verifies an `https` upstream against `roots`. Verification
+/// has no off switch. ALPN offers `h2` and `http/1.1`.
+fn upstream_client(roots: RootCertStore) -> Result<UpstreamClient, Error> {
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| Error::Config(format!("reverse_proxy: upstream TLS: {e}")))?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let connector = HttpsConnectorBuilder::new()
+        .with_tls_config(tls)
+        .https_or_http()
+        .enable_all_versions()
+        .build();
+    Ok(Client::builder(TokioExecutor::new())
+        .pool_idle_timeout(Duration::from_secs(30))
+        .build(connector))
+}
+
+// ---------------------------------------------------------------------------
 // Router & server
 // ---------------------------------------------------------------------------
 
-/// Build the reverse proxy state from configuration.
-pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState {
+/// Build the reverse proxy state from configuration and the upstream clients
+/// built for it.
+pub fn build_state(
+    config: &AppConfig,
+    engine: Arc<Engine>,
+    clients: UpstreamClients,
+) -> ReverseProxyState {
     let rp = &config.reverse_proxy;
-
-    // Build one pooling client per unique upstream.
-    let mut clients = HashMap::new();
-    for route in &rp.routes {
-        if !clients.contains_key(&route.upstream) {
-            let client = Client::builder(TokioExecutor::new())
-                .pool_idle_timeout(std::time::Duration::from_secs(30))
-                .build_http();
-            clients.insert(route.upstream.clone(), client);
-        }
-    }
 
     // Resolve each route's guard set once. A route that names no guard takes
     // every enabled one; one that names an empty list takes none.
@@ -143,7 +273,7 @@ pub fn build_state(config: &AppConfig, engine: Arc<Engine>) -> ReverseProxyState
 
     ReverseProxyState {
         routes: Arc::new(routes),
-        clients: Arc::new(clients),
+        clients,
         engine,
         pii_guards: Arc::new(PiiGuards::from_config(config)),
         ingest: Arc::new(Ingest {
@@ -170,24 +300,28 @@ pub fn router(state: ReverseProxyState) -> Router {
     Router::new().fallback(proxy_handler).with_state(state)
 }
 
-/// Start the reverse proxy server.
+/// Start the reverse proxy server. It builds the upstream clients before it
+/// binds, so a CA bundle that fails to load returns before any listener exists.
 pub async fn serve(
     config: &AppConfig,
     engine: Arc<Engine>,
     cancel: CancellationToken,
 ) -> Result<(), Error> {
+    let clients = UpstreamClients::build(config)?;
     let listener = TcpListener::bind(&config.reverse_proxy.listen).await?;
-    serve_on(listener, config, engine, cancel).await
+    serve_on(listener, config, engine, clients, cancel).await
 }
 
-/// Serve the reverse proxy on a listener already bound.
+/// Serve the reverse proxy on a listener already bound, with upstream clients
+/// already built.
 pub async fn serve_on(
     listener: TcpListener,
     config: &AppConfig,
     engine: Arc<Engine>,
+    clients: UpstreamClients,
     cancel: CancellationToken,
 ) -> Result<(), Error> {
-    let state = build_state(config, engine);
+    let state = build_state(config, engine, clients);
     let app = router(state);
     tracing::info!(listen = %listener.local_addr()?, "reverse proxy started");
 
@@ -329,14 +463,7 @@ async fn handle_proxied_request(
         }
     };
 
-    // Strip hop-by-hop headers, the host, and content-length. Hyper recomputes
-    // the length from the body it actually sends.
-    let mut upstream_headers = HeaderMap::new();
-    for (name, value) in headers.iter() {
-        if !is_hop_by_hop(name) && name != "host" && name != "content-length" {
-            upstream_headers.append(name.clone(), value.clone());
-        }
-    }
+    let upstream_headers = upstream_request_headers(&headers, state.response_scan);
 
     let upstream_req = match hyper::Request::builder()
         .method(method.clone())
@@ -363,7 +490,7 @@ async fn handle_proxied_request(
     {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
-            error!(error = %e, upstream = %route.upstream, "upstream request failed");
+            error!(error = %error_chain(&e), upstream = %route.upstream, "upstream request failed");
             metrics::inc_error("blocked", "upstream_error");
             return answer(shape, Error::Proxy(format!("upstream error: {e}")));
         }
@@ -384,7 +511,7 @@ async fn handle_proxied_request(
         // A stream on an `openai-chat` route is found by its content type,
         // whatever the request said. Its headers bound only the wait for the
         // response headers; the stream limits bound the body. A compressed
-        // stream goes on to the check below, which finds it unscannable.
+        // stream goes on to the check below.
         if let RouteFormat::OpenAiChat { stream } = route.format
             && is_event_stream(&resp_headers)
             && !is_encoded(&resp_headers)
@@ -409,13 +536,27 @@ async fn handle_proxied_request(
             };
         }
 
-        // An `openai-chat` route reads the content type before the body, so a
-        // response it cannot scan is never buffered. A message that passes
-        // under `fail_open` streams through as with response scan off; its
-        // headers are still scanned.
-        let unscannable = match route.format {
-            RouteFormat::Generic => None,
-            RouteFormat::OpenAiChat { .. } => {
+        // The headers decide, before the body is read, whether the body can be
+        // scanned. The proxy does not decompress, so a compressed body the
+        // route would scan is unscannable content on both formats. A route
+        // that scans no response body reads a compressed one as it reads any
+        // other: only its headers are scanned. An `openai-chat` route also
+        // reads the content type first, so a response it cannot scan is never
+        // buffered. A message that passes under `fail_open` streams through as
+        // with response scan off; its headers are still scanned.
+        let compressed =
+            is_encoded(&resp_headers) && !has_no_body(&method, resp_status, &resp_headers);
+        let scans_body = selection.wants(ctx.direction, UnitKind::Body)
+            && match route.format {
+                RouteFormat::Generic => {
+                    is_content_type_allowed(&resp_headers, &ingest.content_types)
+                }
+                RouteFormat::OpenAiChat { .. } => true,
+            };
+        let unscannable = match (compressed, scans_body, route.format) {
+            (true, true, _) => Some(Error::UnscannableContent),
+            (true, false, _) | (false, _, RouteFormat::Generic) => None,
+            (false, _, RouteFormat::OpenAiChat { .. }) => {
                 unscannable_response(&method, resp_status, &resp_headers)
             }
         };
@@ -1708,8 +1849,8 @@ fn decoded_units(
 /// Why an upstream response on an `openai-chat` route cannot be scanned,
 /// read from its headers before the body: a type that is neither JSON nor a
 /// stream is unscannable content when the response has a body. `None` when
-/// the response can be scanned. A stream is scanned by its own path before
-/// this is asked, unless it is compressed: then it is unscannable here.
+/// the response can be scanned. A stream is scanned by its own path, and a
+/// compressed body is judged, before this is asked.
 fn unscannable_response(method: &Method, status: StatusCode, headers: &HeaderMap) -> Option<Error> {
     let content_type = headers
         .get("content-type")
@@ -1829,12 +1970,49 @@ fn upstream_timeout(upstream: &str) -> Error {
     Error::UpstreamTimeout
 }
 
+/// `e` and every error in its `source()` chain, joined with `: `. The client
+/// error's own text names only its kind, such as `client error (Connect)`; the
+/// cause, such as a certificate that does not verify, is in the chain. An
+/// upstream failure carries transport causes only, never message content.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        out.push_str(": ");
+        out.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    out
+}
+
 fn strip_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     let mut out = HeaderMap::new();
     for (name, value) in headers.iter() {
         if !is_hop_by_hop(name) {
             out.append(name.clone(), value.clone());
         }
+    }
+    out
+}
+
+/// The headers of the request sent upstream: the client's, minus the
+/// hop-by-hop headers, the host, and content-length (hyper recomputes the
+/// length from the body it sends). With response scan on, every
+/// `Accept-Encoding` the client sent is replaced by one `identity`: the proxy
+/// does not decompress, so a compressed answer could not be scanned. This is
+/// the one header value the proxy rewrites.
+fn upstream_request_headers(headers: &HeaderMap, response_scan: bool) -> HeaderMap {
+    let mut out = HeaderMap::new();
+    for (name, value) in headers.iter() {
+        if !is_hop_by_hop(name) && name != "host" && name != "content-length" {
+            out.append(name.clone(), value.clone());
+        }
+    }
+    if response_scan {
+        out.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("identity"),
+        );
     }
     out
 }
@@ -2102,6 +2280,33 @@ mod tests {
         let cookies: Vec<_> = stripped.get_all("set-cookie").iter().collect();
         assert_eq!(cookies, ["a=1", "b=2"]);
         assert!(stripped.get("connection").is_none());
+    }
+
+    // --- Accept-Encoding on the forwarded request ---
+
+    #[test_case(true, &["gzip, deflate, br"], &["identity"] ; "scan on replaces one value")]
+    #[test_case(true, &["gzip", "br"], &["identity"] ; "scan on replaces two headers")]
+    #[test_case(true, &[], &["identity"] ; "scan on adds the header")]
+    #[test_case(false, &["gzip, deflate, br"], &["gzip, deflate, br"] ; "scan off keeps one value")]
+    #[test_case(false, &["gzip", "br"], &["gzip", "br"] ; "scan off keeps two headers")]
+    #[test_case(false, &[], &[] ; "scan off adds nothing")]
+    fn the_forwarded_accept_encoding_follows_response_scan(
+        response_scan: bool,
+        sent: &[&str],
+        expected: &[&str],
+    ) {
+        let mut headers = HeaderMap::new();
+        for value in sent {
+            headers.append("accept-encoding", value.parse().unwrap());
+        }
+        headers.insert("x-kept", "1".parse().unwrap());
+        headers.insert("connection", "close".parse().unwrap());
+
+        let forwarded = upstream_request_headers(&headers, response_scan);
+        let values: Vec<_> = forwarded.get_all("accept-encoding").iter().collect();
+        assert_eq!(values, expected);
+        assert_eq!(forwarded.get("x-kept").unwrap(), "1");
+        assert!(forwarded.get("connection").is_none());
     }
 
     // --- Scan header collection ---
@@ -2651,6 +2856,7 @@ mod tests {
                 routes: vec![Route {
                     path_prefix: route.to_string(),
                     upstream: "http://127.0.0.1:9".to_string(),
+                    upstream_ca_path: None,
                     guards: None,
                     headers: Vec::new(),
                     format: RouteFormatKey::Generic,
@@ -2660,7 +2866,7 @@ mod tests {
             },
             ..AppConfig::default()
         };
-        let state = build_state(&config, engine);
+        let state = build_state(&config, engine, UpstreamClients::build(&config).unwrap());
         let req = Request::builder()
             .method("POST")
             .uri(route)
@@ -2817,6 +3023,7 @@ mod tests {
                     routes: vec![Route {
                         path_prefix: self.route.to_string(),
                         upstream: self.upstream.clone(),
+                        upstream_ca_path: None,
                         guards: None,
                         headers: self.headers.clone(),
                         format: RouteFormatKey::OpenAiChat,
@@ -2826,7 +3033,15 @@ mod tests {
                 },
                 ..AppConfig::default()
             };
-            proxy_handler(State(build_state(&config, engine)), req).await
+            proxy_handler(
+                State(build_state(
+                    &config,
+                    engine,
+                    UpstreamClients::build(&config).unwrap(),
+                )),
+                req,
+            )
+            .await
         }
 
         async fn post(&self, guards: Vec<TestGuard>, body: serde_json::Value) -> Response {
@@ -4049,5 +4264,116 @@ mod tests {
         };
         let body = stream_body(chat.post(needle(), chat_request()).await).await;
         assert_eq!(body, parts.concat());
+    }
+
+    // --- Upstream clients ---
+
+    use std::cell::Cell;
+
+    /// An error with a message and an optional cause.
+    #[derive(Debug)]
+    struct Layer(&'static str, Option<Box<Layer>>);
+
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for Layer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.1.as_deref().map(|e| e as _)
+        }
+    }
+
+    #[test_case(Layer("client error (Connect)", None), "client error (Connect)" ; "no cause")]
+    #[test_case(
+        Layer("client error (Connect)", Some(Box::new(Layer("invalid peer certificate: UnknownIssuer", None)))),
+        "client error (Connect): invalid peer certificate: UnknownIssuer"
+        ; "one cause"
+    )]
+    #[test_case(
+        Layer("a", Some(Box::new(Layer("b", Some(Box::new(Layer("c", None))))))),
+        "a: b: c"
+        ; "a nested cause"
+    )]
+    fn an_error_chain_names_every_cause(error: Layer, expected: &str) {
+        assert_eq!(error_chain(&error), expected);
+    }
+
+    /// A config of one reverse proxy route, `/v1`, to `upstream`, with
+    /// `upstream_ca_path` set when `ca` is given. It is not validated: the
+    /// client builder runs on a config that already passed validation.
+    fn client_config(upstream: &str, ca: Option<&Path>) -> AppConfig {
+        let ca = ca
+            .map(|p| format!("upstream_ca_path = {:?}\n", p.display().to_string()))
+            .unwrap_or_default();
+        toml::from_str(&format!(
+            "[reverse_proxy]\nenabled = true\n\n[[reverse_proxy.routes]]\n\
+             path_prefix = \"/v1\"\nupstream = \"{upstream}\"\n{ca}"
+        ))
+        .unwrap()
+    }
+
+    /// The PEM of a fresh self-signed CA certificate.
+    fn ca_pem() -> String {
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let key = rcgen::KeyPair::generate().unwrap();
+        params.self_signed(&key).unwrap().pem()
+    }
+
+    #[test]
+    fn plain_upstreams_read_no_root_store() {
+        let config = client_config("http://localhost:8080", None);
+        let clients = UpstreamClients::build_with(&config, || panic!("read the root store"));
+        assert!(clients.unwrap().get("http://localhost:8080").is_some());
+    }
+
+    #[test]
+    fn an_https_upstream_reads_the_root_store_once() {
+        let config = client_config("https://gateway.internal", None);
+        let reads = Cell::new(0);
+        let clients = UpstreamClients::build_with(&config, || {
+            reads.set(reads.get() + 1);
+            RootCertStore::empty()
+        });
+        assert!(clients.unwrap().get("https://gateway.internal").is_some());
+        assert_eq!(reads.get(), 1);
+    }
+
+    #[test]
+    fn a_ca_bundle_is_added_to_the_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ca.pem");
+        std::fs::write(&path, format!("{}{}", ca_pem(), ca_pem())).unwrap();
+        let config = client_config("https://gateway.internal", Some(&path));
+        UpstreamClients::build_with(&config, RootCertStore::empty).unwrap();
+    }
+
+    #[test_case(None, "cannot be read" ; "the file is missing")]
+    #[test_case(Some("not a certificate\n"), "holds no certificate" ; "the file holds no certificate")]
+    #[test_case(Some("-----BEGIN CERTIFICATE-----\n@@@@\n-----END CERTIFICATE-----\n"), "does not parse" ; "a PEM block is broken")]
+    #[test_case(Some("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"), "not a valid CA" ; "a block is not a certificate")]
+    fn a_ca_bundle_that_fails_to_load_names_the_route_and_the_path(
+        text: Option<&str>,
+        cause: &str,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ca.pem");
+        if let Some(text) = text {
+            std::fs::write(&path, text).unwrap();
+        }
+        let config = client_config("https://gateway.internal", Some(&path));
+        let Err(err) = UpstreamClients::build_with(&config, RootCertStore::empty) else {
+            panic!("expected the bundle to fail");
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'/v1'"), "names the route: {msg}");
+        assert!(
+            msg.contains(&path.display().to_string()),
+            "names the path: {msg}"
+        );
+        assert!(msg.contains(cause), "got: {msg}");
     }
 }

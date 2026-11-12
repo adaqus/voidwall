@@ -128,7 +128,7 @@ run. At least one `surface` key must be `true`.
 | `reverse_proxy.enabled` | boolean | `false` | Start the reverse proxy. |
 | `reverse_proxy.listen` | string, address | `"0.0.0.0:8082"` | The address the reverse proxy listens on. |
 | `reverse_proxy.request.scan` | boolean | `true` | Inspect requests. |
-| `reverse_proxy.response.scan` | boolean | `true` | Inspect responses. |
+| `reverse_proxy.response.scan` | boolean | `true` | Inspect responses. When `true`, Voidwall sends each request to the upstream with `Accept-Encoding: identity`, in place of the client's value, because it cannot scan a compressed body. A compressed response body that the route would scan is content that Voidwall cannot inspect, and it follows `on_error`. |
 
 At least one of `reverse_proxy.enabled` and `http_api.enabled` must be `true`.
 
@@ -140,11 +140,33 @@ request that matches no route gets 404.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `reverse_proxy.routes[].path_prefix` | string | Required | The path prefix of the route. Two routes must not have the same prefix. |
-| `reverse_proxy.routes[].upstream` | string, URL | Required | The server that gets the request, such as `http://ollama:11434`. Use `http://` only: an `https://` upstream passes validation, but each request to it gets 502. |
+| `reverse_proxy.routes[].upstream` | string, URL | Required | The server that gets the request, such as `http://ollama:11434` or `https://api.openai.com`. See [HTTPS upstreams](#https-upstreams). |
+| `reverse_proxy.routes[].upstream_ca_path` | string, path | None | A PEM file of CA certificates that the `https://` upstream can chain to. They are added to the system roots. Only an `https://` upstream can set it. Two routes with the same `upstream` must set the same value, or both leave it out. |
 | `reverse_proxy.routes[].guards` | array of strings | None, all enabled guards | The guards that run on this route. `[]` runs none, and the traffic passes without inspection. Each name must be an enabled guard. |
 | `reverse_proxy.routes[].headers` | array of strings | `[]` | The header names whose values are inspected, in both directions. A header that is not in the list is never inspected. |
 | `reverse_proxy.routes[].format` | `"openai-chat"` | None | Decode the bodies as OpenAI Chat Completions, and answer in the OpenAI error shape. Without it, a body is inspected by its content type. |
 | `reverse_proxy.routes[].stream` | `"holdback"` or `"buffer"` | `"holdback"` | How a route with `format = "openai-chat"` scans a stream. `holdback` sends the stream while it runs, and holds the newest text until a scan clears it. `buffer` reads the whole stream before it sends any of it. Only a route with `format = "openai-chat"` can set it. |
+
+### HTTPS upstreams
+
+Voidwall connects to an `https://` upstream over TLS. It verifies the certificate and the
+host name of the upstream. It trusts the system root certificates. The image has the
+Debian `ca-certificates` package, so a public provider, such as OpenAI or OpenRouter,
+needs no more setup. You cannot turn verification off.
+
+If the upstream has a certificate from a private CA, such as a company gateway, set
+`upstream_ca_path` on its routes. Mount the PEM file into the container. Voidwall reads
+the file at startup. If the file is missing or holds no certificate, Voidwall does not
+start. `--validate` does not read the file.
+
+Voidwall offers HTTP/2 and HTTP/1.1, and uses the version that the upstream selects. An
+`http://` upstream gets HTTP/1.1.
+
+A TLS failure, such as a certificate that does not verify, gets the same 502 as an
+upstream that cannot be reached. The log tells the cause.
+
+The `SSL_CERT_FILE` and `SSL_CERT_DIR` variables replace the system roots. They do not
+add to them. To add a CA, use `upstream_ca_path`.
 
 ## HTTP API: `[http_api]`
 
@@ -219,7 +241,7 @@ See `openspec/specs/configuration/spec.md` for the full specification.
 | `[file]` | Voidwall cannot read the file, or a `model_path`, `tokenizer_path`, or `config_path` names no file. The message gives the path. |
 | `[toml parse]` | The file is not correct TOML. |
 | `[schema]` | The TOML does not have the expected shape: a key is missing or unknown, or a value has the wrong type or is not in its set. Examples: an unknown `adapter`, `format`, `stream`, or `class`; a `stream_idle_timeout_secs` or `upstream_timeout_secs` outside 1 to 3600; a `stream_*_bytes` key below 1. |
-| `[semantic]` | The keys have the correct shape but break a rule: two routes with the same `path_prefix`, an upstream that is not a URL, a custom label that is a built-in label, an `enabled = true` for TLS or the forward proxy, a `stream` without `format = "openai-chat"`, a stream key above its bound, or a model guard rule from the next table. |
+| `[semantic]` | The keys have the correct shape but break a rule: two routes with the same `path_prefix`, an upstream that is not a URL, an `upstream_ca_path` that is empty or on an `http://` upstream, two routes of one upstream with different `upstream_ca_path` values, a custom label that is a built-in label, an `enabled = true` for TLS or the forward proxy, a `stream` without `format = "openai-chat"`, a stream key above its bound, or a model guard rule from the next table. |
 | `[scanner build]` | A pattern does not compile. For a `[[builtin_guards.pii.custom]]` entry, the message gives its `label`. |
 
 ### Model guard rules

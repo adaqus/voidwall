@@ -64,14 +64,6 @@ evaluation against fabricated ground truth. It inflates false positives.
 - Emit one `warn!` line at startup when the value is false.
 - Unit-test both directions: a Luhn-failing card matches when the flag is off.
 
-### 1.4 Reverse proxy upstream TLS
-
-Every upstream client is `build_http()`, so an `https://` upstream passes validation and
-fails at run time with 502. OpenAI, Azure OpenAI, and OpenRouter are not reachable, with
-or without `format = "openai-chat"`.
-
-- Build the upstream clients with a connector that originates TLS.
-
 ### 1.5 Duplicate JSON keys shift the flattened fragments
 
 `structured::json::flatten_json` records the offset of every quoted string in the raw
@@ -134,6 +126,21 @@ and personal data in the answer reaches the client. A request, and an answer wit
   `openai-chat` route scans a Chat Completions stream.
 - Decide in the proposal how a route selects this decoding, and what a block answers
   after the first byte.
+
+### 1.10 Scan compressed response bodies
+
+When response scan is on, the proxy sends `Accept-Encoding: identity` to the upstream.
+A response body that is still compressed (a `Content-Encoding` other than `identity`),
+and that the route would scan, is unscannable content: 422 under `fail_close`,
+unscanned under `fail_open`. Found with
+OpenAI, which compresses its JSON answers when the client asks for it.
+
+- Decompress `gzip`, `br`, and `deflate` bodies, JSON and `text/event-stream`, and scan
+  the decompressed text.
+- Decide in the proposal: whether the client gets the compressed upstream bytes or the
+  decompressed body, whether the body size limit applies to the decompressed size (a
+  small compressed body can expand to a very large one), and which crates it adds.
+- Then decide whether the proxy still sets `Accept-Encoding: identity`.
 
 ---
 

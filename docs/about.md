@@ -73,9 +73,9 @@ Try Voidwall in development and test environments, and tell us what you find.
 
 Known limits:
 
-- The reverse proxy sends requests over plain HTTP only. It cannot reach an `https://`
-  upstream, such as OpenAI, yet. To guard a hosted model, use the LiteLLM guardrail.
-- The reverse proxy does not terminate TLS. Put a TLS proxy in front of it.
+- The reverse proxy does not terminate TLS. Put a TLS proxy in front of it. It does
+  connect to `https://` upstreams: see
+  [HTTPS upstreams](configuration.md#https-upstreams).
 - Streaming (SSE) is inspected only on routes with `format = "openai-chat"`.
 - Docker Desktop on macOS and on Windows is not tested yet. See [hardware.md](hardware.md).
 
