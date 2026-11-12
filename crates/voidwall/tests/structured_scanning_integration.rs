@@ -110,6 +110,7 @@ impl TestProxy {
                 routes: vec![Route {
                     path_prefix: "/".into(),
                     upstream: format!("http://{upstream}"),
+                    upstream_ca_path: None,
                     guards: None,
                     headers: Vec::new(),
                     format: RouteFormatKey::Generic,

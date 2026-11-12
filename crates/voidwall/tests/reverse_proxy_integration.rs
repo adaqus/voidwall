@@ -265,6 +265,7 @@ impl TestProxy {
             .map(|(prefix, upstream_path)| Route {
                 path_prefix: prefix.to_string(),
                 upstream: format!("http://{upstream_addr}{upstream_path}"),
+                upstream_ca_path: None,
                 guards: None,
                 headers: scanned_headers.clone(),
                 format: RouteFormatKey::Generic,
@@ -1091,6 +1092,7 @@ async fn start_proxy_with_route_guards(
                 .map(|(prefix, guards)| Route {
                     path_prefix: prefix.to_string(),
                     upstream: format!("http://{upstream}"),
+                    upstream_ca_path: None,
                     guards,
                     headers: Vec::new(),
                     format: RouteFormatKey::Generic,

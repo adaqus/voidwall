@@ -93,8 +93,16 @@ where
         "detection engine initialized"
     );
 
-    // Reverse proxy (if enabled)
+    // Reverse proxy (if enabled). Its upstream clients read every CA bundle,
+    // so they are built before any data-plane listener binds.
     if config.reverse_proxy.enabled {
+        let clients = match reverse_proxy::UpstreamClients::build(&config) {
+            Ok(clients) => clients,
+            Err(e) => {
+                cancel.cancel();
+                return Err(e);
+            }
+        };
         let listener = bind(
             Listener::ReverseProxy,
             &config.reverse_proxy.listen,
@@ -105,7 +113,9 @@ where
         let engine = Arc::clone(&engine);
         let cancel = cancel.clone();
         task_handles.push(tokio::spawn(async move {
-            if let Err(e) = reverse_proxy::serve_on(listener, &config, engine, cancel).await {
+            if let Err(e) =
+                reverse_proxy::serve_on(listener, &config, engine, clients, cancel).await
+            {
                 tracing::error!(error = %e, "reverse proxy failed");
             }
         }));

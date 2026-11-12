@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -925,6 +925,13 @@ pub struct Route {
     pub path_prefix: String,
     pub upstream: String,
 
+    /// A PEM file of CA certificates that this route's `https` upstream may
+    /// chain to, on top of the system roots. Validation rejects it on an
+    /// `http` upstream and when two routes of one upstream disagree on it;
+    /// the file is read at startup only, never in validate mode.
+    #[serde(default)]
+    pub upstream_ca_path: Option<PathBuf>,
+
     /// The guards that run for this route, by name. An absent list selects
     /// every enabled guard; an empty list selects none, which is how a route
     /// opts out of inspection.
@@ -1172,6 +1179,7 @@ impl AppConfig {
         config.warn_on_empty_guard_set();
         config.warn_on_model_thread_total();
         config.warn_on_unbounded_custom_patterns();
+        config.warn_on_unreachable_international();
         Ok(config)
     }
 
@@ -1219,6 +1227,57 @@ impl AppConfig {
             .map(|r| r.path_prefix.as_str())
             .collect();
         (!labels.is_empty() && !routes.is_empty()).then_some((labels, routes))
+    }
+
+    /// Warn once when the `pii` guard lists countries without
+    /// `International`. The kinds that belong to no country, such as e-mail
+    /// addresses and card numbers, and every custom rule of that country are
+    /// then never found. Not an error: a deployment may leave them out on
+    /// purpose.
+    pub fn warn_on_unreachable_international(&self) {
+        if let Some(labels) = self.unreachable_international_labels() {
+            tracing::warn!(
+                labels = %labels.join(", "),
+                "builtin_guards.pii.countries omits \"International\"; \
+                 these kinds and custom rules are never found",
+            );
+        }
+    }
+
+    /// The sorted labels that `countries` makes unreachable: the built-in
+    /// kinds of `International` that `ignore` does not already drop, and the
+    /// custom rules of `International`. `None` when nothing is dropped, or
+    /// when `detect` names the kinds by hand, because validation already made
+    /// each of those reachable.
+    fn unreachable_international_labels(&self) -> Option<Vec<&str>> {
+        let pii = self.builtin_guards.enabled_pii()?;
+        if pii.countries.is_empty()
+            || pii
+                .countries
+                .contains(&voidwall_pii::Country::International)
+            || pii.detect.is_some()
+        {
+            return None;
+        }
+        let ignored = pii.ignore.as_deref().unwrap_or_default();
+        let mut labels: Vec<&str> = voidwall_pii::PiiKind::all()
+            .iter()
+            .filter(|k| {
+                **k != voidwall_pii::PiiKind::Custom
+                    && k.country() == voidwall_pii::Country::International
+                    && !ignored.contains(k)
+            })
+            .map(|k| k.label())
+            .chain(
+                pii.custom
+                    .iter()
+                    .filter(|c| c.country == voidwall_pii::Country::International)
+                    .map(|c| c.label.as_str()),
+            )
+            .collect();
+        labels.sort_unstable();
+        labels.dedup();
+        (!labels.is_empty()).then_some(labels)
     }
 
     /// Warn once when configuration enables no guard.
@@ -1758,6 +1817,7 @@ impl AppConfig {
 
         let known = self.known_guard_names();
         let mut prefixes = HashSet::new();
+        let mut ca_by_upstream: HashMap<&str, Option<&PathBuf>> = HashMap::new();
         for route in &self.reverse_proxy.routes {
             if let Some(selected) = &route.guards {
                 for name in selected {
@@ -1797,6 +1857,32 @@ impl AppConfig {
             if !valid_scheme || uri.authority().is_none() {
                 return Err(Error::Config(format!(
                     "reverse_proxy: invalid upstream URL '{}'",
+                    route.upstream,
+                )));
+            }
+
+            if let Some(ca) = &route.upstream_ca_path {
+                if ca.as_os_str().is_empty() {
+                    return Err(Error::Config(format!(
+                        "reverse_proxy: route '{}' sets an empty upstream_ca_path",
+                        route.path_prefix,
+                    )));
+                }
+                if uri.scheme_str() == Some("http") {
+                    return Err(Error::Config(format!(
+                        "reverse_proxy: route '{}' sets upstream_ca_path on an http upstream",
+                        route.path_prefix,
+                    )));
+                }
+            }
+
+            // One client serves every route of an upstream, so the routes
+            // must agree on the trust that client is built with.
+            let ca = route.upstream_ca_path.as_ref();
+            if *ca_by_upstream.entry(route.upstream.as_str()).or_insert(ca) != ca {
+                return Err(Error::Config(format!(
+                    "reverse_proxy: routes that name upstream '{}' set different \
+                     upstream_ca_path values",
                     route.upstream,
                 )));
             }
@@ -2250,6 +2336,73 @@ upstream = "http://localhost:8080"
     fn a_route_that_cannot_leak_a_long_match_does_not_warn(line: &str) {
         let config = parse(&custom_route_toml(line)).unwrap();
         assert_eq!(config.unbounded_custom_patterns(), None);
+    }
+
+    // --- Startup warns when countries omits International ---
+
+    /// The minimal config with a `pii` section of `lines`.
+    fn pii_toml(lines: &str) -> String {
+        format!(
+            "[builtin_guards.pii]\n{lines}\n\n[http_api]\nenabled = true\nlisten = \"0.0.0.0:8083\"\n"
+        )
+    }
+
+    #[test]
+    fn countries_without_international_name_the_kinds_never_found() {
+        let config = parse(&pii_toml("countries = [\"Us\"]")).unwrap();
+        let labels = config.unreachable_international_labels().unwrap();
+        for label in ["EMAIL", "CREDIT_CARD", "IBAN", "IP_ADDRESS"] {
+            assert!(labels.contains(&label), "{label} missing from {labels:?}");
+        }
+        assert!(!labels.contains(&"US_SSN"), "a US kind is still found");
+        assert!(!labels.contains(&"CUSTOM"), "CUSTOM is not a built-in kind");
+        assert!(labels.is_sorted(), "{labels:?}");
+        let mut unique = labels.clone();
+        unique.dedup();
+        assert_eq!(unique, labels, "each label once");
+    }
+
+    #[test]
+    fn an_ignored_international_kind_is_not_named() {
+        let config = parse(&pii_toml("countries = [\"Us\"]\nignore = [\"Email\"]")).unwrap();
+        let labels = config.unreachable_international_labels().unwrap();
+        assert!(!labels.contains(&"EMAIL"), "{labels:?}");
+        assert!(labels.contains(&"IBAN"), "{labels:?}");
+    }
+
+    #[test]
+    fn a_custom_rule_of_international_is_named_and_one_of_a_listed_country_is_not() {
+        let config = parse(&pii_toml(
+            "countries = [\"Us\"]\n\n\
+             [[builtin_guards.pii.custom]]\nlabel = \"TICKET\"\npattern = \"TCK-[0-9]+\"\n\n\
+             [[builtin_guards.pii.custom]]\nlabel = \"BADGE\"\npattern = \"BDG-[0-9]+\"\ncountry = \"Us\"",
+        ))
+        .unwrap();
+        let labels = config.unreachable_international_labels().unwrap();
+        assert!(labels.contains(&"TICKET"), "{labels:?}");
+        assert!(!labels.contains(&"BADGE"), "{labels:?}");
+    }
+
+    #[test]
+    fn a_warning_that_would_name_nothing_is_not_logged() {
+        let mut config = parse(&pii_toml("countries = [\"Us\"]")).unwrap();
+        let every_international = voidwall_pii::PiiKind::all()
+            .iter()
+            .copied()
+            .filter(|k| k.country() == voidwall_pii::Country::International)
+            .collect();
+        config.builtin_guards.pii.as_mut().unwrap().ignore = Some(every_international);
+        assert_eq!(config.unreachable_international_labels(), None);
+    }
+
+    #[test_case("" ; "countries is absent, so every country is selected")]
+    #[test_case("countries = []" ; "an empty list selects every country")]
+    #[test_case("countries = [\"International\", \"Us\"]" ; "International is listed")]
+    #[test_case("countries = [\"Us\"]\ndetect = [\"UsSsn\"]" ; "detect names the kinds by hand")]
+    #[test_case("countries = [\"Us\"]\nenabled = false" ; "the guard is disabled")]
+    fn a_config_that_drops_no_international_kind_does_not_warn(lines: &str) {
+        let config = parse(&pii_toml(lines)).unwrap();
+        assert_eq!(config.unreachable_international_labels(), None);
     }
 
     // --- Built-in guard section (1.3) ---
@@ -2908,6 +3061,80 @@ upstream = "://broken"
 "#;
         let err = parse(toml).unwrap_err();
         assert!(err.to_string().contains("invalid upstream URL"));
+    }
+
+    // --- upstream_ca_path ---
+
+    /// A route line that sets `upstream_ca_path`, or nothing for `None`.
+    fn ca_line(ca: Option<&str>) -> String {
+        ca.map(|p| format!("upstream_ca_path = \"{p}\"\n"))
+            .unwrap_or_default()
+    }
+
+    /// The minimal config with two reverse proxy routes, `/a` and `/b`.
+    fn two_routes_toml(a: (&str, Option<&str>), b: (&str, Option<&str>)) -> String {
+        format!(
+            "{}\n[reverse_proxy]\nenabled = true\n\n\
+             [[reverse_proxy.routes]]\npath_prefix = \"/a\"\nupstream = \"{}\"\n{}\n\
+             [[reverse_proxy.routes]]\npath_prefix = \"/b\"\nupstream = \"{}\"\n{}",
+            minimal_toml(),
+            a.0,
+            ca_line(a.1),
+            b.0,
+            ca_line(b.1),
+        )
+    }
+
+    #[test]
+    fn a_ca_bundle_on_an_https_upstream_is_accepted() {
+        let toml = two_routes_toml(
+            (
+                "https://gateway.internal:8443",
+                Some("/etc/voidwall/ca.pem"),
+            ),
+            ("http://localhost:8080", None),
+        );
+        let config = parse(&toml).unwrap();
+        assert_eq!(
+            config.reverse_proxy.routes[0].upstream_ca_path,
+            Some(PathBuf::from("/etc/voidwall/ca.pem"))
+        );
+        assert_eq!(config.reverse_proxy.routes[1].upstream_ca_path, None);
+    }
+
+    #[test_case("http://localhost:8080", "/etc/voidwall/ca.pem", "on an http upstream" ; "on an http upstream")]
+    #[test_case("https://gateway.internal", "", "empty upstream_ca_path" ; "empty path")]
+    fn a_bad_ca_bundle_key_is_semantic(upstream: &str, ca: &str, expected: &str) {
+        let toml = two_routes_toml((upstream, Some(ca)), ("http://localhost:9000", None));
+        let (category, msg) = failure_category(&toml);
+        assert_eq!(category, "semantic", "got: {msg}");
+        assert!(msg.contains("'/a'"), "names the route: {msg}");
+        assert!(msg.contains("upstream_ca_path"), "names the key: {msg}");
+        assert!(msg.contains(expected), "got: {msg}");
+    }
+
+    #[test_case(Some("/ca/one.pem"), Some("/ca/two.pem") ; "different bundles")]
+    #[test_case(Some("/ca/one.pem"), None ; "only the first route has a bundle")]
+    #[test_case(None, Some("/ca/one.pem") ; "only the second route has a bundle")]
+    fn routes_of_one_upstream_must_agree_on_the_bundle(a: Option<&str>, b: Option<&str>) {
+        let upstream = "https://gateway.internal:8443";
+        let toml = two_routes_toml((upstream, a), (upstream, b));
+        let (category, msg) = failure_category(&toml);
+        assert_eq!(category, "semantic", "got: {msg}");
+        assert!(msg.contains(upstream), "names the upstream: {msg}");
+        assert!(msg.contains("upstream_ca_path"), "got: {msg}");
+    }
+
+    #[test_case("https://gateway.internal", Some("/ca/one.pem"), "https://gateway.internal", Some("/ca/one.pem") ; "same upstream, same bundle")]
+    #[test_case("https://gateway.internal", None, "https://gateway.internal", None ; "same upstream, no bundle")]
+    #[test_case("https://one.internal", Some("/ca/one.pem"), "https://two.internal", Some("/ca/two.pem") ; "two upstreams, two bundles")]
+    fn routes_that_agree_on_the_bundle_are_accepted(
+        a_upstream: &str,
+        a: Option<&str>,
+        b_upstream: &str,
+        b: Option<&str>,
+    ) {
+        parse(&two_routes_toml((a_upstream, a), (b_upstream, b))).unwrap();
     }
 
     // --- Default values ---

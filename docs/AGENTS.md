@@ -39,9 +39,9 @@ More topics come later. Add a page to the index when you add it to `docs/`.
 5. `configuration.md` lists every key with its description and its default value. A
    test checks the keys against the config types. A second test checks the kind table in
    `guards/pii-regex.md` against the built-in PII kinds.
-6. Test each recipe end to end, and name the version of each app you tested. A proxy-mode
-   recipe states that the reverse proxy reaches plain-HTTP upstreams only. A hosted model,
-   such as OpenAI, goes through LiteLLM.
+6. Test each recipe end to end, and name the version of each app you tested. A part of a
+   recipe that was not tested end to end, such as the AnythingLLM desktop app, carries a
+   "not tested yet" notice.
 7. A platform that was not tested carries a "not tested yet" notice. Today that is Docker
    Desktop on macOS and on Windows.
 8. Update the docs in the same change as the behavior they describe.

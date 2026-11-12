@@ -4,8 +4,8 @@
 calls Voidwall as a guardrail: before each model call with the request, and after it with
 the response. Voidwall answers `NONE` or `BLOCKED`, and LiteLLM rejects a blocked call.
 
-Use this recipe to guard a hosted model, such as OpenAI. LiteLLM makes the `https://`
-call to the provider, so Voidwall does not need upstream TLS.
+Use this recipe to guard a hosted model, such as OpenAI, when LiteLLM is already your
+gateway. LiteLLM makes the `https://` call to the provider.
 
 > **Tested with** Voidwall 0.5.0, LiteLLM 1.108.0, and LM Studio 0.4.28 as the model, on
 > one Docker network. A hosted model was not tested, but LiteLLM calls Voidwall the same
