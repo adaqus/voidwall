@@ -391,8 +391,10 @@ of the stream, with the upstream status and headers minus the hop-by-hop headers
 ### Requirement: A compressed stream is unscannable content
 
 A stream on an `openai-chat` route with response scan on and a `Content-Encoding` other
-than `identity` SHALL be unscannable content in both modes. It SHALL follow `on_error`
-as a response the route cannot inspect does.
+than `identity` SHALL be unscannable content in both modes, when the route scans the
+response body. It SHALL follow `on_error` as a response the route cannot inspect does.
+A route that scans no response body, such as a route with `guards = []`, SHALL forward
+a compressed stream unscanned and SHALL count no unscannable content.
 
 #### Scenario: A compressed stream under fail_close
 
@@ -408,6 +410,13 @@ as a response the route cannot inspect does.
 - **THEN** the client receives the stream unscanned
 - **AND** `voidwall_errors_total` increments with `outcome="passed"` and
   `reason="unscannable_content"`
+
+#### Scenario: A compressed stream on a route that selects no guard
+
+- **WHEN** the upstream answers `text/event-stream` with `Content-Encoding: gzip` on a
+  route with `guards = []`, and `on_error` is `fail_close`
+- **THEN** the client receives the upstream body unchanged
+- **AND** no `voidwall_errors_total` sample carries `reason="unscannable_content"`
 
 ### Requirement: Startup warns about custom patterns without a bound
 
