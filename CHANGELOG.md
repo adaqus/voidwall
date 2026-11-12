@@ -3,6 +3,12 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.6.1] - 2026-11-12
+
+### Bug Fixes
+
+- **pii:** Satisfy clippy needless_bool in UK validators
+
 ## [0.6.0] - 2026-11-12
 
 ### Features
