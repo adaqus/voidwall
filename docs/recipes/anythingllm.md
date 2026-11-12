@@ -13,8 +13,7 @@ with a prompt injection or personal data is blocked before it reaches the model.
 AnythingLLM ──► Voidwall :8082 ──► LM Studio :1234
 ```
 
-The reverse proxy reaches plain-HTTP upstreams only. For a hosted model, use the
-[LiteLLM recipe](litellm.md), and point AnythingLLM at LiteLLM.
+For a hosted model, such as OpenAI, see [A hosted model](#a-hosted-model).
 
 ## 1. Start Voidwall in front of LM Studio or Ollama
 
@@ -66,6 +65,50 @@ A blocked message is not kept in the chat history, so the next clean message wor
 
 The kinds can differ between two sends of the same text. The proxy answers as soon as
 one guard finds something, so the error lists the kinds of the guards that ended first.
+
+## A hosted model
+
+> **Tested with** Voidwall built after 0.5.2, AnythingLLM 1.19.0 (the
+> `mintplexlabs/anythingllm` Docker image), and the OpenAI API with `gpt-4o-mini`, on
+> Linux. In a workspace in chat mode, a clean message got the model's answer, and a
+> prompt injection got `400 content blocked`.
+
+```
+AnythingLLM ──► Voidwall :8082 ──► https://api.openai.com
+```
+
+Keep the Generic OpenAI provider, and send Voidwall to the provider. In step 1, do steps 2
+and 3 of the [LM Studio recipe](lm-studio.md), but put these routes in `voidwall.toml`
+in place of the `lmstudio` block:
+
+```toml
+[[reverse_proxy.routes]]
+path_prefix = "/v1/chat/completions"
+upstream = "https://api.openai.com"
+format = "openai-chat"
+
+[[reverse_proxy.routes]]
+path_prefix = "/"
+upstream = "https://api.openai.com"
+```
+
+Voidwall trusts the system root certificates, so a public provider needs no more setup.
+AnythingLLM asks for compressed answers. Voidwall asks the provider for uncompressed
+answers, so that it can scan them. See `reverse_proxy.response.scan` in
+[the configuration reference](../configuration.md#reverse-proxy-reverse_proxy).
+For a provider with a private CA, see
+[HTTPS upstreams](../configuration.md#https-upstreams).
+
+In step 2, change these values:
+
+- `GENERIC_OPEN_AI_MODEL_PREF`: a model of the provider.
+- `GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT`: the context size of that model.
+- `GENERIC_OPEN_AI_API_KEY`: your API key of the provider.
+
+AnythingLLM sends the key in the `Authorization` header. Voidwall forwards it to the
+provider unchanged, and does not inspect it. Between AnythingLLM and Voidwall, the key
+goes over plain HTTP. So keep both containers on the `guardrails` network, and do not
+publish port 8082 to other hosts.
 
 ## Documents
 

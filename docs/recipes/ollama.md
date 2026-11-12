@@ -11,8 +11,8 @@ with personal data is blocked before it reaches the app.
 app ──► Voidwall :8082 ──► Ollama :11434
 ```
 
-The reverse proxy reaches plain-HTTP upstreams only. Ollama serves plain HTTP, so this
-works. For a hosted model, use the [LiteLLM recipe](litellm.md).
+For a hosted model, see [A hosted model](anythingllm.md#a-hosted-model) in the
+AnythingLLM recipe, or the [LiteLLM recipe](litellm.md).
 
 Use Ollama's OpenAI-compatible API, under `/v1`. Voidwall does not scan a streamed answer
 of Ollama's own API, under `/api`. See [Ollama's own API](#ollamas-own-api).

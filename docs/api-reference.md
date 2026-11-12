@@ -163,7 +163,7 @@ closes the stream, with no `data: [DONE]`.
 | 400 | Under `fail_close`, the body does not parse as its `Content-Type`. |
 | 404 | No route matches the path. |
 | 413 | Under `fail_close`, the body is larger than `max_body_size`, or a model guard needs more windows than its limit. |
-| 422 | Under `fail_close`, an `openai-chat` body holds content that Voidwall cannot inspect. |
+| 422 | Under `fail_close`, an `openai-chat` body holds content that Voidwall cannot inspect, or the upstream sent a compressed response body that the route would scan (a `Content-Encoding` other than `identity`). |
 | 500 | Under `fail_close`, a guard failed. |
 | 502 | The upstream failed, or it sent a response larger than `max_body_size` to scan. |
 | 504 | The upstream exchange took longer than `upstream_timeout_secs`. |

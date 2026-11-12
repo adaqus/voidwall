@@ -3,7 +3,8 @@
 The order of items doesn't determine order of implementation.
 
 - [ ] Forward proxy
-- [ ] Upstream TLS
+- [x] Upstream TLS (`https://` upstreams)
+- [ ] TLS termination on the reverse proxy
 - [ ] GPU support
 - [x] LiteLLM integration using generic guardrail API
 - [x] OpenAI Chat Completions format (`format = "openai-chat"`), including SSE streaming
