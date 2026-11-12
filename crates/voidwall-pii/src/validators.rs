@@ -100,10 +100,7 @@ pub(crate) fn nino_check(s: &str) -> bool {
     let Some(prefix) = upper.get(..2) else {
         return false;
     };
-    if matches!(prefix, "BG" | "GB" | "NK" | "KN" | "TN" | "NT" | "ZZ") {
-        return false;
-    }
-    true
+    !matches!(prefix, "BG" | "GB" | "NK" | "KN" | "TN" | "NT" | "ZZ")
 }
 
 pub(crate) fn iban_check(s: &str) -> bool {
@@ -255,10 +252,7 @@ pub(crate) fn uk_dl_check(s: &str) -> bool {
         return false;
     }
     let day: u32 = ((bytes[8] - b'0') as u32) * 10 + (bytes[9] - b'0') as u32;
-    if !(1..=31).contains(&day) {
-        return false;
-    }
-    true
+    (1..=31).contains(&day)
 }
 
 pub(crate) fn vin_check(s: &str) -> bool {
