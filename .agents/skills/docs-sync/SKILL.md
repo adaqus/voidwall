@@ -32,10 +32,11 @@ a guard, a kind, a country, a language, a model, a platform, a port.
 | `voidwall-pii` kinds, countries, languages, custom rules (`add-pii` too) | `guards/pii-regex.md` |
 | `voidwall-ml` adapters, model guard fields | `guards/model-guards.md`, `guards/custom-guard.md` |
 | The `hidden_context` guard | `guards/hidden-context.md` |
-| A new guard, or a guard that covers a new risk | `guards/`, `owasp-coverage.md`, `../voidwall-website/src/06-coverage.jsx` |
+| A new guard, or a guard that covers a new risk | `guards/`, `owasp-coverage.md`, `../voidwall-website/src/07-coverage.jsx` |
 | The default models, `docker/voidwall-image.toml` | `about.md`, `quick-start.md`, `hardware.md` |
 | The CPU check, ONNX Runtime, memory use | `hardware.md`, `about.md` |
 | Outcomes, statuses, `on_error` | `guards/README.md`, `api-reference.md` |
+| A new or removed recipe in `docs/recipes/` | `recipes/README.md`, `../voidwall-website/src/06-integrations.jsx` |
 | A built backlog item | Remove it from `docs/dev/backlog.md` |
 
 For a change outside this map, find the page in `docs/README.md` that covers it. If no

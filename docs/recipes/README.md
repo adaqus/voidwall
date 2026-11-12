@@ -8,7 +8,7 @@ server or gateway:
 | [LM Studio](lm-studio.md) | As a reverse proxy in front of LM Studio | A model that LM Studio serves |
 | [Ollama](ollama.md) | As a reverse proxy in front of Ollama | A model that Ollama serves |
 | [AnythingLLM](anythingllm.md) | As a reverse proxy between AnythingLLM and LM Studio, Ollama, or a hosted provider | A local server, or a hosted model such as OpenAI |
-| [LiteLLM](litellm.md) | As a LiteLLM guardrail, on the HTTP API | Any model that LiteLLM serves, hosted models too |
+| [LiteLLM](litellm.md) | As a LiteLLM guardrail, on the HTTP API | Any model provider that LiteLLM calls, hosted ones too |
 
 The reverse proxy reaches `https://` upstreams, such as OpenAI. See
 [HTTPS upstreams](../configuration.md#https-upstreams), and
