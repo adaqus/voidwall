@@ -5,7 +5,7 @@ in HTTP traffic, and it blocks the message before it reaches the local LLM or ex
 LLM provider.
 
 These docs describe one release. Open them at the tag of the image you run, for example
-`github.com/adaqus/voidwall/tree/v0.5.1/docs`.
+`github.com/adaqus/voidwall/tree/v0.6.1/docs`.
 
 ## Start here
 
