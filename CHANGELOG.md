@@ -3,6 +3,20 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.6.0] - 2026-11-12
+
+### Features
+
+- **reverse proxy:** Upstream TLS support
+
+### Documentation
+
+- List https upstreams as built
+
+### Chores
+
+- **openspec:** Archive upstream TLS and request identity encoding changes
+
 ## [0.5.2] - 2026-11-12
 
 ### Documentation
