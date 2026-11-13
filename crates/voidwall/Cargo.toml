@@ -61,7 +61,7 @@ regex-syntax = "0.8"
 percent-encoding = "2"
 
 # OpenAPI spec generation
-utoipa = "5"
+utoipa = "6"
 
 [dev-dependencies]
 # Fixture models for the model guard tests.
