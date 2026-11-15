@@ -696,6 +696,7 @@ async fn international_warnings(countries: &str) -> Vec<String> {
         format!(
             r#"
 [builtin_guards.pii]
+scanner_threads = 1
 countries = {countries}
 
 [reverse_proxy]
