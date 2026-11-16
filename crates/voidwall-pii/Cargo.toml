@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 regex = "1"
 serde = { version = "1", features = ["derive"] }
-vectorscan-rs = "0.0.5"
+vectorscan-rs = "0.0.6"
 percent-encoding = "2"
 log = "0.4"
 # CRC32 (IEEE) for the checksums of npm and GitLab routable tokens.
