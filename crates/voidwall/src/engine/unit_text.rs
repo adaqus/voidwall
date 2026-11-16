@@ -181,11 +181,7 @@ mod tests {
     }
 
     fn fragment(value: &str, offset: usize) -> OwnedContextFragment {
-        OwnedContextFragment {
-            context: "k".into(),
-            value: value.into(),
-            offset,
-        }
+        OwnedContextFragment::plain("k".into(), value.into(), offset)
     }
 
     #[test_case(b"" ; "empty")]

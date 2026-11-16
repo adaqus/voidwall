@@ -63,11 +63,11 @@ pub fn flatten_csv(raw: &[u8], delimiter: u8) -> Result<Option<Vec<OwnedContextF
             let text = std::str::from_utf8(bytes)
                 .map_err(|e| Error::Scanner(format!("invalid UTF-8 in CSV cell: {e}")))?
                 .to_owned();
-            frags.push(OwnedContextFragment {
-                context: format!("{}[{row_idx}]", headers[col_idx]),
-                value: text,
-                offset: start,
-            });
+            frags.push(OwnedContextFragment::plain(
+                format!("{}[{row_idx}]", headers[col_idx]),
+                text,
+                start,
+            ));
         }
     }
     Ok(Some(frags))

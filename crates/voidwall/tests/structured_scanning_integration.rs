@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::any;
 use http_body_util::BodyExt;
+use test_case::test_case;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use voidwall::config::{
@@ -22,6 +23,10 @@ use voidwall::config::{
 };
 use voidwall::engine::Engine;
 use voidwall::reverse_proxy;
+
+#[path = "support/json_escape.rs"]
+mod json_escape;
+use json_escape::{escape_all, escape_some, with_duplicate_key};
 
 // ---------------------------------------------------------------------------
 // Echo upstream
@@ -73,6 +78,9 @@ fn pii_config() -> PiiGuardConfig {
 #[derive(Clone, Default)]
 struct Ingest {
     on_error: Option<OnError>,
+    /// Scan the response. The echo upstream answers the request body with
+    /// its content type, so a JSON request comes back as a JSON response.
+    response_scan: bool,
 }
 
 static SHARED_ENGINE: LazyLock<Arc<Engine>> =
@@ -80,10 +88,6 @@ static SHARED_ENGINE: LazyLock<Arc<Engine>> =
 
 fn scan_on() -> DirectionConfig {
     DirectionConfig { scan: true }
-}
-
-fn scan_off() -> DirectionConfig {
-    DirectionConfig { scan: false }
 }
 
 struct TestProxy {
@@ -106,7 +110,9 @@ impl TestProxy {
                 enabled: true,
                 listen: proxy_addr.to_string(),
                 request,
-                response: scan_off(),
+                response: DirectionConfig {
+                    scan: ingest.response_scan,
+                },
                 routes: vec![Route {
                     path_prefix: "/".into(),
                     upstream: format!("http://{upstream}"),
@@ -289,6 +295,7 @@ async fn json_parse_failure_fail_open_falls_back_to_plain_text() {
     let upstream = start_echo_upstream().await;
     let ingest = Ingest {
         on_error: Some(OnError::FailOpen),
+        ..Ingest::default()
     };
     let proxy = TestProxy::start(upstream, ingest, scan_on()).await;
 
@@ -318,6 +325,7 @@ async fn json_parse_failure_fail_close_blocks_request() {
     let upstream = start_echo_upstream().await;
     let ingest = Ingest {
         on_error: Some(OnError::FailClose),
+        ..Ingest::default()
     };
     let proxy = TestProxy::start(upstream, ingest, scan_on()).await;
 
@@ -335,6 +343,72 @@ async fn json_parse_failure_fail_close_blocks_request() {
         "expected 400 on parse failure with fail_close, got {}",
         resp.status()
     );
+}
+
+// ---------------------------------------------------------------------------
+// JSON escapes and duplicate keys
+// ---------------------------------------------------------------------------
+
+const EMAIL: &str = "john.smith@example.com";
+
+async fn post_json(proxy: &TestProxy, body: String) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(proxy.url("/echo"))
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+        .unwrap()
+}
+
+/// pii-scanning, "One escaped character in a JSON request" and "An escaped
+/// value in a JSON response". Only the scanned direction can block.
+#[test_case(true, escape_some(EMAIL, "@") ; "one escaped character in a request")]
+#[test_case(false, escape_all(EMAIL) ; "an escaped value in a response")]
+#[tokio::test]
+async fn an_escaped_value_in_a_json_body_blocks(request: bool, escaped: String) {
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        response_scan: !request,
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, ingest, DirectionConfig { scan: request }).await;
+
+    let body = format!(r#"{{"note":"Contact {escaped} today"}}"#);
+    let resp = post_json(&proxy, body).await;
+    assert_eq!(resp.status(), 403);
+    assert_blocked(&resp.text().await.unwrap(), &["EMAIL"], &[EMAIL]);
+}
+
+/// pii-scanning, "A value directly after an escaped newline or tab".
+#[test_case(r"My SSN is\n" ; "newline")]
+#[test_case(r"SSN\t" ; "tab")]
+#[tokio::test]
+async fn a_value_directly_after_an_escaped_newline_or_tab_blocks(prefix: &str) {
+    let upstream = start_echo_upstream().await;
+    let proxy = TestProxy::start(upstream, Ingest::default(), scan_on()).await;
+
+    let body = format!(r#"{{"note":"{prefix}536-22-8726"}}"#);
+    let resp = post_json(&proxy, body).await;
+    assert_eq!(resp.status(), 403);
+    assert_blocked(&resp.text().await.unwrap(), &["US_SSN"], &["536-22-8726"]);
+}
+
+/// pii-scanning, "A duplicate key on a reverse proxy route".
+#[tokio::test]
+async fn a_duplicate_key_under_fail_close_answers_400() {
+    let upstream = start_echo_upstream().await;
+    let ingest = Ingest {
+        on_error: Some(OnError::FailClose),
+        ..Ingest::default()
+    };
+    let proxy = TestProxy::start(upstream, ingest, scan_on()).await;
+
+    let body = with_duplicate_key(&serde_json::json!({"note": format!("Contact {EMAIL} today")}));
+    let resp = post_json(&proxy, body).await;
+    assert_eq!(resp.status(), 400);
+    let text = resp.text().await.unwrap();
+    assert!(!text.contains(EMAIL), "the request was forwarded: {text}");
 }
 
 // ---------------------------------------------------------------------------

@@ -227,10 +227,8 @@ mod tests {
         units.push_body(UnitContent::Structured {
             fragments: values
                 .iter()
-                .map(|(value, offset)| OwnedContextFragment {
-                    context: "a.b".into(),
-                    value: (*value).into(),
-                    offset: *offset,
+                .map(|(value, offset)| {
+                    OwnedContextFragment::plain("a.b".into(), (*value).into(), *offset)
                 })
                 .collect(),
         });

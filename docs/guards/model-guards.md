@@ -63,7 +63,8 @@ The decoder is fixed. Configuration sets no decoder option.
    `) ] }` from its end. A span that becomes empty is dropped.
 
 The finding's span is the byte range of the trimmed span in the unit. For a JSON body,
-the range is in the body, inside one string value.
+the range is in the body, inside one string value. A character written as an escape
+sequence spans the whole sequence.
 
 A threshold of 0.0 keeps every span that the decoder gives for the label.
 

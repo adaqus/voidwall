@@ -21,7 +21,7 @@ use serde_json::{Map, Value};
 
 use super::OwnedContextFragment;
 use super::chat_completions::{Decoded, Selection};
-use super::json::flatten_json;
+use super::json::{flatten_json, parse_unique};
 use crate::error::Error;
 
 /// One string of a delta: a piece of the joined text at `path`, of choice
@@ -71,10 +71,11 @@ impl Chunk {
 }
 
 /// Decode the `data:` payload of one event other than `[DONE]`. A payload
-/// that is not JSON is [`Error::BodyParse`]. A JSON value that is not an
-/// object is one unit, scanned whole.
+/// that is not JSON, or in which an object holds a key twice, is
+/// [`Error::BodyParse`]. A JSON value that is not an object is one unit,
+/// scanned whole.
 pub fn decode_chunk(data: &str) -> Result<Chunk, Error> {
-    let document: Value = serde_json::from_str(data).map_err(|_| Error::BodyParse)?;
+    let document = parse_unique(data.as_bytes()).map_err(|_| Error::BodyParse)?;
     let mut chunk = Chunk::default();
     let Value::Object(mut map) = document else {
         let mut selection = Selection::new();
@@ -248,7 +249,7 @@ mod tests {
         ],
         &[
             ("choices[0].message.tool_calls[1].function.name", "lookup"),
-            ("choices[0].message.tool_calls[1].function.arguments", "{\\\"a\\\":1}"),
+            ("choices[0].message.tool_calls[1].function.arguments", "{\"a\":1}"),
         ] ;
         "tool call name and arguments by index"
     )]
@@ -336,6 +337,15 @@ mod tests {
         assert!(matches!(decode_chunk("{not json"), Err(Error::BodyParse)));
     }
 
+    /// pii-scanning, "A duplicate key in a stream chunk": the error is the
+    /// one a payload that is not JSON gives, wherever the key repeats.
+    #[test_case(r#"{"x": "a", "x": "b", "choices": []}"# ; "at the top level")]
+    #[test_case(r#"{"choices": [{"index": 0, "delta": {"content": "a", "content": "b"}}]}"# ; "in a delta")]
+    #[test_case("{\"choices\": [{\"index\": 0, \"delta\": {\"content\": \"a\", \"\\u0063ontent\": \"b\"}}]}" ; "written with an escape")]
+    fn a_payload_with_a_duplicate_key_is_a_parse_error(data: &str) {
+        assert!(matches!(decode_chunk(data), Err(Error::BodyParse)));
+    }
+
     #[test]
     fn a_json_value_that_is_not_an_object_is_one_unit() {
         let chunk = decode_chunk(r#"["a", {"b": "c"}]"#).unwrap();
@@ -371,7 +381,7 @@ mod tests {
             joined.into_texts(),
             texts(&[(
                 "choices[0].message.reasoning_content",
-                "*   User's question: \\\"Where is my order 4471?\\\"\\n    *   User's persona: Customer.\\n    *   My persona: Support",
+                "*   User's question: \"Where is my order 4471?\"\n    *   User's persona: Customer.\n    *   My persona: Support",
             )])
         );
     }

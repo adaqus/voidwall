@@ -204,11 +204,7 @@ mod tests {
         );
 
         let structured = UnitContent::Structured {
-            fragments: vec![OwnedContextFragment {
-                context: "k".into(),
-                value: CONTENT.into(),
-                offset: 6,
-            }],
+            fragments: vec![OwnedContextFragment::plain("k".into(), CONTENT.into(), 6)],
         };
         assert!(
             !format!("{structured:?}").contains("SCANNED-CONTENT"),

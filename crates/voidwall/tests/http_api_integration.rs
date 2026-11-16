@@ -8,6 +8,10 @@ use voidwall::config::{AppConfig, BuiltinGuards, HttpApiConfig, OnError, PiiGuar
 use voidwall::engine::Engine;
 use voidwall::http_api;
 
+#[path = "support/json_escape.rs"]
+mod json_escape;
+use json_escape::{escape_all, with_duplicate_key};
+
 // ---------------------------------------------------------------------------
 // Shared engine & helpers
 // ---------------------------------------------------------------------------
@@ -304,11 +308,11 @@ async fn scan_ignored_secret_kind_is_not_reported() {
 /// The body holding two kinds, reused by the ordering tests below.
 const TWO_KIND_BODY: &str = r#"{"user":{"phone_number":"555-123-4567"},"email":"a@b.com"}"#;
 
-async fn post_json(api: &TestApi, path: &str) -> reqwest::Response {
+async fn post_json(api: &TestApi, path: &str, body: impl Into<reqwest::Body>) -> reqwest::Response {
     reqwest::Client::new()
         .post(api.url(path))
         .header("content-type", "application/json")
-        .body(TWO_KIND_BODY)
+        .body(body)
         .send()
         .await
         .unwrap()
@@ -319,7 +323,7 @@ async fn scan_kinds_are_sorted_and_stable_across_two_posts() {
     let api = TestApi::start().await;
 
     let read_kinds = async |api: &TestApi| -> Vec<String> {
-        let resp = post_json(api, "/v1/scan").await;
+        let resp = post_json(api, "/v1/scan", TWO_KIND_BODY).await;
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
         json["kinds"]
@@ -470,6 +474,29 @@ async fn oversized_body_returns_413() {
         resp.text().await.unwrap(),
         r#"{"error":"request body too large"}"#
     );
+}
+
+/// pii-scanning, "An escaped value on /v1/scan".
+#[tokio::test]
+async fn scan_json_decodes_an_escaped_value() {
+    let api = TestApi::start().await;
+    let body = format!(r#"{{"note":"{}"}}"#, escape_all("john.smith@example.com"));
+    let resp = post_json(&api, "/v1/scan", body).await;
+
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["detected"], true);
+    assert_eq!(json["kinds"], serde_json::json!(["EMAIL"]));
+}
+
+/// pii-scanning, "A duplicate key on /v1/scan".
+#[tokio::test]
+async fn a_duplicate_key_returns_400() {
+    let api = TestApi::start().await;
+    let body = with_duplicate_key(&serde_json::json!({"note": "Contact john.smith@example.com"}));
+    let resp = post_json(&api, "/v1/scan", body).await;
+
+    assert_eq!(resp.status(), 400);
 }
 
 #[tokio::test]
@@ -766,7 +793,10 @@ async fn content_types_does_not_apply_to_the_litellm_route() {
         ..Ingest::default()
     };
     let api = TestApi::start_with(ingest).await;
-    assert_eq!(post_json(&api, "/v1/scan").await.status(), 415);
+    assert_eq!(
+        post_json(&api, "/v1/scan", TWO_KIND_BODY).await.status(),
+        415
+    );
     assert_eq!(post_litellm(&api).await.status(), 200);
 }
 

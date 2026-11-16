@@ -24,8 +24,12 @@ use http_body_util::BodyExt;
 use tempfile::{NamedTempFile, TempDir};
 use tokio::net::TcpListener;
 use voidwall_ml::fixtures::{
-    Fixture, TRIGGER_ID, TokenizerFixture, write_config as write_model_config,
+    Fixture, TRIGGER_ID, TRIGGER_NAME, TokenizerFixture, write_config as write_model_config,
 };
+
+#[path = "support/json_escape.rs"]
+mod json_escape;
+use json_escape::{escape_all, escape_some};
 
 const BIN: &str = env!("CARGO_BIN_EXE_voidwall");
 
@@ -304,9 +308,22 @@ listen = "{admin_addr}"
 }
 
 async fn post(addr: SocketAddr, path: &str, body: impl Into<reqwest::Body>) -> reqwest::Response {
+    post_as(addr, path, "text/plain", body).await
+}
+
+async fn post_json(addr: SocketAddr, path: &str, body: String) -> reqwest::Response {
+    post_as(addr, path, "application/json", body).await
+}
+
+async fn post_as(
+    addr: SocketAddr,
+    path: &str,
+    content_type: &str,
+    body: impl Into<reqwest::Body>,
+) -> reqwest::Response {
     reqwest::Client::new()
         .post(format!("http://{addr}{path}"))
-        .header("content-type", "text/plain")
+        .header("content-type", content_type)
         .body(body)
         .send()
         .await
@@ -340,6 +357,38 @@ async fn the_model_guard_blocks_on_the_proxy_and_reports_on_the_api() {
     assert_eq!(body["detected"], true);
     assert_eq!(body["matches_count"], 1);
     assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+}
+
+/// guard-configuration, "An escaped attack prompt in a JSON body".
+#[tokio::test]
+async fn an_escaped_attack_prompt_in_a_json_body_blocks() {
+    let artifacts = trigger_artifacts();
+    let server = start(&guard_section(&artifacts, "threads = 1"), "", "").await;
+
+    let body = format!(r#"{{"prompt":"{}"}}"#, escape_all("voidwall trigger test"));
+    let resp = post_json(server.proxy_addr, "/chat", body).await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["kinds"], serde_json::json!(["PROMPT_INJECTION"]));
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0);
+}
+
+/// guard-configuration, "A span in a JSON value with escaped non-ASCII": the
+/// fixture's name [`TRIGGER_NAME`], with its non-ASCII letter written as an
+/// escape. The span itself is checked through the engine, in
+/// `engine/mod.rs`; no API returns spans.
+#[tokio::test]
+async fn a_token_guard_reports_a_name_with_escaped_non_ascii() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = start(&token_guard_section(dir.path()), "", "").await;
+
+    let name = escape_some(TRIGGER_NAME, "\u{f3}");
+    assert_ne!(name, TRIGGER_NAME, "the name holds the escaped letter");
+    let body = format!(r#"{{"a":"smoke","b":"voidwall {name} test"}}"#);
+    let resp = post_json(server.proxy_addr, "/chat", body).await;
+    assert_eq!(resp.status(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["kinds"], serde_json::json!(["SECRET"]));
 }
 
 /// A `[guards.pii_ml]` token classifier over the fixture token model, whose
