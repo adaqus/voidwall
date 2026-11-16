@@ -53,6 +53,15 @@ Some more rules:
 - A body is read only when its content type is in `content_types`. A route with
   `format = "openai-chat"` reads each message, tool, and choice of the body as its own
   unit.
+- A guard reads each JSON string value as a JSON parser reads it. Voidwall decodes each
+  escape sequence one time, `\uXXXX` included. So `a\u0040example.com` is read as
+  `a@example.com`, and `\n` is a newline. This applies to every JSON body, in both
+  directions, and to each event of a stream.
+- JSON inside a string value, such as the `arguments` of a tool call, is decoded one
+  layer only. An escape of the inner document stays as text.
+- A JSON body in which one object holds the same key two times does not parse. Two keys
+  are the same when they are equal after their escapes are decoded. The body then gets
+  the answer of a body that does not parse.
 - `reverse_proxy.request.scan` and `reverse_proxy.response.scan` turn off a whole
   direction.
 - A route runs every enabled guard, unless its `guards` key lists the guards to run. An

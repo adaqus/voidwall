@@ -913,11 +913,7 @@ fn stream_error(err: Error, on_error: OnError) -> Option<StreamStop> {
 /// finding's span is relative to the start of the text it was given.
 fn text_unit(path: String, text: String) -> UnitContent {
     UnitContent::Structured {
-        fragments: vec![OwnedContextFragment {
-            context: path,
-            value: text,
-            offset: 0,
-        }],
+        fragments: vec![OwnedContextFragment::plain(path, text, 0)],
     }
 }
 

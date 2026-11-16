@@ -600,10 +600,8 @@ mod tests {
     async fn a_structured_unit_is_scored_as_its_values() {
         let dir = tempfile::tempdir().unwrap();
         let guard = guard_with(dir.path(), trigger_fixture(), Some(0.9));
-        let fragment = |context: &str, value: &str, offset| OwnedContextFragment {
-            context: context.into(),
-            value: value.into(),
-            offset,
+        let fragment = |context: &str, value: &str, offset| {
+            OwnedContextFragment::plain(context.into(), value.into(), offset)
         };
         let mut units = Units::new();
         units.push_body(UnitContent::Structured {
@@ -932,10 +930,8 @@ mod tests {
         units.push_body(UnitContent::Structured {
             fragments: values
                 .iter()
-                .map(|&(value, offset)| OwnedContextFragment {
-                    context: "k".into(),
-                    value: value.into(),
-                    offset,
+                .map(|&(value, offset)| {
+                    OwnedContextFragment::plain("k".into(), value.into(), offset)
                 })
                 .collect(),
         });

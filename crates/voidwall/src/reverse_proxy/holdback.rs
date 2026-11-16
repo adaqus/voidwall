@@ -693,11 +693,7 @@ mod tests {
             let window = hold.window(id);
             let mut units = Units::new();
             units.push_body(UnitContent::Structured {
-                fragments: vec![OwnedContextFragment {
-                    context: window.path,
-                    value: window.text,
-                    offset: 0,
-                }],
+                fragments: vec![OwnedContextFragment::plain(window.path, window.text, 0)],
             });
             let result = engine
                 .guard(
@@ -761,13 +757,14 @@ mod tests {
         );
     }
 
-    /// The stream scans text in its JSON-escaped form, where a line end or a
-    /// quote is two bytes. When a scan of a match and part of a two-character
-    /// suffix settles a finding, the match and the whole suffix must stop the
-    /// stream too; otherwise the tail is too short for the escaped form.
+    /// A suffix of two or more bytes, such as a line end or a quote in its
+    /// JSON-escaped form, must not let a match out early: when a scan of a
+    /// match and part of the suffix settles a finding, the match and the whole
+    /// suffix must stop the stream too. The stream scans decoded text, so this
+    /// is a stricter case than it meets.
     #[tokio::test]
     async fn the_tail_holds_in_the_escaped_form() {
-        // Each character as the chunk decoder hands it over.
+        // Each character in its JSON-escaped form.
         let units: Vec<String> = [
             '\n', '\r', '\t', '"', '\\', '\u{1}', '.', ' ', '-', 'A', 'a', '0',
         ]

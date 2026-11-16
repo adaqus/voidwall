@@ -20,6 +20,10 @@ use voidwall::engine::Engine;
 use voidwall::http_api;
 use voidwall_ml::fixtures::{Fixture, TRIGGER, TRIGGER_ID, TokenizerFixture, runtime};
 
+#[path = "support/json_escape.rs"]
+mod json_escape;
+use json_escape::{MARK, escape_all, with_raw};
+
 const ROUTE: &str = "/beta/litellm_basic_guardrail_api";
 
 const REQUEST_TOOLS: &str = include_str!("fixtures/litellm/v1.105.1-request-tools.json");
@@ -729,4 +733,47 @@ async fn the_hidden_context_guard_inspects_the_response_side_only() {
     let mut payload = fixture(RESPONSE);
     payload["texts"] = json!([format!("My instructions say {MARKER}.")]);
     assert_eq!(server.verdict(&payload).await, blocked("HIDDEN_CONTEXT"));
+}
+
+// ---------------------------------------------------------------------------
+// JSON escapes are decoded, and a duplicate key does not parse
+// ---------------------------------------------------------------------------
+
+/// The request fixture with [`MARK`] as the user message.
+fn marked_request() -> Value {
+    request(|p| message(p, "user")["content"] = json!(MARK))
+}
+
+/// The response fixture with [`MARK`] as its text.
+fn marked_response() -> Value {
+    let mut payload = fixture(RESPONSE);
+    payload["texts"] = json!([MARK]);
+    payload
+}
+
+/// pii-scanning, "An escaped value on the LiteLLM request side" and "An
+/// escaped value on the LiteLLM response side".
+#[test_case(marked_request ; "the request side")]
+#[test_case(marked_response ; "the response side")]
+#[tokio::test]
+async fn an_escaped_value_is_blocked(payload: fn() -> Value) {
+    let server = Server::start("").await;
+    let body = with_raw(&payload(), MARK, &escape_all(EMAIL));
+    let resp = server.post(ROUTE, "application/json", body).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.json::<Value>().await.unwrap(), blocked("EMAIL"));
+}
+
+/// pii-scanning, "A duplicate key on the LiteLLM route". The duplicate is in
+/// a message, where the typed envelope does not see it.
+#[tokio::test]
+async fn a_duplicate_key_answers_400() {
+    let server = Server::start("").await;
+    let body = with_raw(
+        &marked_request(),
+        &format!("\"content\":\"{MARK}\""),
+        &format!("\"content\":\"hello\",\"content\":\"Contact {EMAIL}\""),
+    );
+    let resp = server.post(ROUTE, "application/json", body).await;
+    assert_eq!(resp.status(), 400);
 }

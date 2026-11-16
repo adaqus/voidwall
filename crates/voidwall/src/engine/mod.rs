@@ -274,6 +274,7 @@ impl Engine {
         // whole signal: a model guard cancels its run on drop.
         drop(in_flight);
 
+        map_spans(&units, &mut findings);
         findings.sort_by(canonical_order);
         ScanResult::with_error(findings, first_error)
     }
@@ -293,6 +294,49 @@ impl Engine {
     #[cfg(test)]
     pub(crate) fn with_guards(guards: Vec<Box<dyn Guard>>) -> Self {
         Self { guards }
+    }
+}
+
+/// Map the span of each finding in a structured unit to the raw bytes it was
+/// decoded from. A guard reports a fragment's `offset` plus a position in the
+/// decoded value; the fragment's escape map turns that into raw bytes. A
+/// plain-text unit is left as it is.
+///
+/// Decoding never grows a value, so a guard's span already lies inside the
+/// raw range of its fragment, and spans of two fragments never overlap. The
+/// map keeps order, so a set of spans that did not overlap still does not:
+/// overlap resolution inside a guard gives the same set before the map as
+/// after it.
+///
+/// Every parser emits a unit's fragments in document order, so the fragment
+/// of a span is found by a binary search on `offset`: the cost is one search
+/// per finding, never findings times fragments.
+fn map_spans(units: &[Unit], findings: &mut [Finding]) {
+    debug_assert!(
+        units.iter().all(|u| match &u.content {
+            UnitContent::Structured { fragments } =>
+                fragments.windows(2).all(|w| w[0].offset < w[1].offset),
+            UnitContent::PlainText(_) => true,
+        }),
+        "the fragments of a unit are in document order"
+    );
+    for finding in findings {
+        let Some(span) = finding.span else {
+            continue;
+        };
+        let UnitContent::Structured { fragments } = &units[finding.unit.index()].content else {
+            continue;
+        };
+        // The last fragment that starts at or before the span.
+        let at = fragments.partition_point(|f| f.offset <= span.start);
+        match at
+            .checked_sub(1)
+            .and_then(|i| fragments[i].raw_range(span.start..span.end))
+        {
+            Some(raw) => finding.span = Some(Span::new(raw.start, raw.end)),
+            // Kept as it is: a span in no fragment cannot be mapped.
+            None => debug_assert!(false, "a span in a structured unit lies in no fragment"),
+        }
     }
 }
 
@@ -501,7 +545,7 @@ pub(crate) mod test_guard {
                                 *id,
                                 self.kind,
                                 Arc::clone(&self.name),
-                                Span::new(0, 1),
+                                first_byte(&input.units[id.index()].content),
                             )
                         })
                         .collect(),
@@ -509,6 +553,20 @@ pub(crate) mod test_guard {
                 self.probe.completions.fetch_add(1, AtomicOrdering::SeqCst);
                 Ok(findings)
             })
+        }
+    }
+
+    /// The span a guard without a needle reports: the first byte of the unit,
+    /// or of its first fragment's value, as a real guard reports only spans
+    /// inside a value.
+    fn first_byte(content: &UnitContent) -> Span {
+        match content {
+            UnitContent::Structured { fragments } => {
+                fragments.first().map_or(Span::new(0, 1), |f| {
+                    Span::new(f.offset, f.offset + f.value.len().min(1))
+                })
+            }
+            UnitContent::PlainText(_) => Span::new(0, 1),
         }
     }
 
@@ -1239,6 +1297,170 @@ enabled = true
         );
         assert_eq!(result.kinds(), vec!["PERSON_NAME".to_string()]);
         assert_eq!(result.matches_count(), 2);
+    }
+
+    // --- A span in a JSON value names the raw bytes ---
+
+    /// One body unit flattened from the JSON document `raw`.
+    fn json_body(raw: &[u8]) -> Arc<[Unit]> {
+        let fragments = crate::structured::json::flatten_json(raw).unwrap();
+        let mut units = Units::new();
+        units.push_body(UnitContent::Structured { fragments });
+        units.into_shared()
+    }
+
+    /// The byte range of the one occurrence of `needle` in `raw`.
+    fn raw_span(raw: &[u8], needle: &[u8]) -> Span {
+        let start = raw
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .expect("needle in raw");
+        Span::new(start, start + needle.len())
+    }
+
+    /// The span of each finding, in order.
+    fn spans(result: &ScanResult) -> Vec<Option<Span>> {
+        result.findings().iter().map(|f| f.span).collect()
+    }
+
+    /// The spans a guard reporting the decoded text `a@b.c` gets back.
+    async fn placeholder_spans(units: Arc<[Unit]>) -> Vec<Option<Span>> {
+        let engine = Engine::with_guards(vec![Box::new(
+            TestGuard::new("pii", "EMAIL").matching("a@b.c"),
+        )]);
+        spans(&run(&engine, units, BlockPolicy::Never).await)
+    }
+
+    /// pii-scanning, "A value after an escape sequence", "A value that holds
+    /// an escape sequence", and "A value that starts and ends with an escape
+    /// sequence": the span is the raw bytes of `placeholder`.
+    #[test_case::test_case(b"{\"k\": \"x\", \"s\": \"\\n\\u00e9 a@b.c\"}", b"a@b.c" ; "after an escape")]
+    #[test_case::test_case(b"{\"s\": \"to a\\u0040b.c\"}", b"a\\u0040b.c" ; "over an escape")]
+    #[test_case::test_case(
+        b"{\"s\": \"\\u0061\\u0040\\u0062\\u002e\\u0063\"}",
+        b"\\u0061\\u0040\\u0062\\u002e\\u0063" ;
+        "from the first backslash to the last digit"
+    )]
+    #[tokio::test]
+    async fn a_span_in_a_json_value_names_the_raw_bytes(raw: &[u8], placeholder: &[u8]) {
+        assert_eq!(
+            placeholder_spans(json_body(raw)).await,
+            [Some(raw_span(raw, placeholder))]
+        );
+    }
+
+    /// The fragment of each span is found among many, by its offset.
+    #[tokio::test]
+    async fn spans_in_many_escaped_values_each_name_their_raw_bytes() {
+        let values: Vec<String> = (0..300).map(|i| format!("\"{i} a\\u0040b.c\"")).collect();
+        let raw = format!("[{}]", values.join(", "));
+        let expected: Vec<Option<Span>> = raw
+            .match_indices("a\\u0040b.c")
+            .map(|(i, m)| Some(Span::new(i, i + m.len())))
+            .collect();
+        assert_eq!(expected.len(), 300);
+        assert_eq!(placeholder_spans(json_body(raw.as_bytes())).await, expected);
+    }
+
+    #[tokio::test]
+    async fn a_span_in_a_plain_text_unit_is_left_as_it_is() {
+        let text: &[u8] = b"to a\\u0040b.c or a@b.c";
+        let mut units = Units::new();
+        units.push_body(UnitContent::PlainText(Bytes::from_static(text)));
+        assert_eq!(
+            placeholder_spans(units.into_shared()).await,
+            [Some(Span::new(17, 22))]
+        );
+    }
+
+    /// The regex PII guard over the international set and English.
+    fn international_pii() -> Engine {
+        Engine::new(&builtin_pii(PiiGuardConfig {
+            countries: vec![voidwall_pii::Country::International],
+            languages: vec![voidwall_pii::Language::En],
+            scanner_threads: Some(1),
+            ..PiiGuardConfig::default()
+        }))
+        .expect("engine should build")
+    }
+
+    /// Overlap resolution and `matches_count` see the same set as without
+    /// escapes: two escaped values with one match each count two, and each
+    /// span is the raw range of its value.
+    #[tokio::test]
+    async fn two_escaped_values_count_two_matches() {
+        let first: &[u8] = b"\\u006a\\u0040\\u0065\\u0078\\u0061\\u006d\\u0070\\u006c\\u0065.com";
+        let second: &[u8] = b"k\\u0040example.org";
+        let raw = [
+            b"{\"a\": \"".as_slice(),
+            first,
+            b"\", \"b\": \"",
+            second,
+            b"\"}",
+        ]
+        .concat();
+        let engine = international_pii();
+        let result = run(&engine, json_body(&raw), BlockPolicy::Never).await;
+
+        assert_eq!(result.kinds(), vec!["EMAIL".to_string()]);
+        assert_eq!(result.matches_count(), 2);
+        assert_eq!(
+            spans(&result),
+            [Some(raw_span(&raw, first)), Some(raw_span(&raw, second))]
+        );
+        engine.shutdown();
+    }
+
+    /// dictionary-detection, "A JSON value holds a name", after an escape: the
+    /// finding's span is the raw byte range of the name.
+    #[tokio::test]
+    async fn a_dictionary_name_after_an_escape_spans_its_raw_bytes() {
+        let raw = b"{\"note\": \"Hi,\\n\\u00e9t\\u00e9: John Smith\"}";
+        let engine = international_pii();
+        let result = run(&engine, json_body(raw), BlockPolicy::Never).await;
+
+        let names: Vec<Option<Span>> = result
+            .findings()
+            .iter()
+            .filter(|f| f.kind.as_str() == "PERSON_NAME")
+            .map(|f| f.span)
+            .collect();
+        assert_eq!(names, [Some(raw_span(raw, b"John Smith"))]);
+        engine.shutdown();
+    }
+
+    /// guard-configuration, "A span in a JSON value with escaped non-ASCII":
+    /// the fixture's name `TRIGGER_NAME`, with its non-ASCII letter written as
+    /// an escape, in the second string value.
+    #[tokio::test]
+    async fn a_token_guard_span_of_a_name_with_escaped_non_ascii_names_the_raw_bytes() {
+        let escaped: &[u8] = b"J\\u00f3zef";
+        let raw = [
+            b"{\"a\": \"smoke\", \"b\": \"voidwall ".as_slice(),
+            escaped,
+            b" test\"}",
+        ]
+        .concat();
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::from_config(
+            voidwall_ml::fixtures::runtime(),
+            &token_guard_config(dir.path()),
+        )
+        .expect("engine should build");
+
+        let mut result = engine
+            .guard(
+                json_body(&raw),
+                &engine.select(Some(&["pii_ml"])),
+                Direction::Request,
+                BlockPolicy::Never,
+                OnError::FailClose,
+            )
+            .await;
+
+        assert!(result.take_error().is_none());
+        assert_eq!(result.kinds(), vec!["SECRET".to_string()]);
+        assert_eq!(spans(&result), [Some(raw_span(&raw, escaped))]);
     }
 
     #[tokio::test]

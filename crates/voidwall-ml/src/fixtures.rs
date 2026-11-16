@@ -44,6 +44,11 @@ const SLOW_WIDTH: i64 = 2048;
 /// The token that [`Fixture::trigger`] makes score high, and its ID.
 pub const TRIGGER: &str = "trigger";
 pub const TRIGGER_ID: u32 = 8;
+/// A name with non-ASCII letters that [`Fixture::trigger`] scores as it scores
+/// [`TRIGGER`], and its ID: a test can look for a value whose UTF-8 is longer
+/// than its character count.
+pub const TRIGGER_NAME: &str = "J\u{f3}zef";
+pub const TRIGGER_NAME_ID: u32 = 12;
 const CLS_ID: u32 = 9;
 const SEP_ID: u32 = 10;
 /// The pad ID of a tokenizer written with [`TokenizerFixture::truncate_and_pad`].
@@ -71,8 +76,9 @@ pub struct Fixture {
     pub nan_bias: bool,
     /// A reshape that the load accepts and the first run rejects.
     pub fails_at_run: bool,
-    /// Every token but [`TRIGGER_ID`] gives logits `[0.5, -0.5]` (score 0.27);
-    /// each [`TRIGGER_ID`] adds `[-10, 10]`, so a window holding it scores 1.0.
+    /// Every token but [`TRIGGER_ID`] and [`TRIGGER_NAME_ID`] gives logits
+    /// `[0.5, -0.5]` (score 0.27); each of the two adds `[-10, 10]`, so a
+    /// window holding one scores 1.0.
     pub trigger: bool,
     /// The embedding row of this token ID is NaN, so only a unit holding it
     /// gives NaN logits; the smoke input does not.
@@ -84,9 +90,9 @@ pub struct Fixture {
     /// the logits: ONNX Runtime constant-folds it at load, from the graph.
     pub folded_weight: bool,
     /// Logits for every token, `[batch, seq, width]`: no `ReduceSum`. With
-    /// [`Fixture::trigger`], every token but [`TRIGGER_ID`] gives logits
-    /// `[2, 0, …]`, which label 0 wins, and [`TRIGGER_ID`] gives
-    /// `[-8, 10, 0, …]`, which label 1 wins.
+    /// [`Fixture::trigger`], every token but [`TRIGGER_ID`] and
+    /// [`TRIGGER_NAME_ID`] gives logits `[2, 0, …]`, which label 0 wins, and
+    /// each of the two gives `[-8, 10, 0, …]`, which label 1 wins.
     pub tokens: bool,
     /// The output keeps at most this many tokens, so a longer window returns
     /// too few rows.
@@ -308,11 +314,13 @@ impl Fixture {
         }
 
         let trigger_row = TRIGGER_ID as usize * HIDDEN as usize;
+        let name_row = TRIGGER_NAME_ID as usize * HIDDEN as usize;
         let nan_row = self.nan_row.map(|id| id as usize * HIDDEN as usize);
         let embedding = |i: usize| match self.trigger {
             _ if nan_row.is_some_and(|row| (row..row + HIDDEN as usize).contains(&i)) => f32::NAN,
-            // Only the trigger's row is non-zero, in its first column.
-            true if i == trigger_row => 10.0,
+            // Only the rows of the trigger and its name are non-zero, in
+            // their first column.
+            true if i == trigger_row || i == name_row => 10.0,
             true => 0.0,
             false => (i % 7) as f32 * 0.1,
         };
@@ -424,7 +432,8 @@ pub fn write_tokenizer(dir: &Path, highest_id: u32) -> PathBuf {
 }
 
 /// One word-level fixture tokenizer: `[UNK]` 0, `voidwall` 1, `smoke` 2,
-/// `test` 3, [`TRIGGER`] 8, `[CLS]` 9, `[SEP]` 10, `[PAD]` 11, and `highest`.
+/// `test` 3, [`TRIGGER`] 8, `[CLS]` 9, `[SEP]` 10, `[PAD]` 11,
+/// [`TRIGGER_NAME`] 12, and `highest`.
 pub struct TokenizerFixture {
     /// The ID of the token `highest`.
     pub highest_id: u32,
@@ -457,6 +466,7 @@ impl TokenizerFixture {
             ("[CLS]".to_owned(), CLS_ID),
             ("[SEP]".to_owned(), SEP_ID),
             ("[PAD]".to_owned(), PAD_ID),
+            (TRIGGER_NAME.to_owned(), TRIGGER_NAME_ID),
         ]);
         vocab.insert("highest".into(), self.highest_id);
         let model = WordLevel::builder()
@@ -641,6 +651,7 @@ mod tests {
             1.0 / (1.0 + (l[0] - l[1]).exp())
         };
         assert!(score(vec![1, i64::from(TRIGGER_ID), 3]) > 0.9);
+        assert!(score(vec![1, i64::from(TRIGGER_NAME_ID), 3]) > 0.9);
         assert!(score(vec![1, 2, 3]) < 0.5);
     }
 

@@ -102,8 +102,8 @@ The guard SHALL be passed the body unit of a response and no other unit. It SHAL
 be passed a request unit, a URL path, a query string, or a header value. A request that
 holds a marker SHALL NOT be reported by this guard.
 
-For a structured body, the guard SHALL match each parsed value on its own. A marker split
-across two values SHALL NOT match.
+For a structured body, the guard SHALL match each parsed value on its own, in its decoded
+form. A marker split across two values SHALL NOT match.
 
 #### Scenario: The marker is in the system message of a request
 
@@ -119,6 +119,12 @@ across two values SHALL NOT match.
 #### Scenario: The marker is in a JSON response value
 
 - **WHEN** a generic route's upstream answers a JSON body whose value holds a marker
+- **THEN** the guard reports a finding
+
+#### Scenario: The marker is written with an escape in a JSON response value
+
+- **WHEN** a marker holds a non-ASCII letter, and a generic route's upstream answers a JSON
+  body whose value holds the marker with that letter written as a `\uXXXX` escape
 - **THEN** the guard reports a finding
 
 #### Scenario: The LiteLLM request side

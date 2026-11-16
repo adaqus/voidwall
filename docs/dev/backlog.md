@@ -64,23 +64,6 @@ evaluation against fabricated ground truth. It inflates false positives.
 - Emit one `warn!` line at startup when the value is false.
 - Unit-test both directions: a Luhn-failing card matches when the flag is off.
 
-### 1.5 Duplicate JSON keys shift the flattened fragments
-
-`structured::json::flatten_json` records the offset of every quoted string in the raw
-bytes, then walks the parsed `Value`. A duplicate key keeps its first position in the
-`Value` and takes the last value, so the raw bytes hold two strings more than the walk
-consumes. Every fragment from the duplicate on reads the wrong bytes, and a value after
-it can pass unscanned. An upstream that keeps the last value then sees what Voidwall
-skipped. It affects every JSON body: `/v1/scan`, generic reverse proxy routes, the LiteLLM
-route, and `format = "openai-chat"`. The leaf-count check of the Chat Completions decoder
-does not catch it, because both walks count the same deduplicated `Value`.
-
-The fix changes what a body with a duplicate key answers, so it needs a proposal. Two
-ways:
-
-- Reject a duplicate key as a body that does not parse.
-- Recover offsets from a parser that sees every key, duplicates included.
-
 ### 1.6 A metric for the time Voidwall itself adds
 
 `voidwall_request_duration_seconds` stops when the handler returns the response head. On a
@@ -141,6 +124,25 @@ OpenAI, which compresses its JSON answers when the client asks for it.
   decompressed body, whether the body size limit applies to the decompressed size (a
   small compressed body can expand to a very large one), and which crates it adds.
 - Then decide whether the proxy still sets `Accept-Encoding: identity`.
+
+### 1.11 Escapes inside JSON that is nested in a string value
+
+A tool call's `arguments` on a Chat Completions message is a JSON document inside a JSON
+string. Voidwall scans it as one string. The OpenSpec change `decode-json-escapes` decodes
+the escapes of the outer document only, so an escape of the inner document stays literal:
+an e-mail address whose `@` is written as `\\u0040` inside `arguments` passes every guard
+(measured 2026-11-16). The reader of the tool call decodes the inner document and sees the
+address. It affects every string value that holds JSON, in both directions, on
+`openai-chat` routes and on the LiteLLM route. In a stream, the inner escape can also be
+split across deltas.
+
+- Decide in the proposal which values are parsed as nested JSON: only the fields that
+  the Chat Completions format defines as JSON (`function.arguments`), or any string value
+  that parses as a JSON object or array.
+- Decide what happens to a value that does not parse as JSON, and how deep the nesting
+  goes.
+- Phase 2 of the encoded-content plan (decode base64, hex and `%xx` runs) has the same
+  nesting question; settle both together.
 
 ---
 
