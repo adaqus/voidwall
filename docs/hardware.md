@@ -27,8 +27,8 @@ Memory depends on the guards and on their threads. Each thread of a model guard 
 own model session, and each session keeps the memory of its largest input. So memory
 grows during the first requests, and then stays at a ceiling.
 
-Measured with the config of the image, which runs `pii`, `prompt_injection`, and
-`pii_ml`. `pii` is the [regex PII guard](guards/pii-regex.md), with no model:
+Measured with the guards `pii`, `prompt_injection`, and `pii_ml` of the config of the
+image. Its `invisible_text` guard holds no data of its own. `pii` is the [regex PII guard](guards/pii-regex.md), with no model:
 
 | CPUs for the container | Model threads | Memory when ready | Memory after load |
 |---|---|---|---|

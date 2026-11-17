@@ -23,8 +23,10 @@
 pub mod finding;
 pub mod guard;
 mod hidden_context;
+mod invisible_text;
 mod model;
 mod regex_pii;
+mod scan_view;
 pub mod unit;
 mod unit_text;
 
@@ -37,8 +39,8 @@ use tracing::{info, warn};
 use voidwall_ml::OnnxRuntime;
 
 use crate::config::{
-    AppConfig, BUILTIN_HIDDEN_CONTEXT_GUARD_NAME, BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError,
-    available_cpus,
+    AppConfig, BUILTIN_HIDDEN_CONTEXT_GUARD_NAME, BUILTIN_INVISIBLE_TEXT_GUARD_NAME,
+    BUILTIN_PII_GUARD_NAME, BuiltinGuards, OnError, available_cpus,
 };
 use crate::error::Error;
 use crate::scanner::SCANNER_ERROR_LIMITER;
@@ -141,6 +143,11 @@ impl Engine {
                 hidden_context,
             )?));
         }
+        if builtin_guards.enabled_invisible_text().is_some() {
+            guards.push(Box::new(invisible_text::InvisibleTextGuard::new(
+                BUILTIN_INVISIBLE_TEXT_GUARD_NAME,
+            )));
+        }
         Ok(Self { guards })
     }
 
@@ -203,6 +210,10 @@ impl Engine {
     /// A guard error does not end the scan. The result carries the findings
     /// of the guards that succeeded and the first guard error; the caller
     /// decides which wins.
+    ///
+    /// For a request, a guard that reads the scan view is passed the view of
+    /// its units instead of their raw text (`hidden-unicode-normalization`).
+    /// Every span leaves in raw-message coordinates.
     pub async fn guard(
         &self,
         units: Arc<[Unit]>,
@@ -232,6 +243,13 @@ impl Engine {
             })
             .collect();
 
+        // The scan view exists for a request only, and only when a planned
+        // guard reads it and a rule changes one of that guard's units.
+        let view = match direction {
+            Direction::Request => view_units(&units, &plans),
+            Direction::Response => None,
+        };
+
         // Fan out. The guard futures mostly await a worker's reply, so the
         // parallelism that matters is already inside each guard; polling them
         // together costs nothing and lets them borrow the shared units instead
@@ -239,21 +257,25 @@ impl Engine {
         let mut in_flight = FuturesUnordered::new();
         for (guard, selected) in &plans {
             let name = guard.name();
+            let read = match &view {
+                Some(view) if guard.reads_scan_view() => view,
+                _ => &units,
+            };
             let detect = guard.detect(GuardInput {
-                units: &units,
+                units: read,
                 selected,
                 on_error,
             });
-            in_flight.push(async move { (name, detect.await) });
+            in_flight.push(async move { (name, read, detect.await) });
         }
 
         let mut findings = Vec::new();
         let mut first_error = None;
-        while let Some((name, result)) = in_flight.next().await {
+        while let Some((name, read, result)) = in_flight.next().await {
             // A guard error does not end the scan: another guard may still
             // block. The first error is kept for the caller; a later one is
             // only logged.
-            let batch = match result {
+            let mut batch = match result {
                 Ok(batch) => batch,
                 Err(e) => {
                     if first_error.is_none() {
@@ -264,6 +286,8 @@ impl Engine {
                     continue;
                 }
             };
+            // Each guard's spans map through the units it read.
+            map_spans(read, &mut batch);
             let blocks = policy.blocks(&batch);
             findings.extend(batch);
             if blocks {
@@ -274,7 +298,6 @@ impl Engine {
         // whole signal: a model guard cancels its run on drop.
         drop(in_flight);
 
-        map_spans(&units, &mut findings);
         findings.sort_by(canonical_order);
         ScanResult::with_error(findings, first_error)
     }
@@ -297,16 +320,59 @@ impl Engine {
     }
 }
 
-/// Map the span of each finding in a structured unit to the raw bytes it was
-/// decoded from. A guard reports a fragment's `offset` plus a position in the
-/// decoded value; the fragment's escape map turns that into raw bytes. A
-/// plain-text unit is left as it is.
+/// The units a guard that reads the scan view is passed: the view of each
+/// unit such a guard selected, or `None` when no rule changes any of them, so
+/// every guard reads the raw units.
 ///
-/// Decoding never grows a value, so a guard's span already lies inside the
-/// raw range of its fragment, and spans of two fragments never overlap. The
-/// map keeps order, so a set of spans that did not overlap still does not:
-/// overlap resolution inside a guard gives the same set before the map as
-/// after it.
+/// A unit no rule changes is shared with the raw set: a plain-text unit by
+/// its reference-counted bytes, a structured unit by a copy of its fragments.
+/// A unit no such guard selected is left empty, since no guard reads it here.
+fn view_units(units: &Arc<[Unit]>, plans: &[(&dyn Guard, Vec<UnitId>)]) -> Option<Arc<[Unit]>> {
+    let mut wanted = vec![false; units.len()];
+    for (guard, selected) in plans {
+        if guard.reads_scan_view() {
+            for id in selected {
+                wanted[id.index()] = true;
+            }
+        }
+    }
+    let views: Vec<Option<UnitContent>> = units
+        .iter()
+        .zip(&wanted)
+        .map(|(unit, &wanted)| wanted.then(|| scan_view::view(&unit.content)).flatten())
+        .collect();
+    if views.iter().all(Option::is_none) {
+        return None;
+    }
+    let set = units
+        .iter()
+        .zip(views)
+        .zip(wanted)
+        .map(|((unit, view), wanted)| Unit {
+            id: unit.id,
+            kind: unit.kind,
+            content: match view {
+                Some(view) => view,
+                None if wanted => unit.content.clone(),
+                None => UnitContent::plain(bytes::Bytes::new()),
+            },
+        })
+        .collect();
+    Some(set)
+}
+
+/// Map the span of each finding to the raw bytes it came from. In a structured
+/// unit a guard reports a fragment's `offset` plus a position in its value;
+/// the fragment's maps turn that into raw bytes: the scan view's edits first,
+/// then the escape sequences. In a plain-text unit the span maps through the
+/// unit's edits, which are empty for raw text.
+///
+/// Neither decoding nor the scan view grows a value, so a guard's span already
+/// lies inside the raw range of its fragment, and spans of two fragments never
+/// overlap. The maps keep order, so a span that starts before another does
+/// not start after it in the raw bytes; overlap resolution inside a guard runs
+/// on the spans it reported. Two findings inside one decoded run map to the
+/// same raw range and stay two findings.
 ///
 /// Every parser emits a unit's fragments in document order, so the fragment
 /// of a span is found by a binary search on `offset`: the cost is one search
@@ -316,7 +382,7 @@ fn map_spans(units: &[Unit], findings: &mut [Finding]) {
         units.iter().all(|u| match &u.content {
             UnitContent::Structured { fragments } =>
                 fragments.windows(2).all(|w| w[0].offset < w[1].offset),
-            UnitContent::PlainText(_) => true,
+            UnitContent::PlainText { .. } => true,
         }),
         "the fragments of a unit are in document order"
     );
@@ -324,8 +390,15 @@ fn map_spans(units: &[Unit], findings: &mut [Finding]) {
         let Some(span) = finding.span else {
             continue;
         };
-        let UnitContent::Structured { fragments } = &units[finding.unit.index()].content else {
-            continue;
+        let fragments = match &units[finding.unit.index()].content {
+            UnitContent::Structured { fragments } => fragments,
+            UnitContent::PlainText { edits, .. } => {
+                if !edits.is_empty() {
+                    let raw = edits.raw_range(span.start..span.end);
+                    finding.span = Some(Span::new(raw.start, raw.end));
+                }
+                continue;
+            }
         };
         // The last fragment that starts at or before the span.
         let at = fragments.partition_point(|f| f.offset <= span.start);
@@ -379,6 +452,7 @@ pub(crate) mod test_guard {
         calls: Arc<AtomicUsize>,
         completions: Arc<AtomicUsize>,
         seen: Arc<std::sync::Mutex<Vec<UnitId>>>,
+        texts: Arc<std::sync::Mutex<Vec<String>>>,
     }
 
     impl GuardProbe {
@@ -396,6 +470,12 @@ pub(crate) mod test_guard {
         /// The units the engine handed this guard, in order.
         pub(crate) fn seen(&self) -> Vec<UnitId> {
             self.seen.lock().expect("probe lock").clone()
+        }
+
+        /// The text of each unit the engine handed this guard: its bytes, or
+        /// its values joined with a newline.
+        pub(crate) fn texts(&self) -> Vec<String> {
+            self.texts.lock().expect("probe lock").clone()
         }
     }
 
@@ -417,6 +497,7 @@ pub(crate) mod test_guard {
         silent: bool,
         needle: Option<&'static str>,
         fails_on: Option<&'static str>,
+        scan_view: bool,
         probe: GuardProbe,
     }
 
@@ -431,8 +512,15 @@ pub(crate) mod test_guard {
                 silent: false,
                 needle: None,
                 fails_on: None,
+                scan_view: false,
                 probe: GuardProbe::default(),
             }
+        }
+
+        /// Make the guard read the scan view of a request.
+        pub(crate) fn reading_the_view(mut self) -> Self {
+            self.scan_view = true;
+            self
         }
 
         /// Make `detect` succeed and report nothing.
@@ -492,6 +580,10 @@ pub(crate) mod test_guard {
             &self.interest
         }
 
+        fn reads_scan_view(&self) -> bool {
+            self.scan_view
+        }
+
         fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a> {
             self.probe.calls.fetch_add(1, AtomicOrdering::SeqCst);
             self.probe
@@ -499,6 +591,22 @@ pub(crate) mod test_guard {
                 .lock()
                 .expect("probe lock")
                 .extend_from_slice(input.selected);
+            self.probe
+                .texts
+                .lock()
+                .expect("probe lock")
+                .extend(input.selected.iter().map(|id| {
+                    match &input.units[id.index()].content {
+                        UnitContent::PlainText { bytes, .. } => {
+                            String::from_utf8_lossy(bytes).into_owned()
+                        }
+                        UnitContent::Structured { fragments } => fragments
+                            .iter()
+                            .map(|f| f.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    }
+                }));
             Box::pin(async move {
                 if let Some(delay) = self.delay {
                     tokio::time::sleep(delay).await;
@@ -566,7 +674,7 @@ pub(crate) mod test_guard {
                     Span::new(f.offset, f.offset + f.value.len().min(1))
                 })
             }
-            UnitContent::PlainText(_) => Span::new(0, 1),
+            UnitContent::PlainText { .. } => Span::new(0, 1),
         }
     }
 
@@ -579,7 +687,7 @@ pub(crate) mod test_guard {
                 .collect()
         };
         match content {
-            UnitContent::PlainText(bytes) => at(&String::from_utf8_lossy(bytes), 0),
+            UnitContent::PlainText { bytes, .. } => at(&String::from_utf8_lossy(bytes), 0),
             UnitContent::Structured { fragments } => fragments
                 .iter()
                 .flat_map(|f| at(&f.value, f.offset))
@@ -604,13 +712,13 @@ mod tests {
 
     fn body_only() -> Arc<[Unit]> {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        units.push_body(UnitContent::plain(Bytes::from_static(b"content")));
         units.into_shared()
     }
 
     fn body_and_path() -> Arc<[Unit]> {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        units.push_body(UnitContent::plain(Bytes::from_static(b"content")));
         units.push_path("/a".into());
         units.into_shared()
     }
@@ -895,7 +1003,7 @@ mod tests {
         let engine = Engine::with_guards(vec![Box::new(body_guard), Box::new(query_guard)]);
 
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+        units.push_body(UnitContent::plain(Bytes::from_static(b"content")));
         units.push_query("q=1".into());
         let units = units.into_shared();
 
@@ -1239,7 +1347,7 @@ enabled = true
         assert_eq!(engine.guards[0].name().as_ref(), "pii_ml");
 
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(
+        units.push_body(UnitContent::plain(Bytes::from_static(
             b"voidwall trigger test",
         )));
         let mut result = engine
@@ -1366,7 +1474,7 @@ enabled = true
     async fn a_span_in_a_plain_text_unit_is_left_as_it_is() {
         let text: &[u8] = b"to a\\u0040b.c or a@b.c";
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(text)));
+        units.push_body(UnitContent::plain(Bytes::from_static(text)));
         assert_eq!(
             placeholder_spans(units.into_shared()).await,
             [Some(Span::new(17, 22))]
@@ -1461,6 +1569,219 @@ enabled = true
         assert!(result.take_error().is_none());
         assert_eq!(result.kinds(), vec!["SECRET".to_string()]);
         assert_eq!(spans(&result), [Some(raw_span(&raw, escaped))]);
+    }
+
+    // --- The scan view of a request (hidden-unicode-normalization) ---
+
+    /// One plain-text body unit holding `text`.
+    fn plain_body(text: &str) -> Arc<[Unit]> {
+        let mut units = Units::new();
+        units.push_body(UnitContent::text(text.into()));
+        units.into_shared()
+    }
+
+    async fn run_in(engine: &Engine, units: Arc<[Unit]>, direction: Direction) -> ScanResult {
+        let mut result = engine
+            .guard(
+                units,
+                &engine.select(None),
+                direction,
+                BlockPolicy::Never,
+                OnError::FailClose,
+            )
+            .await;
+        assert!(result.take_error().is_none(), "guard should succeed");
+        result
+    }
+
+    #[test_case::test_case(Direction::Request, "ab" ; "a request")]
+    #[test_case::test_case(Direction::Response, "a\u{AD}b" ; "a response")]
+    #[tokio::test]
+    async fn a_guard_that_reads_the_view_reads_it_for_a_request_only(
+        direction: Direction,
+        read: &str,
+    ) {
+        let guard = TestGuard::new("view", "EMAIL").reading_the_view();
+        let probe = guard.probe();
+        let engine = Engine::with_guards(vec![Box::new(guard)]);
+        run_in(&engine, plain_body("a\u{AD}b"), direction).await;
+        assert_eq!(probe.texts(), [read]);
+    }
+
+    #[tokio::test]
+    async fn a_raw_text_guard_and_a_view_guard_each_get_their_own_units() {
+        let raw = TestGuard::new("raw", "EMAIL");
+        let view = TestGuard::new("view", "EMAIL").reading_the_view();
+        let (raw_probe, view_probe) = (raw.probe(), view.probe());
+        let engine = Engine::with_guards(vec![Box::new(raw), Box::new(view)]);
+        run_in(&engine, plain_body("a\u{AD}b"), Direction::Request).await;
+        assert_eq!(raw_probe.texts(), ["a\u{AD}b"]);
+        assert_eq!(view_probe.texts(), ["ab"]);
+    }
+
+    /// hidden-unicode-normalization, "No guard reads the scan view", and a
+    /// request no rule changes: no view unit set is built.
+    #[test]
+    fn no_view_is_built_when_no_guard_reads_it_or_no_rule_changes_a_unit() {
+        let raw = TestGuard::new("raw", "EMAIL");
+        let view = TestGuard::new("view", "EMAIL").reading_the_view();
+        let hidden = plain_body("a\u{AD}b");
+        let all = vec![UnitId(0)];
+        assert!(view_units(&hidden, &[(&raw as &dyn Guard, all.clone())]).is_none());
+        let clean = plain_body("zażółć \u{1F600}");
+        assert!(view_units(&clean, &[(&view as &dyn Guard, all.clone())]).is_none());
+        assert!(view_units(&hidden, &[(&view as &dyn Guard, all)]).is_some());
+    }
+
+    /// A unit that no view guard selected is not normalized.
+    #[test]
+    fn only_the_units_a_view_guard_selected_are_normalized() {
+        let view = TestGuard::new("view", "EMAIL").reading_the_view();
+        let mut units = Units::new();
+        units.push_body(UnitContent::text("a\u{AD}b".into()));
+        units.push_query("c\u{AD}d".into());
+        let units = units.into_shared();
+        let set = view_units(&units, &[(&view as &dyn Guard, vec![UnitId(1)])]).unwrap();
+        let text = |unit: &Unit| match &unit.content {
+            UnitContent::PlainText { bytes, .. } => bytes.clone(),
+            UnitContent::Structured { .. } => unreachable!(),
+        };
+        assert_eq!(&text(&set[1])[..], b"cd");
+        assert!(text(&set[0]).is_empty(), "no view guard reads the body");
+    }
+
+    /// The regex PII guard reads the view by default.
+    fn view_spans(result: &ScanResult, kind: &str) -> Vec<Option<Span>> {
+        result
+            .findings()
+            .iter()
+            .filter(|f| f.kind.as_str() == kind)
+            .map(|f| f.span)
+            .collect()
+    }
+
+    const IBAN: &str = "GB82WEST12345698765432";
+
+    /// hidden-unicode-normalization, "A finding after removed characters",
+    /// "A finding that holds a removed character", and "Removed characters at
+    /// the edges of a finding".
+    #[test_case::test_case(format!("\u{AD}\u{AD}text {IBAN}"), "GB82WEST12345698765432" ; "after removed characters")]
+    #[test_case::test_case(format!("iban {}", "GB82WEST1234\u{AD}5698765432"), "GB82WEST1234\u{AD}5698765432" ; "holding a removed character")]
+    #[test_case::test_case(format!("iban \u{AD}{IBAN}\u{AD} ok"), "GB82WEST12345698765432" ; "removed characters at the edges")]
+    #[tokio::test]
+    async fn a_span_in_the_view_names_the_raw_bytes(text: String, placeholder: &str) {
+        let engine = international_pii();
+        let result = run_in(&engine, plain_body(&text), Direction::Request).await;
+        assert_eq!(
+            view_spans(&result, "IBAN"),
+            [Some(raw_span(text.as_bytes(), placeholder.as_bytes()))]
+        );
+        engine.shutdown();
+    }
+
+    fn tags(text: &str) -> String {
+        text.chars()
+            .map(|c| char::from_u32(0xE0000 + u32::from(c)).unwrap())
+            .collect()
+    }
+
+    /// "A finding inside a decoded run" and "Two findings inside one decoded
+    /// run".
+    #[test_case::test_case("jane.doe@example.com", 1 ; "one finding")]
+    #[test_case::test_case("jane.doe@example.com ann.lee@example.org", 2 ; "two findings")]
+    #[tokio::test]
+    async fn a_finding_inside_a_decoded_run_spans_the_whole_run(hidden: &str, count: usize) {
+        let run = tags(hidden);
+        let text = format!("mail {run} now");
+        let engine = international_pii();
+        let result = run_in(&engine, plain_body(&text), Direction::Request).await;
+        let whole_run = Some(raw_span(text.as_bytes(), run.as_bytes()));
+        assert_eq!(view_spans(&result, "EMAIL"), vec![whole_run; count]);
+        assert_eq!(result.matches_count(), count);
+        engine.shutdown();
+    }
+
+    /// "A finding in a JSON value with an escaped hidden character": the span
+    /// maps through the view and then through the escape.
+    #[tokio::test]
+    async fn a_span_in_a_json_value_maps_through_the_view_and_the_escape() {
+        let placeholder: &[u8] = b"GB82WEST1234\\u00ad5698765432";
+        let raw = [b"{\"iban\": \"".as_slice(), placeholder, b"\"}"].concat();
+        let engine = international_pii();
+        let result = run_in(&engine, json_body(&raw), Direction::Request).await;
+        assert_eq!(
+            view_spans(&result, "IBAN"),
+            [Some(raw_span(&raw, placeholder))]
+        );
+        engine.shutdown();
+    }
+
+    /// guard-configuration, "A span after removed characters in a request": a
+    /// token classifier reads the view by default, and its span names the raw
+    /// bytes.
+    #[tokio::test]
+    async fn a_token_guard_span_after_removed_characters_names_the_raw_bytes() {
+        let text = "\u{AD}\u{AD} voidwall trigger test";
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::from_config(
+            voidwall_ml::fixtures::runtime(),
+            &token_guard_config(dir.path()),
+        )
+        .expect("engine should build");
+        let result = run_in(&engine, plain_body(text), Direction::Request).await;
+        assert_eq!(
+            spans(&result),
+            [Some(raw_span(text.as_bytes(), b"trigger"))]
+        );
+    }
+
+    /// guard-configuration, "The invisible text guard admits header units":
+    /// when every other selected guard declines header values, the selection
+    /// still wants request header units, and only `invisible_text` is handed
+    /// them.
+    #[tokio::test]
+    async fn the_invisible_text_guard_admits_header_units() {
+        let no_headers = GuardSurface {
+            headers: false,
+            ..GuardSurface::default()
+        };
+        let other = TestGuard::new("other", "EMAIL")
+            .silent()
+            .with_interest(Interest::from_surface(&no_headers));
+        let probe = other.probe();
+        let engine = Engine::with_guards(vec![
+            Box::new(other),
+            Box::new(invisible_text::InvisibleTextGuard::new("invisible_text")),
+        ]);
+        let selection = engine.select(None);
+        assert!(selection.wants(Direction::Request, UnitKind::HeaderValue));
+        assert!(!selection.wants(Direction::Response, UnitKind::HeaderValue));
+
+        let mut units = Units::new();
+        units.push_body(UnitContent::text("clean".into()));
+        units.push_header(format!("Bearer {}", tags("ignore")));
+        let result = run_in(&engine, units.into_shared(), Direction::Request).await;
+        assert_eq!(probe.seen(), [UnitId(0)], "the other guard gets no header");
+        let found: Vec<(usize, &str)> = result
+            .findings()
+            .iter()
+            .map(|f| (f.unit.index(), f.kind.as_str()))
+            .collect();
+        assert_eq!(found, [(1, "INVISIBLE_TEXT")]);
+    }
+
+    #[test]
+    fn an_enabled_invisible_text_section_builds_the_guard_under_its_name() {
+        let guards =
+            BuiltinGuards::with_invisible_text(crate::config::InvisibleTextConfig::default());
+        let engine = Engine::new(&guards).expect("engine should build");
+        assert_eq!(engine.guards.len(), 1);
+        assert_eq!(engine.guards[0].name().as_ref(), "invisible_text");
+        assert!(!engine.guards[0].reads_scan_view());
+        let disabled = BuiltinGuards::with_invisible_text(crate::config::InvisibleTextConfig {
+            enabled: false,
+        });
+        assert!(Engine::new(&disabled).unwrap().guards.is_empty());
     }
 
     #[tokio::test]

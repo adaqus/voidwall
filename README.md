@@ -59,7 +59,7 @@ See [docs/quick-start.md](docs/quick-start.md) for more.
 | LiteLLM, AnythingLLM, LM Studio, and Ollama setups | [docs/recipes/](docs/recipes/README.md) |
 | Every configuration key | [docs/configuration.md](docs/configuration.md) |
 | The HTTP API and the reverse proxy answers | [docs/api-reference.md](docs/api-reference.md) |
-| Guards: regex PII, model guards, hidden context, your own model | [docs/guards/](docs/guards/README.md) |
+| Guards: regex PII, model guards, hidden context, invisible text, your own model | [docs/guards/](docs/guards/README.md) |
 | OWASP Top 10 for LLM Applications (2026) coverage | [docs/owasp-coverage.md](docs/owasp-coverage.md) |
 
 ## Development

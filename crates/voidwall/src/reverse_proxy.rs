@@ -1728,7 +1728,7 @@ fn parse_failure(
     match on_error {
         OnError::FailOpen => {
             metrics::inc_error("passed", "body_parse_failed");
-            Ok(UnitContent::PlainText(bytes.clone()))
+            Ok(UnitContent::plain(bytes.clone()))
         }
         OnError::FailClose => {
             metrics::inc_error("blocked", "body_parse_failed");
@@ -2425,7 +2425,7 @@ mod tests {
         };
         let mut units = Units::new();
         for _ in 0..unit_count {
-            units.push_body(UnitContent::PlainText(Bytes::from_static(b"content")));
+            units.push_body(UnitContent::plain(Bytes::from_static(b"content")));
         }
         run_engine(&plan, units, &ctx, "scanner error").await
     }
@@ -3643,7 +3643,9 @@ mod tests {
             panic!("expected the event to go on");
         };
         assert!(event.pieces.is_empty());
-        assert!(matches!(&event.units[..], [UnitContent::PlainText(b)] if &b[..] == b"{not json"));
+        assert!(
+            matches!(&event.units[..], [UnitContent::PlainText { bytes: b, .. }] if &b[..] == b"{not json")
+        );
     }
 
     // 4.2 — the stop event carries the route's error body

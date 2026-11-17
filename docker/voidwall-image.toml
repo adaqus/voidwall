@@ -31,6 +31,12 @@ countries = []
 languages = []
 scanner_threads = 6
 
+# Blocks a request that holds text hidden in Unicode tag characters or in
+# variation selectors ("emoji smuggling"). An emoji flag and an emoji with a
+# presentation selector pass. It reads the raw text of every request unit and
+# decodes nothing. The section has no other key.
+[builtin_guards.invisible_text]
+
 # A model-backed guard is declared in its own section. One section carries
 # everything one guard needs to run one model — there is no model section and no
 # model reference — and its surface defaults to the body alone, because each

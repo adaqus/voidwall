@@ -10,8 +10,9 @@ docker run --rm -p 8083:8083 -p 9090:9090 ghcr.io/adaqus/voidwall
 ```
 
 The config of the image turns on the HTTP API on port 8083 and the admin server on
-port 9090. It runs three guards: `pii` (regular expressions), `prompt_injection` (a
-model), and `pii_ml` (a model). The reverse proxy is off.
+port 9090. It runs four guards: `pii` (regular expressions), `invisible_text` (text
+hidden in Unicode tag characters or variation selectors), `prompt_injection` (a model),
+and `pii_ml` (a model). The reverse proxy is off.
 
 ## 2. Wait until it is ready
 

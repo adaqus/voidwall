@@ -45,6 +45,8 @@ redact or rewrite a message.
 - **Model guards**: an ONNX model that you choose, for example a prompt injection
   classifier or a model that finds names and postal addresses. The image ships two.
 - **Hidden context guard**: a response that repeats a canary from the system prompt.
+- **Invisible text guard**: a request that hides text in Unicode tag characters or
+  variation selectors.
 
 See [guards/README.md](guards/README.md).
 

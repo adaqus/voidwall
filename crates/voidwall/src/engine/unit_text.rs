@@ -47,7 +47,7 @@ struct Piece {
 impl<'a> UnitText<'a> {
     pub(crate) fn new(content: &'a UnitContent) -> Self {
         match content {
-            UnitContent::PlainText(bytes) => Self::plain(bytes),
+            UnitContent::PlainText { bytes, .. } => Self::plain(bytes),
             UnitContent::Structured { fragments } => Self::fragments(fragments),
         }
     }
@@ -177,7 +177,7 @@ mod tests {
     use test_case::test_case;
 
     fn plain(bytes: &[u8]) -> UnitContent {
-        UnitContent::PlainText(Bytes::copy_from_slice(bytes))
+        UnitContent::plain(Bytes::copy_from_slice(bytes))
     }
 
     fn fragment(value: &str, offset: usize) -> OwnedContextFragment {

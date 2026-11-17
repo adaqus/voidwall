@@ -323,12 +323,19 @@ pub const BUILTIN_PII_GUARD_NAME: &str = "pii";
 /// carries into every finding it reports.
 pub const BUILTIN_HIDDEN_CONTEXT_GUARD_NAME: &str = "hidden_context";
 
+/// The section key of the built-in invisible text guard, and so the name it
+/// carries into every finding it reports.
+pub const BUILTIN_INVISIBLE_TEXT_GUARD_NAME: &str = "invisible_text";
+
 /// The guard names the build reserves for guards that ship with Voidwall.
 ///
 /// Every guard a route can select is drawn from one flat name space, so a
 /// configured guard may not take one of these.
-pub const BUILTIN_GUARD_NAMES: &[&str] =
-    &[BUILTIN_PII_GUARD_NAME, BUILTIN_HIDDEN_CONTEXT_GUARD_NAME];
+pub const BUILTIN_GUARD_NAMES: &[&str] = &[
+    BUILTIN_PII_GUARD_NAME,
+    BUILTIN_HIDDEN_CONTEXT_GUARD_NAME,
+    BUILTIN_INVISIBLE_TEXT_GUARD_NAME,
+];
 
 /// The guards that ship with Voidwall.
 ///
@@ -348,6 +355,9 @@ pub struct BuiltinGuards {
     #[serde(default)]
     pub hidden_context: Option<HiddenContextConfig>,
 
+    #[serde(default)]
+    pub invisible_text: Option<InvisibleTextConfig>,
+
     #[serde(flatten)]
     unknown: BTreeMap<String, toml::Value>,
 }
@@ -362,6 +372,7 @@ impl BuiltinGuards {
         Self {
             pii: Some(pii),
             hidden_context: None,
+            invisible_text: None,
             unknown: BTreeMap::new(),
         }
     }
@@ -372,6 +383,18 @@ impl BuiltinGuards {
         Self {
             pii: None,
             hidden_context: Some(hidden_context),
+            invisible_text: None,
+            unknown: BTreeMap::new(),
+        }
+    }
+
+    /// The guard set holding just the invisible text guard. See
+    /// [`BuiltinGuards::with_pii`].
+    pub fn with_invisible_text(invisible_text: InvisibleTextConfig) -> Self {
+        Self {
+            pii: None,
+            hidden_context: None,
+            invisible_text: Some(invisible_text),
             unknown: BTreeMap::new(),
         }
     }
@@ -387,6 +410,12 @@ impl BuiltinGuards {
         self.hidden_context.as_ref().filter(|g| g.enabled)
     }
 
+    /// The built-in invisible text guard, when its section is present and
+    /// enabled.
+    pub fn enabled_invisible_text(&self) -> Option<&InvisibleTextConfig> {
+        self.invisible_text.as_ref().filter(|g| g.enabled)
+    }
+
     /// Keys under `[builtin_guards]` naming no built-in guard.
     fn unknown_names(&self) -> impl Iterator<Item = &str> {
         self.unknown.keys().map(String::as_str)
@@ -400,6 +429,9 @@ impl BuiltinGuards {
         }
         if self.enabled_hidden_context().is_some() {
             names.push(BUILTIN_HIDDEN_CONTEXT_GUARD_NAME);
+        }
+        if self.enabled_invisible_text().is_some() {
+            names.push(BUILTIN_INVISIBLE_TEXT_GUARD_NAME);
         }
         names
     }
@@ -475,6 +507,26 @@ impl std::fmt::Debug for HiddenContextConfig {
     }
 }
 
+/// The built-in invisible text guard: it reports a request that holds text
+/// hidden in Unicode tag characters or in variation selectors.
+///
+/// Its only key is `enabled`. It has no `surface`: its interest is fixed in
+/// code to every unit of a request. It has no `scan_view`: it must see the raw
+/// characters.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct InvisibleTextConfig {
+    /// A present section is enabled unless it says otherwise, as for `pii`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for InvisibleTextConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// The built-in regex and keyword PII guard.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -505,6 +557,11 @@ pub struct PiiGuardConfig {
 
     #[serde(default)]
     pub surface: GuardSurface,
+
+    /// Whether the guard reads the scan view of a request unit (`true`) or
+    /// its raw text. A response is always read as raw text.
+    #[serde(default = "default_true")]
+    pub scan_view: bool,
 }
 
 impl Default for PiiGuardConfig {
@@ -518,6 +575,7 @@ impl Default for PiiGuardConfig {
             ignore: None,
             custom: Vec::new(),
             surface: GuardSurface::default(),
+            scan_view: true,
         }
     }
 }
@@ -662,6 +720,22 @@ pub struct ModelGuardConfig {
 
     #[serde(default)]
     pub surface: ModelGuardSurface,
+
+    /// Whether the guard reads the scan view of a request unit or its raw
+    /// text. Absent means the adapter's default: see
+    /// [`ModelGuardConfig::reads_scan_view`].
+    pub scan_view: Option<bool>,
+}
+
+impl ModelGuardConfig {
+    /// Whether the guard reads the scan view of a request unit. A
+    /// `token_classifier` reads it unless `scan_view` says otherwise, and a
+    /// `text_classifier` reads the raw text unless `scan_view` says
+    /// otherwise, so its input stays as it was before the scan view existed.
+    pub fn reads_scan_view(&self) -> bool {
+        self.scan_view
+            .unwrap_or(self.adapter == AdapterKind::TokenClassifier)
+    }
 }
 
 /// The class of finding a model guard reports. It decides only which metric
@@ -2463,6 +2537,131 @@ listen = "0.0.0.0:8083"
         assert!(msg.contains("type"), "got: {msg}");
     }
 
+    // --- scan_view: a guard reads the scan view or the raw text ---
+
+    /// guard-configuration, "Defaults of the shipped guards".
+    #[test]
+    fn the_pii_guard_and_a_token_classifier_read_the_view_by_default() {
+        let pii = parse(&pii_toml("")).unwrap();
+        assert!(pii.builtin_guards.pii.unwrap().scan_view);
+        assert!(PiiGuardConfig::default().scan_view);
+        let text = parse(&model_guard_with("")).unwrap();
+        assert!(!text.guards["injection"].reads_scan_view());
+        let token = parse(&token_guard_with("")).unwrap();
+        assert!(token.guards["pii_ml"].reads_scan_view());
+    }
+
+    /// guard-configuration, "The pii guard set to read the raw text", and its
+    /// opposite.
+    #[test_case("scan_view = true", true ; "true")]
+    #[test_case("scan_view = false", false ; "false")]
+    fn the_pii_guard_takes_scan_view(line: &str, expected: bool) {
+        let config = parse(&pii_toml(line)).unwrap();
+        assert_eq!(config.builtin_guards.pii.unwrap().scan_view, expected);
+    }
+
+    /// guard-configuration, "A text classifier set to read the scan view",
+    /// and every other value on both adapters.
+    #[test_case("injection", "scan_view = true", true ; "a text classifier set true")]
+    #[test_case("injection", "scan_view = false", false ; "a text classifier set false")]
+    #[test_case("pii_ml", "scan_view = true", true ; "a token classifier set true")]
+    #[test_case("pii_ml", "scan_view = false", false ; "a token classifier set false")]
+    fn a_model_guard_takes_scan_view(name: &str, line: &str, expected: bool) {
+        let toml = if name == "injection" {
+            model_guard_with(line)
+        } else {
+            token_guard_with(line)
+        };
+        let config = parse(&toml).unwrap();
+        assert_eq!(config.guards[name].scan_view, Some(expected));
+        assert_eq!(config.guards[name].reads_scan_view(), expected);
+    }
+
+    /// guard-configuration, "A value that is not a boolean".
+    #[test_case(model_guard_with("scan_view = \"yes\"") ; "a model guard")]
+    #[test_case(pii_toml("scan_view = \"yes\"") ; "the pii guard")]
+    fn a_scan_view_that_is_not_a_boolean_fails_the_schema(toml: String) {
+        let msg = parse(&toml).unwrap_err().to_string();
+        assert!(msg.contains("scan_view"), "got: {msg}");
+        assert!(msg.contains("boolean"), "got: {msg}");
+    }
+
+    /// guard-configuration, "The hidden context guard sets scan_view".
+    #[test]
+    fn the_hidden_context_section_rejects_scan_view() {
+        let msg = parse(&hidden_context_toml(
+            "",
+            &format!("markers = [\"{MARKER}\"]\nscan_view = true"),
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(msg.contains("unknown field"), "got: {msg}");
+        assert!(msg.contains("scan_view"), "got: {msg}");
+    }
+
+    // --- The invisible text guard section ---
+
+    /// A config with `[builtin_guards.invisible_text]` holding `section`.
+    fn invisible_text_toml(section: &str) -> String {
+        format!(
+            r#"
+[builtin_guards.invisible_text]
+{section}
+
+[http_api]
+enabled = true
+"#
+        )
+    }
+
+    /// invisible-text-guard, "The guard is declared"; guard-configuration,
+    /// "The built-in invisible text guard is declared".
+    #[test]
+    fn an_empty_invisible_text_section_enables_the_guard() {
+        let config = parse(&invisible_text_toml("")).unwrap();
+        assert!(config.builtin_guards.enabled_invisible_text().is_some());
+        assert_eq!(config.builtin_guards.enabled_names(), ["invisible_text"]);
+    }
+
+    /// invisible-text-guard, "The guard is disabled".
+    #[test]
+    fn a_disabled_invisible_text_section_builds_no_guard() {
+        let config = parse(&invisible_text_toml("enabled = false")).unwrap();
+        assert!(config.builtin_guards.enabled_invisible_text().is_none());
+        assert!(config.builtin_guards.enabled_names().is_empty());
+    }
+
+    /// invisible-text-guard, "The guard sets a surface" and "The guard sets
+    /// scan_view"; any other key fails the schema too.
+    #[test_case("[builtin_guards.invisible_text.surface]\nbody = true", "surface" ; "a surface")]
+    #[test_case("scan_view = true", "scan_view" ; "scan_view")]
+    #[test_case("markers = [\"x\"]", "markers" ; "another key")]
+    fn the_invisible_text_section_rejects_any_key_but_enabled(section: &str, key: &str) {
+        let msg = parse(&invisible_text_toml(section))
+            .unwrap_err()
+            .to_string();
+        assert!(msg.contains("unknown field"), "got: {msg}");
+        assert!(msg.contains(key), "got: {msg}");
+    }
+
+    /// invisible-text-guard, "A configured guard takes the name".
+    #[test]
+    fn a_configured_guard_named_invisible_text_is_rejected() {
+        let toml = model_guard_toml(
+            r#"
+[guards.invisible_text]
+adapter = "text_classifier"
+model_path = "/m"
+tokenizer_path = "/t"
+max_tokens = 16
+labels = ["PROMPT_INJECTION"]
+"#,
+        );
+        let msg = parse(&toml).unwrap_err().to_string();
+        assert!(msg.contains("invisible_text"), "got: {msg}");
+        assert!(msg.contains("reserved"), "got: {msg}");
+    }
+
     // --- The hidden context guard section ---
 
     const MARKER: &str = "vw-canary-0000";
@@ -3771,6 +3970,7 @@ url_path = true
 
     #[test_case(BUILTIN_PII_GUARD_NAME ; "the built-in pii guard")]
     #[test_case(BUILTIN_HIDDEN_CONTEXT_GUARD_NAME ; "the built-in hidden context guard")]
+    #[test_case(BUILTIN_INVISIBLE_TEXT_GUARD_NAME ; "the built-in invisible text guard")]
     fn a_reserved_guard_name_is_rejected(name: &str) {
         let err = validate_configured_guard_name(name).expect_err("must be rejected");
         assert!(err.to_string().contains("reserved"), "got: {err}");
@@ -4518,6 +4718,10 @@ labels = ["K"]
                 (
                     "builtin_guards.hidden_context",
                     fields::<HiddenContextConfig>(),
+                ),
+                (
+                    "builtin_guards.invisible_text",
+                    fields::<InvisibleTextConfig>(),
                 ),
                 ("guards.<name>", fields::<ModelGuardConfig>()),
                 ("guards.<name>.surface", fields::<ModelGuardSurface>()),

@@ -298,7 +298,8 @@ if should_run structured_scanning; then
 fi
 
 # --- Scenario 7: HTTP API ---
-# Sweeps endpoint × content-type × body size, all against PII-bearing payloads.
+# Sweeps endpoint × content-type × body size against PII-bearing payloads,
+# then text and JSON against non-ASCII payloads with no PII.
 # The http_api config enables only the API listener (no echo upstream needed).
 # One k6 process per (endpoint, content_type, payload) combination keeps memory
 # small and lines results up cleanly in the summary table.
@@ -307,13 +308,17 @@ run_http_api() {
     local endpoint="$1"
     local content_type="$2"
     local payload="$3"
+    local corpus="${4:-pii}"
     local name="http_api_${endpoint}_${content_type}_${payload}"
+    if [ "$corpus" != pii ]; then
+        name="${name}_${corpus}"
+    fi
 
     echo ""
     echo "=== Scenario: $name ==="
     start_proxy "$CONFIGS_DIR/http_api.toml"
 
-    echo "  Running k6: http_api.js ($endpoint, $content_type, $payload)"
+    echo "  Running k6: http_api.js ($endpoint, $content_type, $payload, $corpus)"
     k6 run \
         --quiet \
         --summary-trend-stats "avg,p(50),p(95),p(99),max" \
@@ -322,6 +327,7 @@ run_http_api() {
         -e "ENDPOINT=$endpoint" \
         -e "CONTENT_TYPE=$content_type" \
         -e "PAYLOAD=$payload" \
+        -e "CORPUS=$corpus" \
         "$K6_DIR/http_api.js" 2>&1 | tee "$RESULTS_DIR/${name}_${TIMESTAMP}.log"
 
     stop_proxy
@@ -332,6 +338,12 @@ if should_run http_api; then
         for content_type in text json csv; do
             for payload in small medium large; do
                 run_http_api "$endpoint" "$content_type" "$payload"
+            done
+        done
+        # Non-ASCII text with no PII: the full pass of the scan view.
+        for content_type in text json; do
+            for payload in small medium large; do
+                run_http_api "$endpoint" "$content_type" "$payload" unicode
             done
         done
     done

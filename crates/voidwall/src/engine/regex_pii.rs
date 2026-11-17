@@ -172,7 +172,7 @@ fn execute_scan(scanner: &voidwall_pii::Scanner, job: &ScanJob) -> Vec<Finding> 
         };
 
         let matches = match &unit.content {
-            UnitContent::PlainText(bytes) => {
+            UnitContent::PlainText { bytes, .. } => {
                 let Ok(text) = std::str::from_utf8(bytes) else {
                     continue;
                 };
@@ -210,6 +210,7 @@ pub(crate) struct RegexPiiGuard {
     name: Arc<str>,
     pool: ScannerPool,
     interest: Interest,
+    scan_view: bool,
 }
 
 impl RegexPiiGuard {
@@ -221,6 +222,7 @@ impl RegexPiiGuard {
             name: Arc::from(name),
             pool: ScannerPool::new(pii_config)?,
             interest: Interest::from_surface(&pii_config.surface),
+            scan_view: pii_config.scan_view,
         })
     }
 }
@@ -232,6 +234,10 @@ impl Guard for RegexPiiGuard {
 
     fn interest(&self) -> &Interest {
         &self.interest
+    }
+
+    fn reads_scan_view(&self) -> bool {
+        self.scan_view
     }
 
     fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a> {
@@ -288,7 +294,7 @@ mod tests {
 
     fn body_units(bytes: &'static [u8]) -> Units {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(bytes)));
+        units.push_body(UnitContent::plain(Bytes::from_static(bytes)));
         units
     }
 
@@ -362,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn every_unit_kind_is_scanned() {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(
+        units.push_body(UnitContent::plain(Bytes::from_static(
             b"body user@example.com",
         )));
         units.push_path("/users/other@example.com".into());
@@ -397,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn an_unselected_unit_is_not_scanned() {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(
+        units.push_body(UnitContent::plain(Bytes::from_static(
             b"body user@example.com",
         )));
         units.push_path("/users/other@example.com".into());
@@ -427,7 +433,7 @@ mod tests {
     async fn a_guard_leaves_the_units_it_scanned_untouched() {
         let scanned = b"contact me at user@example.com please";
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(scanned)));
+        units.push_body(UnitContent::plain(Bytes::from_static(scanned)));
         let units = units.into_shared();
         let selected: Vec<UnitId> = units.iter().map(|u| u.id).collect();
 
@@ -441,7 +447,7 @@ mod tests {
             .expect("detect should succeed");
 
         assert!(!findings.is_empty(), "the guard did find something");
-        let UnitContent::PlainText(bytes) = &units[0].content else {
+        let UnitContent::PlainText { bytes, .. } = &units[0].content else {
             panic!("expected plain text");
         };
         assert_eq!(bytes, &Bytes::from_static(scanned));
@@ -492,7 +498,7 @@ mod tests {
         drop(pool);
 
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(
+        units.push_body(UnitContent::plain(Bytes::from_static(
             b"email: user@example.com",
         )));
         let units = units.into_shared();

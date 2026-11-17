@@ -22,6 +22,9 @@
 //   CONTENT_TYPE  - text | json | csv              (default: json)
 //   PAYLOAD       - small | medium | large         (default: medium)
 //   PII           - true | false                   (default: true)
+//   CORPUS        - pii | clean | unicode          (default: pii, or clean
+//                   when PII=false). unicode is non-ASCII text with no PII,
+//                   for text and json only.
 
 import http from "k6/http";
 import { check } from "k6";
@@ -34,6 +37,7 @@ const ENDPOINT = __ENV.ENDPOINT || "scan";
 const CONTENT_TYPE = __ENV.CONTENT_TYPE || "json";
 const PAYLOAD = __ENV.PAYLOAD || "medium";
 const PII = (__ENV.PII || "true").toLowerCase() !== "false";
+const CORPUS = __ENV.CORPUS || (PII ? "pii" : "clean");
 
 // k6's `open()` requires a string literal, so every payload variant must be
 // declared up-front. The selector at the bottom of the file picks one.
@@ -48,6 +52,11 @@ const bodies = {
       small: open("../payloads/clean_small.json"),
       medium: open("../payloads/clean_medium.json"),
       large: open("../payloads/clean_large.json"),
+    },
+    unicode: {
+      small: open("../payloads/unicode_small.json"),
+      medium: open("../payloads/unicode_medium.json"),
+      large: open("../payloads/unicode_large.json"),
     },
     contentType: "application/json",
   },
@@ -64,6 +73,11 @@ const bodies = {
       small: open("../payloads/clean_small.json"),
       medium: open("../payloads/clean_medium.json"),
       large: open("../payloads/clean_large.json"),
+    },
+    unicode: {
+      small: open("../payloads/unicode_small.json"),
+      medium: open("../payloads/unicode_medium.json"),
+      large: open("../payloads/unicode_large.json"),
     },
     contentType: "text/plain",
   },
@@ -86,7 +100,10 @@ const variant = bodies[CONTENT_TYPE];
 if (!variant) {
   throw new Error(`unknown CONTENT_TYPE=${CONTENT_TYPE}, expected text|json|csv`);
 }
-const corpus = PII ? variant.pii : variant.clean;
+const corpus = variant[CORPUS];
+if (!corpus) {
+  throw new Error(`no CORPUS=${CORPUS} for CONTENT_TYPE=${CONTENT_TYPE}`);
+}
 const body = corpus[PAYLOAD];
 if (!body) {
   throw new Error(`unknown PAYLOAD=${PAYLOAD}, expected small|medium|large`);

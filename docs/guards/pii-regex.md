@@ -60,6 +60,10 @@ is read value by value:
   before it. A file with no header row is read as plain text.
 - A body that does not parse follows `on_error`.
 
+In a request, the guard reads the [scan view](README.md#the-scan-view), so a value with a
+soft hyphen, a backspace, or full-width digits in it is found. Set `scan_view = false` to
+read the raw text. A response is always read as raw text.
+
 ## Overlapping matches
 
 Two rules can match the same text, for example a number that has the shape of two

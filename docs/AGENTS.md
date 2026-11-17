@@ -18,7 +18,7 @@ change makes old. Run it after a change, and read this file first.
 | `recipes/` | `README.md` with the shared proxy setup, and one page per integration: `lm-studio.md`, `ollama.md`, `anythingllm.md`, `litellm.md` |
 | `configuration.md` | Every configuration key, its default, and validation |
 | `api-reference.md` | The HTTP API and the admin server; it links `openapi.json` |
-| `guards/` | `README.md`, `pii-regex.md`, `model-guards.md`, `hidden-context.md`, `custom-guard.md` |
+| `guards/` | `README.md`, `pii-regex.md`, `model-guards.md`, `hidden-context.md`, `invisible-text.md`, `custom-guard.md` |
 | `owasp-coverage.md` | OWASP Top 10 for LLM Applications (2026) coverage |
 | `dev/` | Contributor material: the backlog, the TODO list, load testing |
 

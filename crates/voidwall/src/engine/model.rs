@@ -316,6 +316,7 @@ pub(crate) struct ModelGuard {
     name: Arc<str>,
     interest: Interest,
     pool: ModelPool,
+    scan_view: bool,
 }
 
 impl ModelGuard {
@@ -383,6 +384,7 @@ impl ModelGuard {
             name: guard,
             interest: Interest::from_model_surface(&config.surface),
             pool,
+            scan_view: config.reads_scan_view(),
         })
     }
 }
@@ -425,6 +427,10 @@ impl Guard for ModelGuard {
 
     fn interest(&self) -> &Interest {
         &self.interest
+    }
+
+    fn reads_scan_view(&self) -> bool {
+        self.scan_view
     }
 
     fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a> {
@@ -483,6 +489,7 @@ mod tests {
             validate_as: None,
             class: None,
             surface: ModelGuardSurface::default(),
+            scan_view: None,
         }
     }
 
@@ -520,7 +527,7 @@ mod tests {
     fn plain(texts: &[&[u8]]) -> Units {
         let mut units = Units::new();
         for text in texts {
-            units.push_body(UnitContent::PlainText(Bytes::copy_from_slice(text)));
+            units.push_body(UnitContent::plain(Bytes::copy_from_slice(text)));
         }
         units
     }
@@ -894,6 +901,7 @@ mod tests {
                 }),
                 class: None,
                 surface: ModelGuardSurface::default(),
+                scan_view: None,
             }
         }
 

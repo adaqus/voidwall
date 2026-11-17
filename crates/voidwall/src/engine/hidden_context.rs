@@ -62,7 +62,7 @@ impl HiddenContextGuard {
                 .map(|m| Span::new(offset + m.start(), offset + m.end()))
         };
         match content {
-            UnitContent::PlainText(bytes) => at(bytes, 0),
+            UnitContent::PlainText { bytes, .. } => at(bytes, 0),
             UnitContent::Structured { fragments } => fragments
                 .iter()
                 .find_map(|f| at(f.value.as_bytes(), f.offset)),
@@ -136,9 +136,7 @@ mod tests {
 
     fn body(text: &str) -> Units {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::copy_from_slice(
-            text.as_bytes(),
-        )));
+        units.push_body(UnitContent::plain(Bytes::copy_from_slice(text.as_bytes())));
         units
     }
 
@@ -187,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn a_body_that_is_not_utf8_is_still_searched() {
         let mut units = Units::new();
-        units.push_body(UnitContent::PlainText(Bytes::from_static(
+        units.push_body(UnitContent::plain(Bytes::from_static(
             b"\xff vw-canary-0000",
         )));
         let findings = detect(&guard(&["vw-canary-0000"]), units).await;

@@ -141,6 +141,9 @@ reachable from nowhere else.
   a response, or a detected value.
 - A guard declares its interest; the `Engine` applies it. A guard no selected unit
   interests is not called.
+- For a request, a guard whose `reads_scan_view` is true (its `scan_view` setting) is
+  passed the scan view of its units, built in `Engine::guard`. The engine maps its spans
+  back to raw bytes. Never normalize in a handler or inside a guard.
 - Findings come back in canonical order — unit, span start, span end, guard, kind, with
   span-less findings last — so arrival order is invisible and a kind list is stable.
 - The engine short-circuits for a block and nothing else. A guard still running is

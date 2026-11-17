@@ -144,6 +144,40 @@ split across deltas.
 - Phase 2 of the encoded-content plan (decode base64, hex and `%xx` runs) has the same
   nesting question; settle both together.
 
+### 1.12 The scan view and the invisible text guard for responses
+
+The OpenSpec change `normalize-hidden-unicode` builds the scan view for request units
+only, and the `invisible_text` guard inspects requests only. A model's answer that hides
+text in tag characters or variation selectors, or a value behind a soft hyphen, reaches
+the client as it is.
+
+- Normalize response-direction units, and let `invisible_text` inspect responses.
+- In a stream, a tag run or a variation-selector run that is still open at the end of the
+  scan window waits like the hold-back tail (agreed 2026-11-16).
+- Decide in the proposal whether the `scan_view` defaults stay the same for responses.
+
+### 1.13 Homoglyphs in the scan view
+
+Phase 1b of the encoded-content plan. The OpenSpec change `normalize-hidden-unicode` does
+not fold look-alike letters, so a word that mixes Latin with Cyrillic or Greek letters,
+such as an e-mail address with a Cyrillic `а`, reaches the guards as written.
+
+- Fold confusable letters in the scan view, for the guards that read it.
+- Decide in the proposal which tokens are folded, so that ordinary Cyrillic and Greek text
+  does not change. The Phase 0 prototype folded only tokens that mix scripts.
+
+### 1.14 Hidden characters written as percent-encoding or HTML entities
+
+The scan view of the OpenSpec change `normalize-hidden-unicode` runs before the regex
+detectors decode percent-encoding and HTML entities (`decode_for_detection` in
+`voidwall-pii`). A hidden character written as `%C2%AD` in a query string, or as `&shy;`
+in a body, is decoded after the view was built, so it stays in the text the detectors
+read (design D11). The model guards do not decode either form.
+
+- Phase 2 of the encoded-content plan moves that decoding into the engine, in front of
+  the scan view, so every guard that reads the view sees the decoded character.
+- Then decide whether `decode_for_detection` keeps its own percent and entity step.
+
 ---
 
 ## 2. Test gaps
@@ -271,3 +305,27 @@ this kind takes 18.8 µs on 10 KB of clean text; a pattern with a literal prefix
 - Document the offline FST build for `DictionaryDetector`: inputs, licences,
   normalization, and frequency handling.
 
+
+---
+
+## 5. Bugs
+
+A bug fix that restores behaviour a spec already states needs no OpenSpec change. Take it
+directly.
+
+### 5.1 A scanned header value with a non-ASCII byte is not scanned
+
+`push_scan_headers` (`crates/voidwall/src/reverse_proxy.rs`) builds a header unit only
+when `HeaderValue::to_str` succeeds, and that fails on any byte outside printable ASCII.
+The header is then dropped with no log line and no `on_error`, so every guard skips it.
+The `guard-configuration` spec says that a named header's value is decoded into a unit in
+both directions, with no exception. One non-ASCII byte in a scanned header hides the
+rest of its value from detection. Found 2026-11-16 during the review of the OpenSpec
+change `normalize-hidden-unicode`, by reading the code.
+
+- Build the unit from the raw bytes, as for a body: the guards already read invalid
+  UTF-8 with U+FFFD in its place.
+- `headers.get` returns the first value only, so a second header line with the same name
+  is not scanned either. Scan every value. Not tested yet.
+- Add integration tests for a header value with a non-ASCII byte and for a repeated
+  header, in both directions.
