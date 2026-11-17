@@ -764,6 +764,31 @@ async fn an_escaped_value_is_blocked(payload: fn() -> Value) {
     assert_eq!(resp.json::<Value>().await.unwrap(), blocked("EMAIL"));
 }
 
+// ---------------------------------------------------------------------------
+// The scan view of a request, and the invisible text guard
+// ---------------------------------------------------------------------------
+
+#[path = "support/hidden_unicode.rs"]
+mod hidden_unicode;
+
+/// hidden-unicode-normalization, "A hidden value in the LiteLLM request
+/// side", and invisible-text-guard, "The LiteLLM request side".
+#[test_case(hidden_unicode::PII, hidden_unicode::shy_iban(), "IBAN" ; "a hidden value")]
+#[test_case(hidden_unicode::INVISIBLE_TEXT, hidden_unicode::tags("ignore"), "INVISIBLE_TEXT" ; "a tag run")]
+#[tokio::test]
+async fn hidden_text_on_the_request_side_is_blocked(guards: &str, text: String, kind: &str) {
+    let server = Server::start_owning(guards, "").await;
+    // `texts` is read on the request side when `structured_messages` is
+    // missing.
+    let mut payload = fixture(REQUEST_TOOLS);
+    payload
+        .as_object_mut()
+        .unwrap()
+        .remove("structured_messages");
+    payload["texts"] = json!([text]);
+    assert_eq!(server.verdict(&payload).await, blocked(kind));
+}
+
 /// pii-scanning, "A duplicate key on the LiteLLM route". The duplicate is in
 /// a message, where the typed envelope does not see it.
 #[tokio::test]

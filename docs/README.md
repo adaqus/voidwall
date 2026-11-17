@@ -38,6 +38,8 @@ These docs describe one release. Open them at the tag of the image you run, for 
 - [Model guards](guards/model-guards.md): run an ONNX model as a guard.
 - [Hidden context guard](guards/hidden-context.md): block a response that repeats a
   canary or other marker.
+- [Invisible text guard](guards/invisible-text.md): block a request that hides text in
+  Unicode tag characters or variation selectors.
 - [Add your own guard](guards/custom-guard.md): mount your own model and declare a guard
   for it.
 

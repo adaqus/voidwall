@@ -47,6 +47,8 @@ document, in tool output, or in a tool description. A classifier model scans thi
 and blocks a message that holds hidden instructions, before it reaches the model.
 
 - It scans text only. Images, audio, and other binary content are not scanned.
+- Text hidden in Unicode tag characters or variation selectors is blocked whatever it
+  says. See [guards/invisible-text.md](guards/invisible-text.md).
 - A classifier can miss an attack, and it can flag clean text. Choose its threshold for
   your traffic. See [guards/model-guards.md](guards/model-guards.md).
 - An injection that passes can still make the model misuse its tools. Limit the tools

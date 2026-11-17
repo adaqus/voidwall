@@ -86,8 +86,8 @@ The image SHALL ship a config file at `/etc/voidwall/voidwall.toml` and SHALL se
 `VOIDWALL_CONFIG` to that path, so the image starts with no argument and no mounted
 file. The file SHALL enable the REST API and SHALL NOT enable the reverse proxy. It
 SHALL declare the guards of `docker/voidwall.toml` with the same settings: the regex
-`pii` guard, the `prompt_injection` guard on wolf-small, and the `pii_ml` guard on
-bards-v2, with their model paths under `/opt/voidwall/models/`.
+`pii` guard, the `invisible_text` guard, the `prompt_injection` guard on wolf-small, and
+the `pii_ml` guard on bards-v2, with their model paths under `/opt/voidwall/models/`.
 
 The file SHALL hold two commented blocks of reverse proxy routes. The LM Studio block
 SHALL name the upstream `http://host.docker.internal:1234`, and the Ollama block SHALL
@@ -101,6 +101,8 @@ generic format, both to its upstream.
 - **THEN** `/readyz` answers 200 once the guards have loaded
 - **AND** a `/v1/scan` request whose text is a known prompt injection answers with a
   `PROMPT_INJECTION` finding
+- **AND** a `/v1/scan` request whose text holds a tag run answers with an
+  `INVISIBLE_TEXT` finding
 - **AND** nothing listens on the reverse proxy port
 
 #### Scenario: The operator turns on the LM Studio block

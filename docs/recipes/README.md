@@ -40,7 +40,7 @@ your server. For example, in the `lmstudio` block:
 path_prefix = "/v1/chat/completions"
 upstream = "http://host.docker.internal:1234"
 format = "openai-chat"
-guards = ["prompt_injection"]
+guards = ["prompt_injection", "invisible_text"]
 
 [[reverse_proxy.routes]]
 path_prefix = "/v1/embeddings"
@@ -55,6 +55,11 @@ upstream = "http://host.docker.internal:1234"
 With this config, a question about a document with personal data gets its answer, a
 document with personal data can be embedded, and a prompt injection is still blocked.
 `guards = []` forwards that route without any inspection.
+
+A route with its own `guards` list runs only the guards it names. Keep `invisible_text`
+in the list: without it, an instruction hidden in Unicode tag characters or variation
+selectors reaches the prompt injection model as raw text. See
+[guards/invisible-text.md](../guards/invisible-text.md).
 
 ## Streaming
 

@@ -163,7 +163,8 @@ the body runs under `stream_idle_timeout_secs`, and the body counts against
 `engine` holds the detection contract: the units a message decodes into, the findings a
 guard returns, the `Guard` trait, and the `Engine` that runs the guards. Each guard owns
 whatever it needs to detect — the regex PII guard owns the scanner pool, and the
-`hidden_context` guard owns its compiled markers.
+`hidden_context` guard owns its compiled markers. The `invisible_text` guard owns
+nothing. `engine::scan_view` builds the scan view of a request unit (§ 4.10).
 
 `forward_proxy` and `tls` are empty files. See § 7.
 
@@ -178,10 +179,14 @@ whatever it needs to detect — the regex PII guard owns the scanner pool, and t
    `format = "openai-chat"` the body is decoded as Chat Completions instead (§ 2).
 4. The handler builds the units — one for the body, one for the URL path, one for the
    query string, one per scanned header — and hands them to the detection engine.
-5. The engine calls every guard whose declared interest matches a selected unit, awaits
-   them, and merges what they return into one canonically ordered finding set.
+5. For a request, the engine builds the scan view of the units that a guard reading it
+   selected (§ 4.10). It calls every guard whose declared interest matches a selected
+   unit, each with the view or the raw units, awaits them, maps every span to raw bytes,
+   and merges what they return into one canonically ordered finding set.
 6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
-   raw matches with `pii::resolve_overlaps` before returning them as findings.
+   raw matches with `pii::resolve_overlaps` before returning them as findings. The
+   detectors still apply their own decoding step to what they read: they remove U+200B
+   to U+200D and decode percent-encoding and HTML entities.
 7. A detection counts its kinds, counts the block, and answers 403 with those kind
    names, or 400 in the OpenAI error shape on an `openai-chat` route. Nothing anywhere on this path rewrites a message, with the one header of step 8.
 8. With no detection, the proxy forwards to the upstream unchanged, with one exception:
@@ -229,9 +234,14 @@ reclaim it to shut it down; `Drop` closes the channel and joins every thread, an
 There is one exception. A `detect` that is a single linear-time literal scan of its units
 may run inline, on the runtime. The `hidden_context` guard does this: one
 case-insensitive regex of escaped literals, with no backtracking, costs about a
-millisecond on a body near `max_body_size`. A worker thread would add a channel round
+millisecond on a body near `max_body_size`. The `invisible_text` guard does it too: one
+pass over the characters of each unit, skipped at the byte level when no byte can start
+a tag character or a variation selector. A worker thread would add a channel round
 trip and a thread to save less than that. A detector that costs more stays on its own
 threads.
+
+The scan view (§ 4.10) is not a guard and also runs on the runtime, as unit building
+and the JSON parse do. It is one linear pass, and ASCII text costs one byte scan.
 
 ### 4.2 One resolved match set, everywhere
 
@@ -388,8 +398,9 @@ error would only say the field is unknown.
 
 ### 4.7 A guard's surface is four booleans, and the route decides what exists
 
-Every guard except `hidden_context` carries a `surface` — `url_path`, `query_params`,
-`body`, `headers` — which is the configuration form of its `Interest`. It is per guard,
+Every guard except `hidden_context` and `invisible_text` carries a `surface` —
+`url_path`, `query_params`, `body`, `headers` — which is the configuration form of its
+`Interest`. It is per guard,
 not global, so two enabled guards may want different parts of the same message, and a
 unit kind no selected guard admits is never built.
 
@@ -397,7 +408,10 @@ An `Interest` also holds the directions a guard inspects, and the engine is told
 direction of each scan. The `pii` guard and every model guard inspect both directions.
 The `hidden_context` guard inspects the response body only: a marker is planted in the
 request, so a request scan would block every call. Its interest is fixed in code, so its
-section has no `surface`, and no setting changes a guard's directions. A selection keeps
+section has no `surface`, and no setting changes a guard's directions. The
+`invisible_text` guard is the reverse: its interest is fixed to every unit kind of a
+request, so a route that selects it builds the path, query string and header units of
+every request. A selection keeps
 each guard's interest whole rather than merging them, so a guard that wants request
 headers and one that wants response bodies together build neither a request body nor a
 response header.
@@ -514,6 +528,49 @@ For the same reason the HTTP API listener sends no CORS header: a wildcard
 `Access-Control-Allow-Origin` on a listener that authenticates nobody would let any
 page on the internet post bodies to it, so cross-origin permission belongs to the
 gateway that supplies the authentication.
+
+### 4.10 A guard reads the scan view or the raw text, and a span still names raw bytes
+
+An LLM reads text through invisible and decorative Unicode: a soft hyphen inside a
+number, a backspace after a decoy letter, a full-width or underlined address, a sentence
+in Unicode tag characters or in variation selectors. A guard that reads the characters
+as sent misses them.
+
+So the engine builds a **scan view** of each request unit: six ordered steps remove
+characters that carry no content, apply backspaces, decode tag and variation-selector
+runs, fold full width, remove ZWJ and ZWNJ between ASCII, and remove decorative marks
+(spec `hidden-unicode-normalization`). It runs in `Engine::guard`, not in a handler, so
+every request entry point gets it and a new one cannot forget it. A structured unit gets
+the view of each fragment value after its JSON escapes are decoded; its key paths are
+not normalized. The forwarded message never changes.
+
+Whether a guard reads the view is its own setting, `scan_view`, answered through
+`Guard::reads_scan_view`. The `pii` guard and a `token_classifier` read it by default;
+a `text_classifier` reads the raw text by default, because the injection model already
+flags most of these tricks and also flags benign text that uses them. The engine builds a
+view unit set beside the raw one only when a planned guard reads the view and a rule
+changes one of its units, and hands each guard the set it reads. A response is never
+normalized.
+
+A view unit carries an edit map: a sparse list of edits, the same type as the JSON escape
+map. `map_spans` maps each finding through the set its guard read: through the view's
+edits and then the escape map for a view guard, through the escape map alone for a
+raw-text guard. A removed character at the edge of a finding is outside its span; a
+finding inside a decoded run spans the whole run. The view is never longer than its
+input and the map keeps order, so overlap resolution inside a guard is unaffected; two
+findings inside one run map to the same raw range and stay two.
+
+The regex detectors keep their own decoding step after the view
+(`decode_for_detection`), because `voidwall-eval` uses `voidwall-pii` without the
+engine. A hidden character written as `%C2%AD` or as an entity is therefore decoded after
+the view was built, and stays.
+
+The **`invisible_text` guard** covers the guards that read the raw text. It reports,
+with the kind `INVISIBLE_TEXT`, a request unit that holds a tag character outside an
+emoji flag sequence, or a variation selector that follows no letter, number, punctuation
+mark or symbol. It decodes nothing. It shares the flag rule with the view, so the two
+cannot drift apart. Other invisible characters are not reported, because benign
+Persian, emoji and German text use them.
 
 ---
 

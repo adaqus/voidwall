@@ -35,6 +35,11 @@ Every key of a `[guards.<name>]` section, with its default, is in
 `token_classifier` also needs `config_path`. A label gives findings only when it has a
 threshold.
 
+`scan_view` decides what the guard scores in a request: the
+[scan view](README.md#the-scan-view) or the raw text. A `token_classifier` scores the scan
+view by default, and a `text_classifier` the raw text. A response is always scored as raw
+text.
+
 ## Labels
 
 For `text_classifier`, `labels` holds exactly one entry, the name of class 1.

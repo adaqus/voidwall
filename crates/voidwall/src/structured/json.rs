@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use super::{EscapeMap, OwnedContextFragment};
+use super::{EditMap, OwnedContextFragment};
 use crate::error::Error;
 
 /// Walk a JSON document and emit one fragment per string value.
@@ -75,8 +75,8 @@ fn count_strings(value: &Value) -> usize {
 /// validated them, so each backslash starts a well-formed sequence and a high
 /// surrogate is followed by its low half. `decoded_len` is the byte length
 /// of the decoded value; a map that does not end there is an internal error.
-fn escape_map(raw: &[u8], decoded_len: usize) -> Result<EscapeMap, Error> {
-    let mut map = EscapeMap::default();
+fn escape_map(raw: &[u8], decoded_len: usize) -> Result<EditMap, Error> {
+    let mut map = EditMap::default();
     // Every byte before the first backslash is copied as it is.
     let Some(first) = raw.iter().position(|&b| b == b'\\') else {
         return Ok(map);
@@ -89,7 +89,7 @@ fn escape_map(raw: &[u8], decoded_len: usize) -> Result<EscapeMap, Error> {
             decoded += 1;
             continue;
         }
-        let (char_len, seq_len) = match raw.get(at + 1) {
+        let (char_len, seq_len): (usize, usize) = match raw.get(at + 1) {
             Some(b'u') => {
                 let unit = hex4(raw, at + 2).ok_or_else(internal)?;
                 if (0xD800..0xDC00).contains(&unit) {
@@ -97,15 +97,15 @@ fn escape_map(raw: &[u8], decoded_len: usize) -> Result<EscapeMap, Error> {
                     (4, 12)
                 } else {
                     let c = char::from_u32(unit).ok_or_else(internal)?;
-                    (c.len_utf8() as u8, 6)
+                    (c.len_utf8(), 6)
                 }
             }
             Some(_) => (1, 2),
             None => return Err(internal()),
         };
         map.push(decoded, at, char_len, seq_len);
-        at += usize::from(seq_len);
-        decoded += usize::from(char_len);
+        at += seq_len;
+        decoded += char_len;
     }
     if at != raw.len() || decoded != decoded_len {
         return Err(internal());
@@ -229,6 +229,7 @@ fn walk(
                 value: text,
                 offset: start,
                 escapes,
+                normalized: EditMap::default(),
             });
         }
         // Numbers, booleans, null produce no fragment.
@@ -408,7 +409,7 @@ mod tests {
         assert_eq!(values, ["\u{f3}\n", "\u{4e00}x", "plain", "caf\u{e9}\t"]);
         assert_eq!(
             frags[2].escapes,
-            EscapeMap::default(),
+            EditMap::default(),
             "a plain value has no map"
         );
         check_offsets(raw, &frags);

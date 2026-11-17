@@ -33,16 +33,16 @@ pub fn classify_body(raw: Bytes, content_type: &str) -> Result<UnitContent, Erro
     if is_csv_media_type(&media_type) {
         return Ok(match flatten_csv(&raw, b',')? {
             Some(fragments) => UnitContent::Structured { fragments },
-            None => UnitContent::PlainText(raw),
+            None => UnitContent::plain(raw),
         });
     }
     if is_tsv_media_type(&media_type) {
         return Ok(match flatten_csv(&raw, b'\t')? {
             Some(fragments) => UnitContent::Structured { fragments },
-            None => UnitContent::PlainText(raw),
+            None => UnitContent::plain(raw),
         });
     }
-    Ok(UnitContent::PlainText(raw))
+    Ok(UnitContent::plain(raw))
 }
 
 /// True when a `Content-Type` header value names a JSON document, whatever its
@@ -312,7 +312,7 @@ mod tests {
         // tried to flatten as JSON, but PlainText path swallows arbitrary bytes.
         let raw = Bytes::from_static(b"not json");
         let content = classify_body(raw, media_type).expect("classify ok");
-        assert!(matches!(content, UnitContent::PlainText(_)));
+        assert!(matches!(content, UnitContent::PlainText { .. }));
     }
 
     #[test_case("application/json", true ; "canonical")]
@@ -361,14 +361,14 @@ mod tests {
         // excluded.
         let raw = Bytes::from_static(b"name,phone\nJohn,555-1234");
         let content = classify_body(raw, media_type).unwrap();
-        assert!(matches!(content, UnitContent::PlainText(_)));
+        assert!(matches!(content, UnitContent::PlainText { .. }));
     }
 
     #[test]
     fn csv_without_headers_falls_back_to_plain_text() {
         let raw = Bytes::from_static(b"123,456\n789,012");
         let content = classify_body(raw, "text/csv").unwrap();
-        assert!(matches!(content, UnitContent::PlainText(_)));
+        assert!(matches!(content, UnitContent::PlainText { .. }));
     }
 
     #[test_case("text/tab-separated-values" ; "canonical")]
@@ -383,6 +383,6 @@ mod tests {
     fn unknown_content_type_is_plain_text() {
         let raw = Bytes::from_static(b"hello world");
         let content = classify_body(raw, "text/plain").unwrap();
-        assert!(matches!(content, UnitContent::PlainText(_)));
+        assert!(matches!(content, UnitContent::PlainText { .. }));
     }
 }

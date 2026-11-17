@@ -67,6 +67,7 @@ The regex PII guard. See [guards/pii-regex.md](guards/pii-regex.md).
 | `builtin_guards.pii.surface.query_params` | boolean | `true` | Give the guard the query string. |
 | `builtin_guards.pii.surface.body` | boolean | `true` | Give the guard the body. |
 | `builtin_guards.pii.surface.headers` | boolean | `true` | Give the guard the header values that the route names in `headers`. |
+| `builtin_guards.pii.scan_view` | boolean | `true` | In a request, scan the [scan view](guards/README.md#the-scan-view) (`true`) or the raw text (`false`). A response is always scanned as raw text. |
 
 At least one `surface` key must be `true`.
 
@@ -94,11 +95,23 @@ Blocks a response that holds text the user must never see. See
 
 This guard scans the response body only. It has no `surface` key.
 
+### `[builtin_guards.invisible_text]`
+
+Blocks a request that holds text hidden in Unicode tag characters or in variation
+selectors. See [guards/invisible-text.md](guards/invisible-text.md).
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `builtin_guards.invisible_text.enabled` | boolean | `true` | Turns the guard off without removing its section. |
+
+This guard scans every unit of a request, as raw text. It has no other key: a `surface` or
+a `scan_view` key fails the start.
+
 ## Model guards: `[guards.<name>]`
 
 A guard that runs one ONNX model. `<name>` is the name of the guard in findings, logs, and
 metrics. It holds only `a-z`, `A-Z`, `0-9`, `_`, and `-`, at most 64 characters, and it
-must not be `pii` or `hidden_context`. See [guards/model-guards.md](guards/model-guards.md).
+must not be `pii`, `hidden_context`, or `invisible_text`. See [guards/model-guards.md](guards/model-guards.md).
 
 | Key | Type | Default | Description |
 |---|---|---|---|
@@ -117,6 +130,7 @@ must not be `pii` or `hidden_context`. See [guards/model-guards.md](guards/model
 | `guards.<name>.surface.query_params` | boolean | `false` | Give the guard the query string. |
 | `guards.<name>.surface.body` | boolean | `true` | Give the guard the body. |
 | `guards.<name>.surface.headers` | boolean | `false` | Give the guard the header values that the route names in `headers`. |
+| `guards.<name>.scan_view` | boolean | See the description | In a request, score the [scan view](guards/README.md#the-scan-view) (`true`) or the raw text (`false`). Default: `true` for a `token_classifier`, `false` for a `text_classifier`. A response is always scored as raw text. |
 
 A model guard scans only the body by default, because each unit it gets costs one model
 run. At least one `surface` key must be `true`.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate deterministic test payloads for load testing.
 
-Produces JSON files in benches/payloads/ with clean and PII-containing
-content at various sizes: ~100 B, ~10 KB, ~1 MB.
+Produces JSON files in benches/payloads/ with clean, PII-containing, and
+non-ASCII content at various sizes: ~100 B, ~10 KB, ~1 MB.
 
 PII kinds used (5 total):
   Hyperscan-based (2): Email, UsSsn
@@ -30,6 +30,18 @@ CLEAN_WORDS = [
     "fugiat", "nulla", "pariatur", "excepteur", "sint", "occaecat",
     "cupidatat", "non", "proident", "sunt", "culpa", "qui", "officia",
     "deserunt", "mollit", "anim", "id", "est", "laborum",
+]
+
+# Precomposed Polish, Cyrillic, CJK and emoji, with no character that a rule
+# of the scan view changes: no combining mark, no variation selector, no
+# zero-width or full-width character. The ASCII payloads take the byte-scan
+# fast path; these take the full pass and leave the text unchanged.
+UNICODE_WORDS = [
+    "zażółć", "gęślą", "jaźń", "źdźbło", "łódź", "pchnąć", "chrząszcz",
+    "привет", "мир", "данные", "запрос", "ответ", "пользователь",
+    "你好", "世界", "数据", "请求", "回答", "用户",
+    "こんにちは", "東京",
+    "\U0001F600", "\U0001F680", "\U0001F30D", "\u2764", "\u2705",
 ]
 
 # --- PII templates ---
@@ -78,6 +90,17 @@ def generate_clean_text(target_bytes: int) -> str:
         word = RNG.choice(CLEAN_WORDS)
         words.append(word)
         current_size += len(word) + 1
+    return " ".join(words)
+
+
+def generate_unicode_text(target_bytes: int) -> str:
+    """Generate non-ASCII text of approximately target_bytes (UTF-8)."""
+    words = []
+    current_size = 0
+    while current_size < target_bytes:
+        word = RNG.choice(UNICODE_WORDS)
+        words.append(word)
+        current_size += len(word.encode("utf-8")) + 1
     return " ".join(words)
 
 
@@ -260,6 +283,12 @@ def main() -> None:
         write_payload(f"pii_table_{size}.csv", generate_table_csv(n))
     for size, n in CSV_CLEAN_ROWS.items():
         write_payload(f"clean_table_{size}.csv", generate_clean_table_csv(n))
+
+    # Non-ASCII payloads (no PII), generated last so the payloads above stay
+    # byte-identical.
+    write_payload("unicode_small.json", make_payload(generate_unicode_text(80)))
+    write_payload("unicode_medium.json", make_payload(generate_unicode_text(10_000)))
+    write_payload("unicode_large.json", make_payload(generate_unicode_text(1_000_000)))
 
     print("Done.")
 

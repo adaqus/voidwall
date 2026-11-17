@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use crate::structured::OwnedContextFragment;
+use crate::structured::{EditMap, OwnedContextFragment};
 
 /// Identifies one unit inside a message's unit set.
 ///
@@ -59,7 +59,8 @@ impl UnitKind {
 /// The content of a unit.
 ///
 /// `PlainText` is the flat path: the bytes are scanned as a single UTF-8
-/// string. `Structured` carries pre-parsed context/value/offset fragments —
+/// string. Its `edits` map the bytes to the raw unit when they are a scan
+/// view; for raw text the map is empty. `Structured` carries pre-parsed context/value/offset fragments —
 /// JSON key paths and string values, CSV column headers and cells — so
 /// detection can use keyword context. The offsets are document-absolute, which
 /// is what lets overlap resolution compare spans from two fragments; the
@@ -70,7 +71,11 @@ impl UnitKind {
 #[derive(Clone)]
 pub enum UnitContent {
     /// Flat text, scanned as one UTF-8 string.
-    PlainText(Bytes),
+    PlainText {
+        bytes: Bytes,
+        /// Where `bytes` differ from the raw unit. Empty for raw text.
+        edits: EditMap,
+    },
     /// Pre-parsed fragments carrying document-absolute offsets.
     Structured {
         fragments: Vec<OwnedContextFragment>,
@@ -88,7 +93,7 @@ pub enum UnitContent {
 impl fmt::Debug for UnitContent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            UnitContent::PlainText(bytes) => f
+            UnitContent::PlainText { bytes, .. } => f
                 .debug_struct("PlainText")
                 .field("bytes", &bytes.len())
                 .finish(),
@@ -101,9 +106,17 @@ impl fmt::Debug for UnitContent {
 }
 
 impl UnitContent {
+    /// Plain-text content holding the raw bytes of a unit.
+    pub fn plain(bytes: Bytes) -> Self {
+        UnitContent::PlainText {
+            bytes,
+            edits: EditMap::default(),
+        }
+    }
+
     /// Build plain-text content from an owned string.
     pub fn text(value: String) -> Self {
-        UnitContent::PlainText(Bytes::from(value))
+        Self::plain(Bytes::from(value))
     }
 }
 
@@ -179,7 +192,7 @@ mod tests {
     #[test]
     fn units_are_numbered_in_push_order() {
         let mut units = Units::new();
-        let body = units.push_body(UnitContent::PlainText(Bytes::from_static(b"body")));
+        let body = units.push_body(UnitContent::plain(Bytes::from_static(b"body")));
         let path = units.push_path("/a".into());
         let header = units.push_header("Bearer x".into());
 
