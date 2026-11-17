@@ -3,6 +3,34 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.7.0] - 2026-11-17
+
+### Features
+
+- **BREAKING** **proxy:** Scan decoded JSON string values and reject duplicate keys
+
+### Documentation
+
+- Name 0.6.1 in the release tag examples
+- **recipes:** Add AnythingLLM prompt injection screenshot, test with 0.6.1
+
+### Tests
+
+- **startup:** Build one scanner in the international warning tests
+
+### Build
+
+- **deps:** Bump hyper from 1.8.1 to 1.12.0
+- **deps:** Bump vectorscan-rs from 0.0.5 to 0.0.6
+- **deps:** Bump clap from 4.5.60 to 4.6.7
+- **deps:** Bump crc32fast from 1.5.0 to 1.5.5
+- **deps:** Bump utoipa from 5.5.0 to 6.0.0
+- **deps:** Bump transformers in /crates/voidwall-ml/parity
+
+### CI
+
+- **deps:** Bump taiki-e/install-action from 2.90.0 to 2.90.3
+
 ## [0.6.1] - 2026-11-12
 
 ### Bug Fixes
