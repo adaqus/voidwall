@@ -11,30 +11,32 @@ unchanged.
 
 Before any guard runs, the engine SHALL build a scan view of each unit of a
 request-direction message that a selected guard reads through the scan view. Whether a
-guard reads the scan view or the raw text is the guard's `scan_view` setting, as the
-`guard-configuration` capability states. This SHALL apply at every request entry point:
-a reverse proxy request on any route format, `/v1/scan` with `direction=request` (the
-default), and the request side of the LiteLLM guardrail route.
+guard reads the scan view or the decoded view of the `encoded-content-decoding`
+capability is the guard's `scan_view` setting, as the `guard-configuration` capability
+states. This SHALL apply at every request entry point: a reverse proxy request on any
+route format, `/v1/scan` with `direction=request` (the default), and the request side of
+the LiteLLM guardrail route.
 
 The scan view SHALL be built from the text of the unit as it is received: the body, the
 URL path, the query string and every scanned header value. In a structured unit (a JSON
 or CSV body), the scan view SHALL be built for each fragment value, after its JSON escapes
 are decoded. The key path SHALL NOT be normalized. Bytes that are not valid UTF-8 SHALL
-stay in the scan view unchanged.
+stay in the scan view unchanged. The scan view of a body unit SHALL also hold its decoded
+runs, in the order that the `encoded-content-decoding` capability states.
 
-A guard that reads the scan view SHALL scan only the scan view. A guard that reads the raw
-text SHALL scan the raw text, as before this capability. The forwarded message SHALL NOT
-change. The regex PII detectors keep the decoding step they had before this capability,
-on top of what they read: they remove U+200B to U+200D and decode percent-encoding and
-HTML entities. A hidden character that is written percent-encoded or as an HTML entity is
-therefore not normalized.
+A guard that reads the scan view SHALL scan only the scan view. A guard that does not read
+the scan view SHALL scan the decoded view that the `encoded-content-decoding` capability
+states. The forwarded message SHALL NOT change. The regex PII detectors keep the decoding
+step they had before this capability, on top of what they read: they remove U+200B to
+U+200D and decode percent-encoding and HTML entities. A hidden character that is written
+percent-encoded or as an HTML entity is therefore not normalized.
 
 Units of a response-direction message SHALL NOT be normalized: every guard reads the raw
 text of a response, whatever its `scan_view` setting, and `/v1/scan` with
 `direction=response` SHALL scan the raw text.
 
 The scan view has no setting of its own. The scan view SHALL be the raw text when no rule
-below applies to it.
+below applies to it and no run is decoded.
 
 In the scenarios of this capability, a "hidden" placeholder is a placeholder of a PII
 value that no guard reports in its raw form, such as an IBAN placeholder with a soft
@@ -99,7 +101,7 @@ scenario says otherwise.
 
 #### Scenario: No guard reads the scan view
 
-- **WHEN** every guard selected for a request reads the raw text
+- **WHEN** every guard selected for a request reads the decoded view
 - **THEN** no scan view is built for that request
 
 #### Scenario: The response direction is not normalized
@@ -129,7 +131,7 @@ scenario says otherwise.
 ### Requirement: Normalization alone never blocks
 
 Normalization SHALL NOT produce a finding. A message SHALL be blocked only when a guard
-reports a finding, in the scan view or in the raw text, whichever that guard reads.
+reports a finding, in the scan view or in the decoded view, whichever that guard reads.
 
 #### Scenario: Invisible characters with no detected content
 
@@ -139,8 +141,8 @@ reports a finding, in the scan view or in the raw text, whichever that guard rea
 
 ### Requirement: The rules apply in a fixed order
 
-The scan view SHALL be the result of these steps, each applied to the result of the step
-before it:
+The normalization of a unit SHALL be the result of these steps, each applied to the
+result of the step before it:
 
 1. characters that carry no content are removed;
 2. backspaces are applied and the other control characters are removed;
@@ -149,13 +151,17 @@ before it:
 5. ZWJ and ZWNJ between ASCII characters are removed;
 6. combining marks used as decoration are removed.
 
+The scan view of a unit SHALL be its normalization. For a body unit, the scan view SHALL
+then hold its decoded base64, base64url and hex runs, in the order that the
+`encoded-content-decoding` capability states.
+
 Each step is one requirement below. A character that an earlier step removed SHALL NOT
 separate two characters for a later step.
 
 A run that is split by a character that no step removes, such as visible text or a
 combining mark, SHALL be decoded piece by piece. The `invisible_text` guard reports such a
-split run of variation selectors, and any tag character outside an emoji flag, on the raw
-text.
+split run of variation selectors, and any tag character outside an emoji flag, in the
+decoded view of the `encoded-content-decoding` capability, which keeps these characters.
 
 #### Scenario: A removed character inside a tag run
 
@@ -196,12 +202,14 @@ first character or directly after the last character is outside it.
 
 A scan-view character that came from a decoded tag run or variation-selector run SHALL
 map to the whole run, with the removed characters inside it. Two findings inside one
-decoded run SHALL have the same span and SHALL stay two findings.
+decoded run SHALL have the same span and SHALL stay two findings. A scan-view character
+that came from a decoded base64 or hex run SHALL map to the whole encoded run, as the
+`encoded-content-decoding` capability states.
 
 In a JSON fragment the span SHALL map through the normalization and then through the
 escape decoding, so it names bytes of the raw document. The findings of every guard that
-reads the scan view SHALL follow this rule. A finding of a guard that reads the raw text
-SHALL keep the span rule it had before this capability.
+reads the scan view SHALL follow this rule. A finding of a guard that reads the decoded
+view SHALL follow the span rule of the `encoded-content-decoding` capability.
 
 #### Scenario: A finding after removed characters
 
@@ -242,6 +250,13 @@ SHALL keep the span rule it had before this capability.
   digits
 - **THEN** the finding's span starts at the first byte of the placeholder and ends after
   its last byte in the raw body, and the six bytes of `\u00ad` are inside it
+
+#### Scenario: A finding in a base64 run with a hidden character
+
+- **WHEN** a plain request body holds a soft hyphen inside a base64 run whose decoded text
+  is an email placeholder
+- **THEN** the finding's span covers the bytes of the whole base64 run in the raw body,
+  with the soft hyphen inside it
 
 ### Requirement: Characters that carry no content are removed
 

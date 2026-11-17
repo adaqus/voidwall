@@ -538,9 +538,11 @@ fn guardrail_response(payload: &GuardrailResponse) -> Response {
     resp
 }
 
-/// Increment the detection families. This runs also when a guard error turns
-/// the answer into a 500. The PII family counts the PII guards' kinds only.
+/// Increment the detection families and the decoded runs. This runs also
+/// when a guard error turns the answer into a 500. The PII family counts the
+/// PII guards' kinds only.
 fn record_detections(scan_result: &ScanResult, pii_guards: &PiiGuards, direction: Direction) {
+    metrics::inc_decoded_runs(MODE, ROUTE, direction.as_str(), scan_result.decoded_runs());
     for kind in &pii_guards.kinds(scan_result) {
         metrics::inc_detection(kind, MODE, ROUTE, direction.as_str());
     }
@@ -1248,6 +1250,50 @@ class = "pii"
             blocked_before,
             "BLOCKED is not a block"
         );
+    }
+
+    // --- Decoded runs are counted by encoding (metrics) ---
+
+    use crate::engine::test_encode::{b64, std64};
+    use crate::metrics::DECODED_RUNS_TOTAL;
+
+    fn decoded_runs(direction: &str, encoding: &str) -> u64 {
+        DECODED_RUNS_TOTAL
+            .with_label_values(&[MODE, ROUTE, direction, encoding])
+            .get()
+    }
+
+    /// metrics, "/v1/scan decodes a run". Each test here counts under its own
+    /// encoding, so tests that run at the same time do not mix.
+    #[tokio::test]
+    async fn a_scan_counts_a_kept_base64url_run() {
+        let state = litellm_state(
+            vec![Box::new(TestGuard::new("dr_scan", "API_UNUSED").silent())],
+            OnError::FailClose,
+        );
+        let before = decoded_runs("request", "base64url");
+        let run = b64("jane.doe@example.com ~~~".as_bytes(), true, false);
+        assert!(run.contains('-') || run.contains('_'), "{run}");
+        let request = Request::post(SCAN_PATH)
+            .header("content-type", "text/plain")
+            .body(Body::from(format!("mail {run}")))
+            .unwrap();
+        let resp = router(state).oneshot(request).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(decoded_runs("request", "base64url"), before + 1);
+    }
+
+    /// metrics, "The LiteLLM request side decodes a run".
+    #[tokio::test]
+    async fn litellm_counts_a_kept_base64_run_on_the_request_side() {
+        let state = litellm_state(
+            vec![Box::new(TestGuard::new("dr_litellm", "LT_UNUSED").silent())],
+            OnError::FailClose,
+        );
+        let before = decoded_runs("request", "base64");
+        let resp = post_litellm(state, user_text(&std64("ann.lee@example.org"))).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(decoded_runs("request", "base64"), before + 1);
     }
 
     // --- Route switches ---

@@ -1611,6 +1611,12 @@ async fn run_engine(
             plan.ingest.on_error,
         )
         .await;
+    metrics::inc_decoded_runs(
+        MODE,
+        ctx.route,
+        ctx.direction.as_str(),
+        scan_result.decoded_runs(),
+    );
 
     // A block from another guard wins over a guard error, whatever on_error
     // says. The error is still logged and counted, as blocked.
@@ -2833,6 +2839,101 @@ mod tests {
 
         assert!(matches!(result, PipelineResult::Pass));
         assert_eq!(guard_detections("gm_quiet", route), 0);
+    }
+
+    // --- Decoded runs are counted by encoding (metrics) ---
+
+    use crate::engine::test_encode::{b64, hexed, std64};
+    use crate::metrics::DECODED_RUNS_TOTAL;
+
+    const DR_EMAIL: &str = "jane.doe@example.com";
+
+    fn decoded_runs(route: &str, direction: &str) -> [u64; 3] {
+        ["base64", "base64url", "hex"].map(|encoding| {
+            DECODED_RUNS_TOTAL
+                .with_label_values(&[MODE, route, direction, encoding])
+                .get()
+        })
+    }
+
+    /// Run `guards` over one plain body unit holding `body`, travelling in
+    /// `direction`.
+    async fn run_body(
+        guards: Vec<TestGuard>,
+        route: &str,
+        direction: Direction,
+        body: String,
+    ) -> PipelineResult {
+        let engine = Engine::with_guards(guards.into_iter().map(|g| Box::new(g) as _).collect());
+        let selection = engine.select(None);
+        let ingest = Ingest {
+            max_body_size: 1024,
+            content_types: Vec::new(),
+            on_error: OnError::FailClose,
+        };
+        let plan = ScanPlan {
+            engine: &engine,
+            ingest: &ingest,
+            selection: &selection,
+            headers: &[],
+            shape: AnswerShape::Plain,
+        };
+        let pii_guards = PiiGuards::from_config(&AppConfig::default());
+        let ctx = MetricContext {
+            route,
+            direction,
+            pii_guards: &pii_guards,
+        };
+        let mut units = Units::new();
+        units.push_body(UnitContent::text(body));
+        run_engine(&plan, units, &ctx, "scanner error").await
+    }
+
+    /// metrics, "Two runs in one request", "A run read by both views", "A run
+    /// that is not kept", and a blocked request, which still counts.
+    #[test_case::test_case(
+        "/decoded-runs-two", false, format!("a {} b {}", std64(DR_EMAIL), hexed(DR_EMAIL)), [1, 0, 1] ;
+        "two runs in one request"
+    )]
+    #[test_case::test_case(
+        "/decoded-runs-both-views", false, std64(DR_EMAIL), [1, 0, 0] ;
+        "a run read by both views"
+    )]
+    #[test_case::test_case(
+        "/decoded-runs-not-kept", false, b64(&[0x9f, 0x92, 0x96, 0xff, 0x01, 0x80, 0xc3, 0x28, 0xfe], false, true), [0, 0, 0] ;
+        "a run that is not kept"
+    )]
+    #[test_case::test_case(
+        "/decoded-runs-blocked", true, std64(DR_EMAIL), [1, 0, 0] ;
+        "a blocked request"
+    )]
+    #[tokio::test]
+    async fn decoded_runs_are_counted_by_encoding(
+        route: &str,
+        blocks: bool,
+        body: String,
+        expected: [u64; 3],
+    ) {
+        let decoded = TestGuard::new("dr_decoded", "RP_DR_KIND");
+        let guards = vec![
+            if blocks { decoded } else { decoded.silent() },
+            TestGuard::new("dr_view", "RP_DR_UNUSED")
+                .silent()
+                .reading_the_view(),
+        ];
+        let result = run_body(guards, route, Direction::Request, body).await;
+        assert_eq!(matches!(result, PipelineResult::Block(_)), blocks);
+        assert_eq!(decoded_runs(route, "request"), expected);
+    }
+
+    /// metrics, "A response is not counted".
+    #[tokio::test]
+    async fn a_response_is_not_counted() {
+        let route = "/decoded-runs-response";
+        let guards = vec![TestGuard::new("dr_response", "RP_DR_UNUSED").silent()];
+        let result = run_body(guards, route, Direction::Response, std64(DR_EMAIL)).await;
+        assert!(matches!(result, PipelineResult::Pass));
+        assert_eq!(decoded_runs(route, "response"), [0, 0, 0]);
     }
 
     // --- A stopped message counts once in voidwall_blocked_total ---

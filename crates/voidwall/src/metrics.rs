@@ -5,7 +5,7 @@ use prometheus::{
 };
 
 use crate::config::{AppConfig, BUILTIN_PII_GUARD_NAME, GuardClass};
-use crate::engine::ScanResult;
+use crate::engine::{DecodedRuns, ScanResult};
 
 /// The bucket bounds of [`REQUEST_DURATION_SECONDS`] in seconds: the crate
 /// defaults up to 10, then up to 300 for a long upstream exchange.
@@ -90,6 +90,18 @@ lazy_static! {
             "Total streams stopped after their first byte, by reason"
         ),
         &["mode", "route", "reason"]
+    )
+    .unwrap();
+
+    /// Encoded runs in request bodies that the engine decoded for the guards,
+    /// by encoding. A run that both views kept counts once. The encoding comes
+    /// from [`crate::engine::Encoding`] only.
+    pub static ref DECODED_RUNS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "voidwall_decoded_runs_total",
+            "Total encoded runs decoded for the guards, by encoding"
+        ),
+        &["mode", "route", "direction", "encoding"]
     )
     .unwrap();
 
@@ -238,6 +250,16 @@ pub fn inc_unscanned(
     UNSCANNED_TOTAL
         .with_label_values(&[mode, route, direction, reason.as_str()])
         .inc_by(count);
+}
+
+/// Record the encoded runs the engine decoded in one message. An encoding
+/// with no run is not touched.
+pub fn inc_decoded_runs(mode: &str, route: &str, direction: &str, runs: DecodedRuns) {
+    for (encoding, count) in runs.iter() {
+        DECODED_RUNS_TOTAL
+            .with_label_values(&[mode, route, direction, encoding.as_str()])
+            .inc_by(count);
+    }
 }
 
 /// Why a stream was stopped. The `reason` label of
@@ -538,6 +560,27 @@ labels = ["PERSON_NAME"]
             2,
         );
         assert_eq!(UNSCANNED_TOTAL.with_label_values(&labels).get(), before + 2);
+    }
+
+    #[test]
+    fn inc_decoded_runs_increments_each_encoding_by_its_count() {
+        use crate::engine::Encoding;
+        let route = "/test-decoded-runs";
+        let get = |encoding: &str| {
+            DECODED_RUNS_TOTAL
+                .with_label_values(&["reverse_proxy", route, "request", encoding])
+                .get()
+        };
+        let before = [get("base64"), get("base64url"), get("hex")];
+        let mut runs = DecodedRuns::default();
+        runs.add(Encoding::Base64);
+        runs.add(Encoding::Hex);
+        runs.add(Encoding::Hex);
+        inc_decoded_runs("reverse_proxy", route, "request", runs);
+        assert_eq!(
+            [get("base64"), get("base64url"), get("hex")],
+            [before[0] + 1, before[1], before[2] + 2]
+        );
     }
 
     #[test]

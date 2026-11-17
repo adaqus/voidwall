@@ -36,9 +36,11 @@ Every key of a `[guards.<name>]` section, with its default, is in
 threshold.
 
 `scan_view` decides what the guard scores in a request: the
-[scan view](README.md#the-scan-view) or the raw text. A `token_classifier` scores the scan
-view by default, and a `text_classifier` the raw text. A response is always scored as raw
-text.
+[scan view](README.md#the-scan-view) or the
+[decoded view](README.md#encoded-runs-and-the-decoded-view). A `token_classifier` scores
+the scan view by default, and a `text_classifier` the decoded view. Both views decode the
+base64 and hex runs of a body, so a prompt injection written in base64 reaches the model
+as text. A response is always scored as raw text.
 
 ## Labels
 

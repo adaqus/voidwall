@@ -905,6 +905,57 @@ async fn a_hidden_value_is_found_in_a_request_only(query: &str, guards: &str, ki
     assert_eq!(json["kinds"], serde_json::json!(kinds));
 }
 
+// --- encoded-content-decoding ---
+
+#[path = "support/encoded.rs"]
+mod encoded;
+
+/// "An email in base64 sent to /v1/scan" and "An email in base64 in a
+/// response".
+#[test_case("", &["EMAIL"] ; "no direction")]
+#[test_case("?direction=request", &["EMAIL"] ; "the request direction")]
+#[test_case("?direction=response", &[] ; "the response direction")]
+#[tokio::test]
+async fn an_email_in_base64_is_found_in_a_request_only(query: &str, kinds: &[&str]) {
+    let api = start_toml_api(PII).await;
+    let body = format!("mail {}", encoded::base64(encoded::EMAIL));
+    let json = scan_text_at(&api, query, body).await;
+    assert_eq!(json["kinds"], serde_json::json!(kinds));
+}
+
+/// "Two padded runs written back to back" and "Two findings inside one run":
+/// two email findings each.
+#[test_case(format!("{}{}", encoded::base64(encoded::EMAIL), encoded::base64(encoded::EMAIL_2)) ; "two padded runs back to back")]
+#[test_case(format!("mail {}", encoded::base64(&format!("{} {}", encoded::EMAIL, encoded::EMAIL_2))) ; "two findings in one run")]
+#[tokio::test]
+async fn two_emails_in_base64_count_two_matches(body: String) {
+    let api = start_toml_api(PII).await;
+    let json = scan_text_at(&api, "", body).await;
+    assert_eq!(json["kinds"], serde_json::json!(["EMAIL"]));
+    assert_eq!(json["matches_count"], 2, "{json}");
+}
+
+/// metrics, "/v1/scan decodes a run" and "A response is not counted". Only
+/// this test sends a base64url run, so the tests that run beside it do not
+/// move these samples.
+#[tokio::test]
+async fn a_scan_counts_a_kept_run_under_its_labels() {
+    let samples = |direction: &str| {
+        voidwall::metrics::DECODED_RUNS_TOTAL
+            .with_label_values(&["http_api", "global", direction, "base64url"])
+            .get()
+    };
+    let (request, response) = (samples("request"), samples("response"));
+    let api = start_toml_api(PII).await;
+    let run = encoded::base64url("jane.doe@example.com ~~~");
+    assert!(run.contains('-'), "{run}");
+    for query in ["", "?direction=response"] {
+        scan_text_at(&api, query, format!("mail {run}")).await;
+    }
+    assert_eq!(samples("request"), request + 1);
+    assert_eq!(samples("response"), response);
+}
+
 /// invisible-text-guard, "/v1/scan".
 #[tokio::test]
 async fn a_selector_run_is_reported_as_one_invisible_text_match() {

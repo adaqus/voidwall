@@ -161,10 +161,11 @@ pub trait Guard: Send + Sync {
     /// Look at the selected units and report what was found.
     fn detect<'a>(&'a self, input: GuardInput<'a>) -> DetectFuture<'a>;
 
-    /// Whether the guard reads the scan view of a request unit rather than
-    /// its raw text. The engine builds the view and passes it; a guard that
-    /// reads it reports spans in it, and the engine maps them to raw bytes. A
-    /// response is always read as raw text.
+    /// Whether the guard reads the scan view of a request unit (`true`) or
+    /// its decoded view (`false`): the raw text with its kept base64,
+    /// base64url and hex runs decoded, and no Unicode normalized. The engine
+    /// builds the view and passes it; a guard reports spans in it, and the
+    /// engine maps them to raw bytes. A response is always read as raw text.
     fn reads_scan_view(&self) -> bool {
         false
     }

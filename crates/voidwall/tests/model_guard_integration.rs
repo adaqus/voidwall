@@ -885,6 +885,44 @@ async fn a_text_classifier_reads_the_view_only_when_set(extra: &str, status: u16
     assert_eq!(resp.status(), status);
 }
 
+#[path = "support/encoded.rs"]
+mod encoded;
+
+/// The fixture's attack prompt.
+const PROMPT: &str = "voidwall trigger test";
+
+/// `text` with every printable ASCII character written full width.
+fn full_width(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '!'..='~' => char::from_u32(c as u32 + 0xFEE0).unwrap(),
+            other => other,
+        })
+        .collect()
+}
+
+/// encoded-content-decoding, "The injection model reads a base64 attack
+/// prompt", "The decoded view keeps hidden characters", "A zero-width
+/// character inside a run", and "Base64 written in full-width characters";
+/// guard-configuration, "A text classifier reads a base64 prompt by default".
+/// A text classifier reads the decoded view by default, and the scan view
+/// when set.
+#[test_case::test_case(encoded::base64(PROMPT), "", 403 ; "a base64 prompt")]
+#[test_case::test_case(encoded::base64(PROMPT), "scan_view = true", 403 ; "a base64 prompt through the scan view")]
+#[test_case::test_case(format!("{}\u{200B}{}", &encoded::base64(PROMPT)[..3], &encoded::base64(PROMPT)[3..]), "", 200 ; "a zero-width space inside the run")]
+#[test_case::test_case(encoded::base64(&format!("voidwall {HIDDEN_TRIGGER} test")), "", 200 ; "a soft-hyphenated prompt in base64")]
+#[test_case::test_case(encoded::base64(&format!("voidwall {HIDDEN_TRIGGER} test")), "scan_view = true", 403 ; "a soft-hyphenated prompt in base64 through the scan view")]
+#[test_case::test_case(full_width(&encoded::base64(PROMPT)), "", 200 ; "base64 in full-width characters")]
+#[test_case::test_case(full_width(&encoded::base64(PROMPT)), "scan_view = true", 403 ; "base64 in full-width characters through the scan view")]
+#[tokio::test]
+async fn a_text_classifier_reads_a_decoded_run(body: String, extra: &str, status: u16) {
+    let artifacts = trigger_artifacts();
+    let guards = guard_section(&artifacts, &format!("threads = 1\n{extra}"));
+    let server = start(&guards, "", "").await;
+    let resp = post(server.proxy_addr, "/chat", format!("note {body}")).await;
+    assert_eq!(resp.status(), status);
+}
+
 /// guard-configuration, "A token classifier reads the scan view by default",
 /// "The response direction", and "A span after removed characters in a
 /// request". The span itself is checked through the engine, in

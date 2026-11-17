@@ -61,8 +61,10 @@ is read value by value:
 - A body that does not parse follows `on_error`.
 
 In a request, the guard reads the [scan view](README.md#the-scan-view), so a value with a
-soft hyphen, a backspace, or full-width digits in it is found. Set `scan_view = false` to
-read the raw text. A response is always read as raw text.
+soft hyphen, a backspace, or full-width digits in it is found, and so is a value written
+in base64 or hex in the body. Set `scan_view = false` to read the
+[decoded view](README.md#encoded-runs-and-the-decoded-view) instead: base64 and hex are
+still decoded, and no Unicode is normalized. A response is always read as raw text.
 
 ## Overlapping matches
 

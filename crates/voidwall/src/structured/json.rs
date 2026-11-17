@@ -229,7 +229,7 @@ fn walk(
                 value: text,
                 offset: start,
                 escapes,
-                normalized: EditMap::default(),
+                view: EditMap::default(),
             });
         }
         // Numbers, booleans, null produce no fragment.

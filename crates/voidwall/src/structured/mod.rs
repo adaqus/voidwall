@@ -36,7 +36,7 @@ use std::ops::Range;
 ///
 /// `offset` is the document position of the value's first raw byte. A guard
 /// reports a span as `offset` plus a position in `value`; the engine maps it
-/// through `normalized` and then through `escapes` to the raw bytes, with
+/// through `view` and then through `escapes` to the raw bytes, with
 /// [`OwnedContextFragment::raw_range`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedContextFragment {
@@ -46,9 +46,10 @@ pub struct OwnedContextFragment {
     /// Where the escape sequences of the value sit in the raw document. Empty
     /// for a value with none, and for a fragment built by hand.
     pub escapes: EditMap,
-    /// Where the scan view in `value` differs from the escape-decoded value.
-    /// Empty unless `value` is a scan view that a rule changed.
-    pub normalized: EditMap,
+    /// Where a view in `value` (the scan view or the decoded view) differs
+    /// from the escape-decoded value. Empty unless `value` is a view that a
+    /// rule or a decoded run changed.
+    pub view: EditMap,
 }
 
 impl OwnedContextFragment {
@@ -61,15 +62,15 @@ impl OwnedContextFragment {
             value,
             offset,
             escapes: EditMap::default(),
-            normalized: EditMap::default(),
+            view: EditMap::default(),
         }
     }
 
     /// The document range that `span` was decoded from, or `None` when `span`
     /// does not lie inside this fragment's value. `span` is `offset` plus a
-    /// range of positions in `value`. It maps through the scan view's edits
-    /// first and the escape sequences second; a character that came from an
-    /// escape sequence maps to the whole sequence.
+    /// range of positions in `value`. It maps through the view's edits first
+    /// and the escape sequences second; a character that came from an escape
+    /// sequence maps to the whole sequence.
     pub fn raw_range(&self, span: Range<usize>) -> Option<Range<usize>> {
         if span.start > span.end
             || span.start < self.offset
@@ -78,7 +79,7 @@ impl OwnedContextFragment {
             return None;
         }
         let local = self
-            .normalized
+            .view
             .raw_range(span.start - self.offset..span.end - self.offset);
         let raw = self.escapes.raw_range(local);
         Some(self.offset + raw.start..self.offset + raw.end)
@@ -150,6 +151,84 @@ impl EditMap {
         self.0.is_empty()
     }
 
+    /// The map of a text edited twice: `self` maps a middle text to the
+    /// source, `second` maps the final text to the middle text, and the
+    /// result maps the final text to the source in one step (design D6 of
+    /// `decode-base64-hex`). One linear merge of the two edit lists.
+    ///
+    /// Edits of the two maps whose middle ranges overlap become one edit
+    /// that covers all of them. A removal of `self` at the edge of an edit of
+    /// `second` stays a removal of its own, so it stays outside a span that
+    /// ends or starts there. The result maps a span as the two maps do in
+    /// turn, as long as no edit of `self` with a result of more than one
+    /// byte crosses an edge of an edit of `second`. The scan view never makes
+    /// one: a decoded tag or selector run is spaced on both sides, so a
+    /// base64 run lies inside it or outside it.
+    pub(crate) fn compose(&self, second: &EditMap) -> EditMap {
+        let (first, second) = (&self.0, &second.0);
+        // The range of an edit in the middle text.
+        let mid_first = |e: &Edit| (e.view, e.view_end());
+        let mid_second = |e: &Edit| (e.raw, e.raw_end());
+        let mut out = EditMap::default();
+        let (mut i, mut j) = (0, 0);
+        // The end of the last edit taken from each map: its middle position,
+        // and its source position (for `self`) or final position (for
+        // `second`). Between edits a map is the identity, so these place any
+        // middle position that no later edit holds.
+        let (mut first_mid, mut first_raw) = (0, 0);
+        let (mut second_mid, mut second_view) = (0, 0);
+        while i < first.len() || j < second.len() {
+            // A group starts with the edit that starts first in the middle
+            // text; on a tie, with the edit of `self`, so that a removal there
+            // stays a group of its own.
+            let starts_first = match (first.get(i), second.get(j)) {
+                (Some(a), Some(b)) => a.view <= b.raw,
+                (a, _) => a.is_some(),
+            };
+            let (start, mut end) = if starts_first {
+                mid_first(&first[i])
+            } else {
+                mid_second(&second[j])
+            };
+            let view = second_view + (start - second_mid);
+            let raw = first_raw + (start - first_mid);
+            // An edit joins a group that has a length when it overlaps the
+            // group inside: a point strictly inside it, or a range that starts
+            // before its end.
+            let joins = |(s, e): (usize, usize), end: usize| {
+                start < end
+                    && if s == e {
+                        start < s && s < end
+                    } else {
+                        s < end
+                    }
+            };
+            let mut seed = true;
+            loop {
+                if let Some(a) = first.get(i)
+                    && ((seed && starts_first) || (!seed && joins(mid_first(a), end)))
+                {
+                    end = end.max(a.view_end());
+                    (first_mid, first_raw) = (a.view_end(), a.raw_end());
+                    i += 1;
+                } else if let Some(b) = second.get(j)
+                    && ((seed && !starts_first) || (!seed && joins(mid_second(b), end)))
+                {
+                    end = end.max(b.raw_end());
+                    (second_mid, second_view) = (b.raw_end(), b.view_end());
+                    j += 1;
+                } else {
+                    break;
+                }
+                seed = false;
+            }
+            let view_end = second_view + (end - second_mid);
+            let raw_end = first_raw + (end - first_mid);
+            out.push(view, raw, view_end - view, raw_end - raw);
+        }
+        out
+    }
+
     /// The source range that the edited range `span` came from: its start
     /// maps as a span start and its end as a span end, see [`EditMap::raw`].
     pub(crate) fn raw_range(&self, span: Range<usize>) -> Range<usize> {
@@ -197,7 +276,7 @@ mod tests {
             value: value.to_string(),
             offset,
             escapes,
-            normalized: EditMap::default(),
+            view: EditMap::default(),
         }
     }
 
@@ -334,13 +413,40 @@ mod tests {
         assert_eq!(edits, map(&[(2, 2, 0, 5)]));
     }
 
+    // --- Composed maps ---
+
+    #[test]
+    fn composing_with_an_empty_map_keeps_the_other() {
+        let edits = map(&[(1, 1, 0, 2), (3, 5, 1, 3)]);
+        assert_eq!(EditMap::default().compose(&edits), edits);
+        assert_eq!(edits.compose(&EditMap::default()), edits);
+    }
+
+    /// Source: `x`, 2 removed bytes, a run of 4 bytes, 2 removed bytes, 6
+    /// more bytes of the run, `y`. The middle text drops the removed bytes;
+    /// the final text decodes the run of 10 middle bytes to 7.
+    #[test]
+    fn a_removal_inside_an_edit_joins_it_and_one_at_its_edge_does_not() {
+        let first = map(&[(1, 1, 0, 2), (5, 7, 0, 2)]);
+        let second = map(&[(1, 1, 7, 10)]);
+        let composed = first.compose(&second);
+        assert_eq!(composed, map(&[(1, 1, 0, 2), (1, 3, 7, 12)]));
+        assert_eq!(composed.raw_range(2..4), 3..15, "inside the run");
+        assert_eq!(
+            composed.raw_range(1..8),
+            3..15,
+            "the removal before is outside"
+        );
+        assert_eq!(composed.raw_range(8..9), 15..16);
+    }
+
     /// A span maps through the scan view's edits and then through the escape
     /// sequences: here a removed `­` inside and at the edge of a span.
     #[test]
     fn a_fragment_chains_its_two_maps() {
         // Raw `1­2` at offset 10: decoded `1`, U+00AD, `2`; viewed `12`.
         let mut f = fragment("12", 10, map(&[(1, 1, 2, 6)]));
-        f.normalized = map(&[(1, 1, 0, 2)]);
+        f.view = map(&[(1, 1, 0, 2)]);
         assert_eq!(f.raw_range(10..12), Some(10..18), "the escape inside");
         assert_eq!(f.raw_range(11..12), Some(17..18), "the escape before");
         assert_eq!(f.raw_range(10..11), Some(10..11), "the escape after");

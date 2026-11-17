@@ -511,8 +511,8 @@ impl std::fmt::Debug for HiddenContextConfig {
 /// hidden in Unicode tag characters or in variation selectors.
 ///
 /// Its only key is `enabled`. It has no `surface`: its interest is fixed in
-/// code to every unit of a request. It has no `scan_view`: it must see the raw
-/// characters.
+/// code to every unit of a request. It has no `scan_view`: it reads the
+/// decoded view, which keeps the hidden characters.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct InvisibleTextConfig {
@@ -559,7 +559,8 @@ pub struct PiiGuardConfig {
     pub surface: GuardSurface,
 
     /// Whether the guard reads the scan view of a request unit (`true`) or
-    /// its raw text. A response is always read as raw text.
+    /// its decoded view: the raw text with its kept base64, base64url and hex
+    /// runs decoded (`false`). A response is always read as raw text.
     #[serde(default = "default_true")]
     pub scan_view: bool,
 }
@@ -721,8 +722,8 @@ pub struct ModelGuardConfig {
     #[serde(default)]
     pub surface: ModelGuardSurface,
 
-    /// Whether the guard reads the scan view of a request unit or its raw
-    /// text. Absent means the adapter's default: see
+    /// Whether the guard reads the scan view of a request unit or its
+    /// decoded view. Absent means the adapter's default: see
     /// [`ModelGuardConfig::reads_scan_view`].
     pub scan_view: Option<bool>,
 }
@@ -730,8 +731,9 @@ pub struct ModelGuardConfig {
 impl ModelGuardConfig {
     /// Whether the guard reads the scan view of a request unit. A
     /// `token_classifier` reads it unless `scan_view` says otherwise, and a
-    /// `text_classifier` reads the raw text unless `scan_view` says
-    /// otherwise, so its input stays as it was before the scan view existed.
+    /// `text_classifier` reads the decoded view unless `scan_view` says
+    /// otherwise: the text as the client wrote it, with base64, base64url
+    /// and hex runs decoded, and no Unicode normalized.
     pub fn reads_scan_view(&self) -> bool {
         self.scan_view
             .unwrap_or(self.adapter == AdapterKind::TokenClassifier)

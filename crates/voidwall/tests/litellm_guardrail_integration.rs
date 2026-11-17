@@ -789,6 +789,26 @@ async fn hidden_text_on_the_request_side_is_blocked(guards: &str, text: String, 
     assert_eq!(server.verdict(&payload).await, blocked(kind));
 }
 
+#[path = "support/encoded.rs"]
+mod encoded;
+
+/// encoded-content-decoding, "An email in base64 in the LiteLLM request
+/// side". The same `texts` on the response side are not decoded.
+#[test_case("request", blocked("EMAIL") ; "the request side")]
+#[test_case("response", none() ; "the response side")]
+#[tokio::test]
+async fn an_email_in_base64_is_decoded_on_the_request_side_only(input_type: &str, verdict: Value) {
+    let server = Server::start_owning(hidden_unicode::PII, "").await;
+    let mut payload = fixture(REQUEST_TOOLS);
+    payload
+        .as_object_mut()
+        .unwrap()
+        .remove("structured_messages");
+    payload["input_type"] = json!(input_type);
+    payload["texts"] = json!([format!("mail {}", encoded::base64(encoded::EMAIL))]);
+    assert_eq!(server.verdict(&payload).await, verdict);
+}
+
 /// pii-scanning, "A duplicate key on the LiteLLM route". The duplicate is in
 /// a message, where the typed envelope does not see it.
 #[tokio::test]
