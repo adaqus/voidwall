@@ -2,9 +2,9 @@
 //!
 //! It reports a request unit that carries text hidden in Unicode tag
 //! characters or in variation selectors, the two forms that can carry a whole
-//! hidden instruction. It decodes nothing: a guard that reads the raw text,
-//! such as a prompt-injection classifier, is then not passed the hidden
-//! instruction, because the request is blocked.
+//! hidden instruction. It decodes no tag or selector: a guard that reads the
+//! decoded view, such as a prompt-injection classifier, is then not passed
+//! the hidden instruction, because the request is blocked.
 //!
 //! - A tag character U+E0000 to U+E007F is reported unless it is part of an
 //!   emoji flag sequence, by the rule the scan view keeps unchanged.
@@ -14,7 +14,9 @@
 //!   presentation, a keycap, or a CJK ideographic variant.
 //!
 //! Its interest is fixed in code to every unit kind of a request, and it reads
-//! the raw text, never the scan view. `detect` runs inline, with no worker
+//! the decoded view, never the scan view: the raw text with its kept base64
+//! and hex runs decoded, so it also finds tag characters and selectors written
+//! inside such a run. `detect` runs inline, with no worker
 //! thread: it is one linear-time scan per unit, and a unit with neither lead
 //! byte of a tag or a selector is passed over at the byte level.
 
@@ -222,8 +224,8 @@ mod tests {
         assert!(detect(body(text)).await.is_empty());
     }
 
-    /// The guard reads the raw text and decodes nothing: an invalid byte is
-    /// no base character.
+    /// The guard decodes no tag or selector: an invalid byte is no base
+    /// character.
     #[tokio::test]
     async fn a_selector_after_an_invalid_byte_is_reported() {
         let mut units = Units::new();

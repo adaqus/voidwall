@@ -2,9 +2,10 @@
 
 ## Purpose
 States the built-in `invisible_text` guard: it reports a request that carries text hidden
-in Unicode tag characters or in variation selectors, without decoding it, so a
-guard that reads the raw text, such as a prompt-injection classifier, is not passed a
-hidden instruction.
+in Unicode tag characters or in variation selectors, without decoding that hidden text,
+so a guard that reads the decoded view, such as a prompt-injection classifier, is not
+passed a hidden instruction. It reads the decoded view itself, so it also finds tag
+characters and variation selectors inside a kept base64 or hex run.
 
 ## Requirements
 
@@ -39,13 +40,14 @@ The guard SHALL be declared as `[builtin_guards.invisible_text]`. Its only key S
 - **WHEN** the config declares a guard named `invisible_text` under `[guards]`
 - **THEN** validation fails naming `invisible_text` as reserved
 
-### Requirement: The guard scans every request unit and the raw text only
+### Requirement: The guard scans every request unit through the decoded view
 
 The guard SHALL be passed every unit of a request-direction message: the body, the URL
 path, the query string and every scanned header value. It SHALL NOT be passed a unit of
-a response. It SHALL read the raw text of a unit, never the scan view of the
-`hidden-unicode-normalization` capability. In a structured body it SHALL read each
-fragment value after its JSON escapes are decoded.
+a response. It SHALL read the decoded view of a unit that the `encoded-content-decoding`
+capability builds, never the scan view of the `hidden-unicode-normalization` capability.
+In a structured body it SHALL read each fragment value after its JSON escapes are
+decoded.
 
 #### Scenario: Tag characters in a query string
 
@@ -68,6 +70,18 @@ fragment value after its JSON escapes are decoded.
 - **WHEN** a JSON request value holds tag characters written as `\uXXXX` surrogate-pair
   escapes
 - **THEN** the guard reports a finding
+
+#### Scenario: Tag characters inside base64
+
+- **WHEN** a request body holds a base64 run whose decoded text is the words `ignore all
+  rules` written as tag characters
+- **THEN** the guard reports a finding
+
+#### Scenario: Tag characters inside base64 in a query string
+
+- **WHEN** a request's query string holds a base64url run whose decoded text is the words
+  `ignore all rules` written as tag characters
+- **THEN** the run is not decoded, and the guard reports no finding for it
 
 #### Scenario: Tag characters in a response
 

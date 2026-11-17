@@ -188,10 +188,10 @@ fn is_decoration(c: char) -> bool {
 
 /// A set of characters, as sorted ranges from `regex-syntax`'s Unicode
 /// tables. A lookup is one binary search.
-struct Class(Vec<(char, char)>);
+pub(super) struct Class(Vec<(char, char)>);
 
 impl Class {
-    fn new(pattern: &str) -> Self {
+    pub(super) fn new(pattern: &str) -> Self {
         let hir = regex_syntax::Parser::new()
             .parse(pattern)
             .expect("a Unicode class pattern");
@@ -209,7 +209,7 @@ impl Class {
         )
     }
 
-    fn contains(&self, c: char) -> bool {
+    pub(super) fn contains(&self, c: char) -> bool {
         let at = self.0.partition_point(|&(_, end)| end < c);
         self.0.get(at).is_some_and(|&(start, _)| start <= c)
     }
@@ -329,12 +329,12 @@ pub(super) fn view(content: &UnitContent) -> Option<UnitContent> {
                 .iter()
                 .zip(views)
                 .map(|(f, view)| match view {
-                    Some((value, normalized)) => OwnedContextFragment {
+                    Some((value, view)) => OwnedContextFragment {
                         context: f.context.clone(),
                         value,
                         offset: f.offset,
                         escapes: f.escapes.clone(),
-                        normalized,
+                        view,
                     },
                     None => f.clone(),
                 })
@@ -355,7 +355,7 @@ pub(super) fn normalize(bytes: &[u8]) -> Option<(Vec<u8>, EditMap)> {
 }
 
 /// [`normalize`] for a string. The view of valid UTF-8 is valid UTF-8.
-fn normalize_str(text: &str) -> Option<(String, EditMap)> {
+pub(super) fn normalize_str(text: &str) -> Option<(String, EditMap)> {
     let (view, edits) = normalize(text.as_bytes())?;
     match String::from_utf8(view) {
         Ok(view) => Some((view, edits)),
@@ -1284,7 +1284,7 @@ mod tests {
         let values: Vec<&str> = fragments.iter().map(|f| f.value.as_str()).collect();
         assert_eq!(values, ["clean", "xy"]);
         assert_eq!(fragments[0].context, "a\u{AD}b");
-        assert!(fragments[0].normalized.is_empty());
+        assert!(fragments[0].view.is_empty());
         assert_eq!(fragments[1].raw_range(20..22), Some(20..24));
     }
 

@@ -2,16 +2,19 @@
 """Generate deterministic test payloads for load testing.
 
 Produces JSON files in benches/payloads/ with clean, PII-containing, and
-non-ASCII content at various sizes: ~100 B, ~10 KB, ~1 MB.
+non-ASCII content, base64 and hex runs, and long ASCII words at various sizes:
+~100 B, ~10 KB, ~1 MB.
 
 PII kinds used (5 total):
   Hyperscan-based (2): Email, UsSsn
   KeywordContext-based (3): PersonName, DateOfBirth, GbNhsNumber
 """
 
+import base64
 import json
 import os
 import random
+import string
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "payloads")
@@ -101,6 +104,43 @@ def generate_unicode_text(target_bytes: int) -> str:
         word = RNG.choice(UNICODE_WORDS)
         words.append(word)
         current_size += len(word.encode("utf-8")) + 1
+    return " ".join(words)
+
+
+def generate_encoded_text(target_bytes: int) -> str:
+    """Clean text in which every eighth token is a base64 or hex run of a few
+    clean words. Each run decodes to Latin text, so the engine decodes it."""
+    words = []
+    current_size = 0
+    while current_size < target_bytes:
+        if len(words) % 8 == 7:
+            phrase = " ".join(RNG.choice(CLEAN_WORDS) for _ in range(RNG.randint(3, 6)))
+            if RNG.random() < 0.5:
+                word = base64.b64encode(phrase.encode()).decode()
+            else:
+                word = phrase.encode().hex()
+        else:
+            word = RNG.choice(CLEAN_WORDS)
+        words.append(word)
+        current_size += len(word) + 1
+    return " ".join(words)
+
+
+def generate_long_words_text(target_bytes: int) -> str:
+    """ASCII text of long identifiers: camel-case words of 15 or more letters,
+    and random letters and digits. Each is a candidate run that decodes to
+    nothing kept, which is the most work the run search does on plain text."""
+    alnum = string.ascii_letters + string.digits
+    words = []
+    current_size = 0
+    while current_size < target_bytes:
+        if RNG.random() < 0.5:
+            parts = [RNG.choice(CLEAN_WORDS).capitalize() for _ in range(RNG.randint(3, 5))]
+            word = "get" + "".join(parts)
+        else:
+            word = "".join(RNG.choice(alnum) for _ in range(RNG.randint(20, 40)))
+        words.append(word)
+        current_size += len(word) + 1
     return " ".join(words)
 
 
@@ -289,6 +329,15 @@ def main() -> None:
     write_payload("unicode_small.json", make_payload(generate_unicode_text(80)))
     write_payload("unicode_medium.json", make_payload(generate_unicode_text(10_000)))
     write_payload("unicode_large.json", make_payload(generate_unicode_text(1_000_000)))
+
+    # Encoded runs and long ASCII words (no PII), generated after the payloads
+    # above so those stay byte-identical.
+    write_payload("encoded_small.json", make_payload(generate_encoded_text(80)))
+    write_payload("encoded_medium.json", make_payload(generate_encoded_text(10_000)))
+    write_payload("encoded_large.json", make_payload(generate_encoded_text(1_000_000)))
+    write_payload("longwords_small.json", make_payload(generate_long_words_text(80)))
+    write_payload("longwords_medium.json", make_payload(generate_long_words_text(10_000)))
+    write_payload("longwords_large.json", make_payload(generate_long_words_text(1_000_000)))
 
     print("Done.")
 

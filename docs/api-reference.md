@@ -63,8 +63,8 @@ guards that inspect that direction.
 
 | Query | Scan |
 |---|---|
-| None, or `?direction=request` | A request scan. The `hidden_context` guard does not run, and `invisible_text` runs. A guard that reads the [scan view](guards/README.md#the-scan-view) gets it. |
-| `?direction=response` | A response scan. Every guard that inspects responses runs, `hidden_context` too, and `invisible_text` does not. Every guard reads the raw text. |
+| None, or `?direction=request` | A request scan. The `hidden_context` guard does not run, and `invisible_text` runs. A guard that reads the [scan view](guards/README.md#the-scan-view) gets it, and every other guard gets the [decoded view](guards/README.md#encoded-runs-and-the-decoded-view). |
+| `?direction=response` | A response scan. Every guard that inspects responses runs, `hidden_context` too, and `invisible_text` does not. Every guard reads the raw text, with no run decoded. |
 | Any other value | 400 `{"error":"invalid direction"}`. No guard runs. |
 
 The `pii` guard and every model guard inspect both directions. A detection counts in the

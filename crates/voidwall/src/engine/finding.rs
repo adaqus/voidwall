@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use super::decode::DecodedRuns;
 use super::unit::UnitId;
 use crate::error::Error;
 
@@ -129,6 +130,8 @@ impl Finding {
 pub struct ScanResult {
     findings: Vec<Finding>,
     error: Option<Error>,
+    /// The encoded runs the views of the message kept, by encoding.
+    decoded_runs: DecodedRuns,
 }
 
 impl ScanResult {
@@ -137,12 +140,29 @@ impl ScanResult {
         Self {
             findings,
             error: None,
+            decoded_runs: DecodedRuns::default(),
         }
     }
 
     /// Wrap findings together with the guard error that came with them.
     pub fn with_error(findings: Vec<Finding>, error: Option<Error>) -> Self {
-        Self { findings, error }
+        Self {
+            findings,
+            error,
+            decoded_runs: DecodedRuns::default(),
+        }
+    }
+
+    /// The same result, carrying the counts of the runs that were decoded.
+    pub fn with_decoded_runs(mut self, decoded_runs: DecodedRuns) -> Self {
+        self.decoded_runs = decoded_runs;
+        self
+    }
+
+    /// The encoded runs the views of the message kept, by encoding. A run
+    /// both views kept counts once.
+    pub fn decoded_runs(&self) -> DecodedRuns {
+        self.decoded_runs
     }
 
     /// Take the guard error out of the result, if a guard failed.

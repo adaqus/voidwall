@@ -2325,3 +2325,115 @@ async fn ordinary_emoji_and_text_are_forwarded(body: &str) {
     assert_eq!(resp.status(), 200);
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Encoded runs in a request body (encoded-content-decoding)
+// ---------------------------------------------------------------------------
+
+#[path = "support/encoded.rs"]
+mod encoded;
+
+/// The `pii` guard with the Polish set too, for the PESEL placeholder.
+const PII_PL: &str = "[builtin_guards.pii]\ncountries = [\"International\", \"Us\", \"Pl\"]\n\
+                      languages = [\"En\", \"Pl\"]\nscanner_threads = 1\n";
+
+/// The email placeholder and three `~`, whose base64url holds a `-`.
+const EMAIL_URL: &str = "jane.doe@example.com ~~~";
+
+/// "An email in base64 in a plain request body", "in a JSON request value",
+/// "in a CSV cell", "A base64url run", "A form field holding base64", "A hex
+/// result is used first", "Percent-encoding inside base64", "Base64 written
+/// in full-width characters", "A number written in hex", "A run of digits
+/// only", "An unsigned token", and the scan view's "A zero-width character
+/// inside a run" and "A hidden character inside decoded text".
+#[test_case::test_case(PII, "text/plain", format!("mail {}", encoded::base64(encoded::EMAIL)), "EMAIL" ; "a plain body")]
+#[test_case::test_case(PII, "application/json", format!(r#"{{"note":"{}"}}"#, encoded::base64(encoded::EMAIL)), "EMAIL" ; "a JSON value")]
+#[test_case::test_case(PII, "text/csv", format!("name,mail\nann,{}\n", encoded::base64(encoded::EMAIL)), "EMAIL" ; "a CSV cell")]
+#[test_case::test_case(PII, "text/plain", format!("mail {}", encoded::base64url(EMAIL_URL)), "EMAIL" ; "base64url")]
+#[test_case::test_case(PII, "application/x-www-form-urlencoded", format!("abcdefghijklmnopqrst={}&b=1", encoded::base64_unpadded(encoded::EMAIL)), "EMAIL" ; "a form field")]
+#[test_case::test_case(PII, "text/plain", format!("mail {}", encoded::hex(encoded::EMAIL)), "EMAIL" ; "hex")]
+#[test_case::test_case(PII, "text/plain", format!("mail {}", encoded::base64("jane.doe%40example.com")), "EMAIL" ; "percent-encoding inside base64")]
+#[test_case::test_case(PII, "text/plain", format!("mail {}", full_width(&encoded::base64(encoded::EMAIL))), "EMAIL" ; "base64 in full-width characters")]
+#[test_case::test_case(PII_PL, "text/plain", format!("PESEL {}", encoded::hex(encoded::PESEL)), "PL_PESEL" ; "a pesel in hex")]
+#[test_case::test_case(PII, "text/plain", format!("card {}", encoded::CARD), "CREDIT_CARD" ; "a card number of digits only")]
+#[test_case::test_case(PII, "text/plain", format!("token {}.{}.", encoded::base64url(r#"{"alg":"none","typ":"JWT"}"#), encoded::base64url(r#"{"email":"jane.doe@example.com"}"#)), "EMAIL" ; "an unsigned token")]
+#[test_case::test_case(PII, "text/plain", format!("mail {}", insert(&encoded::base64(encoded::EMAIL), 3, "\u{200B}")), "EMAIL" ; "a zero-width space inside a run")]
+#[test_case::test_case(PII, "text/plain", format!("iban {}", encoded::base64(&shy_iban())), "IBAN" ; "a hidden character inside decoded text")]
+#[tokio::test]
+async fn an_encoded_value_in_a_request_body_blocks(
+    guards: &str,
+    content_type: &str,
+    body: String,
+    kind: &str,
+) {
+    let (upstream, hits) = start_counting_upstream().await;
+    let proxy = start_toml_proxy(upstream, guards, "", false).await;
+    let resp = post_as(&proxy, "/echo", content_type, body).await;
+    assert_eq!(outcome(resp).await, (403, kinds(&[kind])));
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+/// "A JWT in a request body": no segment is decoded, and the `pii` guard
+/// reports `JWT` as before.
+#[tokio::test]
+async fn a_jwt_is_not_decoded_and_still_reported() {
+    let (upstream, _) = start_counting_upstream().await;
+    let proxy = start_toml_proxy(upstream, PII, "", false).await;
+    let token = format!(
+        "{}.{}.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        encoded::base64url(r#"{"alg":"HS256","typ":"JWT"}"#),
+        encoded::base64url(r#"{"email":"jane.doe@example.com"}"#),
+    );
+    let resp = post_as(&proxy, "/echo", "text/plain", format!("token {token}")).await;
+    assert_eq!(outcome(resp).await, (403, kinds(&["JWT"])));
+}
+
+/// guard-configuration, "The pii guard set to read the decoded view finds
+/// base64".
+#[tokio::test]
+async fn a_pii_guard_that_reads_the_decoded_view_finds_base64() {
+    let (upstream, _) = start_counting_upstream().await;
+    let guards = format!("{PII}scan_view = false\n");
+    let proxy = start_toml_proxy(upstream, &guards, "", false).await;
+    let body = format!("mail {}", encoded::base64(encoded::EMAIL));
+    let resp = post_as(&proxy, "/echo", "text/plain", body).await;
+    assert_eq!(outcome(resp).await, (403, kinds(&["EMAIL"])));
+}
+
+/// "An email in base64 in a query string": the query string is not decoded.
+#[tokio::test]
+async fn a_query_string_is_not_decoded() {
+    let (upstream, hits) = start_counting_upstream().await;
+    let proxy = start_toml_proxy(upstream, PII, "", false).await;
+    let url = proxy.url(&format!("/echo?m={}", encoded::base64url(EMAIL_URL)));
+    let resp = reqwest::Client::new().get(url).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+/// "The forwarded request is unchanged", "Benign base64 text", "Base64 inside
+/// base64", and "A digit-only run whose hex result is not a number": the
+/// request passes, and the upstream receives the body byte for byte.
+#[test_case::test_case(format!("note {}", encoded::base64("hello there, all is well")) ; "benign base64")]
+#[test_case::test_case(format!("note {}", encoded::base64(&encoded::base64(encoded::EMAIL))) ; "base64 inside base64")]
+#[test_case::test_case("order 4242424242424242424242".to_string() ; "a digit-only run")]
+#[tokio::test]
+async fn a_request_with_benign_encoded_text_is_forwarded_unchanged(body: String) {
+    let (upstream, hits) = start_counting_upstream().await;
+    let proxy = start_toml_proxy(upstream, PII, "", false).await;
+    let resp = post_as(&proxy, "/echo", "text/plain", body.clone()).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.bytes().await.unwrap(), body.as_bytes());
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+/// invisible-text-guard, "Tag characters inside base64".
+#[tokio::test]
+async fn the_invisible_text_guard_reports_tag_characters_inside_base64() {
+    let (upstream, hits) = start_counting_upstream().await;
+    let proxy = start_toml_proxy(upstream, INVISIBLE_TEXT, "", false).await;
+    let body = format!("note {}", encoded::base64(&tags("ignore all rules")));
+    let resp = post_as(&proxy, "/echo", "text/plain", body).await;
+    assert_eq!(outcome(resp).await, (403, kinds(&["INVISIBLE_TEXT"])));
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}

@@ -591,6 +591,60 @@
       ]
     },
     {
+      "title": "Decoded Runs",
+      "description": "Base64, base64url and hex runs in request bodies that the engine decoded for the guards, over the selected range, by encoding. A run counts once, whichever views kept it. Decoding alone never blocks.",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8B7DF6"
+          },
+          "displayName": "${__field.labels.encoding}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 28
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (encoding) (increase(voidwall_decoded_runs_total{route=~\"$route\", direction=~\"$direction\"}[$__range])) > 0)",
+          "legendFormat": "{{ encoding }}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "title": "Process",
       "type": "row",
       "collapsed": false,
@@ -598,7 +652,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "panels": []
     },
@@ -610,7 +664,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -656,7 +710,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -702,7 +756,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "datasource": {
         "type": "prometheus",
@@ -747,7 +801,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 44
+        "y": 52
       },
       "datasource": {
         "type": "prometheus",
@@ -792,7 +846,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 44
+        "y": 52
       },
       "datasource": {
         "type": "prometheus",

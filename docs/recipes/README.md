@@ -58,7 +58,7 @@ document with personal data can be embedded, and a prompt injection is still blo
 
 A route with its own `guards` list runs only the guards it names. Keep `invisible_text`
 in the list: without it, an instruction hidden in Unicode tag characters or variation
-selectors reaches the prompt injection model as raw text. See
+selectors reaches the prompt injection model as it is. See
 [guards/invisible-text.md](../guards/invisible-text.md).
 
 ## Streaming

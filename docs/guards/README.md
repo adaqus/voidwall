@@ -70,8 +70,8 @@ Some more rules:
 - A route runs every enabled guard, unless its `guards` key lists the guards to run. An
   empty list runs none. A list that leaves out `invisible_text` lets text hidden in tags
   and selectors reach the guards it names.
-- In a request, a guard reads the [scan view](#the-scan-view) or the raw text, by its
-  `scan_view` key.
+- In a request, a guard reads the [scan view](#the-scan-view) or the
+  [decoded view](#encoded-runs-and-the-decoded-view), by its `scan_view` key.
 - The HTTP API runs every enabled guard. `/v1/scan` takes the direction from its
   `direction` parameter, and the LiteLLM route from `input_type`.
 
@@ -94,14 +94,16 @@ A message is blocked only when a guard reports a finding.
 |---|---|---|
 | `pii` | The scan view | `builtin_guards.pii.scan_view`, default `true` |
 | Model guard, `token_classifier` | The scan view | `guards.<name>.scan_view`, default `true` |
-| Model guard, `text_classifier` | The raw text | `guards.<name>.scan_view`, default `false` |
-| `invisible_text` | The raw text. It has no `scan_view` key. | — |
+| Model guard, `text_classifier` | The decoded view | `guards.<name>.scan_view`, default `false` |
+| `invisible_text` | The decoded view. It has no `scan_view` key. | — |
 | `hidden_context` | Responses only. It has no `scan_view` key. | — |
 
-A `text_classifier`, such as the prompt injection model, reads the raw text by default.
-Such a model already flags most of these tricks, and it also flags clean text that uses
-them. Set `scan_view = true` to give it the scan view instead. A response is always read
-as raw text, whatever `scan_view` says.
+A `text_classifier`, such as the prompt injection model, reads the
+[decoded view](#encoded-runs-and-the-decoded-view) by default: the text as the client wrote
+it, with its base64 and hex runs decoded, and no Unicode normalized. Such a model already
+flags most of the Unicode tricks, and it also flags clean text that uses them. Set
+`scan_view = true` to give it the scan view instead. A response is always read as raw
+text, whatever `scan_view` says.
 
 ### The steps
 
@@ -124,6 +126,10 @@ before it.
    overline, underline, or strike-through mark after any letter or number is removed. A
    keycap, such as 1️⃣, stays.
 
+In a body, the scan view then decodes the base64, base64url, and hex runs of the
+normalized text, and normalizes the decoded text of each run. See
+[Encoded runs and the decoded view](#encoded-runs-and-the-decoded-view).
+
 The regex PII guard then applies its own step, as before: it removes U+200B to U+200D
 and decodes percent-encoding and HTML entities.
 
@@ -132,7 +138,7 @@ a value is inside its span. A value decoded from tags or selectors spans the who
 
 ### Limits
 
-- Response units are not normalized.
+- Response units are not normalized or decoded.
 - Look-alike letters, such as a Cyrillic `а` in a Latin word, are not folded.
 - A hidden character written as percent-encoding or as an HTML entity, such as `%C2%AD`,
   is decoded after the scan view is built, so it stays.
@@ -152,8 +158,75 @@ a value is inside its span. A value decoded from tags or selectors spans the who
   accent. A precomposed letter, such as `é`, does not change.
 - Full-width punctuation in Japanese or Chinese text becomes ASCII punctuation.
 - A text hidden in reversed order with a bidi override loses the override, so a guard
-  that reads the scan view sees the reversed text. The `text_classifier` default keeps
-  the raw text, with the override in it.
+  that reads the scan view sees the reversed text. The `text_classifier` default, the
+  decoded view, keeps the override.
+
+## Encoded runs and the decoded view
+
+An LLM reads base64 and hex. So, in a request body, Voidwall decodes base64, base64url,
+and hex runs for the guards. A guard that reads the decoded view finds
+`amFuZS5kb2VAZXhhbXBsZS5jb20=` as the address `jane.doe@example.com`.
+
+The decoded view of a unit is its raw text with each kept run replaced by its decoded
+text. It has no other change: no Unicode is normalized. The scan view of a body holds the
+decoded runs too, and normalizes their text. Decoding is for the guards only. The
+forwarded message does not change, and decoding never blocks a message by itself.
+
+### Which runs are decoded
+
+A run is a longest sequence of the characters `A`–`Z`, `a`–`z`, `0`–`9`, `+`, `/`, `-`,
+and `_`. One or two `=` after a run belong to it only when they make its length a
+multiple of 4 and no such character or `=` comes after them. So in a form body
+`name=<base64>`, the `=` ends the field name.
+
+| Encoding | The run holds | Shortest run |
+|---|---|---|
+| Hex | Only `0`–`9`, `A`–`F`, and `a`–`f`, no `=`, an even length | 22 characters |
+| Base64 | No `-` and no `_` | 15 characters, without `=` |
+| Base64url | No `+` and no `/` | 15 characters, without `=` |
+
+- Hex is tried first. When its result is not kept, base64 is tried.
+- Padding is optional. A run of 1 more than a multiple of 4 characters is not base64.
+- A run that holds both `+` or `/` and `-` or `_` is not decoded.
+- A run of digits only is decoded as hex only, and only when the result is a number:
+  digits, spaces, and `+ ( ) . / -`. So a PESEL number or a phone number written in hex is
+  found, and a card number stays as it is.
+- A JWT-shaped token is not decoded: three runs separated by dots, of which the first two
+  start with `ey` and the third is not empty. So the `pii` guard still reports `JWT`.
+
+### Which results are kept
+
+A decoded run is kept only when its text is Latin text:
+
+1. The bytes are valid UTF-8.
+2. The text holds no control character other than tab, line feed, and carriage return,
+   and no U+007F.
+3. After the scan view steps, the text has more than 3 characters, and 95% or more of them
+   are ASCII or of the Latin or Common script. The Common script holds punctuation such as
+   `’` and `–`, symbols such as `€`, and emoji.
+
+A run that is not kept stays as it is. Random bytes, such as a hash or a key, are almost
+never kept.
+
+### Spans
+
+A finding inside a decoded run spans the whole encoded run in the raw message, with its
+padding. Two findings inside one run have the same span and count as two matches.
+
+### Limits
+
+- Only request bodies are decoded. The URL path, the query string, header values, and
+  responses are not decoded.
+- Only one layer is decoded. A base64 run inside decoded text stays as it is.
+- A run glued to a word, such as `decode` and base64 with no space between them, starts at
+  the word, and is not decoded. A run joined to a URL path by `/` is not decoded either.
+- Text that decodes to another script, such as Cyrillic or Chinese, is not kept.
+- A zero-width character inside a run splits it in the decoded view, so the decoded view
+  does not decode it. The scan view removes the character first and decodes the run.
+- Base64 written in full-width characters or in tag characters is decoded in the scan
+  view only.
+- The values that Voidwall does not scan, such as `data:` image URLs, stay unscanned. A
+  `data:` URL written in message text is decoded like any other run.
 
 ## When a guard fails
 
@@ -177,6 +250,9 @@ names and counts only.
   API blocks nothing, so it does not count here.
 - `voidwall_pii_detections_total{pii_kind="..."}` and `voidwall_pii_blocked_total`
   count only PII: the findings of `pii`, and of a model guard with `class = "pii"`.
+- `voidwall_decoded_runs_total{encoding="..."}` counts the encoded runs that Voidwall
+  decoded in request bodies, by `encoding`: `base64`, `base64url`, or `hex`. A run counts
+  one time, whichever views hold it, and also when the message is not blocked.
 
 ## Two guards, one kind
 

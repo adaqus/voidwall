@@ -141,17 +141,22 @@ split across deltas.
   that parses as a JSON object or array.
 - Decide what happens to a value that does not parse as JSON, and how deep the nesting
   goes.
-- Phase 2 of the encoded-content plan (decode base64, hex and `%xx` runs) has the same
-  nesting question; settle both together.
+- Nested encoded runs (item 1.15) have the same nesting question; settle both
+  together.
 
-### 1.12 The scan view and the invisible text guard for responses
+### 1.12 The scan view, the decoded view and the invisible text guard for responses
 
-The OpenSpec change `normalize-hidden-unicode` builds the scan view for request units
-only, and the `invisible_text` guard inspects requests only. A model's answer that hides
-text in tag characters or variation selectors, or a value behind a soft hyphen, reaches
-the client as it is.
+Part 2d of the encoded-content plan (about 550 lines). The OpenSpec change
+`normalize-hidden-unicode` builds the scan view for request units only, the change
+`decode-base64-hex` decodes base64, base64url and hex runs in request bodies only, and the
+`invisible_text` guard inspects requests only. A model's answer that hides text in tag
+characters or variation selectors, behind a soft hyphen, or in base64 or hex reaches the
+client as it is.
 
 - Normalize response-direction units, and let `invisible_text` inspect responses.
+- Build the decoded view and decode runs in the scan view of a non-stream response
+  body, as `decode-base64-hex` does for a request. Runs that cross stream scan windows
+  are item 1.16.
 - In a stream, a tag run or a variation-selector run that is still open at the end of the
   scan window waits like the hold-back tail (agreed 2026-11-16).
 - Decide in the proposal whether the `scan_view` defaults stay the same for responses.
@@ -174,9 +179,32 @@ detectors decode percent-encoding and HTML entities (`decode_for_detection` in
 in a body, is decoded after the view was built, so it stays in the text the detectors
 read (design D11). The model guards do not decode either form.
 
-- Phase 2 of the encoded-content plan moves that decoding into the engine, in front of
-  the scan view, so every guard that reads the view sees the decoded character.
+- Part 2a of the encoded-content plan (about 650 lines) moves that decoding into the
+  engine, in front of the scan view, so every guard that reads the view sees the decoded
+  character.
 - Then decide whether `decode_for_detection` keeps its own percent and entity step.
+
+### 1.15 Nested and glued encoded runs
+
+Part 2c of the encoded-content plan (about 450 lines). The OpenSpec change
+`decode-base64-hex` decodes one layer, and only a run that a byte outside the alphabet
+ends on both sides. Base64 inside base64, a run glued to a word (`decodeaGVsbG8...`), a run
+joined to a URL path by `/`, and a value split into short runs are not decoded.
+
+- Decode nested runs, with a depth limit and a byte budget for one message.
+- Decode a run glued to a word: try start offsets and trim a glued prefix, as the Phase 0
+  prototype does.
+- Join adjacent short runs.
+- Decide in the proposal how the keep test and the spans apply to a nested run.
+
+### 1.16 Encoded runs that cross stream scan windows
+
+Part 2e of the encoded-content plan (about 700 lines). A base64 or hex run in a streamed
+answer can be split across scan windows, so no window holds the whole run.
+
+- Hold back an open run at the end of a scan window, like the hold-back tail, so the
+  window that ends it decodes it whole.
+- Decide in the proposal the longest run that is held back.
 
 ---
 

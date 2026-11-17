@@ -3,8 +3,9 @@
 The `invisible_text` guard blocks a request that carries text hidden in Unicode tag
 characters or in variation selectors. A person does not see this text, but a model can
 read it, so it can carry a hidden instruction ("ASCII smuggling", "emoji smuggling"). The
-guard decodes nothing. It blocks the request, so no other guard, such as a prompt
-injection model that reads the raw text, gets the hidden instruction.
+guard does not decode the tags or selectors. It blocks the request, so no other guard,
+such as a prompt injection model that reads the decoded view, gets the hidden
+instruction.
 
 See `openspec/specs/invisible-text-guard/spec.md` for the full specification.
 
@@ -52,9 +53,13 @@ appear in a log line, a metric, or an answer.
 ## What it scans
 
 The guard scans every unit of a request: the body, the URL path, the query string, and
-each header value that the route names. It reads the raw text, never the scan view. In a
-JSON, CSV, or TSV body it reads each value on its own, after JSON escapes are decoded, so
-a tag written as `󠁩` is found. It does not read keys or column names.
+each header value that the route names. It reads the
+[decoded view](README.md#encoded-runs-and-the-decoded-view), never the scan view: the raw
+text with the base64 and hex runs of a body decoded. So it also finds tags and selectors
+that are written inside a base64 or hex run of a body. A run in the URL path, the query
+string, or a header value is not decoded. In a JSON, CSV, or TSV body it reads each value
+on its own, after JSON escapes are decoded, so a tag written as `󠁩` is found. It
+does not read keys or column names.
 
 | Entry point | Scanned |
 |---|---|
@@ -71,6 +76,6 @@ query string, and the named header units of every request.
 
 A route that names no guard runs every enabled guard. A route with `guards = [...]` runs
 this guard only when the list holds `invisible_text`. A route that lists only
-`prompt_injection` lets text in tags and selectors reach the injection model as raw text.
+`prompt_injection` lets text in tags and selectors reach the injection model as it is.
 Add `invisible_text` to the list, as in
 [recipes/README.md](../recipes/README.md#keep-personal-data-on-a-local-model).

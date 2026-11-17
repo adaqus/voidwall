@@ -2494,6 +2494,45 @@ async fn a_hidden_value_in_a_chat_request_blocks() {
     assert_eq!(upstream.hits(), 0);
 }
 
+// --- encoded-content-decoding ---
+
+#[path = "support/encoded.rs"]
+mod encoded;
+
+/// "An email in base64 in an openai-chat request" and "A data URL written in
+/// message text".
+#[test_case::test_case(encoded::base64(encoded::EMAIL) ; "a message in base64")]
+#[test_case::test_case(format!("data:text/plain;base64,{}", encoded::base64(encoded::EMAIL)) ; "a data URL in message text")]
+#[tokio::test]
+async fn an_email_in_base64_in_a_chat_request_blocks(text: String) {
+    let _m = METRICS.lock().await;
+    let upstream = Upstream::clean().await;
+    let proxy = Proxy::start_owning(Setup::default(), &upstream.url, hidden_unicode::PII).await;
+
+    let payload = request(|p| message(p, "user")["content"][0]["text"] = json!(text));
+    assert_block(proxy.post(&payload).await, &["EMAIL"]).await;
+    assert_eq!(upstream.hits(), 0);
+}
+
+/// "An inline image stays skipped": an `image_url` whose `data:` URL holds an
+/// email placeholder in base64 is not decoded, and counts as `encoded_data`.
+#[tokio::test]
+async fn an_inline_image_holding_base64_text_stays_skipped() {
+    let _m = METRICS.lock().await;
+    let upstream = Upstream::clean().await;
+    let proxy = Proxy::start_owning(Setup::default(), &upstream.url, hidden_unicode::PII).await;
+    let before = proxy.encoded("request").await;
+
+    let url = format!("data:image/png;base64,{}", encoded::base64(encoded::EMAIL));
+    let payload = json!({"model": "m", "messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": url}},
+        {"type": "text", "text": "What is on the label?"},
+    ]}]});
+    assert_eq!(proxy.post(&payload).await.status(), 200);
+    assert_eq!(proxy.encoded("request").await, before + 1.0);
+    assert_eq!(upstream.hits(), 1);
+}
+
 /// invisible-text-guard, "openai-chat route".
 #[tokio::test]
 async fn a_tag_run_in_a_chat_request_blocks() {

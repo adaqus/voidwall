@@ -22,8 +22,11 @@
 //   CONTENT_TYPE  - text | json | csv              (default: json)
 //   PAYLOAD       - small | medium | large         (default: medium)
 //   PII           - true | false                   (default: true)
-//   CORPUS        - pii | clean | unicode          (default: pii, or clean
-//                   when PII=false). unicode is non-ASCII text with no PII,
+//   CORPUS        - pii | clean | unicode | encoded | longwords
+//                   (default: pii, or clean when PII=false). unicode is
+//                   non-ASCII text with no PII; encoded holds base64 and hex
+//                   runs that decode to text; longwords holds long ASCII
+//                   identifiers that decode to nothing kept. These three are
 //                   for text and json only.
 
 import http from "k6/http";
@@ -58,6 +61,16 @@ const bodies = {
       medium: open("../payloads/unicode_medium.json"),
       large: open("../payloads/unicode_large.json"),
     },
+    encoded: {
+      small: open("../payloads/encoded_small.json"),
+      medium: open("../payloads/encoded_medium.json"),
+      large: open("../payloads/encoded_large.json"),
+    },
+    longwords: {
+      small: open("../payloads/longwords_small.json"),
+      medium: open("../payloads/longwords_medium.json"),
+      large: open("../payloads/longwords_large.json"),
+    },
     contentType: "application/json",
   },
   // text/plain reuses the JSON byte streams — the API treats the body as
@@ -78,6 +91,16 @@ const bodies = {
       small: open("../payloads/unicode_small.json"),
       medium: open("../payloads/unicode_medium.json"),
       large: open("../payloads/unicode_large.json"),
+    },
+    encoded: {
+      small: open("../payloads/encoded_small.json"),
+      medium: open("../payloads/encoded_medium.json"),
+      large: open("../payloads/encoded_large.json"),
+    },
+    longwords: {
+      small: open("../payloads/longwords_small.json"),
+      medium: open("../payloads/longwords_medium.json"),
+      large: open("../payloads/longwords_large.json"),
     },
     contentType: "text/plain",
   },

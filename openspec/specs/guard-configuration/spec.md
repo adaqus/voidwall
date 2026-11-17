@@ -548,9 +548,11 @@ unit parsed into fragments (a JSON body), the text SHALL be the fragments' decod
 in document order, joined with a newline; keys SHALL NOT be part of it.
 
 In the request direction, when the guard reads the scan view (`scan_view`, see "A guard
-chooses the scan view or the raw text"), the bytes of a plain-text unit and the values of
-a fragment SHALL be those of the scan view that the `hidden-unicode-normalization`
-capability builds. Otherwise they SHALL be the raw text.
+chooses the scan view or the decoded view"), the bytes of a plain-text unit and the values
+of a fragment SHALL be those of the scan view that the `hidden-unicode-normalization`
+capability builds. Otherwise they SHALL be those of the decoded view that the
+`encoded-content-decoding` capability builds. In the response direction they SHALL be the
+raw text.
 
 The span of a `token_classifier` finding SHALL name the unit's bytes:
 - in a plain-text unit, the byte range the span's characters were decoded from; a
@@ -560,7 +562,8 @@ The span of a `token_classifier` finding SHALL name the unit's bytes:
   sequence maps to the whole sequence.
 
 When the guard reads the scan view, the span SHALL name bytes of the raw unit, by the
-span rule of `hidden-unicode-normalization`.
+span rule of `hidden-unicode-normalization`. When it reads the decoded view, the span
+SHALL name bytes of the raw unit, by the span rule of `encoded-content-decoding`.
 
 The newline that joins two fragments SHALL be a boundary no span crosses: words on its two
 sides SHALL NOT merge.
@@ -586,7 +589,13 @@ sides SHALL NOT merge.
 
 - **WHEN** a request body holds an attack prompt with a soft hyphen after each letter,
   and a `text_classifier` guard sets no `scan_view`
-- **THEN** the guard scores the raw text, with the soft hyphens in it
+- **THEN** the guard scores the text with the soft hyphens in it
+
+#### Scenario: A text classifier reads a base64 prompt by default
+
+- **WHEN** a request body holds an attack prompt in base64, and a `text_classifier` guard
+  sets no `scan_view`
+- **THEN** the guard scores the decoded prompt and reports the attack
 
 #### Scenario: A text classifier set to read the scan view
 
@@ -788,12 +797,13 @@ inspect requests only. No setting SHALL change a guard's directions.
 - **WHEN** a route selects `invisible_text` and the upstream response holds a tag run
 - **THEN** the `invisible_text` guard is not called and the response is forwarded
 
-### Requirement: A guard chooses the scan view or the raw text
+### Requirement: A guard chooses the scan view or the decoded view
 
 The `[builtin_guards.pii]` section and every `[guards.<name>]` section MAY set
 `scan_view`, a boolean. It SHALL decide whether the guard reads a request unit through
-the scan view that the `hidden-unicode-normalization` capability builds (`true`) or as
-raw text (`false`). The defaults SHALL be:
+the scan view that the `hidden-unicode-normalization` capability builds (`true`) or
+through the decoded view that the `encoded-content-decoding` capability builds (`false`).
+The defaults SHALL be:
 
 - `true` for the `pii` guard;
 - `true` for a model guard with `adapter = "token_classifier"`;
@@ -809,7 +819,7 @@ NOT accept `scan_view`.
 - **WHEN** the config declares the `pii` guard, a `text_classifier` guard and a
   `token_classifier` guard, and none sets `scan_view`
 - **THEN** the `pii` guard and the `token_classifier` guard read the scan view of a
-  request, and the `text_classifier` guard reads its raw text
+  request, and the `text_classifier` guard reads its decoded view
 
 #### Scenario: A text classifier set to read the scan view
 
@@ -819,7 +829,13 @@ NOT accept `scan_view`.
 #### Scenario: The pii guard set to read the raw text
 
 - **WHEN** `[builtin_guards.pii]` sets `scan_view = false`
-- **THEN** the file loads and the guard reads the raw text of a request
+- **THEN** the file loads and the guard reads the decoded view of a request
+
+#### Scenario: The pii guard set to read the decoded view finds base64
+
+- **WHEN** `[builtin_guards.pii]` sets `scan_view = false`, and a request body holds an
+  email placeholder in base64
+- **THEN** the guard reports the email kind
 
 #### Scenario: A value that is not a boolean
 

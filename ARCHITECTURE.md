@@ -164,7 +164,9 @@ the body runs under `stream_idle_timeout_secs`, and the body counts against
 guard returns, the `Guard` trait, and the `Engine` that runs the guards. Each guard owns
 whatever it needs to detect — the regex PII guard owns the scanner pool, and the
 `hidden_context` guard owns its compiled markers. The `invisible_text` guard owns
-nothing. `engine::scan_view` builds the scan view of a request unit (§ 4.10).
+nothing. `engine::scan_view` builds the scan view of a request unit, and
+`engine::decode` decodes the base64, base64url and hex runs of a request body for both
+views (§ 4.10).
 
 `forward_proxy` and `tls` are empty files. See § 7.
 
@@ -180,9 +182,10 @@ nothing. `engine::scan_view` builds the scan view of a request unit (§ 4.10).
 4. The handler builds the units — one for the body, one for the URL path, one for the
    query string, one per scanned header — and hands them to the detection engine.
 5. For a request, the engine builds the scan view of the units that a guard reading it
-   selected (§ 4.10). It calls every guard whose declared interest matches a selected
-   unit, each with the view or the raw units, awaits them, maps every span to raw bytes,
-   and merges what they return into one canonically ordered finding set.
+   selected, and the decoded view of the units that the other guards selected (§ 4.10).
+   It calls every guard whose declared interest matches a selected unit, each with the
+   view it reads, awaits them, maps every span to raw bytes, and merges what they return
+   into one canonically ordered finding set, with the count of decoded runs.
 6. Inside the regex PII guard, a scanner thread runs the detector chain and reduces its
    raw matches with `pii::resolve_overlaps` before returning them as findings. The
    detectors still apply their own decoding step to what they read: they remove U+200B
@@ -240,8 +243,10 @@ a tag character or a variation selector. A worker thread would add a channel rou
 trip and a thread to save less than that. A detector that costs more stays on its own
 threads.
 
-The scan view (§ 4.10) is not a guard and also runs on the runtime, as unit building
-and the JSON parse do. It is one linear pass, and ASCII text costs one byte scan.
+The scan view and the decoded view (§ 4.10) are not guards and also run on the runtime,
+as unit building and the JSON parse do. Each is one linear pass. ASCII text costs one
+byte scan for the normalization, and text with no candidate run one byte scan for the
+decoding.
 
 ### 4.2 One resolved match set, everywhere
 
@@ -529,7 +534,7 @@ For the same reason the HTTP API listener sends no CORS header: a wildcard
 page on the internet post bodies to it, so cross-origin permission belongs to the
 gateway that supplies the authentication.
 
-### 4.10 A guard reads the scan view or the raw text, and a span still names raw bytes
+### 4.10 A guard reads the scan view or the decoded view, and a span still names raw bytes
 
 An LLM reads text through invisible and decorative Unicode: a soft hyphen inside a
 number, a backspace after a decoy letter, a full-width or underlined address, a sentence
@@ -544,19 +549,36 @@ every request entry point gets it and a new one cannot forget it. A structured u
 the view of each fragment value after its JSON escapes are decoded; its key paths are
 not normalized. The forwarded message never changes.
 
-Whether a guard reads the view is its own setting, `scan_view`, answered through
-`Guard::reads_scan_view`. The `pii` guard and a `token_classifier` read it by default;
-a `text_classifier` reads the raw text by default, because the injection model already
-flags most of these tricks and also flags benign text that uses them. The engine builds a
-view unit set beside the raw one only when a planned guard reads the view and a rule
-changes one of its units, and hands each guard the set it reads. A response is never
-normalized.
+An LLM also reads base64 and hex. So, in a request body, the engine decodes the runs of
+these encodings (spec `encoded-content-decoding`): one pass with a byte table finds the
+maximal runs of the base64 alphabet, a run of 15 or more characters (22 for hex) is
+decoded, hex first, and the result is kept only when it is Latin text: valid UTF-8, no
+control character, and 95% or more ASCII, Latin or Common after normalization. A
+JWT-shaped token is not decoded, so the `JWT` kind still matches. One layer is decoded.
+The URL path, the query string, header values and responses are not decoded.
+
+So there are two views. The **decoded view** is the raw text with its kept runs decoded,
+and nothing normalized. The scan view of a body normalizes the raw text, decodes the runs
+of the result, and normalizes each decoded text; so base64 written in full-width or tag
+characters is decoded there only. One keep decision serves both views, and a run that both
+keep counts once in `voidwall_decoded_runs_total`; the engine returns the count in the
+result and the handler writes the metric.
+
+Which view a guard reads is its own setting, `scan_view`, answered through
+`Guard::reads_scan_view`. The `pii` guard and a `token_classifier` read the scan view by
+default; a `text_classifier` reads the decoded view by default, because the injection
+model already flags most of the Unicode tricks and also flags benign text that uses them.
+The engine builds each view's unit set beside the raw one only when a planned guard reads
+that view and it changes one of its units, and hands each guard the set it reads. A
+response is never normalized or decoded, and every guard reads its raw text.
 
 A view unit carries an edit map: a sparse list of edits, the same type as the JSON escape
-map. `map_spans` maps each finding through the set its guard read: through the view's
-edits and then the escape map for a view guard, through the escape map alone for a
-raw-text guard. A removed character at the edge of a finding is outside its span; a
-finding inside a decoded run spans the whole run. The view is never longer than its
+map. A kept run is one edit. In the scan view the decode edits sit in normalized
+coordinates, so `EditMap::compose` merges them with the normalize edits into one map at
+build time. `map_spans` maps each finding through the set its guard read: through the
+view's edits and then the escape map. A removed character at the edge of a finding is
+outside its span; a finding inside a decoded tag, selector, base64 or hex run spans the
+whole run. The view is never longer than its
 input and the map keeps order, so overlap resolution inside a guard is unaffected; two
 findings inside one run map to the same raw range and stay two.
 
@@ -565,10 +587,11 @@ The regex detectors keep their own decoding step after the view
 engine. A hidden character written as `%C2%AD` or as an entity is therefore decoded after
 the view was built, and stays.
 
-The **`invisible_text` guard** covers the guards that read the raw text. It reports,
+The **`invisible_text` guard** covers the guards that read the decoded view. It reports,
 with the kind `INVISIBLE_TEXT`, a request unit that holds a tag character outside an
 emoji flag sequence, or a variation selector that follows no letter, number, punctuation
-mark or symbol. It decodes nothing. It shares the flag rule with the view, so the two
+mark or symbol. It reads the decoded view itself, so it also finds such characters inside
+a kept base64 or hex run, and it decodes no tag or selector. It shares the flag rule with the view, so the two
 cannot drift apart. Other invisible characters are not reported, because benign
 Persian, emoji and German text use them.
 

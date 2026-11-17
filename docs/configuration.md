@@ -67,7 +67,7 @@ The regex PII guard. See [guards/pii-regex.md](guards/pii-regex.md).
 | `builtin_guards.pii.surface.query_params` | boolean | `true` | Give the guard the query string. |
 | `builtin_guards.pii.surface.body` | boolean | `true` | Give the guard the body. |
 | `builtin_guards.pii.surface.headers` | boolean | `true` | Give the guard the header values that the route names in `headers`. |
-| `builtin_guards.pii.scan_view` | boolean | `true` | In a request, scan the [scan view](guards/README.md#the-scan-view) (`true`) or the raw text (`false`). A response is always scanned as raw text. |
+| `builtin_guards.pii.scan_view` | boolean | `true` | In a request, scan the [scan view](guards/README.md#the-scan-view) (`true`) or the [decoded view](guards/README.md#encoded-runs-and-the-decoded-view) (`false`). A response is always scanned as raw text. |
 
 At least one `surface` key must be `true`.
 
@@ -104,8 +104,9 @@ selectors. See [guards/invisible-text.md](guards/invisible-text.md).
 |---|---|---|---|
 | `builtin_guards.invisible_text.enabled` | boolean | `true` | Turns the guard off without removing its section. |
 
-This guard scans every unit of a request, as raw text. It has no other key: a `surface` or
-a `scan_view` key fails the start.
+This guard scans every unit of a request, through the
+[decoded view](guards/README.md#encoded-runs-and-the-decoded-view). It has no other key: a
+`surface` or a `scan_view` key fails the start.
 
 ## Model guards: `[guards.<name>]`
 
@@ -130,7 +131,7 @@ must not be `pii`, `hidden_context`, or `invisible_text`. See [guards/model-guar
 | `guards.<name>.surface.query_params` | boolean | `false` | Give the guard the query string. |
 | `guards.<name>.surface.body` | boolean | `true` | Give the guard the body. |
 | `guards.<name>.surface.headers` | boolean | `false` | Give the guard the header values that the route names in `headers`. |
-| `guards.<name>.scan_view` | boolean | See the description | In a request, score the [scan view](guards/README.md#the-scan-view) (`true`) or the raw text (`false`). Default: `true` for a `token_classifier`, `false` for a `text_classifier`. A response is always scored as raw text. |
+| `guards.<name>.scan_view` | boolean | See the description | In a request, score the [scan view](guards/README.md#the-scan-view) (`true`) or the [decoded view](guards/README.md#encoded-runs-and-the-decoded-view) (`false`). Default: `true` for a `token_classifier`, `false` for a `text_classifier`. A response is always scored as raw text. |
 
 A model guard scans only the body by default, because each unit it gets costs one model
 run. At least one `surface` key must be `true`.

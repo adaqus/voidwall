@@ -183,6 +183,122 @@ async fn metrics_endpoint_carries_the_guard_families() {
     cancel.cancel();
 }
 
+/// metrics, "Prometheus scrapes a running proxy": with one sample of each,
+/// the scrape carries the ten application families, each with its label set,
+/// and no other `voidwall_` family.
+#[tokio::test]
+async fn metrics_endpoint_carries_the_ten_families() {
+    use voidwall::metrics::*;
+    let (addr, _, cancel) = start_admin(true).await;
+
+    let (mode, route) = ("reverse_proxy", "/admin-ten-families");
+    inc_detection("EMAIL", mode, route, "request");
+    inc_blocked(mode, route, "request");
+    inc_guard_detection("pii", mode, route, "request");
+    inc_message_blocked(mode, route, "request");
+    inc_request(mode, route, "POST", "200");
+    observe_duration(mode, route, 0.01);
+    inc_error("passed", "test_probe");
+    inc_unscanned(mode, route, "request", UnscannedReason::EncodedData, 1);
+    inc_stream_cut(mode, route, CutReason::Detection);
+    DECODED_RUNS_TOTAL
+        .with_label_values(&[mode, route, "request", "base64"])
+        .inc();
+
+    let body = reqwest::get(format!("http://{addr}/metrics"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let expected: [(&str, &str, &[&str]); 10] = [
+        (
+            "voidwall_pii_detections_total",
+            "",
+            &["direction", "mode", "pii_kind", "route"],
+        ),
+        (
+            "voidwall_pii_blocked_total",
+            "",
+            &["direction", "mode", "route"],
+        ),
+        (
+            "voidwall_detections_total",
+            "",
+            &["direction", "guard", "mode", "route"],
+        ),
+        (
+            "voidwall_blocked_total",
+            "",
+            &["direction", "mode", "route"],
+        ),
+        (
+            "voidwall_requests_total",
+            "",
+            &["method", "mode", "route", "status"],
+        ),
+        (
+            "voidwall_request_duration_seconds",
+            "_count",
+            &["mode", "route"],
+        ),
+        ("voidwall_errors_total", "", &["outcome", "reason"]),
+        (
+            "voidwall_unscanned_total",
+            "",
+            &["direction", "mode", "reason", "route"],
+        ),
+        (
+            "voidwall_streams_cut_total",
+            "",
+            &["mode", "reason", "route"],
+        ),
+        (
+            "voidwall_decoded_runs_total",
+            "",
+            &["direction", "encoding", "mode", "route"],
+        ),
+    ];
+    for (family, suffix, labels) in expected {
+        let prefix = format!("{family}{suffix}{{");
+        let sets: Vec<Vec<&str>> = body
+            .lines()
+            .filter_map(|l| l.strip_prefix(&prefix))
+            .map(|rest| {
+                let mut names: Vec<&str> = rest
+                    .split('}')
+                    .next()
+                    .unwrap()
+                    .split(',')
+                    .map(|pair| pair.split('=').next().unwrap())
+                    .collect();
+                names.sort_unstable();
+                names
+            })
+            .collect();
+        assert!(!sets.is_empty(), "expected a sample of {family}");
+        for names in sets {
+            assert_eq!(names, labels, "{family}");
+        }
+    }
+
+    let mut families: Vec<&str> = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("# TYPE voidwall_"))
+        .map(|rest| rest.split(' ').next().unwrap())
+        .collect();
+    families.sort_unstable();
+    let mut names: Vec<&str> = expected
+        .iter()
+        .map(|(family, ..)| family.strip_prefix("voidwall_").unwrap())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(families, names);
+
+    cancel.cancel();
+}
+
 // --- Startup order: the admin server answers while the guards load ---
 
 /// A free local port.
