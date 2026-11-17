@@ -3,6 +3,13 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.8.0] - 2026-11-17
+
+### Features
+
+- **BREAKING** **proxy:** Normalize hidden Unicode for scan_view guards and add the invisible_text guard
+- **BREAKING** **proxy:** Decode base64 and hex runs in request bodies for every guard view
+
 ## [0.7.0] - 2026-11-17
 
 ### Features
