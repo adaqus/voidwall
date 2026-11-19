@@ -53,16 +53,17 @@ curl -s localhost:8083/v1/scan -H 'content-type: application/json' -d '{
 The answer:
 
 ```json
-{"detected":true,"matches_count":4,"kinds":["EMAIL","EMAIL_ADDRESS","PERSON_NAME","PROMPT_INJECTION"],
+{"detected":true,"matches_count":3,"kinds":["EMAIL","EMAIL_ADDRESS","PROMPT_INJECTION"],
  "guards":[{"name":"pii","matches_count":1,"kinds":["EMAIL"]},
-           {"name":"pii_ml","matches_count":2,"kinds":["EMAIL_ADDRESS","PERSON_NAME"]},
+           {"name":"pii_ml","matches_count":1,"kinds":["EMAIL_ADDRESS"]},
            {"name":"prompt_injection","matches_count":1,"kinds":["PROMPT_INJECTION"]}]}
 ```
 
 `/v1/scan` waits for every guard, so it reports all of them. Two guards found the e-mail
-address, and each reports it with its own kind: `EMAIL` and `EMAIL_ADDRESS`. Only
-`pii_ml` reports the name as `PERSON_NAME`, because the default config turns off names in
-`pii`. So `matches_count` is 4, and `guards` shows the share of each guard.
+address, and each reports it with its own kind: `EMAIL` and `EMAIL_ADDRESS`. No guard
+reports the name, because the default config turns off names. To turn them on, see
+[Default guards of the Docker image](guards/README.md#default-guards-of-the-docker-image).
+So `matches_count` is 3, and `guards` shows the share of each guard.
 
 ## 5. Try the LiteLLM route
 

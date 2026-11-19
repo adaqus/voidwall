@@ -88,8 +88,10 @@ file. The file SHALL enable the REST API and SHALL NOT enable the reverse proxy.
 SHALL declare the guards of `docker/voidwall.toml` with the same settings: the regex
 `pii` guard, the `invisible_text` guard, the `prompt_injection` guard on wolf-small, and
 the `pii_ml` guard on bards-v2, with their model paths under `/opt/voidwall/models/`.
-The regex `pii` guard SHALL ignore `PERSON_NAME`, so only the `pii_ml` guard reports
-`PERSON_NAME`.
+The regex `pii` guard SHALL ignore `PERSON_NAME`, and the `pii_ml` guard SHALL NOT list
+`PERSON_NAME` in its `labels`, so no guard reports `PERSON_NAME`. The check on
+`Every Monday at 8am` guards against the regex `pii` guard's calendar-word false
+positive, in case an operator turns regex names back on.
 
 The file SHALL hold two commented blocks of reverse proxy routes. The LM Studio block
 SHALL name the upstream `http://host.docker.internal:1234`, and the Ollama block SHALL
@@ -107,9 +109,10 @@ generic format, both to its upstream.
   `INVISIBLE_TEXT` finding
 - **AND** a `/v1/scan` request whose text is `Every Monday at 8am` answers with no
   `PERSON_NAME` finding
-- **AND** a `/v1/scan` request whose text holds a person's name answers with a
-  `PERSON_NAME` finding from the `pii_ml` guard, and the `pii` guard reports no
-  `PERSON_NAME` finding
+- **AND** a `/v1/scan` request whose text holds a person's name answers with no
+  `PERSON_NAME` finding from any guard
+- **AND** a `/v1/scan` request whose text holds an email address answers with an
+  `EMAIL_ADDRESS` finding from the `pii_ml` guard
 - **AND** nothing listens on the reverse proxy port
 
 #### Scenario: The operator turns on the LM Studio block

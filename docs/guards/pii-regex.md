@@ -38,9 +38,11 @@ ignore = ["IpAddress", "MacAddress"]
 
 The config of the image sets `ignore = ["PersonName"]`. So this guard does not report
 `PERSON_NAME`, and its keyword rules for names, such as `Name: X`, are off too. The
-`pii_ml` model guard reports names instead. To get names from this guard again, remove
-`"PersonName"` from `ignore`. The dictionary of names can then report common words, such
-as a weekday next to another capitalized word, as `PERSON_NAME`.
+`pii_ml` model guard does not report names by default either, so no guard reports them.
+See [Default guards of the Docker image](README.md#default-guards-of-the-docker-image).
+To get names from this guard again, remove `"PersonName"` from `ignore`. The dictionary
+of names can then report common words, such as a weekday next to another capitalized
+word, as `PERSON_NAME`.
 
 ### Names and labels
 

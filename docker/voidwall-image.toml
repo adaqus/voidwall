@@ -64,8 +64,8 @@ PROMPT_INJECTION = 0.9
 
 # A PII token classifier beside the regex PII guard. The image ships bards.ai's
 # EU PII anonimization multilang v2 (INT8) in /opt/voidwall/models/bards-v2/. It
-# finds values with no fixed shape, such as names and postal addresses, in any
-# language the model knows.
+# finds values with no fixed shape, such as postal addresses and dates of birth,
+# in any language the model knows.
 #
 # `labels` are the model's own type names, from its config.json. A type not
 # listed reports nothing; a misspelled label also reports nothing, and no check
@@ -80,14 +80,13 @@ config_path = "/opt/voidwall/models/bards-v2/config.json"   # the source of id2l
 max_tokens = 512
 overlap_tokens = 128
 labels = [
-    "PERSON_NAME", "POSTAL_ADDRESS", "DATE_OF_BIRTH",
+    "POSTAL_ADDRESS", "DATE_OF_BIRTH",
     "PHONE_NUMBER", "EMAIL_ADDRESS", "BANK_ACCOUNT_IDENTIFIER", "AUTH_SECRET",
     "DOCUMENT_IDENTIFIER", "PAYMENT_CARD", "PERSON_IDENTIFIER",
     "GEO_LOCATION",
 ]
 
 [guards.pii_ml.thresholds]
-PERSON_NAME = 0.4
 POSTAL_ADDRESS = 0.4
 DATE_OF_BIRTH = 0.4
 PHONE_NUMBER = 0.0

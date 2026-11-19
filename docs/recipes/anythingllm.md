@@ -122,7 +122,7 @@ server, so Voidwall does not see a document when it is embedded.
 When you ask a question in a workspace, AnythingLLM puts the matching parts of its
 documents into the prompt. Voidwall scans that prompt. So a question about a document
 that holds personal data is blocked, also when the question itself is clean, for example
-`400 content blocked. Kinds: EMAIL, PERSON_NAME`.
+`400 content blocked. Kinds: EMAIL`.
 
 If you choose an embedder that runs through Voidwall, a document that holds personal data
 cannot be embedded. See [Documents and embeddings](README.md#documents-and-embeddings).

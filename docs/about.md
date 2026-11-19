@@ -43,7 +43,8 @@ redact or rewrite a message.
   bank accounts, and cloud keys, for many countries and languages. You can add your own
   rules.
 - **Model guards**: an ONNX model that you choose, for example a prompt injection
-  classifier or a model that finds names and postal addresses. The image ships two.
+  classifier or a model that finds postal addresses and dates of birth. The image ships
+  two.
 - **Hidden context guard**: a response that repeats a canary from the system prompt.
 - **Invisible text guard**: a request that hides text in Unicode tag characters or
   variation selectors.

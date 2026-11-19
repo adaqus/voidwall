@@ -7,8 +7,9 @@
 # Runs the image with no argument and checks that it starts with its default
 # config: /readyz answers 200, /v1/scan reports a known prompt injection and a
 # Unicode tag run (INVISIBLE_TEXT), /v1/scan reports no PERSON_NAME for a
-# weekday phrase and reports a full name as PERSON_NAME from the pii_ml guard
-# only, and nothing listens on the reverse proxy port. Then it checks
+# weekday phrase or a full name from any guard, /v1/scan reports an email
+# address as EMAIL_ADDRESS from the pii_ml guard, and nothing listens on the
+# reverse proxy port. Then it checks
 # `--version` against VERSION, `--print-config` against
 # docker/voidwall-image.toml, and,
 # for each commented route block of that config, that the config with the block
@@ -39,6 +40,8 @@ HIDDEN_TAGS='\udb40\udc69\udb40\udc67\udb40\udc6e\udb40\udc6f\udb40\udc72\udb40\
 WEEKDAY_PHRASE="Every Monday at 8am"
 # A fictional full name.
 FULL_NAME="Please forward the signed contract to Daniel Whitfield before noon."
+# A fictional email address.
+EMAIL_TEXT="Please send the signed contract to daniel.whitfield@example.com before noon."
 BLOCKS=(lmstudio ollama)
 
 CID=""
@@ -105,13 +108,19 @@ pass "/v1/scan reports no PERSON_NAME for a weekday phrase"
 body="$(jq -n --arg c "$FULL_NAME" '{messages: [{role: "user", content: $c}]}')"
 scan="$(curl -sS "$API/v1/scan" -H 'content-type: application/json' -d "$body")" \
     || fail "/v1/scan did not answer"
-jq -e '.guards | any(.name == "pii_ml" and (.kinds | index("PERSON_NAME")))' \
+# An answer with no guards array is not a scan result, so it fails too.
+jq -e '.guards | type == "array" and (any(.kinds | index("PERSON_NAME")) | not)' \
     <<<"$scan" >/dev/null \
-    || fail "the pii_ml guard reported no PERSON_NAME for a full name: $scan"
-jq -e '.guards | any(.name == "pii" and (.kinds | index("PERSON_NAME"))) | not' \
+    || fail "a guard reported PERSON_NAME for a full name, or no scan result: $scan"
+pass "/v1/scan reports no PERSON_NAME for a full name from any guard"
+
+body="$(jq -n --arg c "$EMAIL_TEXT" '{messages: [{role: "user", content: $c}]}')"
+scan="$(curl -sS "$API/v1/scan" -H 'content-type: application/json' -d "$body")" \
+    || fail "/v1/scan did not answer"
+jq -e '.guards | any(.name == "pii_ml" and (.kinds | index("EMAIL_ADDRESS")))' \
     <<<"$scan" >/dev/null \
-    || fail "the pii guard reported PERSON_NAME: $scan"
-pass "/v1/scan reports PERSON_NAME from the pii_ml guard only"
+    || fail "the pii_ml guard reported no EMAIL_ADDRESS for an email address: $scan"
+pass "/v1/scan reports EMAIL_ADDRESS from the pii_ml guard"
 
 # Probed inside the container, where a published port's proxy cannot answer
 # for it. The open REST API port shows that the probe works.

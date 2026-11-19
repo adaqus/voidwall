@@ -22,7 +22,7 @@ Ollama, and AnythingLLM. Their examples use the LM Studio port, `1234`. For Olla
 
 The generic route scans `/v1/embeddings` too. So a document that holds personal data
 cannot be embedded through Voidwall: the request gets 403, for example
-`{"error":"content blocked","kinds":["EMAIL","PERSON_NAME"]}`.
+`{"error":"content blocked","kinds":["EMAIL"]}`.
 
 Also, when an app puts a part of a document into a prompt, the chat route scans that
 part. A question about a document that holds personal data is then blocked, also when the

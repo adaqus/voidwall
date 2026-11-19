@@ -288,7 +288,9 @@ dictionary detector's name lists hold calendar words, and they match in two ways
 
 Since the `default-names-from-pii-ml` change, the default config sets
 `ignore = ["PersonName"]` in `[builtin_guards.pii]`, so it no longer runs regex names. An
-operator who removes that `ignore` still meets this false positive.
+operator who removes that `ignore` still meets this false positive. Since the
+`default-no-person-name` change, the default config also removes `PERSON_NAME` from the
+`labels` of `pii_ml`, so no guard reports names by default.
 
 Luhn validators accept any text with enough digits. Found on 2026-10-20 in the same work.
 Five validators keep only the digits of their input, then check the count and the Luhn sum.

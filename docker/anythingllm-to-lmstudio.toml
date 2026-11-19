@@ -40,7 +40,7 @@ PROMPT_INJECTION = 0.95
 
 # The PII token classifier of docker/voidwall.toml, beside the regex PII guard.
 # With response scanning on, it also reads the model's replies, so a reply that
-# names a person is blocked too. Comment out its three sections to test the
+# holds personal data is blocked too. Comment out its three sections to test the
 # regex PII guard alone.
 [guards.pii_ml]
 adapter = "token_classifier"
@@ -51,14 +51,13 @@ config_path = "/opt/voidwall/models/bards-v2/config.json"   # the source of id2l
 max_tokens = 512
 overlap_tokens = 128
 labels = [
-    "PERSON_NAME", "POSTAL_ADDRESS", "DATE_OF_BIRTH",
+    "POSTAL_ADDRESS", "DATE_OF_BIRTH",
     "PHONE_NUMBER", "EMAIL_ADDRESS", "BANK_ACCOUNT_IDENTIFIER", "AUTH_SECRET",
     "DOCUMENT_IDENTIFIER", "PAYMENT_CARD", "PERSON_IDENTIFIER",
     "GEO_LOCATION",
 ]
 
 [guards.pii_ml.thresholds]
-PERSON_NAME = 0.4
 POSTAL_ADDRESS = 0.4
 DATE_OF_BIRTH = 0.4
 PHONE_NUMBER = 0.0

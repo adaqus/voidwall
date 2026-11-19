@@ -149,10 +149,9 @@ tokenizer_path = "/opt/voidwall/models/bards-v2/tokenizer.json"
 config_path = "/opt/voidwall/models/bards-v2/config.json"
 max_tokens = 512
 overlap_tokens = 128
-labels = ["PERSON_NAME", "POSTAL_ADDRESS", "PAYMENT_CARD"]
+labels = ["POSTAL_ADDRESS", "PAYMENT_CARD"]
 
 [guards.pii_ml.thresholds]
-PERSON_NAME = 0.4
 POSTAL_ADDRESS = 0.4
 PAYMENT_CARD = 0.0
 
