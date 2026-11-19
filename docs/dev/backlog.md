@@ -277,6 +277,19 @@ False positives on benign prompts. Found on 2026-10-20 by running `Scanner::new(
 - `PERSON_NAME` fires on 34% of the prompts. In a sample of 25, 11 are not people:
   "St Louis", "Kennedy High", "Red List", "Harry Potter", "Asian Nations", "The Masters".
 
+Calendar words are reported as `PERSON_NAME`. Found on 2026-11-18, when a weekday phrase in
+the description of Open WebUI's built-in `create_automation` tool was blocked. The
+dictionary detector's name lists hold calendar words, and they match in two ways:
+
+- A capitalized given-name form beside a capitalized surname form promotes both, as in
+  "Every Monday" or "Monday Morning". This covers English weekdays and months.
+- A German bare calendar noun without the common-word flag matches alone, as in "Montag"
+  or "Juni".
+
+Since the `default-names-from-pii-ml` change, the default config sets
+`ignore = ["PersonName"]` in `[builtin_guards.pii]`, so it no longer runs regex names. An
+operator who removes that `ignore` still meets this false positive.
+
 Luhn validators accept any text with enough digits. Found on 2026-10-20 in the same work.
 Five validators keep only the digits of their input, then check the count and the Luhn sum.
 Anything else in the text is ignored:

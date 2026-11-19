@@ -34,6 +34,14 @@ countries = ["International", "Us"]
 ignore = ["IpAddress", "MacAddress"]
 ```
 
+### Names in the default config
+
+The config of the image sets `ignore = ["PersonName"]`. So this guard does not report
+`PERSON_NAME`, and its keyword rules for names, such as `Name: X`, are off too. The
+`pii_ml` model guard reports names instead. To get names from this guard again, remove
+`"PersonName"` from `ignore`. The dictionary of names can then report common words, such
+as a weekday next to another capitalized word, as `PERSON_NAME`.
+
 ### Names and labels
 
 A kind has two names:

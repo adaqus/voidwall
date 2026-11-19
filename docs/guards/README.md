@@ -29,10 +29,16 @@ four guards, and they run when you start the image with no config of your own:
 
 | Name | Type | Finds |
 |---|---|---|
-| `pii` | Built-in, regex | Personal data and secrets of all countries and languages |
+| `pii` | Built-in, regex | Personal data and secrets of all countries and languages, except names |
 | `invisible_text` | Built-in | Text hidden in Unicode tag characters or variation selectors |
 | `prompt_injection` | Model guard, `text_classifier` | Prompt injection, with the Wolf Defender Prompt-Injection Detector Small v2 model |
 | `pii_ml` | Model guard, `token_classifier` | Personal data with no fixed shape, such as names and postal addresses, with the bards.ai EU PII anonimization multilang v2 model |
+
+Only `pii_ml` reports `PERSON_NAME`, because the default config sets
+`ignore = ["PersonName"]` in `[builtin_guards.pii]`. A model guard reads the body only, so
+a name in a URL path or a query string is not found. If you turn off `pii_ml`, no guard
+finds names. To get names from `pii` again, remove the `ignore`. See
+[pii-regex.md](pii-regex.md#names-in-the-default-config).
 
 The `hidden_context` guard is built in, but the default config does not declare it. To
 see the default config, run `docker run --rm ghcr.io/adaqus/voidwall --print-config`.
