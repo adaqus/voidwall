@@ -88,6 +88,8 @@ file. The file SHALL enable the REST API and SHALL NOT enable the reverse proxy.
 SHALL declare the guards of `docker/voidwall.toml` with the same settings: the regex
 `pii` guard, the `invisible_text` guard, the `prompt_injection` guard on wolf-small, and
 the `pii_ml` guard on bards-v2, with their model paths under `/opt/voidwall/models/`.
+The regex `pii` guard SHALL ignore `PERSON_NAME`, so only the `pii_ml` guard reports
+`PERSON_NAME`.
 
 The file SHALL hold two commented blocks of reverse proxy routes. The LM Studio block
 SHALL name the upstream `http://host.docker.internal:1234`, and the Ollama block SHALL
@@ -103,6 +105,11 @@ generic format, both to its upstream.
   `PROMPT_INJECTION` finding
 - **AND** a `/v1/scan` request whose text holds a tag run answers with an
   `INVISIBLE_TEXT` finding
+- **AND** a `/v1/scan` request whose text is `Every Monday at 8am` answers with no
+  `PERSON_NAME` finding
+- **AND** a `/v1/scan` request whose text holds a person's name answers with a
+  `PERSON_NAME` finding from the `pii_ml` guard, and the `pii` guard reports no
+  `PERSON_NAME` finding
 - **AND** nothing listens on the reverse proxy port
 
 #### Scenario: The operator turns on the LM Studio block

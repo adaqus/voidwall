@@ -29,6 +29,7 @@ upstream_timeout_secs = 300
 [builtin_guards.pii]
 countries = []
 languages = []
+ignore = ["PersonName"]
 scanner_threads = 6
 
 # Blocks a request that holds text hidden in Unicode tag characters or in
