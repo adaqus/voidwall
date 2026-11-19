@@ -3,6 +3,13 @@
 All notable changes to Voidwall. Each section lists the conventional commits of
 one release, grouped by type.
 
+## [0.9.0] - 2026-11-19
+
+### Features
+
+- **BREAKING** **config:** Report PERSON_NAME from pii_ml only in the default config
+- **BREAKING** **config:** Report no PERSON_NAME from any guard in the default config
+
 ## [0.8.0] - 2026-11-17
 
 ### Features
