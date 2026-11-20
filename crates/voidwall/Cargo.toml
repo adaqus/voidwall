@@ -32,7 +32,7 @@ prometheus = { version = "0.13", default-features = false }
 lazy_static = "1"
 
 # Process metrics
-procfs = "0.17"
+procfs = "0.18"
 
 # Utilities
 bytes = "1"
