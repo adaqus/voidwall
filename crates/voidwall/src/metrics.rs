@@ -505,7 +505,7 @@ labels = ["PERSON_NAME"]
             .get_histogram()
             .get_bucket()
             .iter()
-            .map(|b| (b.get_upper_bound(), b.get_cumulative_count()))
+            .map(|b| (b.upper_bound(), b.cumulative_count()))
             .collect()
     }
 

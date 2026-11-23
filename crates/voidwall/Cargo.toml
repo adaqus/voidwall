@@ -28,7 +28,7 @@ toml = "0.8"
 csv = "1"
 
 # Metrics
-prometheus = { version = "0.13", default-features = false }
+prometheus = { version = "0.14", default-features = false }
 lazy_static = "1"
 
 # Process metrics
