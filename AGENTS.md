@@ -286,11 +286,14 @@ Workflow:
 1. Use the `openspec-propose` workflow to create `proposal.md`, `design.md`, `tasks.md`,
    and spec deltas.
 2. Run `openspec validate <name> --strict`.
-3. Use the `openspec-apply-change` workflow. Mark tasks only in the change's `tasks.md`.
-4. Run workspace tests and Clippy.
-5. Use the `docs-sync` workflow to update the user docs in `docs/`.
-6. Review the diff against the spec deltas with the `code-review` skill.
-7. Run `openspec archive <name>` to merge deltas into the main specs.
+3. Review the change with the `proposal-review` skill. Look for gaps and inconsistencies
+   in the scenarios and the design. Fix the findings with the `openspec-update-change`
+   workflow, then review again. Do not start step 4 until the user accepts the review.
+4. Use the `openspec-apply-change` workflow. Mark tasks only in the change's `tasks.md`.
+5. Run workspace tests and Clippy.
+6. Use the `docs-sync` workflow to update the user docs in `docs/`.
+7. Review the diff against the spec deltas with the `code-review` skill.
+8. Run `openspec archive <name>` to merge deltas into the main specs.
 
 Rules:
 
