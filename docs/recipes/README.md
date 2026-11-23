@@ -9,13 +9,14 @@ server or gateway:
 | [Ollama](ollama.md) | As a reverse proxy in front of Ollama | A model that Ollama serves |
 | [AnythingLLM](anythingllm.md) | As a reverse proxy between AnythingLLM and LM Studio, Ollama, or a hosted provider | A local server, or a hosted model such as OpenAI |
 | [LiteLLM](litellm.md) | As a LiteLLM guardrail, on the HTTP API | Any model provider that LiteLLM calls, hosted ones too |
+| [Open WebUI](open-webui.md) | As a reverse proxy between Open WebUI and LM Studio or Ollama, or as an Open WebUI Function on the HTTP API | A model that LM Studio or Ollama serves |
 
 The reverse proxy reaches `https://` upstreams, such as OpenAI. See
 [HTTPS upstreams](../configuration.md#https-upstreams), and
 [A hosted model](anythingllm.md#a-hosted-model) in the AnythingLLM recipe.
 
 The sections below apply to each recipe that runs Voidwall as a reverse proxy: LM Studio,
-Ollama, and AnythingLLM. Their examples use the LM Studio port, `1234`. For Ollama, use
+Ollama, AnythingLLM, and the proxy option of Open WebUI. Their examples use the LM Studio port, `1234`. For Ollama, use
 `11434`.
 
 ## Documents and embeddings

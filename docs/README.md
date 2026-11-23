@@ -21,6 +21,7 @@ These docs describe one release. Open them at the tag of the image you run, for 
 - [LiteLLM](recipes/litellm.md): Voidwall as a LiteLLM guardrail, also for hosted models.
 - [AnythingLLM](recipes/anythingllm.md): AnythingLLM, Voidwall, and LM Studio or Ollama.
 - [Ollama](recipes/ollama.md): put Voidwall in front of Ollama.
+- [Open WebUI](recipes/open-webui.md): Open WebUI with Voidwall as a proxy or as a Function.
 
 ## Reference
 
