@@ -482,7 +482,7 @@ async fn metrics_incremented_on_pii_detection() {
     let metrics = prometheus::default_registry().gather();
     let detection_metric = metrics
         .iter()
-        .find(|m| m.get_name() == "voidwall_pii_detections_total");
+        .find(|m| m.name() == "voidwall_pii_detections_total");
     assert!(
         detection_metric.is_some(),
         "voidwall_pii_detections_total metric should exist"
@@ -668,7 +668,7 @@ fn errors_total(outcome: &str, reason: &str) -> u64 {
     prometheus::default_registry()
         .gather()
         .iter()
-        .find(|m| m.get_name() == "voidwall_errors_total")
+        .find(|m| m.name() == "voidwall_errors_total")
         .map(|family| {
             family
                 .get_metric()
@@ -677,10 +677,10 @@ fn errors_total(outcome: &str, reason: &str) -> u64 {
                     let labels = m.get_label();
                     labels
                         .iter()
-                        .any(|l| l.get_name() == "outcome" && l.get_value() == outcome)
+                        .any(|l| l.name() == "outcome" && l.value() == outcome)
                         && labels
                             .iter()
-                            .any(|l| l.get_name() == "reason" && l.get_value() == reason)
+                            .any(|l| l.name() == "reason" && l.value() == reason)
                 })
                 .map(|m| m.get_counter().get_value() as u64)
                 .sum()
@@ -1282,13 +1282,13 @@ async fn custom_pii_label_reaches_the_detection_metric() {
     let labelled = prometheus::default_registry()
         .gather()
         .iter()
-        .find(|m| m.get_name() == "voidwall_pii_detections_total")
+        .find(|m| m.name() == "voidwall_pii_detections_total")
         .is_some_and(|mf| {
             mf.get_metric().iter().any(|metric| {
                 metric
                     .get_label()
                     .iter()
-                    .any(|l| l.get_name() == "pii_kind" && l.get_value() == "BADGE_SERIAL")
+                    .any(|l| l.name() == "pii_kind" && l.value() == "BADGE_SERIAL")
             })
         });
     assert!(
@@ -1480,13 +1480,13 @@ async fn person_name_detected_and_metric_labelled() {
     let metrics = prometheus::default_registry().gather();
     let labelled = metrics
         .iter()
-        .find(|m| m.get_name() == "voidwall_pii_detections_total")
+        .find(|m| m.name() == "voidwall_pii_detections_total")
         .is_some_and(|mf| {
             mf.get_metric().iter().any(|metric| {
                 metric
                     .get_label()
                     .iter()
-                    .any(|l| l.get_name() == "pii_kind" && l.get_value() == "PERSON_NAME")
+                    .any(|l| l.name() == "pii_kind" && l.value() == "PERSON_NAME")
             })
         });
     assert!(

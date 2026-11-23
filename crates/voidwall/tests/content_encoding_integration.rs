@@ -221,7 +221,7 @@ fn errors_total(outcome: &str, reason: &str) -> u64 {
     prometheus::default_registry()
         .gather()
         .iter()
-        .find(|m| m.get_name() == "voidwall_errors_total")
+        .find(|m| m.name() == "voidwall_errors_total")
         .map(|family| {
             family
                 .get_metric()
@@ -230,10 +230,10 @@ fn errors_total(outcome: &str, reason: &str) -> u64 {
                     let labels = m.get_label();
                     labels
                         .iter()
-                        .any(|l| l.get_name() == "outcome" && l.get_value() == outcome)
+                        .any(|l| l.name() == "outcome" && l.value() == outcome)
                         && labels
                             .iter()
-                            .any(|l| l.get_name() == "reason" && l.get_value() == reason)
+                            .any(|l| l.name() == "reason" && l.value() == reason)
                 })
                 .map(|m| m.get_counter().get_value() as u64)
                 .sum()
